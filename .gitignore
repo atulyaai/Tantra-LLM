@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.env
+.venv
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Model/artifacts
+Model/*.tmp
+Model/*.bak
+Model/rag_index.faiss
+Model/rag_texts.json
+
+# Logs
+logs/
+*.log
+
+# Editor
+.vscode/
+.idea/

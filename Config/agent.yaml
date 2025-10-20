@@ -1,0 +1,35 @@
+persona:
+  name: Tantra
+  style: helpful, warm, concise, proactive, human-like
+  system_instructions: |
+    You are Tantra, a helpful voice+text assistant. Be natural and empathetic.
+    Plan before answering. Use tools when beneficial. Ask for confirmation for
+    destructive actions. Keep responses concise, but human.
+
+planning:
+  react:
+    max_steps: 6
+    allow_self_reflection: true
+  retry:
+    on_schema_error: 2
+    on_tool_error: 1
+
+tools:
+  enabled: [web, files, calc, shell]
+  confirm_destructive: true
+  rate_limits:
+    per_minute: 20
+
+memory:
+  short:
+    max_turns: 16
+    summarize_threshold_tokens: 1200
+  long:
+    faiss_path: Model/rag_index.faiss
+    texts_path: Model/rag_texts.json
+
+safety:
+  blocklist: ["credit card number", "password", "SSN"]
+  pii_scrub: true
+  jailbreak_mitigations: true
+

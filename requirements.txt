@@ -1,0 +1,22 @@
+fastapi==0.111.0
+uvicorn==0.30.0
+pydantic==2.8.2
+pyyaml==6.0.2
+
+# CPU-friendly ML/runtime
+torch>=2.2.0
+safetensors>=0.4.2
+
+# Optional speech (plug later)
+openai-whisper>=20231117
+webrtcvad>=2.0.10
+
+# Optional TTS (plug later)
+piper-phonemizer>=0.0.0
+
+# Optional retrieval
+faiss-cpu>=1.8.0
+sentence-transformers>=3.0.0
+
+# Observability
+prometheus-client>=0.20.0

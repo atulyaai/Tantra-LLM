@@ -1,0 +1,24 @@
+inference:
+  cpu_only: true
+  quantization: int8_dynamic
+  max_tokens: 256
+  temperature: 0.7
+  top_p: 0.9
+  batching:
+    continuous: true
+    max_batch_size: 4
+timeouts:
+  generate_ms: 20000
+telemetry:
+  prometheus_port: 9090
+stt:
+  backend: whisper
+  model_size: tiny
+tts:
+  backend: piper
+  voice: en_US-amy-low
+paths:
+  tokenizer: Model/tokenizer.json
+  weights: Model/tantra_weights.safetensors
+  weights_backup: Model/tantra_weights.bak
+
