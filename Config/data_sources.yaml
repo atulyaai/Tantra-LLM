@@ -1,0 +1,125 @@
+sources:
+  # High-Quality Conversation Datasets
+  - name: alpaca_gpt4
+    type: hf
+    hf_name: tatsu-lab/alpaca
+    hf_config: null
+    split: train
+    text_field: text
+    out_file: Dataset/alpaca.jsonl
+    license: Apache 2.0
+    enabled: true
+    max_items: 52000
+
+  - name: openassistant
+    type: hf
+    hf_name: OpenAssistant/oasst1
+    hf_config: null
+    split: train
+    text_field: text
+    out_file: Dataset/openassistant.jsonl
+    license: Apache 2.0
+    enabled: true
+    max_items: 84000
+
+  - name: ultrachat
+    type: hf
+    hf_name: HuggingFaceH4/ultrachat_200k
+    hf_config: null
+    split: train_sft
+    text_field: messages
+    out_file: Dataset/ultrachat.jsonl
+    license: MIT
+    enabled: true
+    max_items: 200000
+
+  - name: dolly
+    type: hf
+    hf_name: databricks/databricks-dolly-15k
+    hf_config: null
+    split: train
+    text_field: instruction
+    out_file: Dataset/dolly.jsonl
+    license: CC BY-SA 3.0
+    enabled: true
+    max_items: 15000
+
+  - name: wizardlm
+    type: hf
+    hf_name: WizardLM/WizardLM_evol_instruct_V2_196k
+    hf_config: null
+    split: train
+    text_field: conversations
+    out_file: Dataset/wizardlm.jsonl
+    license: Apache 2.0
+    enabled: true
+    max_items: 143000
+
+  # Knowledge Datasets
+  - name: wikipedia
+    type: hf
+    hf_name: wikipedia
+    hf_config: 20220301.en
+    split: train
+    text_field: text
+    out_file: Dataset/wikipedia.jsonl
+    license: CC BY-SA 3.0
+    enabled: true
+    max_items: 100000
+
+  - name: squad
+    type: hf
+    hf_name: squad
+    hf_config: null
+    split: train
+    text_field: context
+    out_file: Dataset/squad.jsonl
+    license: CC BY-SA 4.0
+    enabled: true
+    max_items: 87000
+
+  - name: natural_questions
+    type: hf
+    hf_name: google-research-datasets/natural_questions
+    hf_config: default
+    split: train
+    text_field: document_text
+    out_file: Dataset/natural_questions.jsonl
+    license: Apache 2.0
+    enabled: true
+    max_items: 100000
+
+  - name: truthful_qa
+    type: hf
+    hf_name: truthful_qa
+    hf_config: generation
+    split: validation
+    text_field: question
+    out_file: Dataset/truthful_qa.jsonl
+    license: Apache 2.0
+    enabled: true
+    max_items: 1000
+
+  - name: mmlu
+    type: hf
+    hf_name: cais/mmlu
+    hf_config: all
+    split: test
+    text_field: question
+    out_file: Dataset/mmlu.jsonl
+    license: MIT
+    enabled: true
+    max_items: 15000
+
+  - name: gsm8k
+    type: hf
+    hf_name: gsm8k
+    hf_config: main
+    split: train
+    text_field: question
+    out_file: Dataset/gsm8k.jsonl
+    license: MIT
+    enabled: true
+    max_items: 7500
+
+# Total target: ~800K-1M samples (excluding C4/Pile)

@@ -20,6 +20,15 @@ Model/rag_texts.json
 logs/
 *.log
 
+# Large dataset files (too big for GitHub)
+Dataset/combined_full_training.jsonl
+Dataset/*.jsonl
+!Dataset/sample.jsonl
+
+# Model weights (too large)
+Model/tantra_weights.safetensors
+Model/tantra_stage_*.safetensors
+
 # Editor
 .vscode/
 .idea/

@@ -24,3 +24,10 @@ sentence-transformers>=3.0.0
 
 # Observability
 prometheus-client>=0.20.0
+
+# Data fetching
+datasets>=2.20.0
+requests>=2.32.3
+
+# Progress
+tqdm>=4.67.1

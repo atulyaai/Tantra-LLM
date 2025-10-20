@@ -101,3 +101,11 @@ async def memory_flush():
     return {"ok": True}
 
 
+if __name__ == "__main__":
+    import uvicorn
+    cfg = load_yaml("Config/serve.yaml")
+    host = cfg.get("server", {}).get("host", "0.0.0.0")
+    port = int(cfg.get("server", {}).get("port", 8000))
+    uvicorn.run("Training.serve_api:app", host=host, port=port, reload=False)
+
+

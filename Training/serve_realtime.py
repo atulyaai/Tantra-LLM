@@ -42,3 +42,10 @@ async def voice(ws: WebSocket):
         return
 
 
+if __name__ == "__main__":
+    import uvicorn
+    host = "0.0.0.0"
+    port = 8001
+    uvicorn.run("Training.serve_realtime:app", host=host, port=port, reload=False)
+
+

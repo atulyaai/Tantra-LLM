@@ -7,7 +7,13 @@ from typing import Dict, Any
 import torch
 from safetensors.torch import save_file, load_file
 
-from Training.model_mamba import build_from_config
+try:
+    from Training.model_mamba import build_from_config
+except ImportError:
+    # Allow running as: python Training/training_pretrain.py --config ...
+    import sys
+    sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+    from Training.model_mamba import build_from_config
 
 
 def load_texts(glob_pattern: str):
@@ -29,21 +35,42 @@ def load_texts(glob_pattern: str):
                 yield f.read()
 
 
-def train_epoch(model, tokenizer, texts, seq_len: int, lr: float, device: str):
+def train_epoch(model, tokenizer, texts, seq_len: int, lr: float, device: str, distill_cfg: Dict[str, Any]):
     model.train()
     opt = torch.optim.AdamW(model.parameters(), lr=lr)
+    # teacher EMA
+    teacher = None
+    alpha = float(distill_cfg.get('alpha', 0.0)) if distill_cfg.get('enabled') else 0.0
+    ema_decay = float(distill_cfg.get('ema_decay', 0.999)) if distill_cfg.get('enabled') else 0.0
+    if alpha > 0.0:
+        import copy
+        teacher = copy.deepcopy(model).eval()
     losses = []
     num_tokens = 0
     correct = 0
     total = 0
-    for text in texts:
+    try:
+        from tqdm import tqdm  # optional progress bar
+        iterator = tqdm(texts, desc="train", unit="doc")
+    except Exception:
+        iterator = texts
+    for text in iterator:
         ids = tokenizer.encode(text).ids[:seq_len]
         if len(ids) < 2:
             continue
         x = torch.tensor([ids[:-1]], dtype=torch.long, device=device)
         y = torch.tensor([ids[1:]], dtype=torch.long, device=device)
         logits = model(x)
-        loss = torch.nn.functional.cross_entropy(logits.reshape(-1, logits.size(-1)), y.reshape(-1))
+        ce = torch.nn.functional.cross_entropy(logits.reshape(-1, logits.size(-1)), y.reshape(-1))
+        if teacher is not None and alpha > 0.0:
+            with torch.no_grad():
+                t_logits = teacher(x)
+            student_logp = torch.log_softmax(logits, dim=-1)
+            teacher_p = torch.softmax(t_logits, dim=-1)
+            kl = torch.nn.functional.kl_div(student_logp, teacher_p, reduction='batchmean')
+            loss = (1 - alpha) * ce + alpha * kl
+        else:
+            loss = ce
         opt.zero_grad(set_to_none=True)
         loss.backward()
         opt.step()
@@ -53,6 +80,13 @@ def train_epoch(model, tokenizer, texts, seq_len: int, lr: float, device: str):
             correct += int((pred == y).sum().item())
             total += int(y.numel())
             num_tokens += int(y.numel())
+        if num_tokens and num_tokens % 10000 == 0:
+            print(f"[progress] tokens={num_tokens} last_loss={losses[-1]:.4f}")
+        # EMA update
+        if teacher is not None and alpha > 0.0:
+            with torch.no_grad():
+                for p_t, p_s in zip(teacher.parameters(), model.parameters()):
+                    p_t.data.mul_(ema_decay).add_(p_s.data * (1.0 - ema_decay))
     avg_loss = sum(losses) / max(len(losses), 1)
     ppl = math.exp(avg_loss) if avg_loss < 20 else float('inf')
     acc = (correct / max(total, 1)) if total else 0.0
@@ -102,12 +136,53 @@ if __name__ == '__main__':
     os.makedirs(log_dir, exist_ok=True)
     metrics_path = os.path.join(log_dir, 'train_metrics.jsonl')
 
+    save_every = int(train_cfg.get('save_every', 0))
+    eval_every = int(train_cfg.get('eval_every', 0))
+
+    global_step = 0
+    distill_cfg = cfg.get('distill', {})
+
     for epoch in range(epochs):
-        loss, ppl, acc, ntok = train_epoch(model, tokenizer, load_texts(data_glob), seq_len, lr, device)
-        rec = {"epoch": epoch + 1, "loss": loss, "ppl": ppl, "acc": acc, "tokens": ntok}
-        print(f"Epoch {epoch+1}/{epochs} loss={loss:.4f} ppl={ppl:.2f} acc={acc:.3f} tokens={ntok}")
+        loss, ppl, acc, ntok = train_epoch(model, tokenizer, load_texts(data_glob), seq_len, lr, device, distill_cfg)
+        global_step += ntok
+        rec = {"epoch": epoch + 1, "step_tokens": global_step, "loss": loss, "ppl": ppl, "acc": acc, "tokens": ntok}
+        print(f"Epoch {epoch+1}/{epochs} tokens={global_step} loss={loss:.4f} ppl={ppl:.2f} acc={acc:.3f}")
         with open(metrics_path, 'a', encoding='utf-8') as mf:
             mf.write(json.dumps(rec) + "\n")
+
+        do_save = save_every and (global_step // max(save_every, 1) > 0) and (global_step % save_every < ntok)
+        if do_save:
+            tmp_path = weights_path + '.tmp'
+            save_file(model.state_dict(), tmp_path)
+            if os.path.exists(weights_path):
+                try:
+                    os.replace(weights_path, backup_path)
+                except Exception:
+                    pass
+            os.replace(tmp_path, weights_path)
+            print(f'[checkpoint] Saved at tokens={global_step} -> {weights_path}')
+
+        do_eval = eval_every and (global_step // max(eval_every, 1) > 0) and (global_step % eval_every < ntok)
+        if do_eval:
+            eval_cfg = cfg.get('eval', {})
+            prompts = eval_cfg.get('hallucination_prompts', [])
+            if prompts:
+                def gen_once(txt: str) -> str:
+                    ids = tokenizer.encode(txt).ids[:seq_len]
+                    out = []
+                    with torch.no_grad():
+                        for _ in range(64):
+                            x = torch.tensor([ids + out], dtype=torch.long, device=device)
+                            logits = model(x)[:, -1, :]
+                            next_id = int(logits.argmax(dim=-1))
+                            out.append(next_id)
+                    return tokenizer.decode(out)
+                results = []
+                for p in prompts:
+                    ans = gen_once(p)
+                    results.append({"prompt": p, "answer": ans, "tokens": global_step})
+                with open(os.path.join(log_dir, 'hallucination_eval.json'), 'w', encoding='utf-8') as ef:
+                    json.dump(results, ef, ensure_ascii=False, indent=2)
 
     # Simple hallucination eval
     eval_cfg = cfg.get('eval', {})
