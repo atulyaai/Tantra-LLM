@@ -7,6 +7,9 @@ pyyaml==6.0.2
 torch>=2.2.0
 safetensors>=0.4.2
 
+# Tokenizer
+tokenizers>=0.15.2
+
 # Optional speech (plug later)
 openai-whisper>=20231117
 webrtcvad>=2.0.10

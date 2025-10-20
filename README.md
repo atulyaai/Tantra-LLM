@@ -30,14 +30,15 @@ uvicorn Training.serve_realtime:app --host 0.0.0.0 --port 8001
 - Vocabulary: `Model/vocab.json` (optional)
 - Weights: `Model/tantra_weights.safetensors` (+ `Model/tantra_weights.bak`)
 
-Train or bring your own:
+### Build tokenizer (example)
 ```bash
-# Tokenizer
 python Training/tokenizer_train.py --input_glob "Dataset/*.jsonl" --out Model/tokenizer.json
-
-# Pretrain / continue-train (updates weights in-place)
-python Training/training_pretrain.py --config Config/pretrain.yaml
 ```
+A tiny sample is provided at `Dataset/sample.jsonl`. Use your real data for meaningful tokenization.
+
+### Weights
+- Place your checkpoint at `Model/tantra_weights.safetensors`
+- Update `Config/serve.yaml` paths if needed
 
 ## ⚙️ Configs
 - `Config/serve.yaml` — CPU, quant, telemetry
@@ -72,7 +73,7 @@ This creates `Model/rag_texts.json` and `Model/rag_index.faiss`.
 See `Docs/DOCS.md` for endpoints and examples.
 
 ## 📝 License
-MIT © 2025 Tantra Contributors
+MIT © 2025 Atulya AI and Contributors
 
 ## 🔗 Links
 - Repo: `https://github.com/atulyaai/Tantra-LLM`
