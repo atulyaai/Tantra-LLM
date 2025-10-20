@@ -55,6 +55,11 @@ def train_tokenizer(texts: List[str], out_path: str, vocab_size: int = 32000):
 
     tokenizer.train_from_iterator(Iterator(texts), trainer)
     tokenizer.save(out_path)
+    # also write vocab for transparency
+    vocab_items = tokenizer.get_vocab()
+    vocab_sorted = sorted(vocab_items.items(), key=lambda kv: kv[1])
+    with open(out_path.replace('.json', '_vocab.json'), 'w', encoding='utf-8') as vf:
+        json.dump([tok for tok, _ in vocab_sorted], vf)
 
 
 if __name__ == '__main__':

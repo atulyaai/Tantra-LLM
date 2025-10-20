@@ -8,6 +8,7 @@ from Training.agent import Agent, ToolSpec
 from Training.memory import Memory
 from Training.tools_basic import TOOL_SPECS
 from Training.model_runtime import TextRuntime
+from Training.mamba_runtime import MambaRuntime
 
 
 app = FastAPI()
@@ -19,16 +20,21 @@ def load_yaml(path: str) -> Dict[str, Any]:
         return yaml.safe_load(f)
 
 
-_runtime: TextRuntime = None
+_runtime = None
 
 
-def ensure_runtime() -> TextRuntime:
+def ensure_runtime():
     global _runtime
     if _runtime is None:
         serve_cfg = load_yaml("Config/serve.yaml")
+        arch = serve_cfg.get("inference", {}).get("architecture", "transformer")
         tok = serve_cfg.get("paths", {}).get("tokenizer", "Model/tokenizer.json")
         wts = serve_cfg.get("paths", {}).get("weights", "Model/tantra_weights.safetensors")
-        _runtime = TextRuntime(tok, wts, device="cpu")
+        if arch == "mamba":
+            mcfg = serve_cfg.get("model", {"d_model": 256, "n_layers": 6, "d_state": 64, "d_conv": 4, "dropout": 0.0})
+            _runtime = MambaRuntime(tok, wts, mcfg)
+        else:
+            _runtime = TextRuntime(tok, wts, device="cpu")
     return _runtime
 
 
@@ -59,6 +65,21 @@ async def infer(req: Request):
     traces, final_text = agent.run(prompt)
     return {"text": final_text, "traces": traces}
 
+
+@app.post("/chat/stream")
+async def chat_stream(req: Request):
+    body = await req.json()
+    prompt = body.get("prompt", "")
+    gen = body.get("gen", {"max_tokens": 256, "temperature": 0.7, "top_p": 0.9})
+
+    rt = ensure_runtime()
+
+    async def gen_sse():
+        for chunk in rt.stream(prompt, gen):
+            yield f"data: {json.dumps({'token': chunk})}\n\n"
+        yield f"data: {json.dumps({'done': True})}\n\n"
+
+    return StreamingResponse(gen_sse(), media_type="text/event-stream")
 
 @app.post("/agent/stream")
 async def agent_stream(req: Request):

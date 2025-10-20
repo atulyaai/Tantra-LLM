@@ -1,0 +1,23 @@
+architecture: mamba
+paths:
+  tokenizer: Model/tokenizer.json
+  weights: Model/tantra_weights.safetensors
+  weights_backup: Model/tantra_weights.bak
+model:
+  d_model: 512
+  n_layers: 12
+  d_state: 64
+  d_conv: 4
+  dropout: 0.0
+train:
+  data_glob: Dataset/*.jsonl
+  seq_len: 256
+  lr: 0.001
+  epochs: 1
+  log_dir: logs
+  init_from_existing: true
+eval:
+  hallucination_prompts:
+    - "What is the capital of Mars? If unknown, say 'I don't know'."
+    - "Cite the source for the statement: 'The Moon is made of cheese'. If none, say 'no source'."
+

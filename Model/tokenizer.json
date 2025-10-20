@@ -1,0 +1,482 @@
+{
+  "version": "1.0",
+  "truncation": null,
+  "padding": null,
+  "added_tokens": [
+    {
+      "id": 0,
+      "content": "[PAD]",
+      "single_word": false,
+      "lstrip": false,
+      "rstrip": false,
+      "normalized": false,
+      "special": true
+    },
+    {
+      "id": 1,
+      "content": "[UNK]",
+      "single_word": false,
+      "lstrip": false,
+      "rstrip": false,
+      "normalized": false,
+      "special": true
+    },
+    {
+      "id": 2,
+      "content": "[BOS]",
+      "single_word": false,
+      "lstrip": false,
+      "rstrip": false,
+      "normalized": false,
+      "special": true
+    },
+    {
+      "id": 3,
+      "content": "[EOS]",
+      "single_word": false,
+      "lstrip": false,
+      "rstrip": false,
+      "normalized": false,
+      "special": true
+    },
+    {
+      "id": 4,
+      "content": "[SEP]",
+      "single_word": false,
+      "lstrip": false,
+      "rstrip": false,
+      "normalized": false,
+      "special": true
+    },
+    {
+      "id": 5,
+      "content": "[CLS]",
+      "single_word": false,
+      "lstrip": false,
+      "rstrip": false,
+      "normalized": false,
+      "special": true
+    },
+    {
+      "id": 6,
+      "content": "[MASK]",
+      "single_word": false,
+      "lstrip": false,
+      "rstrip": false,
+      "normalized": false,
+      "special": true
+    }
+  ],
+  "normalizer": null,
+  "pre_tokenizer": {
+    "type": "Whitespace"
+  },
+  "post_processor": null,
+  "decoder": null,
+  "model": {
+    "type": "BPE",
+    "dropout": null,
+    "unk_token": "[UNK]",
+    "continuing_subword_prefix": null,
+    "end_of_word_suffix": null,
+    "fuse_unk": false,
+    "byte_fallback": false,
+    "ignore_merges": false,
+    "vocab": {
+      "[PAD]": 0,
+      "[UNK]": 1,
+      "[BOS]": 2,
+      "[EOS]": 3,
+      "[SEP]": 4,
+      "[CLS]": 5,
+      "[MASK]": 6,
+      "+": 7,
+      "-": 8,
+      ".": 9,
+      "C": 10,
+      "H": 11,
+      "P": 12,
+      "T": 13,
+      "U": 14,
+      "a": 15,
+      "c": 16,
+      "d": 17,
+      "e": 18,
+      "f": 19,
+      "g": 20,
+      "h": 21,
+      "i": 22,
+      "k": 23,
+      "l": 24,
+      "m": 25,
+      "n": 26,
+      "o": 27,
+      "p": 28,
+      "r": 29,
+      "s": 30,
+      "t": 31,
+      "v": 32,
+      "w": 33,
+      "x": 34,
+      "y": 35,
+      "z": 36,
+      "is": 37,
+      "an": 38,
+      "in": 39,
+      "or": 40,
+      "as": 41,
+      "ra": 42,
+      "to": 43,
+      "tra": 44,
+      "CP": 45,
+      "He": 46,
+      "Th": 47,
+      "Tan": 48,
+      "am": 49,
+      "at": 50,
+      "ce": 51,
+      "dat": 52,
+      "em": 53,
+      "en": 54,
+      "er": 55,
+      "et": 56,
+      "ex": 57,
+      "fi": 58,
+      "for": 59,
+      "it": 60,
+      "iz": 61,
+      "ice": 62,
+      "ken": 63,
+      "ld": 64,
+      "le": 65,
+      "ll": 66,
+      "ls": 67,
+      "mem": 68,
+      "oice": 69,
+      "ols": 70,
+      "ple": 71,
+      "rs": 72,
+      "sis": 73,
+      "sam": 74,
+      "tan": 75,
+      "tin": 76,
+      "tex": 77,
+      "voice": 78,
+      "wor": 79,
+      "wit": 80,
+      "and": 81,
+      "ing": 82,
+      "ining": 83,
+      "ory": 84,
+      "aset": 85,
+      "assis": 86,
+      "token": 87,
+      "tools": 88,
+      "training": 89,
+      "CPU": 90,
+      "Hell": 91,
+      "This": 92,
+      "Tantra": 93,
+      "dataset": 94,
+      "firs": 95,
+      "izer": 96,
+      "memory": 97,
+      "sample": 98,
+      "tant": 99,
+      "tiny": 100,
+      "text": 101,
+      "world": 102,
+      "with": 103,
+      "assistant": 104,
+      "tokenizer": 105,
+      "Hello": 106,
+      "first": 107
+    },
+    "merges": [
+      [
+        "i",
+        "s"
+      ],
+      [
+        "a",
+        "n"
+      ],
+      [
+        "i",
+        "n"
+      ],
+      [
+        "o",
+        "r"
+      ],
+      [
+        "a",
+        "s"
+      ],
+      [
+        "r",
+        "a"
+      ],
+      [
+        "t",
+        "o"
+      ],
+      [
+        "t",
+        "ra"
+      ],
+      [
+        "C",
+        "P"
+      ],
+      [
+        "H",
+        "e"
+      ],
+      [
+        "T",
+        "h"
+      ],
+      [
+        "T",
+        "an"
+      ],
+      [
+        "a",
+        "m"
+      ],
+      [
+        "a",
+        "t"
+      ],
+      [
+        "c",
+        "e"
+      ],
+      [
+        "d",
+        "at"
+      ],
+      [
+        "e",
+        "m"
+      ],
+      [
+        "e",
+        "n"
+      ],
+      [
+        "e",
+        "r"
+      ],
+      [
+        "e",
+        "t"
+      ],
+      [
+        "e",
+        "x"
+      ],
+      [
+        "f",
+        "i"
+      ],
+      [
+        "f",
+        "or"
+      ],
+      [
+        "i",
+        "t"
+      ],
+      [
+        "i",
+        "z"
+      ],
+      [
+        "i",
+        "ce"
+      ],
+      [
+        "k",
+        "en"
+      ],
+      [
+        "l",
+        "d"
+      ],
+      [
+        "l",
+        "e"
+      ],
+      [
+        "l",
+        "l"
+      ],
+      [
+        "l",
+        "s"
+      ],
+      [
+        "m",
+        "em"
+      ],
+      [
+        "o",
+        "ice"
+      ],
+      [
+        "o",
+        "ls"
+      ],
+      [
+        "p",
+        "le"
+      ],
+      [
+        "r",
+        "s"
+      ],
+      [
+        "s",
+        "is"
+      ],
+      [
+        "s",
+        "am"
+      ],
+      [
+        "t",
+        "an"
+      ],
+      [
+        "t",
+        "in"
+      ],
+      [
+        "t",
+        "ex"
+      ],
+      [
+        "v",
+        "oice"
+      ],
+      [
+        "w",
+        "or"
+      ],
+      [
+        "w",
+        "it"
+      ],
+      [
+        "an",
+        "d"
+      ],
+      [
+        "in",
+        "g"
+      ],
+      [
+        "in",
+        "ing"
+      ],
+      [
+        "or",
+        "y"
+      ],
+      [
+        "as",
+        "et"
+      ],
+      [
+        "as",
+        "sis"
+      ],
+      [
+        "to",
+        "ken"
+      ],
+      [
+        "to",
+        "ols"
+      ],
+      [
+        "tra",
+        "ining"
+      ],
+      [
+        "CP",
+        "U"
+      ],
+      [
+        "He",
+        "ll"
+      ],
+      [
+        "Th",
+        "is"
+      ],
+      [
+        "Tan",
+        "tra"
+      ],
+      [
+        "dat",
+        "aset"
+      ],
+      [
+        "fi",
+        "rs"
+      ],
+      [
+        "iz",
+        "er"
+      ],
+      [
+        "mem",
+        "ory"
+      ],
+      [
+        "sam",
+        "ple"
+      ],
+      [
+        "tan",
+        "t"
+      ],
+      [
+        "tin",
+        "y"
+      ],
+      [
+        "tex",
+        "t"
+      ],
+      [
+        "wor",
+        "ld"
+      ],
+      [
+        "wit",
+        "h"
+      ],
+      [
+        "assis",
+        "tant"
+      ],
+      [
+        "token",
+        "izer"
+      ],
+      [
+        "Hell",
+        "o"
+      ],
+      [
+        "firs",
+        "t"
+      ]
+    ]
+  }
+}
