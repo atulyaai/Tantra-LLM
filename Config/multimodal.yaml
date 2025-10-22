@@ -1,0 +1,233 @@
+# Multi-Modal Mamba 3 Configuration
+# Optimized for Audio → Text → Vision priority with MoE and compression
+
+model:
+  architecture: mamba3_multimodal
+  d_model: 768
+  n_layers: 12
+  d_state: 64
+  d_conv: 4
+  dropout: 0.1
+  
+  # Multi-modal dimensions
+  audio_dim: 128
+  text_dim: 768
+  vision_dim: 512
+  
+  # Dynamic vocabulary
+  initial_vocab_size: 32000
+  max_vocab_size: 100000
+  vocab_growth_threshold: 0.8
+  
+  # MoE configuration
+  num_experts: 8
+  expert_capacity: 64
+  expert_categories:
+    - "audio_processing"
+    - "speech_recognition"
+    - "text_generation"
+    - "text_understanding"
+    - "vision_analysis"
+    - "multimodal_fusion"
+    - "reasoning"
+    - "general"
+  routing_strategy: "category_based"
+  
+  # Compression settings
+  quantization_bits: 8
+  pruning_ratio: 0.1
+  distillation_alpha: 0.3
+  
+  # Modality priority (audio → text → vision)
+  modality_priority:
+    - "audio"
+    - "text"
+    - "vision"
+
+training:
+  # Progressive stages
+  stages:
+    - stage: 1
+      d_model: 256
+      n_layers: 4
+      num_experts: 4
+      seq_len: 128
+      batch_size: 16
+      lr: 0.003
+      epochs: 3
+      workers: 4
+    - stage: 2
+      d_model: 512
+      n_layers: 8
+      num_experts: 6
+      seq_len: 256
+      batch_size: 8
+      lr: 0.002
+      epochs: 4
+      workers: 3
+    - stage: 3
+      d_model: 768
+      n_layers: 12
+      num_experts: 8
+      seq_len: 512
+      batch_size: 4
+      lr: 0.001
+      epochs: 5
+      workers: 2
+    - stage: 4
+      d_model: 1024
+      n_layers: 16
+      num_experts: 12
+      seq_len: 1024
+      batch_size: 2
+      lr: 0.0005
+      epochs: 6
+      workers: 1
+  
+  # Data configuration
+  data:
+    audio_data: "Dataset/audio_data.jsonl"
+    text_data: "Dataset/combined_full_training.jsonl"
+    vision_data: "Dataset/vision_data.jsonl"
+    max_samples_per_stage: 10000
+  
+  # Optimization
+  optimizer: "AdamW"
+  weight_decay: 0.01
+  gradient_clip_norm: 1.0
+  warmup_steps: 1000
+  
+  # Compression training
+  compression:
+    enabled: true
+    quantization_aware: true
+    gradual_pruning: true
+    knowledge_distillation: true
+    teacher_model_path: "Model/teacher_model.safetensors"
+
+evaluation:
+  # Evaluation metrics
+  metrics:
+    audio:
+      - "mse_loss"
+      - "snr_db"
+      - "reconstruction_quality"
+    text:
+      - "perplexity"
+      - "accuracy"
+      - "bleu_score"
+      - "generation_quality"
+    vision:
+      - "mse_loss"
+      - "ssim"
+      - "analysis_quality"
+    multimodal:
+      - "fusion_quality"
+      - "cross_modal_consistency"
+      - "overall_multimodal_score"
+  
+  # Test data
+  test_samples: 1000
+  evaluation_frequency: 500
+  
+  # Output
+  report_path: "evaluation_report.json"
+  plots_dir: "evaluation_plots"
+
+inference:
+  # Generation settings
+  max_length: 1024
+  temperature: 0.8
+  top_p: 0.9
+  top_k: 50
+  
+  # Modality settings
+  audio:
+    sample_rate: 16000
+    max_duration: 10.0
+    feature_dim: 128
+  text:
+    max_tokens: 512
+    min_tokens: 10
+  vision:
+    image_size: 224
+    patch_size: 16
+    max_patches: 196
+  
+  # MoE settings
+  expert_selection: "top_k"
+  top_k_experts: 2
+  expert_temperature: 1.0
+
+compression:
+  # Quantization
+  quantization:
+    enabled: true
+    bits: 8
+    symmetric: true
+    per_channel: false
+  
+  # Pruning
+  pruning:
+    enabled: true
+    ratio: 0.1
+    structured: true
+    gradual: true
+  
+  # Distillation
+  distillation:
+    enabled: true
+    alpha: 0.3
+    temperature: 3.0
+    teacher_student_ratio: 0.5
+  
+  # Other compression
+  other:
+    weight_sharing: true
+    low_rank_approximation: false
+    dynamic_quantization: true
+
+paths:
+  # Model paths
+  tokenizer: "Model/tokenizer.json"
+  weights: "Model/tantra_multimodal_weights.safetensors"
+  weights_backup: "Model/tantra_multimodal_weights.bak"
+  
+  # Data paths
+  dataset_dir: "Dataset"
+  logs_dir: "logs"
+  checkpoints_dir: "checkpoints"
+  
+  # Output paths
+  output_dir: "outputs"
+  evaluation_dir: "evaluations"
+
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  file: "logs/multimodal_training.log"
+  
+  # Wandb integration
+  wandb:
+    enabled: true
+    project: "tantra-multimodal"
+    entity: "tantra-llm"
+    tags: ["mamba3", "multimodal", "moe", "compression"]
+
+hardware:
+  # Device settings
+  device: "auto"  # auto, cpu, cuda
+  mixed_precision: true
+  compile_model: false
+  
+  # Memory optimization
+  gradient_checkpointing: true
+  dataloader_pin_memory: true
+  persistent_workers: true
+  
+  # Multi-GPU
+  distributed:
+    enabled: false
+    backend: "nccl"
+    world_size: 1
+    rank: 0
