@@ -120,5 +120,9 @@ def download_reliable_datasets():
 
 if __name__ == "__main__":
     print("🚀 Starting comprehensive dataset download...")
+    
+    # Create Dataset directory if it doesn't exist
+    Path("Dataset").mkdir(exist_ok=True)
+    
     total = download_reliable_datasets()
     print(f"\n✅ Download complete! Ready for training with {total:,} samples.")

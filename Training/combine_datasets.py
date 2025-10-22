@@ -71,5 +71,9 @@ def combine_all_datasets():
 
 if __name__ == "__main__":
     print("🔄 Combining all datasets...")
+    
+    # Create Dataset directory if it doesn't exist
+    Path("Dataset").mkdir(exist_ok=True)
+    
     total_samples = combine_all_datasets()
     print(f"\n🎉 Ready for progressive training with {total_samples:,} samples!")
