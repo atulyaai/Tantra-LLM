@@ -19,69 +19,16 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class ServerOptimizedDataset(Dataset):
-    def __init__(self, data_file, tokenizer, seq_len, max_samples=None):
-        self.data_file = data_file
+    def __init__(self, texts, tokenizer, seq_len):
+        self.texts = texts
         self.tokenizer = tokenizer
         self.seq_len = seq_len
-        self.max_samples = max_samples
-        self._cached_texts = None
         
     def __len__(self):
-        if self.max_samples:
-            return min(self.max_samples, self._count_lines())
-        return self._count_lines()
-    
-    def _count_lines(self):
-        """Count lines in the data file efficiently"""
-        count = 0
-        with open(self.data_file, 'r', encoding='utf-8', errors='ignore') as f:
-            for _ in f:
-                count += 1
-        return count
-    
-    def _load_texts_batch(self, start_idx, batch_size):
-        """Load a batch of texts from the file"""
-        texts = []
-        with open(self.data_file, 'r', encoding='utf-8', errors='ignore') as f:
-            for i, line in enumerate(f):
-                if i < start_idx:
-                    continue
-                if i >= start_idx + batch_size:
-                    break
-                try:
-                    data = json.loads(line.strip())
-                    if 'text' in data and data['text'].strip():
-                        texts.append(data['text'].strip())
-                except json.JSONDecodeError:
-                    continue
-        return texts
+        return len(self.texts)
     
     def __getitem__(self, idx):
-        # Load a small batch around the requested index for efficiency
-        batch_size = 100
-        start_idx = max(0, idx - batch_size // 2)
-        texts = self._load_texts_batch(start_idx, batch_size)
-        
-        # Get the actual text for this index
-        actual_idx = idx - start_idx
-        if actual_idx >= len(texts):
-            # Fallback to loading just this one text
-            with open(self.data_file, 'r', encoding='utf-8', errors='ignore') as f:
-                for i, line in enumerate(f):
-                    if i == idx:
-                        try:
-                            data = json.loads(line.strip())
-                            if 'text' in data and data['text'].strip():
-                                text = data['text'].strip()
-                                break
-                        except json.JSONDecodeError:
-                            pass
-                else:
-                    # Fallback text if loading fails
-                    text = "This is a fallback text for training."
-        else:
-            text = texts[actual_idx]
-        
+        text = self.texts[idx]
         tokens = self.tokenizer.encode(text).ids
         
         if len(tokens) < self.seq_len + 1:
@@ -95,19 +42,14 @@ class ServerOptimizedDataset(Dataset):
         y = torch.tensor(tokens[1:], dtype=torch.long)
         return x, y
 
-def load_texts(data_file, max_samples=None):
-    """Load texts with optional sampling for memory efficiency"""
+def load_texts(data_file):
     texts = []
-    count = 0
     with open(data_file, 'r', encoding='utf-8', errors='ignore') as f:
         for line in f:
-            if max_samples and count >= max_samples:
-                break
             try:
                 data = json.loads(line.strip())
                 if 'text' in data and data['text'].strip():
                     texts.append(data['text'].strip())
-                    count += 1
             except json.JSONDecodeError:
                 continue
     return texts
@@ -156,8 +98,8 @@ def transfer_weights(old_model, new_model):
     logger.info(f"Transferred {transferred} compatible layers")
     return new_model
 
-def train_stage(model, tokenizer, data_file, stage, device, max_samples=None):
-    """Train one stage with server optimizations and memory-efficient data loading"""
+def train_stage(model, tokenizer, texts, stage, device):
+    """Train one stage with server optimizations"""
     
     # Server-optimized configs (larger batch sizes, more workers)
     stage_configs = {
@@ -170,8 +112,7 @@ def train_stage(model, tokenizer, data_file, stage, device, max_samples=None):
     config = stage_configs[stage]
     logger.info(f"Stage {stage}: {config['seq_len']} seq, {config['batch_size']} batch, {config['lr']} lr, {config['workers']} workers")
     
-    # Use streaming dataset for memory efficiency
-    dataset = ServerOptimizedDataset(data_file, tokenizer, config['seq_len'], max_samples)
+    dataset = ServerOptimizedDataset(texts, tokenizer, config['seq_len'])
     dataloader = DataLoader(
         dataset, 
         batch_size=config['batch_size'], 
@@ -247,11 +188,9 @@ def main():
     tokenizer = Tokenizer.from_file('Model/tokenizer.json')
     vocab_size = len(tokenizer.get_vocab())
     
-    # Check if data file exists
-    data_file = 'Dataset/combined_full_training.jsonl'
-    if not Path(data_file).exists():
-        logger.error(f"Data file {data_file} not found. Please run data preparation first.")
-        return
+    # Load data
+    texts = load_texts('Dataset/combined_full_training.jsonl')
+    logger.info(f"Loaded {len(texts):,} text samples")
     
     # Create logs directory
     Path('logs').mkdir(exist_ok=True)
@@ -272,10 +211,8 @@ def main():
             logger.info(f"Transferring weights from stage {stage-1} to stage {stage}")
             model = transfer_weights(current_model, model)
         
-        # Train this stage with memory-efficient data loading
-        # Limit samples for early stages to prevent memory issues
-        max_samples = 10000 if stage <= 2 else None
-        loss, ppl, acc = train_stage(model, tokenizer, data_file, stage, device, max_samples)
+        # Train this stage
+        loss, ppl, acc = train_stage(model, tokenizer, texts, stage, device)
         
         logger.info(f"Stage {stage} Results:")
         logger.info(f"  Loss: {loss:.4f}")

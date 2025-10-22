@@ -92,7 +92,7 @@ User: {prompt}
 
         if not final_text:
             # produce final answer from accumulated context
-            final_prompt = f"{prompt}\n\nNow provide the final helpful answer."\
+            final_prompt = f"{prompt}\n\nNow provide the final helpful answer."
             
             final_text = self.llm_infer(final_prompt, {"temperature": 0.7})
 
