@@ -14,7 +14,7 @@ from tokenizers import Tokenizer
 import safetensors.torch
 import multiprocessing as mp
 
-# Setup logging
+# Setup logging for training progress tracking
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 

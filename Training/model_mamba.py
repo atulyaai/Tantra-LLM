@@ -1,10 +1,8 @@
 import math
 from typing import Dict, Any
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
 
 class MambaBlock(nn.Module):
     def __init__(self, d_model: int, d_state: int, d_conv: int, dropout: float):
@@ -27,7 +25,6 @@ class MambaBlock(nn.Module):
         y = self.out_proj(y)
         y = self.dropout(y)
         return x + y  # residual
-
 
 class MambaDecoder(nn.Module):
     def __init__(self, vocab_size: int, d_model: int, n_layers: int, d_state: int, d_conv: int, dropout: float):
@@ -56,5 +53,3 @@ def build_from_config(cfg: Dict[str, Any], vocab_size: int) -> MambaDecoder:
     d_conv = int(cfg.get("d_conv", 4))
     dropout = float(cfg.get("dropout", 0.0))
     return MambaDecoder(vocab_size, d_model, n_layers, d_state, d_conv, dropout)
-
-
