@@ -30,8 +30,8 @@ def _validate_path(path: str) -> bool:
         if not str(abs_path).startswith(str(workspace_root)):
             return False
             
-        # Check for path traversal attempts
-        if ".." in path or path.startswith("/"):
+        # Check for path traversal attempts (but allow absolute paths within workspace)
+        if ".." in path:
             return False
             
         return True
@@ -71,7 +71,9 @@ def tool_files(args: Dict[str, Any]) -> Dict[str, Any]:
                 return {"error": "content too large"}
             
             # Create parent directories if needed
-            os.makedirs(os.path.dirname(path), exist_ok=True)
+            parent_dir = os.path.dirname(path)
+            if parent_dir:
+                os.makedirs(parent_dir, exist_ok=True)
             
             with open(path, "w", encoding="utf-8") as f:
                 f.write(content)

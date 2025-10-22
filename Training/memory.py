@@ -7,12 +7,17 @@ class Memory:
         self.short_history: List[Dict[str, Any]] = []
 
     def build_context(self, user_text: str) -> str:
-        max_turns = int(self.config.get("memory", {}).get("short", {}).get("max_turns", 10))
+        try:
+            max_turns = int(self.config.get("memory", {}).get("short", {}).get("max_turns", 10))
+        except (ValueError, TypeError):
+            max_turns = 10
+        
         recent = self.short_history[-max_turns:]
         parts: List[str] = []
         for turn in recent:
-            parts.append(f"User: {turn['user']}")
-            parts.append(f"Assistant: {turn['assistant']}")
+            if isinstance(turn, dict) and 'user' in turn and 'assistant' in turn:
+                parts.append(f"User: {turn['user']}")
+                parts.append(f"Assistant: {turn['assistant']}")
         return "\n".join(parts)
 
     def observe_turn(self, user_text: str, assistant_text: str, traces: List[Dict[str, Any]]):

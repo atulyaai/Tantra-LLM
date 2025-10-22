@@ -25,11 +25,19 @@ class Agent:
 You're deciding whether to use a tool. If a tool is helpful, return JSON: {{"tool":"name","args":{{...}}}}. Otherwise return {{"final":"text"}}.
 User: {prompt}
 """
-        out = self.llm_infer(plan_prompt, {"temperature": 0.2})
         try:
-            return json.loads(out)
-        except Exception:
-            return {"final": out}
+            out = self.llm_infer(plan_prompt, {"temperature": 0.2})
+            if not out or not isinstance(out, str):
+                return {"final": "I'm having trouble processing your request right now."}
+            
+            # Try to parse as JSON
+            try:
+                return json.loads(out)
+            except json.JSONDecodeError:
+                # If not valid JSON, treat as final response
+                return {"final": out}
+        except Exception as e:
+            return {"final": f"I encountered an error: {str(e)}"}
 
     def _build_system(self, tool_schemas: Dict[str, Dict[str, Any]]) -> str:
         persona = self.config.get("persona", {})

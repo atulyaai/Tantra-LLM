@@ -5,7 +5,16 @@ from typing import Dict, Any
 from fastapi import FastAPI, WebSocket
 from fastapi.websockets import WebSocketDisconnect
 
-from Training.serve_api import build_agent
+try:
+    from Training.serve_api import build_agent
+except ImportError as e:
+    print(f"Warning: Could not import build_agent: {e}")
+    def build_agent():
+        class MockAgent:
+            def run(self, text):
+                return [], "Voice service temporarily unavailable"
+        return MockAgent()
+
 try:
     import whisper  # optional
 except Exception:

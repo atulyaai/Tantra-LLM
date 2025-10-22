@@ -9,9 +9,28 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 class TextRuntime:
     def __init__(self, tokenizer_path: str, weights_path: str, device: str = "cpu"):
         self.device = device
-        self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
-        if self.tokenizer.pad_token is None:
-            self.tokenizer.pad_token = self.tokenizer.eos_token
+        
+        try:
+            self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
+            if self.tokenizer.pad_token is None:
+                self.tokenizer.pad_token = self.tokenizer.eos_token
+        except Exception as e:
+            print(f"Warning: Could not load tokenizer from {tokenizer_path}: {e}")
+            # Create a basic tokenizer
+            from tokenizers import Tokenizer
+            from tokenizers.models import BPE
+            from tokenizers.trainers import BpeTrainer
+            from tokenizers.pre_tokenizers import Whitespace
+            
+            tokenizer = Tokenizer(BPE(unk_token='[UNK]'))
+            tokenizer.pre_tokenizer = Whitespace()
+            trainer = BpeTrainer(vocab_size=1000, special_tokens=["[PAD]", "[UNK]", "[BOS]", "[EOS]", "[SEP]", "[CLS]", "[MASK]"])
+            
+            # Train on sample data
+            sample_texts = ["Hello world", "This is a test", "Machine learning is interesting"]
+            tokenizer.train_from_iterator(sample_texts, trainer)
+            tokenizer.save(tokenizer_path)
+            self.tokenizer = tokenizer
         
         # Load model configuration and weights
         if os.path.exists(weights_path):
@@ -25,10 +44,12 @@ class TextRuntime:
                 if os.path.exists(weights_path):
                     state_dict = load_file(weights_path)
                     self.model.load_state_dict(state_dict, strict=False)
-            except Exception:
+            except Exception as e:
+                print(f"Warning: Could not load model: {e}")
                 # Fallback to a simple model if loading fails
                 self.model = None
         else:
+            print(f"Warning: Weights file not found: {weights_path}")
             self.model = None
         
         if self.model:

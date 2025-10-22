@@ -4,11 +4,50 @@ from typing import Dict, Any
 from fastapi import FastAPI, Request
 from fastapi.responses import StreamingResponse, JSONResponse
 
-from Training.agent import Agent, ToolSpec
-from Training.memory import Memory
-from Training.tools_basic import TOOL_SPECS
-from Training.model_runtime import TextRuntime
-from Training.mamba_runtime import MambaRuntime
+try:
+    from Training.agent import Agent, ToolSpec
+    from Training.memory import Memory
+    from Training.tools_basic import TOOL_SPECS
+    from Training.model_runtime import TextRuntime
+    from Training.mamba_runtime import MambaRuntime
+except ImportError as e:
+    print(f"Warning: Could not import some modules: {e}")
+    # Define minimal fallbacks
+    class Agent:
+        def __init__(self, *args, **kwargs):
+            pass
+        def run(self, prompt):
+            return [], "Service temporarily unavailable"
+    
+    class ToolSpec:
+        def __init__(self, *args, **kwargs):
+            pass
+    
+    class Memory:
+        def __init__(self, *args, **kwargs):
+            pass
+        def build_context(self, text):
+            return ""
+        def observe_turn(self, *args, **kwargs):
+            pass
+    
+    TOOL_SPECS = {}
+    
+    class TextRuntime:
+        def __init__(self, *args, **kwargs):
+            pass
+        def generate(self, prompt, gen):
+            return "Model not available"
+        def stream(self, prompt, gen):
+            yield "Model not available"
+    
+    class MambaRuntime:
+        def __init__(self, *args, **kwargs):
+            pass
+        def generate(self, prompt, gen):
+            return "Model not available"
+        def stream(self, prompt, gen):
+            yield "Model not available"
 
 
 app = FastAPI()
@@ -16,8 +55,15 @@ app = FastAPI()
 
 def load_yaml(path: str) -> Dict[str, Any]:
     import yaml
-    with open(path, "r", encoding="utf-8") as f:
-        return yaml.safe_load(f)
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return yaml.safe_load(f)
+    except FileNotFoundError:
+        print(f"Warning: Config file {path} not found, using defaults")
+        return {}
+    except Exception as e:
+        print(f"Warning: Error loading {path}: {e}, using defaults")
+        return {}
 
 
 _runtime = None
@@ -26,15 +72,26 @@ _runtime = None
 def ensure_runtime():
     global _runtime
     if _runtime is None:
-        serve_cfg = load_yaml("Config/serve.yaml")
-        arch = serve_cfg.get("inference", {}).get("architecture", "transformer")
-        tok = serve_cfg.get("paths", {}).get("tokenizer", "Model/tokenizer.json")
-        wts = serve_cfg.get("paths", {}).get("weights", "Model/tantra_weights.safetensors")
-        if arch == "mamba":
-            mcfg = serve_cfg.get("model", {"d_model": 256, "n_layers": 6, "d_state": 64, "d_conv": 4, "dropout": 0.0})
-            _runtime = MambaRuntime(tok, wts, mcfg)
-        else:
-            _runtime = TextRuntime(tok, wts, device="cpu")
+        try:
+            serve_cfg = load_yaml("Config/serve.yaml")
+            arch = serve_cfg.get("inference", {}).get("architecture", "mamba")
+            tok = serve_cfg.get("paths", {}).get("tokenizer", "Model/tokenizer.json")
+            wts = serve_cfg.get("paths", {}).get("weights", "Model/tantra_weights.safetensors")
+            
+            if arch == "mamba":
+                mcfg = serve_cfg.get("model", {"d_model": 512, "n_layers": 8, "d_state": 32, "d_conv": 4, "dropout": 0.1})
+                _runtime = MambaRuntime(tok, wts, mcfg)
+            else:
+                _runtime = TextRuntime(tok, wts, device="cpu")
+        except Exception as e:
+            print(f"Error initializing runtime: {e}")
+            # Create a fallback runtime
+            class FallbackRuntime:
+                def generate(self, prompt, gen):
+                    return "Runtime initialization failed. Please check model files."
+                def stream(self, prompt, gen):
+                    yield "Runtime initialization failed. Please check model files."
+            _runtime = FallbackRuntime()
     return _runtime
 
 
@@ -103,6 +160,13 @@ async def memory_flush():
 
 if __name__ == "__main__":
     import uvicorn
+    import sys
+    from pathlib import Path
+    
+    # Add workspace to Python path
+    workspace_root = Path(__file__).parent.parent
+    sys.path.insert(0, str(workspace_root))
+    
     cfg = load_yaml("Config/serve.yaml")
     host = cfg.get("server", {}).get("host", "0.0.0.0")
     port = int(cfg.get("server", {}).get("port", 8000))

@@ -1,3 +1,7 @@
+server:
+  host: "0.0.0.0"
+  port: 8000
+
 inference:
   cpu_only: true
   quantization: int8_dynamic
@@ -8,16 +12,28 @@ inference:
   batching:
     continuous: true
     max_batch_size: 4
+
+model:
+  d_model: 512
+  n_layers: 8
+  d_state: 32
+  d_conv: 4
+  dropout: 0.1
+
 timeouts:
   generate_ms: 20000
+
 telemetry:
   prometheus_port: 9090
+
 stt:
   backend: whisper
   model_size: tiny
+
 tts:
   backend: piper
   voice: en_US-amy-low
+
 paths:
   tokenizer: Model/tokenizer.json
   weights: Model/tantra_weights.safetensors
