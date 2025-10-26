@@ -1,0 +1,231 @@
+# OCR Memory Configuration
+# Configuration for OCR-based memory system in neural networks
+
+ocr_memory:
+  # Image settings for OCR storage
+  image:
+    width: 256
+    height: 256
+    channels: 3
+    format: "RGB"
+    
+  # Text encoding settings
+  text:
+    precision_digits: 6
+    encoding_scheme: "scientific"  # scientific, decimal, hex, binary
+    max_values_per_image: 1000
+    font_size: 12
+    text_color: "black"
+    background_color: "white"
+  
+  # Compression settings
+  compression:
+    enabled: true
+    visual_compression: true
+    text_compression: true
+    compression_ratio: 0.8
+    quality_threshold: 0.85
+  
+  # Memory bank settings
+  memory_bank:
+    capacity: 1000
+    similarity_threshold: 0.85
+    max_memory_images: 100
+    cache_size: 50
+    cleanup_frequency: 100  # Cleanup every N operations
+  
+  # OCR processing
+  ocr:
+    model: "microsoft/trocr-base-handwritten"
+    fallback: "pytesseract"
+    confidence_threshold: 0.7
+    preprocessing:
+      resize: true
+      denoise: true
+      contrast_enhancement: true
+      binarization: true
+
+# OCR-Native Model Configuration
+ocr_native_model:
+  # Core architecture
+  d_model: 512
+  n_layers: 6
+  n_heads: 8
+  d_ff: 2048
+  dropout: 0.1
+  
+  # OCR-specific settings
+  image_size: 224
+  patch_size: 16
+  num_patches: 196  # (224/16)^2
+  
+  # Memory settings
+  memory_capacity: 1000
+  memory_dim: 256
+  ocr_precision: 6
+  
+  # Visual processing
+  visual_layers: 4
+  text_layers: 4
+  fusion_layers: 2
+  
+  # Multi-modal dimensions
+  audio_dim: 128
+  text_dim: 512
+  vision_dim: 512
+
+# Training configuration for OCR memory
+training:
+  # OCR memory training
+  ocr_memory:
+    enabled: true
+    learning_rate: 1e-4
+    memory_update_frequency: 10  # Update memory every N steps
+    memory_retention_epochs: 5   # Keep memories for N epochs
+    
+  # Progressive training stages
+  stages:
+    - stage: 1
+      d_model: 256
+      n_layers: 4
+      memory_capacity: 100
+      batch_size: 16
+      lr: 0.003
+      epochs: 3
+    - stage: 2
+      d_model: 512
+      n_layers: 6
+      memory_capacity: 500
+      batch_size: 8
+      lr: 0.002
+      epochs: 4
+    - stage: 3
+      d_model: 768
+      n_layers: 8
+      memory_capacity: 1000
+      batch_size: 4
+      lr: 0.001
+      epochs: 5
+  
+  # Memory-specific optimizations
+  memory_optimization:
+    gradient_checkpointing: true
+    memory_efficient_attention: true
+    dynamic_memory_allocation: true
+    memory_compression: true
+
+# Evaluation metrics for OCR memory
+evaluation:
+  ocr_memory:
+    # OCR accuracy metrics
+    text_reconstruction_accuracy: true
+    image_to_text_accuracy: true
+    memory_retrieval_accuracy: true
+    
+    # Memory efficiency metrics
+    memory_compression_ratio: true
+    memory_retrieval_speed: true
+    memory_storage_efficiency: true
+    
+    # Pattern recognition metrics
+    visual_pattern_matching: true
+    contextual_similarity: true
+    cross_modal_consistency: true
+
+# Integration with existing models
+integration:
+  # Mamba3 integration
+  mamba3:
+    enabled: false
+    integration_type: "memory_layer"  # memory_layer, weight_replacement, hybrid
+    memory_layers: [4, 8, 12]  # Which layers to add OCR memory to
+    
+  # OCR-native model
+  ocr_native:
+    enabled: true
+    architecture: "full_ocr_native"  # full_ocr_native, hybrid, minimal
+    
+  # Hybrid approach
+  hybrid:
+    enabled: false
+    ocr_ratio: 0.7  # 70% OCR-native, 30% traditional
+    fusion_strategy: "attention"  # attention, concatenation, weighted
+
+# Performance optimization
+performance:
+  # OCR processing optimization
+  ocr_processing:
+    batch_processing: true
+    parallel_ocr: true
+    gpu_acceleration: true
+    memory_pooling: true
+  
+  # Memory optimization
+  memory_optimization:
+    lazy_loading: true
+    memory_mapping: true
+    compression: true
+    caching: true
+  
+  # Inference optimization
+  inference:
+    model_compilation: true
+    quantization: true
+    pruning: true
+    distillation: false
+
+# Debugging and monitoring
+debugging:
+  # OCR debugging
+  ocr_debug:
+    save_intermediate_images: false
+    log_ocr_accuracy: true
+    visualize_memory_images: false
+    
+  # Memory debugging
+  memory_debug:
+    log_memory_operations: true
+    track_memory_usage: true
+    profile_memory_retrieval: false
+    
+  # Performance monitoring
+  performance_monitoring:
+    track_inference_time: true
+    monitor_memory_usage: true
+    log_training_metrics: true
+
+# File paths
+paths:
+  # OCR model paths
+  ocr_models:
+    trocr_model: "models/trocr-base-handwritten"
+    fallback_ocr: "models/tesseract"
+    
+  # Memory storage
+  memory_storage:
+    memory_bank: "memory/ocr_memory_bank"
+    memory_images: "memory/images"
+    memory_metadata: "memory/metadata.json"
+    
+  # Training data
+  training_data:
+    ocr_training: "data/ocr_training"
+    memory_training: "data/memory_training"
+    
+  # Outputs
+  outputs:
+    trained_models: "outputs/models"
+    evaluation_results: "outputs/evaluation"
+    memory_visualizations: "outputs/visualizations"
+
+# Logging configuration
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  file: "logs/ocr_memory.log"
+  
+  # OCR-specific logging
+  ocr_logging:
+    log_ocr_operations: true
+    log_memory_operations: true
+    log_performance_metrics: true
