@@ -1,5 +1,5 @@
 """
-OCR-Native LLM Demo - Clean Version
+Tantra v1.0 Demo - Clean Version
 Demonstrates the revolutionary OCR-native approach
 """
 
@@ -14,9 +14,8 @@ import time
 # Add src to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from src.core.ocr_native_llm import OCRNativeLLM
-from src.configs.ocr_config import ConfigManager
-from src.models.model_manager import ModelManager
+from src.core.tantra_llm import TantraLLM, TantraConfig
+from src.models.model_manager import TantraModelManager
 
 
 def demonstrate_ocr_weight_storage(model):
@@ -106,7 +105,7 @@ def demonstrate_ocr_memory_system(model):
     # Test retrieval
     queries = ["AI", "OCR", "conversation", "pattern"]
     for query in queries:
-        memories = model.memory_bank.retrieve_ocr_memory(query, top_k=3)
+        memories = model.memory_bank.retrieve_memory(query, top_k=3)
         print(f"  Query '{query}': Found {len(memories)} memories")
     
     # Get conversation history
@@ -172,7 +171,7 @@ def demonstrate_model_info(model):
 
 def main():
     """Main demo function"""
-    print("🚀 OCR-Native LLM Demo - Clean Version")
+    print("🚀 Tantra v1.0 Demo - Clean Version")
     print("Revolutionary approach: All weights and data stored in OCR format")
     print("=" * 80)
     
@@ -181,9 +180,9 @@ def main():
     
     try:
         # Initialize model with small configuration for demo
-        print("Initializing OCR-Native LLM...")
-        config = ConfigManager.get_small_config()  # Small model for demo
-        model = OCRNativeLLM(config)
+        print("Initializing Tantra v1.0...")
+        config = TantraConfig()  # Default config for demo
+        model = TantraLLM(config)
         print("✅ Model initialized successfully!")
         
         # Demonstrate features

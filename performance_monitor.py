@@ -16,8 +16,7 @@ from datetime import datetime
 # Add src to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 
-from src.core.ocr_native_llm import OCRNativeLLM
-from src.configs.ocr_config import ConfigManager
+from src.core.tantra_llm import TantraLLM, TantraConfig
 from src.utils.error_handler import logger, performance_monitor
 
 
@@ -87,8 +86,8 @@ def benchmark_model_performance():
     
     # Test configurations
     configs = [
-        ("tiny", ConfigManager.get_small_config()),
-        ("default", ConfigManager.get_default_config())
+        ("tiny", TantraConfig(d_model=256, n_layers=6, n_heads=4)),
+        ("default", TantraConfig())
     ]
     
     results = {}
@@ -98,7 +97,7 @@ def benchmark_model_performance():
         
         try:
             # Create model
-            model = OCRNativeLLM(config)
+            model = TantraLLM(config)
             model_info = model.get_model_info()
             
             # Test inputs
