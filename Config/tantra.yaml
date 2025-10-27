@@ -1,0 +1,39 @@
+architecture: tantra_multimodal
+model_type: tantra_multimodal
+
+# Model architecture
+d_model: 128
+n_layers: 4
+d_state: 16
+d_conv: 4
+dropout: 0.1
+vocab_size: 10000
+max_seq_len: 512
+
+# Multimodal capabilities
+supports_ocr: true
+supports_text: true
+supports_multimodal: true
+
+# Paths (dynamic management)
+paths:
+  tokenizer: Model/tokenizer.json
+  # weights: managed dynamically
+  # weights_backup: managed dynamically
+  checkpoints: Model/checkpoints
+  logs: logs
+
+# Training configuration
+train:
+  batch_size: 8
+  learning_rate: 0.001
+  max_epochs: 100
+  warmup_steps: 1000
+  weight_decay: 0.01
+  
+# Serving configuration
+serve:
+  max_length: 512
+  temperature: 0.8
+  top_p: 0.9
+  top_k: 50
