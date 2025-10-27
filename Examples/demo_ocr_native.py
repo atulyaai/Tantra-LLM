@@ -1,6 +1,9 @@
 """
 Demo Script for OCR-Native LLM
 Showcases the revolutionary OCR-native approach to language modeling
+
+Copyright (c) 2024 OCR-Native LLM Contributors
+Licensed under the MIT License
 """
 
 import torch

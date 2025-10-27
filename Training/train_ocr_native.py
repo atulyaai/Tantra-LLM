@@ -1,6 +1,9 @@
 """
 OCR-Native LLM Training Pipeline
 Trains the model to process everything in OCR format
+
+Copyright (c) 2024 OCR-Native LLM Contributors
+Licensed under the MIT License
 """
 
 import torch
