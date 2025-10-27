@@ -5,8 +5,8 @@ import torch
 from safetensors.torch import load_file
 
 from Training.model_mamba import build_from_config
-from weight_manager import get_weight_manager, load_model_weights
-from config_manager import get_config_manager, get_model_paths
+from .weight_manager import get_weight_manager, load_model_weights
+from .config_manager import get_config_manager, get_model_paths
 
 
 class MambaRuntime:
