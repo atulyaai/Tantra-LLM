@@ -1,95 +1,15 @@
 {
   "weights": {
-    "mamba_v1.0_safetensors": {
-      "name": "mamba_v1.0_safetensors",
-      "path": "/workspace/Model/weights/mamba_v1.0_safetensors.safetensors",
-      "size_mb": 2.6361770629882812,
-      "created_at": "2025-10-27T01:05:14.906511",
-      "model_type": "mamba",
+    "Tantra_v1.0": {
+      "name": "Tantra_v1.0",
+      "path": "/workspace/Model/weights/Tantra_v1.0.pt",
+      "size_mb": 19.101428985595703,
+      "created_at": "2025-10-27T01:11:10.624113",
+      "model_type": "tantra_multimodal",
       "version": "v1.0",
-      "checksum": "b421ebb43effe012870bf9ab36be51ea",
+      "checksum": "534d5169423b1b24b0652187ce50e72b",
       "is_active": true
-    },
-    "mamba_v1.0_pt": {
-      "name": "mamba_v1.0_pt",
-      "path": "/workspace/Model/weights/mamba_v1.0_pt.pt",
-      "size_mb": 2.643275260925293,
-      "created_at": "2025-10-27T01:05:14.917885",
-      "model_type": "mamba",
-      "version": "v1.0",
-      "checksum": "222640f06159256b9427d8692456a886",
-      "is_active": false
-    },
-    "mamba_v1.0_bin": {
-      "name": "mamba_v1.0_bin",
-      "path": "/workspace/Model/weights/mamba_v1.0_bin.bin",
-      "size_mb": 2.643307685852051,
-      "created_at": "2025-10-27T01:05:14.929628",
-      "model_type": "mamba",
-      "version": "v1.0",
-      "checksum": "6a82e34a40fd6d3acd3732670f0f9a23",
-      "is_active": false
-    },
-    "mamba_multimodal_v1.0_safetensors": {
-      "name": "mamba_multimodal_v1.0_safetensors",
-      "path": "/workspace/Model/weights/mamba_multimodal_v1.0_safetensors.safetensors",
-      "size_mb": 2.6361770629882812,
-      "created_at": "2025-10-27T01:05:14.946799",
-      "model_type": "mamba_multimodal",
-      "version": "v1.0",
-      "checksum": "3a983cc3884746e3712b13133372859e",
-      "is_active": true
-    },
-    "mamba_multimodal_v1.0_pt": {
-      "name": "mamba_multimodal_v1.0_pt",
-      "path": "/workspace/Model/weights/mamba_multimodal_v1.0_pt.pt",
-      "size_mb": 2.643754005432129,
-      "created_at": "2025-10-27T01:05:14.958616",
-      "model_type": "mamba_multimodal",
-      "version": "v1.0",
-      "checksum": "448f18daf16831e65962081a68207539",
-      "is_active": false
-    },
-    "mamba_multimodal_v1.0_bin": {
-      "name": "mamba_multimodal_v1.0_bin",
-      "path": "/workspace/Model/weights/mamba_multimodal_v1.0_bin.bin",
-      "size_mb": 2.6437864303588867,
-      "created_at": "2025-10-27T01:05:14.969817",
-      "model_type": "mamba_multimodal",
-      "version": "v1.0",
-      "checksum": "66aa0632d3a2875d720c50ed1d8080da",
-      "is_active": false
-    },
-    "ocr_native_v1.0_safetensors": {
-      "name": "ocr_native_v1.0_safetensors",
-      "path": "/workspace/Model/weights/ocr_native_v1.0_safetensors.safetensors",
-      "size_mb": 2.6675033569335938,
-      "created_at": "2025-10-27T01:05:14.987089",
-      "model_type": "ocr_native",
-      "version": "v1.0",
-      "checksum": "d5907ad617d1f07bd169801b161a1698",
-      "is_active": true
-    },
-    "ocr_native_v1.0_pt": {
-      "name": "ocr_native_v1.0_pt",
-      "path": "/workspace/Model/weights/ocr_native_v1.0_pt.pt",
-      "size_mb": 2.6750001907348633,
-      "created_at": "2025-10-27T01:05:14.999358",
-      "model_type": "ocr_native",
-      "version": "v1.0",
-      "checksum": "942705b80060b7e0bc7f495170c652c0",
-      "is_active": false
-    },
-    "ocr_native_v1.0_bin": {
-      "name": "ocr_native_v1.0_bin",
-      "path": "/workspace/Model/weights/ocr_native_v1.0_bin.bin",
-      "size_mb": 2.6750335693359375,
-      "created_at": "2025-10-27T01:05:15.010762",
-      "model_type": "ocr_native",
-      "version": "v1.0",
-      "checksum": "8178a46cf1b53feb4ae3d9568906cb6c",
-      "is_active": false
     }
   },
-  "last_updated": "2025-10-27T01:05:15.014968"
+  "last_updated": "2025-10-27T01:11:10.653480"
 }

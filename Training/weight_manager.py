@@ -305,6 +305,16 @@ class WeightManager:
     def get_model_config(self, model_type: str) -> Dict[str, Any]:
         """Get model configuration for a specific model type"""
         configs = {
+            "tantra_multimodal": {
+                "d_model": 128,
+                "n_layers": 4,
+                "d_state": 16,
+                "d_conv": 4,
+                "dropout": 0.1,
+                "vocab_size": 10000,
+                "supports_ocr": True,
+                "supports_text": True
+            },
             "mamba": {
                 "d_model": 512,
                 "n_layers": 8,
