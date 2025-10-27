@@ -202,7 +202,7 @@ print_status "Training tokenizer..."
 python3 Training/tokenizer_train.py \
     --input_glob "Dataset/*.jsonl" \
     --out Model/tokenizer.json \
-    --vocab_size 32000
+    --vocab_size 50000
 
 print_success "Tokenizer trained"
 
