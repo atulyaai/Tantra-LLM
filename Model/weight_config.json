@@ -1,0 +1,35 @@
+{
+  "weights": {
+    "mamba_sample": {
+      "name": "mamba_sample",
+      "path": "/workspace/Model/weights/mamba_sample.safetensors",
+      "size_mb": 4.9085235595703125,
+      "created_at": "2025-10-27T00:47:00.594562",
+      "model_type": "mamba",
+      "version": "sample",
+      "checksum": "863d9d2b1d28be4f4bbb925fa3fd5848",
+      "is_active": true
+    },
+    "mamba_multimodal_sample": {
+      "name": "mamba_multimodal_sample",
+      "path": "/workspace/Model/weights/mamba_multimodal_sample.safetensors",
+      "size_mb": 4.9085235595703125,
+      "created_at": "2025-10-27T00:47:00.612284",
+      "model_type": "mamba_multimodal",
+      "version": "sample",
+      "checksum": "89d586d661e410bcae0b4ed5909ff0ed",
+      "is_active": true
+    },
+    "ocr_native_sample": {
+      "name": "ocr_native_sample",
+      "path": "/workspace/Model/weights/ocr_native_sample.safetensors",
+      "size_mb": 4.9085235595703125,
+      "created_at": "2025-10-27T00:47:00.628638",
+      "model_type": "ocr_native",
+      "version": "sample",
+      "checksum": "fa8c6a2645be15486db8daa250d90679",
+      "is_active": true
+    }
+  },
+  "last_updated": "2025-10-27T00:47:00.636280"
+}

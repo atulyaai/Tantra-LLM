@@ -4,12 +4,24 @@ from typing import Any, Dict, Iterator
 import torch
 from safetensors.torch import load_file
 from transformers import AutoModelForCausalLM, AutoTokenizer
+from weight_manager import get_weight_manager, load_model_weights
+from config_manager import get_config_manager, get_model_paths
 
 
 class TextRuntime:
-    def __init__(self, tokenizer_path: str, weights_path: str, device: str = "cpu"):
+    def __init__(self, model_type: str = "mamba", device: str = "cpu", version: str = None):
         self.device = device
+        self.model_type = model_type
         
+        # Get configuration and paths
+        config_manager = get_config_manager()
+        weight_manager = get_weight_manager()
+        
+        self.config = config_manager.get_config(model_type)
+        self.paths = config_manager.get_paths(model_type)
+        
+        # Load tokenizer
+        tokenizer_path = self.paths['tokenizer']
         try:
             self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
             if self.tokenizer.pad_token is None:
@@ -24,7 +36,7 @@ class TextRuntime:
             
             tokenizer = Tokenizer(BPE(unk_token='[UNK]'))
             tokenizer.pre_tokenizer = Whitespace()
-            trainer = BpeTrainer(vocab_size=1000, special_tokens=["[PAD]", "[UNK]", "[BOS]", "[EOS]", "[SEP]", "[CLS]", "[MASK]"])
+            trainer = BpeTrainer(vocab_size=self.config.vocab_size, special_tokens=["[PAD]", "[UNK]", "[BOS]", "[EOS]", "[SEP]", "[CLS]", "[MASK]"])
             
             # Train on sample data
             sample_texts = ["Hello world", "This is a test", "Machine learning is interesting"]
@@ -32,8 +44,9 @@ class TextRuntime:
             tokenizer.save(tokenizer_path)
             self.tokenizer = tokenizer
         
-        # Load model configuration and weights
-        if os.path.exists(weights_path):
+        # Load model weights dynamically
+        state_dict = load_model_weights(model_type, version)
+        if state_dict:
             # Try to load as a transformer model
             try:
                 self.model = AutoModelForCausalLM.from_pretrained(
@@ -41,15 +54,13 @@ class TextRuntime:
                     torch_dtype=torch.float32,
                     device_map=device
                 )
-                if os.path.exists(weights_path):
-                    state_dict = load_file(weights_path)
-                    self.model.load_state_dict(state_dict, strict=False)
+                self.model.load_state_dict(state_dict, strict=False)
             except Exception as e:
                 print(f"Warning: Could not load model: {e}")
                 # Fallback to a simple model if loading fails
                 self.model = None
         else:
-            print(f"Warning: Weights file not found: {weights_path}")
+            print(f"Warning: No weights found for model type: {model_type}")
             self.model = None
         
         if self.model:
