@@ -1,6 +1,6 @@
 """
-Command Line Interface for OCR-Native LLM
-Interactive CLI for experimentation and testing
+Command Line Interface for Tantra v1.0
+Interactive CLI for Tantra OCR-Native LLM
 """
 
 import argparse
@@ -9,20 +9,17 @@ import json
 from typing import Dict, Any, Optional
 from pathlib import Path
 
-from src.interfaces.conversational import OCRNativeConversational, create_conversational_interface
+from src.interfaces.tantra_interface import TantraInterface
 from src.benchmarks.performance_benchmark import OCRNativeBenchmark, run_quick_benchmark
-from src.architectures.transformer_variants import TransformerVariantConfig
-from src.configs.ocr_config import ConfigManager
 from src.utils.error_handler import logger
 
 
-class OCRNativeCLI:
-    """Command Line Interface for OCR-Native LLM"""
+class TantraCLI:
+    """Command Line Interface for Tantra v1.0"""
     
     def __init__(self):
         self.parser = self._create_parser()
-        self.conversational_interface = None
-        self.current_session = None
+        self.tantra_interface = None
     
     def _create_parser(self) -> argparse.ArgumentParser:
         """Create argument parser"""
