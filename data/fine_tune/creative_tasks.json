@@ -1,0 +1,752 @@
+[
+  {
+    "id": "creative_ft_000",
+    "type": "creative_task",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Creative task 0: Write a short poem about technology."
+      },
+      {
+        "role": "assistant",
+        "content": "Creative response 0: In circuits deep and code so bright, / Technology brings forth new light. / From silicon dreams to AI's might, / We shape the future, day and night. / But wisdom guides this digital flight, / To use with care, to use it right."
+      }
+    ],
+    "context": "Creative fine-tuning 0"
+  },
+  {
+    "id": "creative_ft_001",
+    "type": "creative_task",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Creative task 1: Write a short poem about technology."
+      },
+      {
+        "role": "assistant",
+        "content": "Creative response 1: In circuits deep and code so bright, / Technology brings forth new light. / From silicon dreams to AI's might, / We shape the future, day and night. / But wisdom guides this digital flight, / To use with care, to use it right."
+      }
+    ],
+    "context": "Creative fine-tuning 1"
+  },
+  {
+    "id": "creative_ft_002",
+    "type": "creative_task",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Creative task 2: Write a short poem about technology."
+      },
+      {
+        "role": "assistant",
+        "content": "Creative response 2: In circuits deep and code so bright, / Technology brings forth new light. / From silicon dreams to AI's might, / We shape the future, day and night. / But wisdom guides this digital flight, / To use with care, to use it right."
+      }
+    ],
+    "context": "Creative fine-tuning 2"
+  },
+  {
+    "id": "creative_ft_003",
+    "type": "creative_task",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Creative task 3: Write a short poem about technology."
+      },
+      {
+        "role": "assistant",
+        "content": "Creative response 3: In circuits deep and code so bright, / Technology brings forth new light. / From silicon dreams to AI's might, / We shape the future, day and night. / But wisdom guides this digital flight, / To use with care, to use it right."
+      }
+    ],
+    "context": "Creative fine-tuning 3"
+  },
+  {
+    "id": "creative_ft_004",
+    "type": "creative_task",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Creative task 4: Write a short poem about technology."
+      },
+      {
+        "role": "assistant",
+        "content": "Creative response 4: In circuits deep and code so bright, / Technology brings forth new light. / From silicon dreams to AI's might, / We shape the future, day and night. / But wisdom guides this digital flight, / To use with care, to use it right."
+      }
+    ],
+    "context": "Creative fine-tuning 4"
+  },
+  {
+    "id": "creative_ft_005",
+    "type": "creative_task",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Creative task 5: Write a short poem about technology."
+      },
+      {
+        "role": "assistant",
+        "content": "Creative response 5: In circuits deep and code so bright, / Technology brings forth new light. / From silicon dreams to AI's might, / We shape the future, day and night. / But wisdom guides this digital flight, / To use with care, to use it right."
+      }
+    ],
+    "context": "Creative fine-tuning 5"
+  },
+  {
+    "id": "creative_ft_006",
+    "type": "creative_task",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Creative task 6: Write a short poem about technology."
+      },
+      {
+        "role": "assistant",
+        "content": "Creative response 6: In circuits deep and code so bright, / Technology brings forth new light. / From silicon dreams to AI's might, / We shape the future, day and night. / But wisdom guides this digital flight, / To use with care, to use it right."
+      }
+    ],
+    "context": "Creative fine-tuning 6"
+  },
+  {
+    "id": "creative_ft_007",
+    "type": "creative_task",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Creative task 7: Write a short poem about technology."
+      },
+      {
+        "role": "assistant",
+        "content": "Creative response 7: In circuits deep and code so bright, / Technology brings forth new light. / From silicon dreams to AI's might, / We shape the future, day and night. / But wisdom guides this digital flight, / To use with care, to use it right."
+      }
+    ],
+    "context": "Creative fine-tuning 7"
+  },
+  {
+    "id": "creative_ft_008",
+    "type": "creative_task",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Creative task 8: Write a short poem about technology."
+      },
+      {
+        "role": "assistant",
+        "content": "Creative response 8: In circuits deep and code so bright, / Technology brings forth new light. / From silicon dreams to AI's might, / We shape the future, day and night. / But wisdom guides this digital flight, / To use with care, to use it right."
+      }
+    ],
+    "context": "Creative fine-tuning 8"
+  },
+  {
+    "id": "creative_ft_009",
+    "type": "creative_task",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Creative task 9: Write a short poem about technology."
+      },
+      {
+        "role": "assistant",
+        "content": "Creative response 9: In circuits deep and code so bright, / Technology brings forth new light. / From silicon dreams to AI's might, / We shape the future, day and night. / But wisdom guides this digital flight, / To use with care, to use it right."
+      }
+    ],
+    "context": "Creative fine-tuning 9"
+  },
+  {
+    "id": "creative_ft_010",
+    "type": "creative_task",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Creative task 10: Write a short poem about technology."
+      },
+      {
+        "role": "assistant",
+        "content": "Creative response 10: In circuits deep and code so bright, / Technology brings forth new light. / From silicon dreams to AI's might, / We shape the future, day and night. / But wisdom guides this digital flight, / To use with care, to use it right."
+      }
+    ],
+    "context": "Creative fine-tuning 10"
+  },
+  {
+    "id": "creative_ft_011",
+    "type": "creative_task",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Creative task 11: Write a short poem about technology."
+      },
+      {
+        "role": "assistant",
+        "content": "Creative response 11: In circuits deep and code so bright, / Technology brings forth new light. / From silicon dreams to AI's might, / We shape the future, day and night. / But wisdom guides this digital flight, / To use with care, to use it right."
+      }
+    ],
+    "context": "Creative fine-tuning 11"
+  },
+  {
+    "id": "creative_ft_012",
+    "type": "creative_task",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Creative task 12: Write a short poem about technology."
+      },
+      {
+        "role": "assistant",
+        "content": "Creative response 12: In circuits deep and code so bright, / Technology brings forth new light. / From silicon dreams to AI's might, / We shape the future, day and night. / But wisdom guides this digital flight, / To use with care, to use it right."
+      }
+    ],
+    "context": "Creative fine-tuning 12"
+  },
+  {
+    "id": "creative_ft_013",
+    "type": "creative_task",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Creative task 13: Write a short poem about technology."
+      },
+      {
+        "role": "assistant",
+        "content": "Creative response 13: In circuits deep and code so bright, / Technology brings forth new light. / From silicon dreams to AI's might, / We shape the future, day and night. / But wisdom guides this digital flight, / To use with care, to use it right."
+      }
+    ],
+    "context": "Creative fine-tuning 13"
+  },
+  {
+    "id": "creative_ft_014",
+    "type": "creative_task",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Creative task 14: Write a short poem about technology."
+      },
+      {
+        "role": "assistant",
+        "content": "Creative response 14: In circuits deep and code so bright, / Technology brings forth new light. / From silicon dreams to AI's might, / We shape the future, day and night. / But wisdom guides this digital flight, / To use with care, to use it right."
+      }
+    ],
+    "context": "Creative fine-tuning 14"
+  },
+  {
+    "id": "creative_ft_015",
+    "type": "creative_task",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Creative task 15: Write a short poem about technology."
+      },
+      {
+        "role": "assistant",
+        "content": "Creative response 15: In circuits deep and code so bright, / Technology brings forth new light. / From silicon dreams to AI's might, / We shape the future, day and night. / But wisdom guides this digital flight, / To use with care, to use it right."
+      }
+    ],
+    "context": "Creative fine-tuning 15"
+  },
+  {
+    "id": "creative_ft_016",
+    "type": "creative_task",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Creative task 16: Write a short poem about technology."
+      },
+      {
+        "role": "assistant",
+        "content": "Creative response 16: In circuits deep and code so bright, / Technology brings forth new light. / From silicon dreams to AI's might, / We shape the future, day and night. / But wisdom guides this digital flight, / To use with care, to use it right."
+      }
+    ],
+    "context": "Creative fine-tuning 16"
+  },
+  {
+    "id": "creative_ft_017",
+    "type": "creative_task",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Creative task 17: Write a short poem about technology."
+      },
+      {
+        "role": "assistant",
+        "content": "Creative response 17: In circuits deep and code so bright, / Technology brings forth new light. / From silicon dreams to AI's might, / We shape the future, day and night. / But wisdom guides this digital flight, / To use with care, to use it right."
+      }
+    ],
+    "context": "Creative fine-tuning 17"
+  },
+  {
+    "id": "creative_ft_018",
+    "type": "creative_task",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Creative task 18: Write a short poem about technology."
+      },
+      {
+        "role": "assistant",
+        "content": "Creative response 18: In circuits deep and code so bright, / Technology brings forth new light. / From silicon dreams to AI's might, / We shape the future, day and night. / But wisdom guides this digital flight, / To use with care, to use it right."
+      }
+    ],
+    "context": "Creative fine-tuning 18"
+  },
+  {
+    "id": "creative_ft_019",
+    "type": "creative_task",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Creative task 19: Write a short poem about technology."
+      },
+      {
+        "role": "assistant",
+        "content": "Creative response 19: In circuits deep and code so bright, / Technology brings forth new light. / From silicon dreams to AI's might, / We shape the future, day and night. / But wisdom guides this digital flight, / To use with care, to use it right."
+      }
+    ],
+    "context": "Creative fine-tuning 19"
+  },
+  {
+    "id": "creative_ft_020",
+    "type": "creative_task",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Creative task 20: Write a short poem about technology."
+      },
+      {
+        "role": "assistant",
+        "content": "Creative response 20: In circuits deep and code so bright, / Technology brings forth new light. / From silicon dreams to AI's might, / We shape the future, day and night. / But wisdom guides this digital flight, / To use with care, to use it right."
+      }
+    ],
+    "context": "Creative fine-tuning 20"
+  },
+  {
+    "id": "creative_ft_021",
+    "type": "creative_task",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Creative task 21: Write a short poem about technology."
+      },
+      {
+        "role": "assistant",
+        "content": "Creative response 21: In circuits deep and code so bright, / Technology brings forth new light. / From silicon dreams to AI's might, / We shape the future, day and night. / But wisdom guides this digital flight, / To use with care, to use it right."
+      }
+    ],
+    "context": "Creative fine-tuning 21"
+  },
+  {
+    "id": "creative_ft_022",
+    "type": "creative_task",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Creative task 22: Write a short poem about technology."
+      },
+      {
+        "role": "assistant",
+        "content": "Creative response 22: In circuits deep and code so bright, / Technology brings forth new light. / From silicon dreams to AI's might, / We shape the future, day and night. / But wisdom guides this digital flight, / To use with care, to use it right."
+      }
+    ],
+    "context": "Creative fine-tuning 22"
+  },
+  {
+    "id": "creative_ft_023",
+    "type": "creative_task",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Creative task 23: Write a short poem about technology."
+      },
+      {
+        "role": "assistant",
+        "content": "Creative response 23: In circuits deep and code so bright, / Technology brings forth new light. / From silicon dreams to AI's might, / We shape the future, day and night. / But wisdom guides this digital flight, / To use with care, to use it right."
+      }
+    ],
+    "context": "Creative fine-tuning 23"
+  },
+  {
+    "id": "creative_ft_024",
+    "type": "creative_task",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Creative task 24: Write a short poem about technology."
+      },
+      {
+        "role": "assistant",
+        "content": "Creative response 24: In circuits deep and code so bright, / Technology brings forth new light. / From silicon dreams to AI's might, / We shape the future, day and night. / But wisdom guides this digital flight, / To use with care, to use it right."
+      }
+    ],
+    "context": "Creative fine-tuning 24"
+  },
+  {
+    "id": "creative_ft_025",
+    "type": "creative_task",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Creative task 25: Write a short poem about technology."
+      },
+      {
+        "role": "assistant",
+        "content": "Creative response 25: In circuits deep and code so bright, / Technology brings forth new light. / From silicon dreams to AI's might, / We shape the future, day and night. / But wisdom guides this digital flight, / To use with care, to use it right."
+      }
+    ],
+    "context": "Creative fine-tuning 25"
+  },
+  {
+    "id": "creative_ft_026",
+    "type": "creative_task",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Creative task 26: Write a short poem about technology."
+      },
+      {
+        "role": "assistant",
+        "content": "Creative response 26: In circuits deep and code so bright, / Technology brings forth new light. / From silicon dreams to AI's might, / We shape the future, day and night. / But wisdom guides this digital flight, / To use with care, to use it right."
+      }
+    ],
+    "context": "Creative fine-tuning 26"
+  },
+  {
+    "id": "creative_ft_027",
+    "type": "creative_task",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Creative task 27: Write a short poem about technology."
+      },
+      {
+        "role": "assistant",
+        "content": "Creative response 27: In circuits deep and code so bright, / Technology brings forth new light. / From silicon dreams to AI's might, / We shape the future, day and night. / But wisdom guides this digital flight, / To use with care, to use it right."
+      }
+    ],
+    "context": "Creative fine-tuning 27"
+  },
+  {
+    "id": "creative_ft_028",
+    "type": "creative_task",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Creative task 28: Write a short poem about technology."
+      },
+      {
+        "role": "assistant",
+        "content": "Creative response 28: In circuits deep and code so bright, / Technology brings forth new light. / From silicon dreams to AI's might, / We shape the future, day and night. / But wisdom guides this digital flight, / To use with care, to use it right."
+      }
+    ],
+    "context": "Creative fine-tuning 28"
+  },
+  {
+    "id": "creative_ft_029",
+    "type": "creative_task",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Creative task 29: Write a short poem about technology."
+      },
+      {
+        "role": "assistant",
+        "content": "Creative response 29: In circuits deep and code so bright, / Technology brings forth new light. / From silicon dreams to AI's might, / We shape the future, day and night. / But wisdom guides this digital flight, / To use with care, to use it right."
+      }
+    ],
+    "context": "Creative fine-tuning 29"
+  },
+  {
+    "id": "creative_ft_030",
+    "type": "creative_task",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Creative task 30: Write a short poem about technology."
+      },
+      {
+        "role": "assistant",
+        "content": "Creative response 30: In circuits deep and code so bright, / Technology brings forth new light. / From silicon dreams to AI's might, / We shape the future, day and night. / But wisdom guides this digital flight, / To use with care, to use it right."
+      }
+    ],
+    "context": "Creative fine-tuning 30"
+  },
+  {
+    "id": "creative_ft_031",
+    "type": "creative_task",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Creative task 31: Write a short poem about technology."
+      },
+      {
+        "role": "assistant",
+        "content": "Creative response 31: In circuits deep and code so bright, / Technology brings forth new light. / From silicon dreams to AI's might, / We shape the future, day and night. / But wisdom guides this digital flight, / To use with care, to use it right."
+      }
+    ],
+    "context": "Creative fine-tuning 31"
+  },
+  {
+    "id": "creative_ft_032",
+    "type": "creative_task",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Creative task 32: Write a short poem about technology."
+      },
+      {
+        "role": "assistant",
+        "content": "Creative response 32: In circuits deep and code so bright, / Technology brings forth new light. / From silicon dreams to AI's might, / We shape the future, day and night. / But wisdom guides this digital flight, / To use with care, to use it right."
+      }
+    ],
+    "context": "Creative fine-tuning 32"
+  },
+  {
+    "id": "creative_ft_033",
+    "type": "creative_task",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Creative task 33: Write a short poem about technology."
+      },
+      {
+        "role": "assistant",
+        "content": "Creative response 33: In circuits deep and code so bright, / Technology brings forth new light. / From silicon dreams to AI's might, / We shape the future, day and night. / But wisdom guides this digital flight, / To use with care, to use it right."
+      }
+    ],
+    "context": "Creative fine-tuning 33"
+  },
+  {
+    "id": "creative_ft_034",
+    "type": "creative_task",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Creative task 34: Write a short poem about technology."
+      },
+      {
+        "role": "assistant",
+        "content": "Creative response 34: In circuits deep and code so bright, / Technology brings forth new light. / From silicon dreams to AI's might, / We shape the future, day and night. / But wisdom guides this digital flight, / To use with care, to use it right."
+      }
+    ],
+    "context": "Creative fine-tuning 34"
+  },
+  {
+    "id": "creative_ft_035",
+    "type": "creative_task",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Creative task 35: Write a short poem about technology."
+      },
+      {
+        "role": "assistant",
+        "content": "Creative response 35: In circuits deep and code so bright, / Technology brings forth new light. / From silicon dreams to AI's might, / We shape the future, day and night. / But wisdom guides this digital flight, / To use with care, to use it right."
+      }
+    ],
+    "context": "Creative fine-tuning 35"
+  },
+  {
+    "id": "creative_ft_036",
+    "type": "creative_task",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Creative task 36: Write a short poem about technology."
+      },
+      {
+        "role": "assistant",
+        "content": "Creative response 36: In circuits deep and code so bright, / Technology brings forth new light. / From silicon dreams to AI's might, / We shape the future, day and night. / But wisdom guides this digital flight, / To use with care, to use it right."
+      }
+    ],
+    "context": "Creative fine-tuning 36"
+  },
+  {
+    "id": "creative_ft_037",
+    "type": "creative_task",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Creative task 37: Write a short poem about technology."
+      },
+      {
+        "role": "assistant",
+        "content": "Creative response 37: In circuits deep and code so bright, / Technology brings forth new light. / From silicon dreams to AI's might, / We shape the future, day and night. / But wisdom guides this digital flight, / To use with care, to use it right."
+      }
+    ],
+    "context": "Creative fine-tuning 37"
+  },
+  {
+    "id": "creative_ft_038",
+    "type": "creative_task",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Creative task 38: Write a short poem about technology."
+      },
+      {
+        "role": "assistant",
+        "content": "Creative response 38: In circuits deep and code so bright, / Technology brings forth new light. / From silicon dreams to AI's might, / We shape the future, day and night. / But wisdom guides this digital flight, / To use with care, to use it right."
+      }
+    ],
+    "context": "Creative fine-tuning 38"
+  },
+  {
+    "id": "creative_ft_039",
+    "type": "creative_task",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Creative task 39: Write a short poem about technology."
+      },
+      {
+        "role": "assistant",
+        "content": "Creative response 39: In circuits deep and code so bright, / Technology brings forth new light. / From silicon dreams to AI's might, / We shape the future, day and night. / But wisdom guides this digital flight, / To use with care, to use it right."
+      }
+    ],
+    "context": "Creative fine-tuning 39"
+  },
+  {
+    "id": "creative_ft_040",
+    "type": "creative_task",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Creative task 40: Write a short poem about technology."
+      },
+      {
+        "role": "assistant",
+        "content": "Creative response 40: In circuits deep and code so bright, / Technology brings forth new light. / From silicon dreams to AI's might, / We shape the future, day and night. / But wisdom guides this digital flight, / To use with care, to use it right."
+      }
+    ],
+    "context": "Creative fine-tuning 40"
+  },
+  {
+    "id": "creative_ft_041",
+    "type": "creative_task",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Creative task 41: Write a short poem about technology."
+      },
+      {
+        "role": "assistant",
+        "content": "Creative response 41: In circuits deep and code so bright, / Technology brings forth new light. / From silicon dreams to AI's might, / We shape the future, day and night. / But wisdom guides this digital flight, / To use with care, to use it right."
+      }
+    ],
+    "context": "Creative fine-tuning 41"
+  },
+  {
+    "id": "creative_ft_042",
+    "type": "creative_task",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Creative task 42: Write a short poem about technology."
+      },
+      {
+        "role": "assistant",
+        "content": "Creative response 42: In circuits deep and code so bright, / Technology brings forth new light. / From silicon dreams to AI's might, / We shape the future, day and night. / But wisdom guides this digital flight, / To use with care, to use it right."
+      }
+    ],
+    "context": "Creative fine-tuning 42"
+  },
+  {
+    "id": "creative_ft_043",
+    "type": "creative_task",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Creative task 43: Write a short poem about technology."
+      },
+      {
+        "role": "assistant",
+        "content": "Creative response 43: In circuits deep and code so bright, / Technology brings forth new light. / From silicon dreams to AI's might, / We shape the future, day and night. / But wisdom guides this digital flight, / To use with care, to use it right."
+      }
+    ],
+    "context": "Creative fine-tuning 43"
+  },
+  {
+    "id": "creative_ft_044",
+    "type": "creative_task",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Creative task 44: Write a short poem about technology."
+      },
+      {
+        "role": "assistant",
+        "content": "Creative response 44: In circuits deep and code so bright, / Technology brings forth new light. / From silicon dreams to AI's might, / We shape the future, day and night. / But wisdom guides this digital flight, / To use with care, to use it right."
+      }
+    ],
+    "context": "Creative fine-tuning 44"
+  },
+  {
+    "id": "creative_ft_045",
+    "type": "creative_task",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Creative task 45: Write a short poem about technology."
+      },
+      {
+        "role": "assistant",
+        "content": "Creative response 45: In circuits deep and code so bright, / Technology brings forth new light. / From silicon dreams to AI's might, / We shape the future, day and night. / But wisdom guides this digital flight, / To use with care, to use it right."
+      }
+    ],
+    "context": "Creative fine-tuning 45"
+  },
+  {
+    "id": "creative_ft_046",
+    "type": "creative_task",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Creative task 46: Write a short poem about technology."
+      },
+      {
+        "role": "assistant",
+        "content": "Creative response 46: In circuits deep and code so bright, / Technology brings forth new light. / From silicon dreams to AI's might, / We shape the future, day and night. / But wisdom guides this digital flight, / To use with care, to use it right."
+      }
+    ],
+    "context": "Creative fine-tuning 46"
+  },
+  {
+    "id": "creative_ft_047",
+    "type": "creative_task",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Creative task 47: Write a short poem about technology."
+      },
+      {
+        "role": "assistant",
+        "content": "Creative response 47: In circuits deep and code so bright, / Technology brings forth new light. / From silicon dreams to AI's might, / We shape the future, day and night. / But wisdom guides this digital flight, / To use with care, to use it right."
+      }
+    ],
+    "context": "Creative fine-tuning 47"
+  },
+  {
+    "id": "creative_ft_048",
+    "type": "creative_task",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Creative task 48: Write a short poem about technology."
+      },
+      {
+        "role": "assistant",
+        "content": "Creative response 48: In circuits deep and code so bright, / Technology brings forth new light. / From silicon dreams to AI's might, / We shape the future, day and night. / But wisdom guides this digital flight, / To use with care, to use it right."
+      }
+    ],
+    "context": "Creative fine-tuning 48"
+  },
+  {
+    "id": "creative_ft_049",
+    "type": "creative_task",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Creative task 49: Write a short poem about technology."
+      },
+      {
+        "role": "assistant",
+        "content": "Creative response 49: In circuits deep and code so bright, / Technology brings forth new light. / From silicon dreams to AI's might, / We shape the future, day and night. / But wisdom guides this digital flight, / To use with care, to use it right."
+      }
+    ],
+    "context": "Creative fine-tuning 49"
+  }
+]
