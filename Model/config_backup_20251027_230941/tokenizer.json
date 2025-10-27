@@ -1,0 +1,269 @@
+{
+  "version": "1.0",
+  "truncation": null,
+  "padding": null,
+  "added_tokens": [
+    {
+      "id": 0,
+      "content": "[PAD]",
+      "single_word": false,
+      "lstrip": false,
+      "rstrip": false,
+      "normalized": false,
+      "special": true
+    },
+    {
+      "id": 1,
+      "content": "[UNK]",
+      "single_word": false,
+      "lstrip": false,
+      "rstrip": false,
+      "normalized": false,
+      "special": true
+    },
+    {
+      "id": 2,
+      "content": "[BOS]",
+      "single_word": false,
+      "lstrip": false,
+      "rstrip": false,
+      "normalized": false,
+      "special": true
+    },
+    {
+      "id": 3,
+      "content": "[EOS]",
+      "single_word": false,
+      "lstrip": false,
+      "rstrip": false,
+      "normalized": false,
+      "special": true
+    },
+    {
+      "id": 4,
+      "content": "[SEP]",
+      "single_word": false,
+      "lstrip": false,
+      "rstrip": false,
+      "normalized": false,
+      "special": true
+    },
+    {
+      "id": 5,
+      "content": "[CLS]",
+      "single_word": false,
+      "lstrip": false,
+      "rstrip": false,
+      "normalized": false,
+      "special": true
+    },
+    {
+      "id": 6,
+      "content": "[MASK]",
+      "single_word": false,
+      "lstrip": false,
+      "rstrip": false,
+      "normalized": false,
+      "special": true
+    }
+  ],
+  "normalizer": null,
+  "pre_tokenizer": {
+    "type": "Whitespace"
+  },
+  "post_processor": null,
+  "decoder": null,
+  "model": {
+    "type": "BPE",
+    "dropout": null,
+    "unk_token": "[UNK]",
+    "continuing_subword_prefix": null,
+    "end_of_word_suffix": null,
+    "fuse_unk": false,
+    "byte_fallback": false,
+    "ignore_merges": false,
+    "vocab": {
+      "[PAD]": 0,
+      "[UNK]": 1,
+      "[BOS]": 2,
+      "[EOS]": 3,
+      "[SEP]": 4,
+      "[CLS]": 5,
+      "[MASK]": 6,
+      "H": 7,
+      "M": 8,
+      "T": 9,
+      "a": 10,
+      "c": 11,
+      "d": 12,
+      "e": 13,
+      "g": 14,
+      "h": 15,
+      "i": 16,
+      "l": 17,
+      "n": 18,
+      "o": 19,
+      "r": 20,
+      "s": 21,
+      "t": 22,
+      "w": 23,
+      "in": 24,
+      "is": 25,
+      "es": 26,
+      "ing": 27,
+      "est": 28,
+      "He": 29,
+      "Ma": 30,
+      "Th": 31,
+      "ar": 32,
+      "ch": 33,
+      "er": 34,
+      "ear": 35,
+      "ld": 36,
+      "ll": 37,
+      "lear": 38,
+      "ning": 39,
+      "or": 40,
+      "test": 41,
+      "ter": 42,
+      "wor": 43,
+      "ine": 44,
+      "inter": 45,
+      "esting": 46,
+      "Hell": 47,
+      "Mach": 48,
+      "This": 49,
+      "learning": 50,
+      "world": 51,
+      "interesting": 52,
+      "Hello": 53,
+      "Machine": 54
+    },
+    "merges": [
+      [
+        "i",
+        "n"
+      ],
+      [
+        "i",
+        "s"
+      ],
+      [
+        "e",
+        "s"
+      ],
+      [
+        "in",
+        "g"
+      ],
+      [
+        "es",
+        "t"
+      ],
+      [
+        "H",
+        "e"
+      ],
+      [
+        "M",
+        "a"
+      ],
+      [
+        "T",
+        "h"
+      ],
+      [
+        "a",
+        "r"
+      ],
+      [
+        "c",
+        "h"
+      ],
+      [
+        "e",
+        "r"
+      ],
+      [
+        "e",
+        "ar"
+      ],
+      [
+        "l",
+        "d"
+      ],
+      [
+        "l",
+        "l"
+      ],
+      [
+        "l",
+        "ear"
+      ],
+      [
+        "n",
+        "ing"
+      ],
+      [
+        "o",
+        "r"
+      ],
+      [
+        "t",
+        "est"
+      ],
+      [
+        "t",
+        "er"
+      ],
+      [
+        "w",
+        "or"
+      ],
+      [
+        "in",
+        "e"
+      ],
+      [
+        "in",
+        "ter"
+      ],
+      [
+        "est",
+        "ing"
+      ],
+      [
+        "He",
+        "ll"
+      ],
+      [
+        "Ma",
+        "ch"
+      ],
+      [
+        "Th",
+        "is"
+      ],
+      [
+        "lear",
+        "ning"
+      ],
+      [
+        "wor",
+        "ld"
+      ],
+      [
+        "inter",
+        "esting"
+      ],
+      [
+        "Hell",
+        "o"
+      ],
+      [
+        "Mach",
+        "ine"
+      ]
+    ]
+  }
+}

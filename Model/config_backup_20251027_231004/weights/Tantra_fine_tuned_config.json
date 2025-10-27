@@ -1,0 +1,24 @@
+{
+  "tantra_config": {
+    "d_model": 1024,
+    "n_layers": 16,
+    "n_heads": 8,
+    "d_ff": 4096,
+    "vocab_size": 50000,
+    "max_seq_length": 4096
+  },
+  "model_info": {
+    "name": "Tantra v1.0",
+    "total_parameters": 789940048,
+    "trainable_parameters": 789940048,
+    "model_size_mb": 3013.3821411132812,
+    "d_model": 1024,
+    "n_layers": 16,
+    "n_heads": 8,
+    "vocab_size": 50000,
+    "max_seq_length": 4096,
+    "model_type": "tantra_multimodal"
+  },
+  "fine_tuned": true,
+  "fine_tune_timestamp": 1761583385.806138
+}

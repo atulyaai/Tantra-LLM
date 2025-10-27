@@ -1,0 +1,15 @@
+{
+  "weights": {
+    "Tantra_v1.0": {
+      "name": "Tantra_v1.0",
+      "path": "/workspace/Model/weights/Tantra_v1.0.pt",
+      "size_mb": 19.101428985595703,
+      "created_at": "2025-10-27T01:11:10.624113",
+      "model_type": "tantra_multimodal",
+      "version": "v1.0",
+      "checksum": "534d5169423b1b24b0652187ce50e72b",
+      "is_active": true
+    }
+  },
+  "last_updated": "2025-10-27T01:11:10.653480"
+}
