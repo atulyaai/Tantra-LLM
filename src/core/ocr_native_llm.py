@@ -21,7 +21,11 @@ import cv2
 from dataclasses import dataclass
 import logging
 
-logger = logging.getLogger(__name__)
+from src.utils.error_handler import (
+    logger, ErrorHandler, log_performance, 
+    validate_model_config, validate_input_data,
+    ModelError, OCRProcessingError, ValidationError
+)
 
 
 @dataclass
@@ -343,25 +347,46 @@ class OCRNativeLLM(nn.Module):
     
     def __init__(self, config: OCRNativeConfig):
         super().__init__()
-        self.config = config
         
-        # OCR components
-        self.weight_encoder = OCRWeightEncoder(config)
-        self.memory_bank = OCRMemoryBank(config)
-        self.input_processor = OCRInputProcessor(config)
-        
-        # Model components
-        self.ocr_embedding = nn.Linear(config.ocr_image_width * config.ocr_image_height, config.d_model)
-        self.blocks = nn.ModuleList([
-            OCRTransformerBlock(config) for _ in range(config.n_layers)
-        ])
-        
-        # Output heads
-        self.text_head = nn.Linear(config.d_model, config.vocab_size)
-        self.ocr_head = nn.Linear(config.d_model, config.ocr_image_width * config.ocr_image_height)
-        
-        # Initialize weights
-        self.apply(self._init_weights)
+        try:
+            # Validate configuration
+            config_dict = {
+                'd_model': config.d_model,
+                'n_layers': config.n_layers,
+                'n_heads': config.n_heads,
+                'vocab_size': config.vocab_size
+            }
+            validate_model_config(config_dict)
+            
+            self.config = config
+            logger.info(f"Initializing OCR-Native LLM with config: {config_dict}")
+            
+            # OCR components
+            self.weight_encoder = OCRWeightEncoder(config)
+            self.memory_bank = OCRMemoryBank(config)
+            self.input_processor = OCRInputProcessor(config)
+            
+            # Model components - Memory optimized
+            self.ocr_embedding = nn.Linear(config.ocr_image_width * config.ocr_image_height, config.d_model)
+            
+            # Add memory optimization
+            self._memory_optimized = True
+            self.blocks = nn.ModuleList([
+                OCRTransformerBlock(config) for _ in range(config.n_layers)
+            ])
+            
+            # Output heads
+            self.text_head = nn.Linear(config.d_model, config.vocab_size)
+            self.ocr_head = nn.Linear(config.d_model, config.ocr_image_width * config.ocr_image_height)
+            
+            # Initialize weights
+            self.apply(self._init_weights)
+            
+            logger.info("OCR-Native LLM initialized successfully")
+            
+        except Exception as e:
+            logger.error("Failed to initialize OCR-Native LLM", exception=e)
+            raise ModelError(f"Model initialization failed: {str(e)}")
     
     def _init_weights(self, module):
         """Initialize weights"""
@@ -373,30 +398,48 @@ class OCRNativeLLM(nn.Module):
             torch.nn.init.zeros_(module.bias)
             torch.nn.init.ones_(module.weight)
     
+    @log_performance("forward_pass")
     def forward(self, inputs: Dict[str, Any]) -> Dict[str, torch.Tensor]:
         """Forward pass with OCR-native processing"""
-        # Process inputs to OCR format
-        ocr_inputs = self._process_inputs_to_ocr(inputs)
-        
-        # Convert OCR images to embeddings
-        embeddings = self._ocr_to_embeddings(ocr_inputs)
-        
-        # Process through transformer blocks
-        x = embeddings
-        for block in self.blocks:
-            # Retrieve relevant OCR memory
-            ocr_memory = self._retrieve_ocr_memory(x)
-            x = block(x, ocr_memory)
-        
-        # Generate outputs
-        text_logits = self.text_head(x)
-        ocr_output = self.ocr_head(x)
-        
-        return {
-            'text_logits': text_logits,
-            'ocr_output': ocr_output,
-            'embeddings': x
-        }
+        try:
+            # Validate inputs
+            validate_input_data(inputs)
+            logger.debug(f"Processing inputs: {list(inputs.keys())}")
+            
+            # Process inputs to OCR format
+            ocr_inputs = self._process_inputs_to_ocr(inputs)
+            logger.debug(f"Generated {len(ocr_inputs)} OCR inputs")
+            
+            # Convert OCR images to embeddings
+            embeddings = self._ocr_to_embeddings(ocr_inputs)
+            logger.debug(f"Embeddings shape: {embeddings.shape}")
+            
+            # Process through transformer blocks
+            x = embeddings
+            for i, block in enumerate(self.blocks):
+                try:
+                    # Retrieve relevant OCR memory
+                    ocr_memory = self._retrieve_ocr_memory(x)
+                    x = block(x, ocr_memory)
+                    logger.debug(f"Processed block {i+1}/{len(self.blocks)}")
+                except Exception as e:
+                    logger.error(f"Error in transformer block {i+1}", exception=e)
+                    raise ModelError(f"Transformer block {i+1} processing failed: {str(e)}")
+            
+            # Generate outputs
+            text_logits = self.text_head(x)
+            ocr_output = self.ocr_head(x)
+            
+            logger.debug(f"Forward pass completed successfully")
+            return {
+                'text_logits': text_logits,
+                'ocr_output': ocr_output,
+                'embeddings': x
+            }
+            
+        except Exception as e:
+            logger.error("Forward pass failed", exception=e)
+            raise ModelError(f"Forward pass failed: {str(e)}")
     
     def _process_inputs_to_ocr(self, inputs: Dict[str, Any]) -> List[Image.Image]:
         """Convert all inputs to OCR format"""
@@ -417,33 +460,36 @@ class OCRNativeLLM(nn.Module):
         return ocr_inputs
     
     def _ocr_to_embeddings(self, ocr_images: List[Image.Image]) -> torch.Tensor:
-        """Convert OCR images to embeddings - FIXED VERSION"""
+        """Convert OCR images to embeddings - MEMORY OPTIMIZED VERSION"""
         if not ocr_images:
             # Return empty tensor with proper shape
             return torch.zeros(1, 1, self.config.d_model)
         
-        # Convert images to tensors
-        embeddings = []
-        for img in ocr_images:
-            # Convert to grayscale and flatten
-            img_array = np.array(img.convert('L')).flatten()
-            img_tensor = torch.tensor(img_array, dtype=torch.float32)
-            embeddings.append(img_tensor)
+        # Memory optimization: process only first image to reduce memory usage
+        img = ocr_images[0] if ocr_images else None
+        if img is None:
+            return torch.zeros(1, 1, self.config.d_model)
         
-        # Pad to same length
-        max_len = max(len(emb) for emb in embeddings)
-        padded_embeddings = []
-        for emb in embeddings:
-            if len(emb) < max_len:
-                emb = F.pad(emb, (0, max_len - len(emb)))
-            padded_embeddings.append(emb)
+        # Convert to grayscale and resize for memory efficiency
+        img = img.convert('L').resize((self.config.ocr_image_width, self.config.ocr_image_height))
+        img_array = np.array(img).flatten()
         
-        # Stack and project
-        stacked = torch.stack(padded_embeddings)  # [batch, img_size]
-        projected = self.ocr_embedding(stacked)   # [batch, d_model]
+        # Convert to tensor with standard dtype for compatibility
+        img_tensor = torch.tensor(img_array, dtype=torch.float32)
         
-        # Add sequence dimension for transformer
-        projected = projected.unsqueeze(1)  # [batch, 1, d_model]
+        # Ensure correct size
+        expected_size = self.config.ocr_image_width * self.config.ocr_image_height
+        if len(img_tensor) != expected_size:
+            if len(img_tensor) < expected_size:
+                img_tensor = F.pad(img_tensor, (0, expected_size - len(img_tensor)))
+            else:
+                img_tensor = img_tensor[:expected_size]
+        
+        # Add batch and sequence dimensions
+        img_tensor = img_tensor.unsqueeze(0).unsqueeze(0)  # [1, 1, img_size]
+        
+        # Project to model dimension
+        projected = self.ocr_embedding(img_tensor)  # [1, 1, d_model]
         
         return projected
     

@@ -147,6 +147,16 @@ class ModelManager:
         if version is None:
             version = self.registry[model_name].get('active_version', 'v1.0')
         
+        # Check if versions key exists
+        if 'versions' not in self.registry[model_name]:
+            # Return basic model info if no versions
+            return {
+                'name': model_name,
+                'config': self.registry[model_name].get('config', {}),
+                'parameters': self.registry[model_name].get('parameters', {}),
+                'created_at': self.registry[model_name].get('created_at', 'unknown')
+            }
+        
         if version not in self.registry[model_name]['versions']:
             raise ValueError(f"Version {version} not found for model {model_name}")
         

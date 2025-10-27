@@ -101,16 +101,19 @@ class ConfigManager:
     
     @staticmethod
     def get_small_config() -> OCRNativeConfig:
-        """Get small configuration for testing"""
+        """Get small configuration for testing - OPTIMIZED FOR MEMORY"""
         return OCRNativeConfig(
-            d_model=256,
-            n_layers=6,
-            n_heads=8,
-            d_ff=1024,
-            vocab_size=10000,
-            max_seq_length=2048,
-            memory_window_size=10000,
-            ocr_memory_bank_size=100
+            d_model=128,  # Reduced from 256
+            n_layers=4,   # Reduced from 6
+            n_heads=4,    # Reduced from 8
+            d_ff=512,     # Reduced from 1024
+            vocab_size=5000,  # Reduced from 10000
+            max_seq_length=1024,  # Reduced from 2048
+            memory_window_size=5000,  # Reduced from 10000
+            ocr_memory_bank_size=50,  # Reduced from 100
+            ocr_image_width=512,  # Reduced from 1024
+            ocr_image_height=512,  # Reduced from 1024
+            batch_size=1  # Ensure small batch size
         )
     
     @staticmethod
