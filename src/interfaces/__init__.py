@@ -1,14 +1,13 @@
 """
-Interactive Interfaces for OCR-Native LLM
-Conversational, web, and CLI interfaces
+Interactive Interfaces for Tantra v1.0
+Tantra interface and CLI
 """
 
-from .conversational import *
-from .cli_interface import *
+from .tantra_interface import *
+from .tantra_cli import *
 
 __all__ = [
-    'OCRNativeConversational',
-    'OCRNativeCLI',
-    'create_conversational_interface',
+    'TantraInterface',
+    'TantraCLI',
     'quick_chat'
 ]
