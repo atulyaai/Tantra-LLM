@@ -1,5 +1,5 @@
 """
-OCR-Native LLM Model Manager
+Tantra v1.0 Model Manager
 Clean model loading, saving, and management
 """
 
@@ -11,16 +11,15 @@ from typing import Dict, Any, Optional, List
 from pathlib import Path
 import logging
 
-from src.core.ocr_native_llm import OCRNativeLLM
-from src.configs.ocr_config import OCRNativeConfig, ConfigManager
+from src.core.tantra_llm import TantraLLM, TantraConfig
 
 logger = logging.getLogger(__name__)
 
 
-class ModelManager:
-    """Manages OCR-Native LLM models"""
+class TantraModelManager:
+    """Manages Tantra v1.0 models"""
     
-    def __init__(self, model_dir: str = "models"):
+    def __init__(self, model_dir: str = "Model"):
         self.model_dir = Path(model_dir)
         self.model_dir.mkdir(exist_ok=True)
         self.weights_dir = self.model_dir / "weights"
@@ -44,9 +43,9 @@ class ModelManager:
         with open(self.registry_file, 'w') as f:
             json.dump(self.registry, f, indent=2)
     
-    def create_model(self, config: OCRNativeConfig, model_name: str = "ocr_native") -> OCRNativeLLM:
-        """Create a new OCR-Native LLM model"""
-        model = OCRNativeLLM(config)
+    def create_model(self, config: TantraConfig, model_name: str = "Tantra_v1.0") -> TantraLLM:
+        """Create a new Tantra v1.0 model"""
+        model = TantraLLM(config)
         
         # Save model info
         model_info = {
@@ -68,15 +67,23 @@ class ModelManager:
         
         return model
     
-    def save_model(self, model: OCRNativeLLM, model_name: str, version: str = "v1.0"):
+    def save_model(self, model: TantraLLM, model_name: str, version: str = "v1.0"):
         """Save model weights and configuration"""
         # Save weights
         weights_path = self.weights_dir / f"{model_name}_{version}.pt"
         torch.save(model.state_dict(), weights_path)
         
         # Save config
-        config_path = self.configs_dir / f"{model_name}_{version}.yaml"
-        ConfigManager.save_config(model.config, str(config_path))
+        config_path = self.configs_dir / f"{model_name}_{version}.json"
+        with open(config_path, 'w') as f:
+            json.dump({
+                'd_model': model.config.d_model,
+                'n_layers': model.config.n_layers,
+                'n_heads': model.config.n_heads,
+                'd_ff': model.config.d_ff,
+                'vocab_size': model.config.vocab_size,
+                'max_seq_length': model.config.max_seq_length
+            }, f, indent=2)
         
         # Update registry
         if model_name not in self.registry:
@@ -97,7 +104,7 @@ class ModelManager:
         logger.info(f"Model {model_name} v{version} saved successfully")
         return str(weights_path)
     
-    def load_model(self, model_name: str, version: Optional[str] = None) -> OCRNativeLLM:
+    def load_model(self, model_name: str, version: Optional[str] = None) -> TantraLLM:
         """Load model from saved weights"""
         if model_name not in self.registry:
             raise ValueError(f"Model {model_name} not found in registry")
@@ -112,10 +119,13 @@ class ModelManager:
         
         # Load config
         config_path = model_info['config_path']
-        config = ConfigManager.load_config(config_path)
+        with open(config_path, 'r') as f:
+            config_data = json.load(f)
+        
+        config = TantraConfig(**config_data)
         
         # Create model
-        model = OCRNativeLLM(config)
+        model = TantraLLM(config)
         
         # Load weights
         weights_path = model_info['weights_path']
@@ -188,10 +198,10 @@ class ModelManager:
         self._save_registry()
         logger.info(f"Model {model_name} v{version or 'all'} deleted successfully")
     
-    def generate_weights(self, model_name: str = "ocr_native", version: str = "v1.0"):
+    def generate_weights(self, model_name: str = "Tantra_v1.0", version: str = "v1.0"):
         """Generate and save model weights"""
         # Create model with default config
-        config = ConfigManager.get_default_config()
+        config = TantraConfig()
         model = self.create_model(config, model_name)
         
         # Save model
