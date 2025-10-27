@@ -28,7 +28,7 @@ class Mamba3Config:
     vision_dim: int = 512
     
     # Dynamic vocabulary
-    initial_vocab_size: int = 32000
+    initial_vocab_size: int = 50000
     max_vocab_size: int = 100000
     vocab_growth_threshold: float = 0.8
     
@@ -60,7 +60,7 @@ class Mamba3Config:
 class DynamicVocabulary:
     """Dynamic vocabulary that grows during training"""
     
-    def __init__(self, initial_vocab_size: int = 32000, max_vocab_size: int = 100000):
+    def __init__(self, initial_vocab_size: int = 50000, max_vocab_size: int = 100000):
         self.initial_vocab_size = initial_vocab_size
         self.max_vocab_size = max_vocab_size
         self.current_vocab_size = initial_vocab_size

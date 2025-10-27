@@ -36,7 +36,7 @@ def iter_texts(paths: List[str]) -> List[str]:
     return texts
 
 
-def train_tokenizer(texts: List[str], out_path: str, vocab_size: int = 32000):
+def train_tokenizer(texts: List[str], out_path: str, vocab_size: int = 50000):
     from tokenizers import Tokenizer
     from tokenizers.models import BPE
     from tokenizers.trainers import BpeTrainer
@@ -69,7 +69,7 @@ if __name__ == '__main__':
     ap = argparse.ArgumentParser()
     ap.add_argument('--input_glob', required=True, help='e.g. Dataset/*.jsonl or Dataset/*.txt')
     ap.add_argument('--out', required=True, help='Model/tokenizer.json')
-    ap.add_argument('--vocab_size', type=int, default=32000)
+    ap.add_argument('--vocab_size', type=int, default=50000)
     args = ap.parse_args()
 
     # Create Model directory if it doesn't exist
