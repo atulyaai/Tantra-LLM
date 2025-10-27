@@ -13,9 +13,9 @@ import os
 # Add src to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
-from src.core.ocr_native_llm import OCRNativeLLM, OCRNativeConfig
-from src.configs.ocr_config import ConfigManager
-from src.models.model_manager import ModelManager
+from src.core.tantra_llm import TantraLLM, TantraConfig
+# from src.configs.ocr_config import ConfigManager
+from src.models.model_manager import TantraModelManager
 
 
 class TestOCRNativeLLM(unittest.TestCase):
@@ -24,8 +24,8 @@ class TestOCRNativeLLM(unittest.TestCase):
     def setUp(self):
         """Set up test fixtures"""
         # Use small config for testing
-        self.config = ConfigManager.get_small_config()
-        self.model = OCRNativeLLM(self.config)
+        self.config = TantraConfig(d_model=256, n_layers=4, n_heads=4, vocab_size=1000)
+        self.model = TantraLLM(self.config)
         
         # Test inputs
         self.test_inputs = {
@@ -36,7 +36,7 @@ class TestOCRNativeLLM(unittest.TestCase):
     
     def test_model_initialization(self):
         """Test model initialization"""
-        self.assertIsInstance(self.model, OCRNativeLLM)
+        self.assertIsInstance(self.model, TantraLLM)
         self.assertEqual(self.model.config.d_model, self.config.d_model)
         self.assertEqual(len(self.model.blocks), self.config.n_layers)
     
@@ -164,14 +164,14 @@ class TestModelManager(unittest.TestCase):
     
     def setUp(self):
         """Set up test fixtures"""
-        self.model_manager = ModelManager("test_models")
-        self.config = ConfigManager.get_small_config()
+        self.model_manager = TantraModelManager("test_models")
+        self.config = TantraConfig(d_model=256, n_layers=4, n_heads=4, vocab_size=1000)
     
     def test_model_creation(self):
         """Test model creation"""
         try:
             model = self.model_manager.create_model(self.config, "test_model")
-            self.assertIsInstance(model, OCRNativeLLM)
+            self.assertIsInstance(model, TantraLLM)
             
             print("✓ Model creation test passed")
             
@@ -187,7 +187,7 @@ class TestModelManager(unittest.TestCase):
             
             # Load model
             loaded_model = self.model_manager.load_model("test_save_load", "v1.0")
-            self.assertIsInstance(loaded_model, OCRNativeLLM)
+            self.assertIsInstance(loaded_model, TantraLLM)
             
             print("✓ Model saving/loading test passed")
             
