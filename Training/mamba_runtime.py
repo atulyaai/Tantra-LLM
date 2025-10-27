@@ -5,13 +5,34 @@ import torch
 from safetensors.torch import load_file
 
 from Training.model_mamba import build_from_config
+from weight_manager import get_weight_manager, load_model_weights
+from config_manager import get_config_manager, get_model_paths
 
 
 class MambaRuntime:
-    def __init__(self, tokenizer_path: str, weights_path: str, cfg: Dict[str, Any]):
+    def __init__(self, model_type: str = "mamba", version: str = None, cfg: Dict[str, Any] = None):
         from tokenizers import Tokenizer
         
-        # Check if tokenizer file exists
+        # Get configuration and paths
+        config_manager = get_config_manager()
+        weight_manager = get_weight_manager()
+        
+        self.config = config_manager.get_config(model_type)
+        self.paths = config_manager.get_paths(model_type)
+        self.model_type = model_type
+        
+        # Use provided config or default config
+        if cfg is None:
+            cfg = {
+                'd_model': self.config.d_model,
+                'n_layers': self.config.n_layers,
+                'd_state': self.config.d_state,
+                'd_conv': self.config.d_conv,
+                'dropout': self.config.dropout
+            }
+        
+        # Load tokenizer
+        tokenizer_path = self.paths['tokenizer']
         if not os.path.exists(tokenizer_path):
             print(f"Warning: Tokenizer file not found: {tokenizer_path}. Creating basic tokenizer...")
             # Create a basic tokenizer
@@ -22,7 +43,7 @@ class MambaRuntime:
             
             tokenizer = Tokenizer(BPE(unk_token='[UNK]'))
             tokenizer.pre_tokenizer = Whitespace()
-            trainer = BpeTrainer(vocab_size=1000, special_tokens=["[PAD]", "[UNK]", "[BOS]", "[EOS]", "[SEP]", "[CLS]", "[MASK]"])
+            trainer = BpeTrainer(vocab_size=self.config.vocab_size, special_tokens=["[PAD]", "[UNK]", "[BOS]", "[EOS]", "[SEP]", "[CLS]", "[MASK]"])
             
             # Train on sample data
             sample_texts = ["Hello world", "This is a test", "Machine learning is interesting"]
@@ -34,16 +55,16 @@ class MambaRuntime:
         vocab_size = self.tokenizer.get_vocab_size()
         self.model = build_from_config(cfg, vocab_size)
         
-        # Load weights if they exist
-        if os.path.exists(weights_path):
+        # Load weights dynamically
+        state_dict = load_model_weights(model_type, version)
+        if state_dict:
             try:
-                state = load_file(weights_path)
-                self.model.load_state_dict(state, strict=False)
-                print(f"Loaded weights from {weights_path}")
+                self.model.load_state_dict(state_dict, strict=False)
+                print(f"Loaded weights for {model_type}")
             except Exception as e:
-                print(f"Warning: Could not load weights from {weights_path}: {e}")
+                print(f"Warning: Could not load weights: {e}")
         else:
-            print(f"Warning: Weights file not found: {weights_path}. Using randomly initialized model.")
+            print(f"Warning: No weights found for {model_type}. Using randomly initialized model.")
         
         self.model.eval()
 

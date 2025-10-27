@@ -75,14 +75,18 @@ def ensure_runtime():
         try:
             serve_cfg = load_yaml("Config/serve.yaml")
             arch = serve_cfg.get("inference", {}).get("architecture", "mamba")
-            tok = serve_cfg.get("paths", {}).get("tokenizer", "Model/tokenizer.json")
-            wts = serve_cfg.get("paths", {}).get("weights", "Model/tantra_weights.safetensors")
+            
+            # Use dynamic weight management
+            from config_manager import get_config_manager
+            config_manager = get_config_manager()
+            
+            # Get model type from architecture
+            model_type = arch if arch in ["mamba", "mamba_multimodal", "ocr_native"] else "mamba"
             
             if arch == "mamba":
-                mcfg = serve_cfg.get("model", {"d_model": 512, "n_layers": 8, "d_state": 32, "d_conv": 4, "dropout": 0.1})
-                _runtime = MambaRuntime(tok, wts, mcfg)
+                _runtime = MambaRuntime(model_type=model_type)
             else:
-                _runtime = TextRuntime(tok, wts, device="cpu")
+                _runtime = TextRuntime(model_type=model_type, device="cpu")
         except Exception as e:
             print(f"Error initializing runtime: {e}")
             # Create a fallback runtime

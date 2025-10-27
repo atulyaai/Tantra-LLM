@@ -109,9 +109,20 @@ if __name__ == '__main__':
     model_cfg: Dict[str, Any] = cfg.get('model', {})
 
     tokenizer_path = cfg['paths']['tokenizer']
-    weights_path = cfg['paths']['weights']
-    backup_path = cfg['paths']['weights_backup']
-
+    # Use dynamic weight management
+    from weight_manager import get_weight_manager, save_model_weights
+    from config_manager import get_config_manager
+    
+    weight_manager = get_weight_manager()
+    config_manager = get_config_manager()
+    
+    # Get model type from config or default to mamba
+    model_type = cfg.get('model_type', 'mamba')
+    paths = config_manager.get_paths(model_type)
+    
+    weights_path = paths['weights']
+    backup_path = paths['weights_backup']
+    
     Path(os.path.dirname(weights_path)).mkdir(parents=True, exist_ok=True)
 
     tokenizer = Tokenizer.from_file(tokenizer_path)
@@ -119,13 +130,14 @@ if __name__ == '__main__':
     device = 'cpu'
     model = build_from_config(model_cfg, vocab_size).to(device)
     # optional warm-start from existing weights
-    if train_cfg.get('init_from_existing', True) and os.path.exists(weights_path):
-        try:
-            state = load_file(weights_path)
-            model.load_state_dict(state, strict=False)
-            print('Loaded existing weights for warm-start')
-        except Exception as e:
-            print(f'Warm-start skipped: {e}')
+    if train_cfg.get('init_from_existing', True):
+        state_dict = weight_manager.load_weights(model_type)
+        if state_dict:
+            try:
+                model.load_state_dict(state_dict, strict=False)
+                print('Loaded existing weights for warm-start')
+            except Exception as e:
+                print(f'Warm-start skipped: {e}')
 
     seq_len = int(train_cfg.get('seq_len', 256))
     lr = float(train_cfg.get('lr', 1e-3))
@@ -152,15 +164,10 @@ if __name__ == '__main__':
 
         do_save = save_every and (global_step // max(save_every, 1) > 0) and (global_step % save_every < ntok)
         if do_save:
-            tmp_path = weights_path + '.tmp'
-            save_file(model.state_dict(), tmp_path)
-            if os.path.exists(weights_path):
-                try:
-                    os.replace(weights_path, backup_path)
-                except Exception:
-                    pass
-            os.replace(tmp_path, weights_path)
-            print(f'[checkpoint] Saved at tokens={global_step} -> {weights_path}')
+            # Use dynamic weight saving
+            version = f"checkpoint_{global_step}"
+            saved_path = save_model_weights(model.state_dict(), model_type, version=version, is_active=True)
+            print(f'[checkpoint] Saved at tokens={global_step} -> {saved_path}')
 
         do_eval = eval_every and (global_step // max(eval_every, 1) > 0) and (global_step % eval_every < ntok)
         if do_eval:
@@ -207,14 +214,8 @@ if __name__ == '__main__':
         with open(os.path.join(log_dir, 'hallucination_eval.json'), 'w', encoding='utf-8') as ef:
             json.dump(results, ef, ensure_ascii=False, indent=2)
 
-    tmp_path = weights_path + '.tmp'
-    save_file(model.state_dict(), tmp_path)
-    if os.path.exists(weights_path):
-        try:
-            os.replace(weights_path, backup_path)
-        except Exception:
-            pass
-    os.replace(tmp_path, weights_path)
-    print(f'Weights written to {weights_path}')
+    # Save final weights using dynamic weight management
+    final_path = save_model_weights(model.state_dict(), model_type, version="final", is_active=True)
+    print(f'Final weights written to {final_path}')
 
 

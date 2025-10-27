@@ -36,6 +36,5 @@ tts:
 
 paths:
   tokenizer: Model/tokenizer.json
-  weights: Model/tantra_weights.safetensors
-  weights_backup: Model/tantra_weights.bak
+  # Weights are now managed dynamically by WeightManager
 
