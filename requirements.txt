@@ -40,6 +40,26 @@ wandb>=0.13.0
 datasets>=2.0.0
 accelerate>=0.20.0
 
+# Web Scraping and Search
+beautifulsoup4>=4.11.0
+lxml>=4.9.0
+selenium>=4.8.0
+scrapy>=2.8.0
+
+# RAG and Knowledge Processing
+sentence-transformers>=2.2.0
+faiss-cpu>=1.7.0
+rank_bm25>=0.2.2
+
+# LoRA and Fine-tuning
+peft>=0.4.0
+bitsandbytes>=0.39.0
+
+# Evaluation Metrics
+rouge-score>=0.1.2
+sacrebleu>=2.3.0
+bert-score>=0.3.13
+
 # Optional: GPU acceleration
 # nvidia-ml-py3>=7.352.0
 
