@@ -1,6 +1,9 @@
 """
 Comprehensive Test Suite for OCR-Native LLM
 Tests all OCR-native functionality and capabilities
+
+Copyright (c) 2024 OCR-Native LLM Contributors
+Licensed under the MIT License
 """
 
 import unittest
