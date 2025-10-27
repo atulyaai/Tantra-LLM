@@ -1,0 +1,752 @@
+[
+  {
+    "id": "tech_ft_000",
+    "type": "technical_qa",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Technical question 0: How does machine learning work?"
+      },
+      {
+        "role": "assistant",
+        "content": "Technical answer 0: Machine learning is a subset of artificial intelligence that enables computers to learn and improve from experience without being explicitly programmed. It works by using algorithms to identify patterns in data, make predictions, and make decisions. The process typically involves training a model on a dataset, validating its performance, and then using it to make predictions on new data."
+      }
+    ],
+    "context": "Technical fine-tuning 0"
+  },
+  {
+    "id": "tech_ft_001",
+    "type": "technical_qa",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Technical question 1: How does machine learning work?"
+      },
+      {
+        "role": "assistant",
+        "content": "Technical answer 1: Machine learning is a subset of artificial intelligence that enables computers to learn and improve from experience without being explicitly programmed. It works by using algorithms to identify patterns in data, make predictions, and make decisions. The process typically involves training a model on a dataset, validating its performance, and then using it to make predictions on new data."
+      }
+    ],
+    "context": "Technical fine-tuning 1"
+  },
+  {
+    "id": "tech_ft_002",
+    "type": "technical_qa",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Technical question 2: How does machine learning work?"
+      },
+      {
+        "role": "assistant",
+        "content": "Technical answer 2: Machine learning is a subset of artificial intelligence that enables computers to learn and improve from experience without being explicitly programmed. It works by using algorithms to identify patterns in data, make predictions, and make decisions. The process typically involves training a model on a dataset, validating its performance, and then using it to make predictions on new data."
+      }
+    ],
+    "context": "Technical fine-tuning 2"
+  },
+  {
+    "id": "tech_ft_003",
+    "type": "technical_qa",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Technical question 3: How does machine learning work?"
+      },
+      {
+        "role": "assistant",
+        "content": "Technical answer 3: Machine learning is a subset of artificial intelligence that enables computers to learn and improve from experience without being explicitly programmed. It works by using algorithms to identify patterns in data, make predictions, and make decisions. The process typically involves training a model on a dataset, validating its performance, and then using it to make predictions on new data."
+      }
+    ],
+    "context": "Technical fine-tuning 3"
+  },
+  {
+    "id": "tech_ft_004",
+    "type": "technical_qa",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Technical question 4: How does machine learning work?"
+      },
+      {
+        "role": "assistant",
+        "content": "Technical answer 4: Machine learning is a subset of artificial intelligence that enables computers to learn and improve from experience without being explicitly programmed. It works by using algorithms to identify patterns in data, make predictions, and make decisions. The process typically involves training a model on a dataset, validating its performance, and then using it to make predictions on new data."
+      }
+    ],
+    "context": "Technical fine-tuning 4"
+  },
+  {
+    "id": "tech_ft_005",
+    "type": "technical_qa",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Technical question 5: How does machine learning work?"
+      },
+      {
+        "role": "assistant",
+        "content": "Technical answer 5: Machine learning is a subset of artificial intelligence that enables computers to learn and improve from experience without being explicitly programmed. It works by using algorithms to identify patterns in data, make predictions, and make decisions. The process typically involves training a model on a dataset, validating its performance, and then using it to make predictions on new data."
+      }
+    ],
+    "context": "Technical fine-tuning 5"
+  },
+  {
+    "id": "tech_ft_006",
+    "type": "technical_qa",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Technical question 6: How does machine learning work?"
+      },
+      {
+        "role": "assistant",
+        "content": "Technical answer 6: Machine learning is a subset of artificial intelligence that enables computers to learn and improve from experience without being explicitly programmed. It works by using algorithms to identify patterns in data, make predictions, and make decisions. The process typically involves training a model on a dataset, validating its performance, and then using it to make predictions on new data."
+      }
+    ],
+    "context": "Technical fine-tuning 6"
+  },
+  {
+    "id": "tech_ft_007",
+    "type": "technical_qa",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Technical question 7: How does machine learning work?"
+      },
+      {
+        "role": "assistant",
+        "content": "Technical answer 7: Machine learning is a subset of artificial intelligence that enables computers to learn and improve from experience without being explicitly programmed. It works by using algorithms to identify patterns in data, make predictions, and make decisions. The process typically involves training a model on a dataset, validating its performance, and then using it to make predictions on new data."
+      }
+    ],
+    "context": "Technical fine-tuning 7"
+  },
+  {
+    "id": "tech_ft_008",
+    "type": "technical_qa",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Technical question 8: How does machine learning work?"
+      },
+      {
+        "role": "assistant",
+        "content": "Technical answer 8: Machine learning is a subset of artificial intelligence that enables computers to learn and improve from experience without being explicitly programmed. It works by using algorithms to identify patterns in data, make predictions, and make decisions. The process typically involves training a model on a dataset, validating its performance, and then using it to make predictions on new data."
+      }
+    ],
+    "context": "Technical fine-tuning 8"
+  },
+  {
+    "id": "tech_ft_009",
+    "type": "technical_qa",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Technical question 9: How does machine learning work?"
+      },
+      {
+        "role": "assistant",
+        "content": "Technical answer 9: Machine learning is a subset of artificial intelligence that enables computers to learn and improve from experience without being explicitly programmed. It works by using algorithms to identify patterns in data, make predictions, and make decisions. The process typically involves training a model on a dataset, validating its performance, and then using it to make predictions on new data."
+      }
+    ],
+    "context": "Technical fine-tuning 9"
+  },
+  {
+    "id": "tech_ft_010",
+    "type": "technical_qa",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Technical question 10: How does machine learning work?"
+      },
+      {
+        "role": "assistant",
+        "content": "Technical answer 10: Machine learning is a subset of artificial intelligence that enables computers to learn and improve from experience without being explicitly programmed. It works by using algorithms to identify patterns in data, make predictions, and make decisions. The process typically involves training a model on a dataset, validating its performance, and then using it to make predictions on new data."
+      }
+    ],
+    "context": "Technical fine-tuning 10"
+  },
+  {
+    "id": "tech_ft_011",
+    "type": "technical_qa",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Technical question 11: How does machine learning work?"
+      },
+      {
+        "role": "assistant",
+        "content": "Technical answer 11: Machine learning is a subset of artificial intelligence that enables computers to learn and improve from experience without being explicitly programmed. It works by using algorithms to identify patterns in data, make predictions, and make decisions. The process typically involves training a model on a dataset, validating its performance, and then using it to make predictions on new data."
+      }
+    ],
+    "context": "Technical fine-tuning 11"
+  },
+  {
+    "id": "tech_ft_012",
+    "type": "technical_qa",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Technical question 12: How does machine learning work?"
+      },
+      {
+        "role": "assistant",
+        "content": "Technical answer 12: Machine learning is a subset of artificial intelligence that enables computers to learn and improve from experience without being explicitly programmed. It works by using algorithms to identify patterns in data, make predictions, and make decisions. The process typically involves training a model on a dataset, validating its performance, and then using it to make predictions on new data."
+      }
+    ],
+    "context": "Technical fine-tuning 12"
+  },
+  {
+    "id": "tech_ft_013",
+    "type": "technical_qa",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Technical question 13: How does machine learning work?"
+      },
+      {
+        "role": "assistant",
+        "content": "Technical answer 13: Machine learning is a subset of artificial intelligence that enables computers to learn and improve from experience without being explicitly programmed. It works by using algorithms to identify patterns in data, make predictions, and make decisions. The process typically involves training a model on a dataset, validating its performance, and then using it to make predictions on new data."
+      }
+    ],
+    "context": "Technical fine-tuning 13"
+  },
+  {
+    "id": "tech_ft_014",
+    "type": "technical_qa",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Technical question 14: How does machine learning work?"
+      },
+      {
+        "role": "assistant",
+        "content": "Technical answer 14: Machine learning is a subset of artificial intelligence that enables computers to learn and improve from experience without being explicitly programmed. It works by using algorithms to identify patterns in data, make predictions, and make decisions. The process typically involves training a model on a dataset, validating its performance, and then using it to make predictions on new data."
+      }
+    ],
+    "context": "Technical fine-tuning 14"
+  },
+  {
+    "id": "tech_ft_015",
+    "type": "technical_qa",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Technical question 15: How does machine learning work?"
+      },
+      {
+        "role": "assistant",
+        "content": "Technical answer 15: Machine learning is a subset of artificial intelligence that enables computers to learn and improve from experience without being explicitly programmed. It works by using algorithms to identify patterns in data, make predictions, and make decisions. The process typically involves training a model on a dataset, validating its performance, and then using it to make predictions on new data."
+      }
+    ],
+    "context": "Technical fine-tuning 15"
+  },
+  {
+    "id": "tech_ft_016",
+    "type": "technical_qa",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Technical question 16: How does machine learning work?"
+      },
+      {
+        "role": "assistant",
+        "content": "Technical answer 16: Machine learning is a subset of artificial intelligence that enables computers to learn and improve from experience without being explicitly programmed. It works by using algorithms to identify patterns in data, make predictions, and make decisions. The process typically involves training a model on a dataset, validating its performance, and then using it to make predictions on new data."
+      }
+    ],
+    "context": "Technical fine-tuning 16"
+  },
+  {
+    "id": "tech_ft_017",
+    "type": "technical_qa",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Technical question 17: How does machine learning work?"
+      },
+      {
+        "role": "assistant",
+        "content": "Technical answer 17: Machine learning is a subset of artificial intelligence that enables computers to learn and improve from experience without being explicitly programmed. It works by using algorithms to identify patterns in data, make predictions, and make decisions. The process typically involves training a model on a dataset, validating its performance, and then using it to make predictions on new data."
+      }
+    ],
+    "context": "Technical fine-tuning 17"
+  },
+  {
+    "id": "tech_ft_018",
+    "type": "technical_qa",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Technical question 18: How does machine learning work?"
+      },
+      {
+        "role": "assistant",
+        "content": "Technical answer 18: Machine learning is a subset of artificial intelligence that enables computers to learn and improve from experience without being explicitly programmed. It works by using algorithms to identify patterns in data, make predictions, and make decisions. The process typically involves training a model on a dataset, validating its performance, and then using it to make predictions on new data."
+      }
+    ],
+    "context": "Technical fine-tuning 18"
+  },
+  {
+    "id": "tech_ft_019",
+    "type": "technical_qa",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Technical question 19: How does machine learning work?"
+      },
+      {
+        "role": "assistant",
+        "content": "Technical answer 19: Machine learning is a subset of artificial intelligence that enables computers to learn and improve from experience without being explicitly programmed. It works by using algorithms to identify patterns in data, make predictions, and make decisions. The process typically involves training a model on a dataset, validating its performance, and then using it to make predictions on new data."
+      }
+    ],
+    "context": "Technical fine-tuning 19"
+  },
+  {
+    "id": "tech_ft_020",
+    "type": "technical_qa",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Technical question 20: How does machine learning work?"
+      },
+      {
+        "role": "assistant",
+        "content": "Technical answer 20: Machine learning is a subset of artificial intelligence that enables computers to learn and improve from experience without being explicitly programmed. It works by using algorithms to identify patterns in data, make predictions, and make decisions. The process typically involves training a model on a dataset, validating its performance, and then using it to make predictions on new data."
+      }
+    ],
+    "context": "Technical fine-tuning 20"
+  },
+  {
+    "id": "tech_ft_021",
+    "type": "technical_qa",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Technical question 21: How does machine learning work?"
+      },
+      {
+        "role": "assistant",
+        "content": "Technical answer 21: Machine learning is a subset of artificial intelligence that enables computers to learn and improve from experience without being explicitly programmed. It works by using algorithms to identify patterns in data, make predictions, and make decisions. The process typically involves training a model on a dataset, validating its performance, and then using it to make predictions on new data."
+      }
+    ],
+    "context": "Technical fine-tuning 21"
+  },
+  {
+    "id": "tech_ft_022",
+    "type": "technical_qa",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Technical question 22: How does machine learning work?"
+      },
+      {
+        "role": "assistant",
+        "content": "Technical answer 22: Machine learning is a subset of artificial intelligence that enables computers to learn and improve from experience without being explicitly programmed. It works by using algorithms to identify patterns in data, make predictions, and make decisions. The process typically involves training a model on a dataset, validating its performance, and then using it to make predictions on new data."
+      }
+    ],
+    "context": "Technical fine-tuning 22"
+  },
+  {
+    "id": "tech_ft_023",
+    "type": "technical_qa",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Technical question 23: How does machine learning work?"
+      },
+      {
+        "role": "assistant",
+        "content": "Technical answer 23: Machine learning is a subset of artificial intelligence that enables computers to learn and improve from experience without being explicitly programmed. It works by using algorithms to identify patterns in data, make predictions, and make decisions. The process typically involves training a model on a dataset, validating its performance, and then using it to make predictions on new data."
+      }
+    ],
+    "context": "Technical fine-tuning 23"
+  },
+  {
+    "id": "tech_ft_024",
+    "type": "technical_qa",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Technical question 24: How does machine learning work?"
+      },
+      {
+        "role": "assistant",
+        "content": "Technical answer 24: Machine learning is a subset of artificial intelligence that enables computers to learn and improve from experience without being explicitly programmed. It works by using algorithms to identify patterns in data, make predictions, and make decisions. The process typically involves training a model on a dataset, validating its performance, and then using it to make predictions on new data."
+      }
+    ],
+    "context": "Technical fine-tuning 24"
+  },
+  {
+    "id": "tech_ft_025",
+    "type": "technical_qa",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Technical question 25: How does machine learning work?"
+      },
+      {
+        "role": "assistant",
+        "content": "Technical answer 25: Machine learning is a subset of artificial intelligence that enables computers to learn and improve from experience without being explicitly programmed. It works by using algorithms to identify patterns in data, make predictions, and make decisions. The process typically involves training a model on a dataset, validating its performance, and then using it to make predictions on new data."
+      }
+    ],
+    "context": "Technical fine-tuning 25"
+  },
+  {
+    "id": "tech_ft_026",
+    "type": "technical_qa",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Technical question 26: How does machine learning work?"
+      },
+      {
+        "role": "assistant",
+        "content": "Technical answer 26: Machine learning is a subset of artificial intelligence that enables computers to learn and improve from experience without being explicitly programmed. It works by using algorithms to identify patterns in data, make predictions, and make decisions. The process typically involves training a model on a dataset, validating its performance, and then using it to make predictions on new data."
+      }
+    ],
+    "context": "Technical fine-tuning 26"
+  },
+  {
+    "id": "tech_ft_027",
+    "type": "technical_qa",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Technical question 27: How does machine learning work?"
+      },
+      {
+        "role": "assistant",
+        "content": "Technical answer 27: Machine learning is a subset of artificial intelligence that enables computers to learn and improve from experience without being explicitly programmed. It works by using algorithms to identify patterns in data, make predictions, and make decisions. The process typically involves training a model on a dataset, validating its performance, and then using it to make predictions on new data."
+      }
+    ],
+    "context": "Technical fine-tuning 27"
+  },
+  {
+    "id": "tech_ft_028",
+    "type": "technical_qa",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Technical question 28: How does machine learning work?"
+      },
+      {
+        "role": "assistant",
+        "content": "Technical answer 28: Machine learning is a subset of artificial intelligence that enables computers to learn and improve from experience without being explicitly programmed. It works by using algorithms to identify patterns in data, make predictions, and make decisions. The process typically involves training a model on a dataset, validating its performance, and then using it to make predictions on new data."
+      }
+    ],
+    "context": "Technical fine-tuning 28"
+  },
+  {
+    "id": "tech_ft_029",
+    "type": "technical_qa",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Technical question 29: How does machine learning work?"
+      },
+      {
+        "role": "assistant",
+        "content": "Technical answer 29: Machine learning is a subset of artificial intelligence that enables computers to learn and improve from experience without being explicitly programmed. It works by using algorithms to identify patterns in data, make predictions, and make decisions. The process typically involves training a model on a dataset, validating its performance, and then using it to make predictions on new data."
+      }
+    ],
+    "context": "Technical fine-tuning 29"
+  },
+  {
+    "id": "tech_ft_030",
+    "type": "technical_qa",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Technical question 30: How does machine learning work?"
+      },
+      {
+        "role": "assistant",
+        "content": "Technical answer 30: Machine learning is a subset of artificial intelligence that enables computers to learn and improve from experience without being explicitly programmed. It works by using algorithms to identify patterns in data, make predictions, and make decisions. The process typically involves training a model on a dataset, validating its performance, and then using it to make predictions on new data."
+      }
+    ],
+    "context": "Technical fine-tuning 30"
+  },
+  {
+    "id": "tech_ft_031",
+    "type": "technical_qa",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Technical question 31: How does machine learning work?"
+      },
+      {
+        "role": "assistant",
+        "content": "Technical answer 31: Machine learning is a subset of artificial intelligence that enables computers to learn and improve from experience without being explicitly programmed. It works by using algorithms to identify patterns in data, make predictions, and make decisions. The process typically involves training a model on a dataset, validating its performance, and then using it to make predictions on new data."
+      }
+    ],
+    "context": "Technical fine-tuning 31"
+  },
+  {
+    "id": "tech_ft_032",
+    "type": "technical_qa",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Technical question 32: How does machine learning work?"
+      },
+      {
+        "role": "assistant",
+        "content": "Technical answer 32: Machine learning is a subset of artificial intelligence that enables computers to learn and improve from experience without being explicitly programmed. It works by using algorithms to identify patterns in data, make predictions, and make decisions. The process typically involves training a model on a dataset, validating its performance, and then using it to make predictions on new data."
+      }
+    ],
+    "context": "Technical fine-tuning 32"
+  },
+  {
+    "id": "tech_ft_033",
+    "type": "technical_qa",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Technical question 33: How does machine learning work?"
+      },
+      {
+        "role": "assistant",
+        "content": "Technical answer 33: Machine learning is a subset of artificial intelligence that enables computers to learn and improve from experience without being explicitly programmed. It works by using algorithms to identify patterns in data, make predictions, and make decisions. The process typically involves training a model on a dataset, validating its performance, and then using it to make predictions on new data."
+      }
+    ],
+    "context": "Technical fine-tuning 33"
+  },
+  {
+    "id": "tech_ft_034",
+    "type": "technical_qa",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Technical question 34: How does machine learning work?"
+      },
+      {
+        "role": "assistant",
+        "content": "Technical answer 34: Machine learning is a subset of artificial intelligence that enables computers to learn and improve from experience without being explicitly programmed. It works by using algorithms to identify patterns in data, make predictions, and make decisions. The process typically involves training a model on a dataset, validating its performance, and then using it to make predictions on new data."
+      }
+    ],
+    "context": "Technical fine-tuning 34"
+  },
+  {
+    "id": "tech_ft_035",
+    "type": "technical_qa",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Technical question 35: How does machine learning work?"
+      },
+      {
+        "role": "assistant",
+        "content": "Technical answer 35: Machine learning is a subset of artificial intelligence that enables computers to learn and improve from experience without being explicitly programmed. It works by using algorithms to identify patterns in data, make predictions, and make decisions. The process typically involves training a model on a dataset, validating its performance, and then using it to make predictions on new data."
+      }
+    ],
+    "context": "Technical fine-tuning 35"
+  },
+  {
+    "id": "tech_ft_036",
+    "type": "technical_qa",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Technical question 36: How does machine learning work?"
+      },
+      {
+        "role": "assistant",
+        "content": "Technical answer 36: Machine learning is a subset of artificial intelligence that enables computers to learn and improve from experience without being explicitly programmed. It works by using algorithms to identify patterns in data, make predictions, and make decisions. The process typically involves training a model on a dataset, validating its performance, and then using it to make predictions on new data."
+      }
+    ],
+    "context": "Technical fine-tuning 36"
+  },
+  {
+    "id": "tech_ft_037",
+    "type": "technical_qa",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Technical question 37: How does machine learning work?"
+      },
+      {
+        "role": "assistant",
+        "content": "Technical answer 37: Machine learning is a subset of artificial intelligence that enables computers to learn and improve from experience without being explicitly programmed. It works by using algorithms to identify patterns in data, make predictions, and make decisions. The process typically involves training a model on a dataset, validating its performance, and then using it to make predictions on new data."
+      }
+    ],
+    "context": "Technical fine-tuning 37"
+  },
+  {
+    "id": "tech_ft_038",
+    "type": "technical_qa",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Technical question 38: How does machine learning work?"
+      },
+      {
+        "role": "assistant",
+        "content": "Technical answer 38: Machine learning is a subset of artificial intelligence that enables computers to learn and improve from experience without being explicitly programmed. It works by using algorithms to identify patterns in data, make predictions, and make decisions. The process typically involves training a model on a dataset, validating its performance, and then using it to make predictions on new data."
+      }
+    ],
+    "context": "Technical fine-tuning 38"
+  },
+  {
+    "id": "tech_ft_039",
+    "type": "technical_qa",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Technical question 39: How does machine learning work?"
+      },
+      {
+        "role": "assistant",
+        "content": "Technical answer 39: Machine learning is a subset of artificial intelligence that enables computers to learn and improve from experience without being explicitly programmed. It works by using algorithms to identify patterns in data, make predictions, and make decisions. The process typically involves training a model on a dataset, validating its performance, and then using it to make predictions on new data."
+      }
+    ],
+    "context": "Technical fine-tuning 39"
+  },
+  {
+    "id": "tech_ft_040",
+    "type": "technical_qa",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Technical question 40: How does machine learning work?"
+      },
+      {
+        "role": "assistant",
+        "content": "Technical answer 40: Machine learning is a subset of artificial intelligence that enables computers to learn and improve from experience without being explicitly programmed. It works by using algorithms to identify patterns in data, make predictions, and make decisions. The process typically involves training a model on a dataset, validating its performance, and then using it to make predictions on new data."
+      }
+    ],
+    "context": "Technical fine-tuning 40"
+  },
+  {
+    "id": "tech_ft_041",
+    "type": "technical_qa",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Technical question 41: How does machine learning work?"
+      },
+      {
+        "role": "assistant",
+        "content": "Technical answer 41: Machine learning is a subset of artificial intelligence that enables computers to learn and improve from experience without being explicitly programmed. It works by using algorithms to identify patterns in data, make predictions, and make decisions. The process typically involves training a model on a dataset, validating its performance, and then using it to make predictions on new data."
+      }
+    ],
+    "context": "Technical fine-tuning 41"
+  },
+  {
+    "id": "tech_ft_042",
+    "type": "technical_qa",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Technical question 42: How does machine learning work?"
+      },
+      {
+        "role": "assistant",
+        "content": "Technical answer 42: Machine learning is a subset of artificial intelligence that enables computers to learn and improve from experience without being explicitly programmed. It works by using algorithms to identify patterns in data, make predictions, and make decisions. The process typically involves training a model on a dataset, validating its performance, and then using it to make predictions on new data."
+      }
+    ],
+    "context": "Technical fine-tuning 42"
+  },
+  {
+    "id": "tech_ft_043",
+    "type": "technical_qa",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Technical question 43: How does machine learning work?"
+      },
+      {
+        "role": "assistant",
+        "content": "Technical answer 43: Machine learning is a subset of artificial intelligence that enables computers to learn and improve from experience without being explicitly programmed. It works by using algorithms to identify patterns in data, make predictions, and make decisions. The process typically involves training a model on a dataset, validating its performance, and then using it to make predictions on new data."
+      }
+    ],
+    "context": "Technical fine-tuning 43"
+  },
+  {
+    "id": "tech_ft_044",
+    "type": "technical_qa",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Technical question 44: How does machine learning work?"
+      },
+      {
+        "role": "assistant",
+        "content": "Technical answer 44: Machine learning is a subset of artificial intelligence that enables computers to learn and improve from experience without being explicitly programmed. It works by using algorithms to identify patterns in data, make predictions, and make decisions. The process typically involves training a model on a dataset, validating its performance, and then using it to make predictions on new data."
+      }
+    ],
+    "context": "Technical fine-tuning 44"
+  },
+  {
+    "id": "tech_ft_045",
+    "type": "technical_qa",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Technical question 45: How does machine learning work?"
+      },
+      {
+        "role": "assistant",
+        "content": "Technical answer 45: Machine learning is a subset of artificial intelligence that enables computers to learn and improve from experience without being explicitly programmed. It works by using algorithms to identify patterns in data, make predictions, and make decisions. The process typically involves training a model on a dataset, validating its performance, and then using it to make predictions on new data."
+      }
+    ],
+    "context": "Technical fine-tuning 45"
+  },
+  {
+    "id": "tech_ft_046",
+    "type": "technical_qa",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Technical question 46: How does machine learning work?"
+      },
+      {
+        "role": "assistant",
+        "content": "Technical answer 46: Machine learning is a subset of artificial intelligence that enables computers to learn and improve from experience without being explicitly programmed. It works by using algorithms to identify patterns in data, make predictions, and make decisions. The process typically involves training a model on a dataset, validating its performance, and then using it to make predictions on new data."
+      }
+    ],
+    "context": "Technical fine-tuning 46"
+  },
+  {
+    "id": "tech_ft_047",
+    "type": "technical_qa",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Technical question 47: How does machine learning work?"
+      },
+      {
+        "role": "assistant",
+        "content": "Technical answer 47: Machine learning is a subset of artificial intelligence that enables computers to learn and improve from experience without being explicitly programmed. It works by using algorithms to identify patterns in data, make predictions, and make decisions. The process typically involves training a model on a dataset, validating its performance, and then using it to make predictions on new data."
+      }
+    ],
+    "context": "Technical fine-tuning 47"
+  },
+  {
+    "id": "tech_ft_048",
+    "type": "technical_qa",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Technical question 48: How does machine learning work?"
+      },
+      {
+        "role": "assistant",
+        "content": "Technical answer 48: Machine learning is a subset of artificial intelligence that enables computers to learn and improve from experience without being explicitly programmed. It works by using algorithms to identify patterns in data, make predictions, and make decisions. The process typically involves training a model on a dataset, validating its performance, and then using it to make predictions on new data."
+      }
+    ],
+    "context": "Technical fine-tuning 48"
+  },
+  {
+    "id": "tech_ft_049",
+    "type": "technical_qa",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Technical question 49: How does machine learning work?"
+      },
+      {
+        "role": "assistant",
+        "content": "Technical answer 49: Machine learning is a subset of artificial intelligence that enables computers to learn and improve from experience without being explicitly programmed. It works by using algorithms to identify patterns in data, make predictions, and make decisions. The process typically involves training a model on a dataset, validating its performance, and then using it to make predictions on new data."
+      }
+    ],
+    "context": "Technical fine-tuning 49"
+  }
+]
