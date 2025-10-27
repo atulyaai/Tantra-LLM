@@ -25,9 +25,15 @@ Dataset/combined_full_training.jsonl
 Dataset/*.jsonl
 !Dataset/sample.jsonl
 
-# Model weights (too large)
+# Model weights (keep sample weights, ignore large training weights)
 Model/tantra_weights.safetensors
 Model/tantra_stage_*.safetensors
+Model/weights/*_large_*.safetensors
+Model/weights/*_large_*.pt
+Model/weights/*_large_*.bin
+Model/weights/*_checkpoint_*.safetensors
+Model/weights/*_checkpoint_*.pt
+Model/weights/*_checkpoint_*.bin
 
 # Editor
 .vscode/

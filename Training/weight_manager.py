@@ -195,7 +195,17 @@ class WeightManager:
         try:
             if weight_path.endswith('.safetensors'):
                 state_dict = safetensors.torch.load_file(weight_path)
+            elif weight_path.endswith('.pt') or weight_path.endswith('.pth'):
+                state_dict = torch.load(weight_path, map_location='cpu')
+                # Handle different PyTorch save formats
+                if isinstance(state_dict, dict) and 'state_dict' in state_dict:
+                    state_dict = state_dict['state_dict']
+                elif isinstance(state_dict, dict) and 'model_state_dict' in state_dict:
+                    state_dict = state_dict['model_state_dict']
+            elif weight_path.endswith('.bin'):
+                state_dict = torch.load(weight_path, map_location='cpu')
             else:
+                # Try to load as PyTorch format
                 state_dict = torch.load(weight_path, map_location='cpu')
             
             logger.info(f"Loaded weights from: {weight_path}")
@@ -206,25 +216,63 @@ class WeightManager:
             return None
     
     def save_weights(self, state_dict: Dict[str, torch.Tensor], model_type: str, 
-                    name: str = None, version: str = None, is_active: bool = True) -> str:
-        """Save weights for a model type"""
+                    name: str = None, version: str = None, is_active: bool = True, 
+                    format: str = "safetensors") -> str:
+        """Save weights for a model type in specified format"""
         if name is None:
             name = f"{model_type}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         
         if version is None:
             version = datetime.now().strftime("%Y%m%d_%H%M%S")
         
-        # Create weight file path
-        weight_path = self.weights_dir / f"{name}.safetensors"
+        # Determine file extension
+        if format.lower() == "safetensors":
+            ext = ".safetensors"
+        elif format.lower() == "pt":
+            ext = ".pt"
+        elif format.lower() == "pth":
+            ext = ".pth"
+        elif format.lower() == "bin":
+            ext = ".bin"
+        else:
+            ext = ".safetensors"  # Default to safetensors
         
-        # Save weights
-        safetensors.torch.save_file(state_dict, weight_path)
+        # Create weight file path
+        weight_path = self.weights_dir / f"{name}{ext}"
+        
+        # Save weights in specified format
+        if format.lower() == "safetensors":
+            safetensors.torch.save_file(state_dict, weight_path)
+        else:
+            # Save as PyTorch format
+            torch.save(state_dict, weight_path)
         
         # Register the weight
         self.register_weight(name, str(weight_path), model_type, version, is_active)
         
-        logger.info(f"Saved weights: {weight_path}")
+        logger.info(f"Saved weights: {weight_path} (format: {format})")
         return str(weight_path)
+    
+    def save_weights_multiple_formats(self, state_dict: Dict[str, torch.Tensor], model_type: str, 
+                                    name: str = None, version: str = None, is_active: bool = True) -> Dict[str, str]:
+        """Save weights in multiple formats"""
+        if name is None:
+            name = f"{model_type}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        
+        if version is None:
+            version = datetime.now().strftime("%Y%m%d_%H%M%S")
+        
+        saved_paths = {}
+        formats = ["safetensors", "pt", "bin"]
+        
+        for fmt in formats:
+            try:
+                path = self.save_weights(state_dict, model_type, f"{name}_{fmt}", version, is_active and fmt == "safetensors", fmt)
+                saved_paths[fmt] = path
+            except Exception as e:
+                logger.warning(f"Failed to save in {fmt} format: {e}")
+        
+        return saved_paths
     
     def cleanup_old_weights(self, model_type: str, keep_count: int = 5):
         """Clean up old weight files, keeping only the most recent ones"""
@@ -313,9 +361,15 @@ def load_model_weights(model_type: str, version: str = None) -> Optional[Dict[st
     return weight_manager.load_weights(model_type, version)
 
 def save_model_weights(state_dict: Dict[str, torch.Tensor], model_type: str, 
-                      name: str = None, version: str = None, is_active: bool = True) -> str:
+                      name: str = None, version: str = None, is_active: bool = True, 
+                      format: str = "safetensors") -> str:
     """Convenience function to save model weights"""
-    return weight_manager.save_weights(state_dict, model_type, name, version, is_active)
+    return weight_manager.save_weights(state_dict, model_type, name, version, is_active, format)
+
+def save_model_weights_multiple_formats(state_dict: Dict[str, torch.Tensor], model_type: str, 
+                                       name: str = None, version: str = None, is_active: bool = True) -> Dict[str, str]:
+    """Convenience function to save model weights in multiple formats"""
+    return weight_manager.save_weights_multiple_formats(state_dict, model_type, name, version, is_active)
 
 def get_model_weight_path(model_type: str, version: str = None) -> Optional[str]:
     """Convenience function to get model weight path"""
