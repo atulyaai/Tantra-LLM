@@ -1,215 +1,95 @@
 {
   "weights": {
-    "mamba_sample": {
-      "name": "mamba_sample",
-      "path": "/workspace/Model/weights/mamba_sample.safetensors",
-      "size_mb": 4.9085235595703125,
-      "created_at": "2025-10-27T00:47:00.594562",
-      "model_type": "mamba",
-      "version": "sample",
-      "checksum": "863d9d2b1d28be4f4bbb925fa3fd5848",
-      "is_active": false
-    },
-    "mamba_multimodal_sample": {
-      "name": "mamba_multimodal_sample",
-      "path": "/workspace/Model/weights/mamba_multimodal_sample.safetensors",
-      "size_mb": 4.9085235595703125,
-      "created_at": "2025-10-27T00:47:00.612284",
-      "model_type": "mamba_multimodal",
-      "version": "sample",
-      "checksum": "89d586d661e410bcae0b4ed5909ff0ed",
-      "is_active": false
-    },
-    "ocr_native_sample": {
-      "name": "ocr_native_sample",
-      "path": "/workspace/Model/weights/ocr_native_sample.safetensors",
-      "size_mb": 4.9085235595703125,
-      "created_at": "2025-10-27T00:47:00.628638",
-      "model_type": "ocr_native",
-      "version": "sample",
-      "checksum": "fa8c6a2645be15486db8daa250d90679",
-      "is_active": false
-    },
     "mamba_v1.0_safetensors": {
       "name": "mamba_v1.0_safetensors",
       "path": "/workspace/Model/weights/mamba_v1.0_safetensors.safetensors",
-      "size_mb": 219.47865295410156,
-      "created_at": "2025-10-27T00:53:00.060091",
+      "size_mb": 2.6361770629882812,
+      "created_at": "2025-10-27T01:05:14.906511",
       "model_type": "mamba",
       "version": "v1.0",
-      "checksum": "518b3d937ef1d152821d593fe7d5524c",
+      "checksum": "b421ebb43effe012870bf9ab36be51ea",
       "is_active": true
     },
     "mamba_v1.0_pt": {
       "name": "mamba_v1.0_pt",
       "path": "/workspace/Model/weights/mamba_v1.0_pt.pt",
-      "size_mb": 219.49470806121826,
-      "created_at": "2025-10-27T00:53:00.551976",
+      "size_mb": 2.643275260925293,
+      "created_at": "2025-10-27T01:05:14.917885",
       "model_type": "mamba",
       "version": "v1.0",
-      "checksum": "a5f1240dfba49b424ee5fdc8c28f023d",
+      "checksum": "222640f06159256b9427d8692456a886",
       "is_active": false
     },
     "mamba_v1.0_bin": {
       "name": "mamba_v1.0_bin",
       "path": "/workspace/Model/weights/mamba_v1.0_bin.bin",
-      "size_mb": 219.49477863311768,
-      "created_at": "2025-10-27T00:53:01.101801",
+      "size_mb": 2.643307685852051,
+      "created_at": "2025-10-27T01:05:14.929628",
       "model_type": "mamba",
       "version": "v1.0",
-      "checksum": "a9375f6bdcf183c2c8b438db952df416",
+      "checksum": "6a82e34a40fd6d3acd3732670f0f9a23",
       "is_active": false
     },
     "mamba_multimodal_v1.0_safetensors": {
       "name": "mamba_multimodal_v1.0_safetensors",
       "path": "/workspace/Model/weights/mamba_multimodal_v1.0_safetensors.safetensors",
-      "size_mb": 922.5083160400391,
-      "created_at": "2025-10-27T00:53:04.722858",
+      "size_mb": 2.6361770629882812,
+      "created_at": "2025-10-27T01:05:14.946799",
       "model_type": "mamba_multimodal",
       "version": "v1.0",
-      "checksum": "f367cc144d4c89a6d1eb11fbffcc03b9",
+      "checksum": "3a983cc3884746e3712b13133372859e",
       "is_active": true
     },
     "mamba_multimodal_v1.0_pt": {
       "name": "mamba_multimodal_v1.0_pt",
       "path": "/workspace/Model/weights/mamba_multimodal_v1.0_pt.pt",
-      "size_mb": 922.5567331314087,
-      "created_at": "2025-10-27T00:53:06.849834",
+      "size_mb": 2.643754005432129,
+      "created_at": "2025-10-27T01:05:14.958616",
       "model_type": "mamba_multimodal",
       "version": "v1.0",
-      "checksum": "3b7b830516b603809c13faae4b039a0a",
+      "checksum": "448f18daf16831e65962081a68207539",
       "is_active": false
     },
     "mamba_multimodal_v1.0_bin": {
       "name": "mamba_multimodal_v1.0_bin",
       "path": "/workspace/Model/weights/mamba_multimodal_v1.0_bin.bin",
-      "size_mb": 922.5569257736206,
-      "created_at": "2025-10-27T00:53:09.377706",
+      "size_mb": 2.6437864303588867,
+      "created_at": "2025-10-27T01:05:14.969817",
       "model_type": "mamba_multimodal",
       "version": "v1.0",
-      "checksum": "dc2543abbc1dcf5f2548b6086dc66cf8",
+      "checksum": "66aa0632d3a2875d720c50ed1d8080da",
       "is_active": false
     },
     "ocr_native_v1.0_safetensors": {
       "name": "ocr_native_v1.0_safetensors",
       "path": "/workspace/Model/weights/ocr_native_v1.0_safetensors.safetensors",
-      "size_mb": 341.63478088378906,
-      "created_at": "2025-10-27T00:53:11.941230",
+      "size_mb": 2.6675033569335938,
+      "created_at": "2025-10-27T01:05:14.987089",
       "model_type": "ocr_native",
       "version": "v1.0",
-      "checksum": "4238844c4dfbdb06352103a59de2dad0",
+      "checksum": "d5907ad617d1f07bd169801b161a1698",
       "is_active": true
     },
     "ocr_native_v1.0_pt": {
       "name": "ocr_native_v1.0_pt",
       "path": "/workspace/Model/weights/ocr_native_v1.0_pt.pt",
-      "size_mb": 341.6707134246826,
-      "created_at": "2025-10-27T00:53:12.718863",
+      "size_mb": 2.6750001907348633,
+      "created_at": "2025-10-27T01:05:14.999358",
       "model_type": "ocr_native",
       "version": "v1.0",
-      "checksum": "1f8cfa6007bd7b3f11aaaad9dedee9da",
+      "checksum": "942705b80060b7e0bc7f495170c652c0",
       "is_active": false
     },
     "ocr_native_v1.0_bin": {
       "name": "ocr_native_v1.0_bin",
       "path": "/workspace/Model/weights/ocr_native_v1.0_bin.bin",
-      "size_mb": 341.67086124420166,
-      "created_at": "2025-10-27T00:53:13.561715",
+      "size_mb": 2.6750335693359375,
+      "created_at": "2025-10-27T01:05:15.010762",
       "model_type": "ocr_native",
       "version": "v1.0",
-      "checksum": "674138b8704977c3ba9d66be5102b031",
-      "is_active": false
-    },
-    "mamba_sample_small_safetensors": {
-      "name": "mamba_sample_small_safetensors",
-      "path": "/workspace/Model/weights/mamba_sample_small_safetensors.safetensors",
-      "size_mb": 2.6361770629882812,
-      "created_at": "2025-10-27T00:59:22.166448",
-      "model_type": "mamba",
-      "version": "sample_small",
-      "checksum": "275610b9c0e887befba532b7d21cf9eb",
-      "is_active": false
-    },
-    "mamba_sample_small_pt": {
-      "name": "mamba_sample_small_pt",
-      "path": "/workspace/Model/weights/mamba_sample_small_pt.pt",
-      "size_mb": 2.6435956954956055,
-      "created_at": "2025-10-27T00:59:22.175348",
-      "model_type": "mamba",
-      "version": "sample_small",
-      "checksum": "13529b8ac363a9bedeb87b947bb18825",
-      "is_active": false
-    },
-    "mamba_sample_small_bin": {
-      "name": "mamba_sample_small_bin",
-      "path": "/workspace/Model/weights/mamba_sample_small_bin.bin",
-      "size_mb": 2.6436891555786133,
-      "created_at": "2025-10-27T00:59:22.182499",
-      "model_type": "mamba",
-      "version": "sample_small",
-      "checksum": "33676001aeaf22c30c4ff03933bc3ff4",
-      "is_active": false
-    },
-    "mamba_multimodal_sample_small_safetensors": {
-      "name": "mamba_multimodal_sample_small_safetensors",
-      "path": "/workspace/Model/weights/mamba_multimodal_sample_small_safetensors.safetensors",
-      "size_mb": 2.6361770629882812,
-      "created_at": "2025-10-27T00:59:22.195247",
-      "model_type": "mamba_multimodal",
-      "version": "sample_small",
-      "checksum": "7629822c80d78f9d1daa1f33c24d1daa",
-      "is_active": false
-    },
-    "mamba_multimodal_sample_small_pt": {
-      "name": "mamba_multimodal_sample_small_pt",
-      "path": "/workspace/Model/weights/mamba_multimodal_sample_small_pt.pt",
-      "size_mb": 2.6440134048461914,
-      "created_at": "2025-10-27T00:59:22.202370",
-      "model_type": "mamba_multimodal",
-      "version": "sample_small",
-      "checksum": "b3792e13011b86202c149677fa355fb0",
-      "is_active": false
-    },
-    "mamba_multimodal_sample_small_bin": {
-      "name": "mamba_multimodal_sample_small_bin",
-      "path": "/workspace/Model/weights/mamba_multimodal_sample_small_bin.bin",
-      "size_mb": 2.644045829772949,
-      "created_at": "2025-10-27T00:59:22.209488",
-      "model_type": "mamba_multimodal",
-      "version": "sample_small",
-      "checksum": "b5ca35f350abb5303fb9fd409578bcd4",
-      "is_active": false
-    },
-    "ocr_native_sample_small_safetensors": {
-      "name": "ocr_native_sample_small_safetensors",
-      "path": "/workspace/Model/weights/ocr_native_sample_small_safetensors.safetensors",
-      "size_mb": 2.6675033569335938,
-      "created_at": "2025-10-27T00:59:22.221972",
-      "model_type": "ocr_native",
-      "version": "sample_small",
-      "checksum": "f3e9c835046640e117b13fdd0aff3c47",
-      "is_active": false
-    },
-    "ocr_native_sample_small_pt": {
-      "name": "ocr_native_sample_small_pt",
-      "path": "/workspace/Model/weights/ocr_native_sample_small_pt.pt",
-      "size_mb": 2.675328254699707,
-      "created_at": "2025-10-27T00:59:22.228946",
-      "model_type": "ocr_native",
-      "version": "sample_small",
-      "checksum": "a118cb9c31a11adab24619221665f76c",
-      "is_active": false
-    },
-    "ocr_native_sample_small_bin": {
-      "name": "ocr_native_sample_small_bin",
-      "path": "/workspace/Model/weights/ocr_native_sample_small_bin.bin",
-      "size_mb": 2.6753616333007812,
-      "created_at": "2025-10-27T00:59:22.235906",
-      "model_type": "ocr_native",
-      "version": "sample_small",
-      "checksum": "a17752bcae3e1238c988b2a724364166",
+      "checksum": "8178a46cf1b53feb4ae3d9568906cb6c",
       "is_active": false
     }
   },
-  "last_updated": "2025-10-27T00:59:22.240059"
+  "last_updated": "2025-10-27T01:05:15.014968"
 }

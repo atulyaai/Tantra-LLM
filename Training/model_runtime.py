@@ -4,8 +4,8 @@ from typing import Any, Dict, Iterator
 import torch
 from safetensors.torch import load_file
 from transformers import AutoModelForCausalLM, AutoTokenizer
-from weight_manager import get_weight_manager, load_model_weights
-from config_manager import get_config_manager, get_model_paths
+from .weight_manager import get_weight_manager, load_model_weights
+from .config_manager import get_config_manager, get_model_paths
 
 
 class TextRuntime:
