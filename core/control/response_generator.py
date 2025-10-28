@@ -41,11 +41,15 @@ class ResponseGenerator:
             with torch.no_grad():
                 outputs = self.model.generate(
                     inputs_embeds=merged_embeds.unsqueeze(0),
-                    max_new_tokens=params.get("max_tokens", 512),
+                    max_new_tokens=params.get("max_tokens", 50),
                     temperature=params.get("temperature", 0.7),
                     top_p=params.get("top_p", 0.9),
+                    do_sample=True,
                 )
             generated_text = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
+            # Strip prefix to return only new generation
+            if prefix in generated_text:
+                return generated_text.split(prefix, 1)[-1].strip()
             return generated_text
         except Exception as e:
             return f"Generation error: {e}"
