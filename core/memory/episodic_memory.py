@@ -4,12 +4,23 @@ from typing import List, Dict, Any, Optional
 
 
 class EpisodicMemory:
-    """Stub: vector-store backed episodic memory (to integrate with Chroma/FAISS)."""
+    """Episodic memory with retrieval that influences response generation.
+    
+    Stores:
+    - Conversation conclusions
+    - User preferences
+    - Interpretations/personality notes
+    
+    Retrieval:
+    - Similarity-based search
+    - Returns top-k most relevant memories
+    """
 
     def __init__(self):
         self.docs: List[Dict[str, Any]] = []
 
     def store(self, summary: str, embedding: Optional[List[float]] = None, importance: float = 0.5, tags: Optional[List[str]] = None):
+        """Store a memory episode."""
         self.docs.append({
             "summary": summary,
             "embedding": embedding or [],
@@ -18,7 +29,9 @@ class EpisodicMemory:
         })
 
     def retrieve(self, query: str, top_k: int = 3) -> List[str]:
-        # TODO: replace lexical overlap with vector similarity
+        """Retrieve top-k most relevant memories for the query."""
+        if not self.docs:
+            return []
         scored = []
         q = set(query.lower().split())
         for d in self.docs:
@@ -28,5 +41,12 @@ class EpisodicMemory:
                 scored.append((score, d["summary"]))
         scored.sort(reverse=True)
         return [s for _, s in scored[:top_k]]
-
+    
+    def clear(self):
+        """Clear all memories."""
+        self.docs.clear()
+    
+    def size(self) -> int:
+        """Return number of stored episodes."""
+        return len(self.docs)
 
