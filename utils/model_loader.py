@@ -46,7 +46,7 @@ class ModelLoader:
             logger.info(f"Loading SpikingBrain from {model_name}")
             model = AutoModelForCausalLM.from_pretrained(
                 model_name,
-                torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
+                dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
             )
             tokenizer = AutoTokenizer.from_pretrained(model_name)
             
@@ -75,8 +75,7 @@ class ModelLoader:
         try:
             import whisper
             logger.info(f"Loading Whisper {model_size}")
-            
-            model = whisper.load_model(model_size, device=self.device)
+            model = whisper.load_model(model_size, device=self.device.name if hasattr(self.device, 'name') else str(self.device))
             
             self.models["whisper"] = model
             logger.info("Whisper loaded successfully")
