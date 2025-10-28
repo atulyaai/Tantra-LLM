@@ -27,10 +27,10 @@ class ModelLoader:
         logger.info(f"ModelLoader initialized on device: {self.device}")
     
     def load_spikingbrain(self, path: Optional[str] = None) -> Any:
-        """Load SpikingBrain-7B from HuggingFace or local path.
+        """Load SpikingBrain model and tokenizer.
         
         Args:
-            path: Local model path (optional), defaults to HuggingFace repo
+            path: Local model path (optional), defaults to custom SpikingBrain
             
         Returns:
             Loaded model and tokenizer
@@ -38,27 +38,78 @@ class ModelLoader:
         if "spikingbrain" in self.models:
             return self.models["spikingbrain"]
         
-        from transformers import AutoModelForCausalLM
-        
-        model_name = path or "SpikingBrain/SpikingBrain-7B"
-        
         try:
-            logger.info(f"Loading SpikingBrain from {model_name}")
-            model = AutoModelForCausalLM.from_pretrained(
-                model_name,
-                dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
+            from core.models.spikingbrain_model import SpikingBrainForCausalLM, SpikingBrainConfig
+            from transformers import AutoTokenizer
+            
+            logger.info("Loading custom SpikingBrain model")
+            
+            # Create SpikingBrain configuration
+            config = SpikingBrainConfig(
+                vocab_size=50257,
+                hidden_size=4096,
+                num_attention_heads=32,
+                num_hidden_layers=24,
+                intermediate_size=16384,
+                max_position_embeddings=32768,
+                hidden_dropout_prob=0.1,
+                attention_probs_dropout_prob=0.1,
+                initializer_range=0.02,
+                use_cache=True,
+                pad_token_id=0,
+                bos_token_id=1,
+                eos_token_id=2,
             )
-            tokenizer = AutoTokenizer.from_pretrained(model_name)
+            
+            # Create model
+            model = SpikingBrainForCausalLM(config)
+            
+            # Load tokenizer
+            tokenizer = AutoTokenizer.from_pretrained("gpt2")
+            if tokenizer.pad_token is None:
+                tokenizer.pad_token = tokenizer.eos_token
+            
+            # Resize token embeddings if needed
+            if len(tokenizer) != config.vocab_size:
+                model.resize_token_embeddings(len(tokenizer))
+                config.vocab_size = len(tokenizer)
             
             self.models["spikingbrain"] = {"model": model, "tokenizer": tokenizer}
             logger.info("SpikingBrain loaded successfully")
             return self.models["spikingbrain"]
             
         except Exception as e:
-            logger.error(f"Failed to load SpikingBrain: {e}")
-            logger.warning("Using stub model - responses will be empty")
-            self.models["spikingbrain"] = {"model": None, "tokenizer": None}
-            return self.models["spikingbrain"]
+            logger.error(f"Failed to load custom SpikingBrain: {e}")
+            logger.warning("Falling back to GPT-2")
+            
+            try:
+                from transformers import AutoModelForCausalLM, AutoTokenizer
+                model_name = path or "gpt2"
+                model = AutoModelForCausalLM.from_pretrained(
+                    model_name,
+                    torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
+                )
+                tokenizer = AutoTokenizer.from_pretrained(model_name)
+                if tokenizer.pad_token is None:
+                    tokenizer.pad_token = tokenizer.eos_token
+                
+                self.models["spikingbrain"] = {"model": model, "tokenizer": tokenizer}
+                logger.info("GPT-2 fallback loaded successfully")
+                return self.models["spikingbrain"]
+            except Exception as e2:
+                logger.error(f"Failed to load GPT-2 fallback: {e2}")
+                logger.warning("Using basic tokenizer only")
+                try:
+                    from transformers import AutoTokenizer
+                    tokenizer = AutoTokenizer.from_pretrained("gpt2")
+                    if tokenizer.pad_token is None:
+                        tokenizer.pad_token = tokenizer.eos_token
+                    self.models["spikingbrain"] = {"model": None, "tokenizer": tokenizer}
+                except:
+                    from encoders.text import TextTokenizer
+                    tokenizer = TextTokenizer()
+                    self.models["spikingbrain"] = {"model": None, "tokenizer": tokenizer}
+                return self.models["spikingbrain"]
     
     def load_whisper(self, model_size: str = "large-v3") -> Any:
         """Load Whisper locally.

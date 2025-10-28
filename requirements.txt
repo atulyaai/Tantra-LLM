@@ -16,7 +16,7 @@ pillow>=9.0.0
 # Audio Processing
 librosa>=0.9.0
 soundfile>=0.10.0
-whisper>=20231117  # OpenAI Whisper for audio encoding
+openai-whisper>=20231117  # OpenAI Whisper for audio encoding
 TTS>=0.22.0  # Coqui TTS for speech generation
 
 # Memory Systems
