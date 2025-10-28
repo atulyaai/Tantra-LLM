@@ -25,9 +25,13 @@ Versions reflect **capability milestones**, not calendar dates:
 | v0.1    | origins                  | Brain boots, core IO routing operational ✅        |
 | v0.2    | eyes_open                | Dynamic architecture + flattened structure ✅      |
 | v0.3    | remembers                | Episodic memory influences output ✅               |
-| v0.4    | understands_relations    | Semantic graph reasoning live                      |
+| v0.4    | understands_relations    | Semantic graph influences responses ✅              |
 | v0.5    | self_shaping             | Adaptive personality fully online                  |
-| v1.0    | stable_identity          | Stable reasoning identity with session persistence |
+| v0.6    | fusion_wiring            | Fusion layer pipeline complete                     |
+| v0.7    | fusion_training          | Training loop operational                          |
+| v0.8    | dynamic_compute          | Performance optimizations live                     |
+| v0.9    | safety_personality       | Safety + personality modules operational           |
+| v1.0    | stable_identity          | Stable reasoning identity with session persistence 🎯|
 
 See CHANGELOG for detailed file changes.
 
@@ -145,7 +149,7 @@ This is a private project. Development follows strict semantic commits, branch p
 
 ---
 
-**Current Version**: v0.3-remembers  
-**Status**: Episodic memory active; next: semantic relations (v0.4)  
-**Capability**: Core architecture + dynamic context + episodic memory
+**Current Version**: v0.4-understands_relations  
+**Status**: Semantic + episodic memory integrated; next: personality routing (v0.5)  
+**Capability**: Core architecture + dynamic context + hybrid memory active
 
