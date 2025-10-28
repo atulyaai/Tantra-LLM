@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-"""Minimal demo wiring stubs: build orchestrator and run a single step."""
+"""Minimal demo wiring: build full orchestrator and run a single step."""
 
 from pathlib import Path
 import json
+import os
 
 from encoders.text import TextTokenizer
 from encoders.vision import VisionEncoder
@@ -16,6 +17,8 @@ from core.control.response_generator import ResponseGenerator
 from core.control.brain_orchestrator import BrainOrchestrator
 from core.memory.memory_manager import MemoryManager
 from personality.personality_layer import PersonalityLayer
+from utils.model_loader import ModelLoader
+from config import model_config
 
 
 def load_personality_config() -> dict:
@@ -24,17 +27,43 @@ def load_personality_config() -> dict:
 
 
 def build_demo():
+    # Config and env
+    cfg = model_config.MODEL_CONFIG
+    spb_repo_or_path = os.environ.get("TANTRA_SPB", "SpikingBrain/SpikingBrain-7B")
+    long_vita_dir = os.environ.get("TANTRA_LV_DIR")
+
+    # Tokenizer and encoders
     tok = TextTokenizer()
-    vision = VisionEncoder(embed_dim=1024)
-    audio = AudioEncoder(embed_dim=1024)
-    proj_v = VisionProjector(1024, 4096)
-    proj_a = AudioProjector(1024, 4096)
-    fusion = FusionOrchestrator(tok, proj_v, proj_a, 4096)
+    vision = VisionEncoder(embed_dim=cfg["vision"]["embed_dim"], api_url=None, local_path=long_vita_dir)
+    audio = AudioEncoder(embed_dim=cfg["audio"]["embed_dim"])
+
+    # Projectors and fusion
+    proj_v = VisionProjector(cfg["vision"]["embed_dim"], cfg["model_dim"]) 
+    proj_a = AudioProjector(cfg["audio"]["embed_dim"], cfg["model_dim"]) 
+    fusion = FusionOrchestrator(tok, proj_v, proj_a, cfg["model_dim"]) 
+
+    # Personality and memory
     personality = PersonalityLayer(load_personality_config())
-    perception = Perception(vision_encoder=vision, audio_encoder=audio, tokenizer=tok)
-    memory = MemoryManager(wm_tokens=8192)
+    memory = MemoryManager(wm_tokens=cfg.get("wm_tokens", 8192))
+
+    # Decision engine
     decision = DecisionEngine(personality, memory)
-    response = ResponseGenerator(spiking_model=None, fusion_orchestrator=fusion, tokenizer=tok, personality_layer=personality)
+
+    # Models
+    loader = ModelLoader(cfg)
+    spb = loader.load_spikingbrain(path=spb_repo_or_path)
+
+    # Response generator
+    response = ResponseGenerator(
+        spiking_model=spb.get("model"),
+        fusion_orchestrator=fusion,
+        tokenizer=spb.get("tokenizer") or tok,
+        personality_layer=personality,
+    )
+
+    # Perception
+    perception = Perception(vision_encoder=vision, audio_encoder=audio, tokenizer=tok)
+
     return BrainOrchestrator(perception, decision, response, memory)
 
 

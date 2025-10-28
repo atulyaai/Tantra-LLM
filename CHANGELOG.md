@@ -2,6 +2,26 @@
 
 All notable changes are tracked by capability versions and tags.
 
+## v1.0-stable_identity
+- Production System Complete + FastAPI Server
+- Tag: v1.0-stable_identity
+
+Changed/Added files:
+- training/fusion_trainer.py (training loop with frozen base, optimizer, checkpoints)
+- core/models/compute_routing.py (fast/medium/deep path routing)
+- personality/safety_module.py (deny-list + toxicity checks operational)
+- tests/test_e2e_brain.py (end-to-end integration tests)
+- demos/api_server.py (FastAPI production server)
+- CHANGELOG.md, README.md (updated for v1.0)
+
+Notes:
+- Complete production system: SpikingBrain + Long-VITA + Whisper + Fusion + Safety
+- Training pipeline operational (freeze base, train projectors)
+- Compute routing (fast/medium/deep) based on query complexity
+- Safety modules operational (deny-list, toxicity patterns)
+- FastAPI server ready for deployment
+- System can generate real multimodal responses
+
 ## v0.8-inference_live
 - SpikingBrain Forward Pass + Embeddings Injection
 - Tag: v0.8-inference_live

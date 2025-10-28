@@ -144,7 +144,7 @@ This is a private project. Development follows strict semantic commits, branch p
 
 ---
 
-**Current Version**: v0.6-fusion_wiring  
-**Status**: Fusion stream wired and validated; next: fusion training (v0.7)  
-**Capability**: Core architecture + hybrid memory + adaptive personality + validated fusion
+**Current Version**: v1.0-stable_identity  
+**Status**: Production system complete - all components operational  
+**Capability**: Full multimodal brain (SpikingBrain + Long-VITA + Whisper + Fusion + Safety + API)
 
