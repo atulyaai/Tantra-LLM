@@ -1,4 +1,4 @@
-# Tantra-LLM v0.1-origins
+# Tantra-LLM v0.3-remembers
 
 **Proprietary Multimodal Cognitive Architecture**
 
@@ -20,14 +20,16 @@ A complete rewrite transforming into a proprietary brain system using SpikingBra
 
 Versions reflect **capability milestones**, not calendar dates:
 
-| Version | Codename | Capability |
-|---------|----------|------------|
-| v0.1-origins | Current | Brain boots, core IO routing operational |
-| v0.2-eyes_open | Next | Fusion layer trained, multimodal input works |
-| v0.3-remembers | Planning | Episodic memory influences output |
-| v0.4-understands_relations | Planning | Semantic graph reasoning live |
-| v0.5-self_shaping | Planning | Adaptive personality fully online |
-| v1.0-stable_identity | Target | Stable reasoning identity with session persistence |
+| Version | Codename                 | Capability                                         |
+|---------|--------------------------|----------------------------------------------------|
+| v0.1    | origins                  | Brain boots, core IO routing operational ✅        |
+| v0.2    | eyes_open                | Dynamic architecture + flattened structure ✅      |
+| v0.3    | remembers                | Episodic memory influences output ✅               |
+| v0.4    | understands_relations    | Semantic graph reasoning live                      |
+| v0.5    | self_shaping             | Adaptive personality fully online                  |
+| v1.0    | stable_identity          | Stable reasoning identity with session persistence |
+
+See CHANGELOG for detailed file changes.
 
 ## 📁 Project Structure
 
@@ -81,22 +83,26 @@ python demos/demo_minimal.py
 
 ## 🎯 Key Features
 
-### Phase 1 (Current: v0.1-origins)
+### Phase 1 (v0.1-origins)
 
 - ✅ System identity configuration with behavioral profiles
 - ✅ Mixed model loading (local SpikingBrain/Whisper + remote Long-VITA)
 - ✅ Project scaffolding with proper imports
 - ✅ Git workflow with semantic commits
 
-### Phase 2 (Next: v0.2-eyes_open)
+### Phase 2 (v0.2-eyes_open)
 
-- 🔄 Dynamic context window (short vs long)
-- 🔄 KV-cache management and state compression
-- 🔄 LoRA/IA3 adapter framework for hot-swappable personality
+- ✅ Dynamic context window (short vs long)
+- ✅ Flattened repo structure and updated docs
+
+### Phase 3 (v0.3-remembers)
+
+- ✅ Episodic memory retrieval influences response generation
+- ✅ Smoke tests for demo wiring
 
 ### Planned
 
-- Phases 3-6: Fusion training, memory systems, control loop, performance optimization
+- Phases 4-6: Fusion training, semantic memory, control loop, performance optimization
 
 ## 🔬 Design Philosophy
 
@@ -122,7 +128,7 @@ All commits follow `<type>(<scope>): <message>` format:
 
 ## 📖 Documentation
 
-- Architecture Plan - Detailed system design
+- CHANGELOG - See versioned changes and file lists
 - Phase 1 Notes - See `config/identity.py`
 - Phase 2 Stubs - See `core/models/dynamic_context.py`
 
@@ -139,7 +145,7 @@ This is a private project. Development follows strict semantic commits, branch p
 
 ---
 
-**Current Version**: v0.1-origins  
-**Status**: Phase 1 Complete, Phase 2 In Progress  
-**Capability**: Core architecture operational, basic IO routing functional
+**Current Version**: v0.3-remembers  
+**Status**: Episodic memory active; next: semantic relations (v0.4)  
+**Capability**: Core architecture + dynamic context + episodic memory
 
