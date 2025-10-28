@@ -135,7 +135,6 @@ class ModelLoader:
         Returns:
             Vision embeddings tensor (stub zeros for now)
         """
-        # TODO: Implement actual API call when remote service is available
         logger.info("Long-VITA remote API not implemented, returning stub")
         return torch.zeros(1, self.config["vision"]["embed_dim"])
     
@@ -148,16 +147,14 @@ class ModelLoader:
         Returns:
             Vision encoder wrapper
         """
-        from tantra_llm.encoders.vision import VisionEncoder
+        from encoders.vision import VisionEncoder
         
         if mode == "remote":
-            # Remote encoder using API calls
             encoder = VisionEncoder(embed_dim=self.config["vision"]["embed_dim"])
             encoder._remote = True
             encoder._api_func = self.get_long_vit_embeddings_remote
             return encoder
         else:
-            # Local encoder (to be implemented when model is available locally)
             logger.warning("Local vision encoder not implemented, using remote")
             return self.get_vision_encoder(mode="remote")
 
