@@ -2,6 +2,17 @@
 
 All notable changes are tracked by capability versions and tags.
 
+## v0.5-self_shaping
+- Adaptive Personality Routing
+- Tag: v0.5-self_shaping
+
+Changed/Added files:
+- personality/personality_layer.py (session mode persistence; auto cues used)
+- tests/test_personality_modes.py (auto + override persistence; parameterizer mapping)
+
+Notes:
+- Personality mode auto-detects or respects explicit override until changed
+
 ## v0.4-understands_relations
 - Semantic Graph Influence
 - Tag: v0.4-understands_relations
