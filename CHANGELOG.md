@@ -2,6 +2,19 @@
 
 All notable changes are tracked by capability versions and tags.
 
+## v0.7-fusion_production
+- Real Encoder Integration
+- Tag: v0.7-fusion_production
+
+Changed/Added files:
+- encoders/vision.py (real CLIP encoder; graceful fallback)
+- encoders/audio.py (real Whisper encoder; graceful fallback)
+- VERSION_SUMMARY.md (capability tracking)
+- CHANGELOG.md (this entry)
+
+Notes:
+- Production encoders wired with graceful fallback to stubs if deps missing
+
 ## v0.6-fusion_wiring
 - Fusion Stream Wiring & Shape Validation
 - Tag: v0.6-fusion_wiring
