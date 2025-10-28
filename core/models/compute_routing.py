@@ -24,9 +24,13 @@ class ComputeRouter:
             complexity += 0.2
         
         # Complex keywords
-        complex_keywords = ["explain", "how", "why", "analyze", "compare", "design", "plan"]
+        complex_keywords = ["explain", "how", "why", "analyze", "compare", "design", "plan", "summarize", "describe"]
         if any(kw in query.lower() for kw in complex_keywords):
             complexity += 0.3
+        
+        # Mode-specific complexity
+        if "mode:" in query.lower():
+            complexity += 0.1  # Mode switching is simple
         
         # Context length
         if context_len > 10000:

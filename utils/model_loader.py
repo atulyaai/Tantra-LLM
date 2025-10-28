@@ -40,15 +40,19 @@ class ModelLoader:
         
         from transformers import AutoModelForCausalLM
         
-        model_name = path or "SpikingBrain/SpikingBrain-7B"
+        model_name = path or "gpt2"  # Fallback to a working model
         
         try:
             logger.info(f"Loading SpikingBrain from {model_name}")
             model = AutoModelForCausalLM.from_pretrained(
                 model_name,
-                dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
+                torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
             )
             tokenizer = AutoTokenizer.from_pretrained(model_name)
+            
+            # Set pad token if not present
+            if tokenizer.pad_token is None:
+                tokenizer.pad_token = tokenizer.eos_token
             
             self.models["spikingbrain"] = {"model": model, "tokenizer": tokenizer}
             logger.info("SpikingBrain loaded successfully")
@@ -56,8 +60,20 @@ class ModelLoader:
             
         except Exception as e:
             logger.error(f"Failed to load SpikingBrain: {e}")
-            logger.warning("Using stub model - responses will be empty")
-            self.models["spikingbrain"] = {"model": None, "tokenizer": None}
+            logger.warning("Using fallback model - responses will be basic")
+            
+            # Try to load a basic tokenizer for fallback
+            try:
+                fallback_tokenizer = AutoTokenizer.from_pretrained("gpt2")
+                if fallback_tokenizer.pad_token is None:
+                    fallback_tokenizer.pad_token = fallback_tokenizer.eos_token
+                self.models["spikingbrain"] = {"model": None, "tokenizer": fallback_tokenizer}
+            except:
+                # Ultimate fallback - create a basic tokenizer
+                from encoders.text import TextTokenizer
+                fallback_tokenizer = TextTokenizer()
+                self.models["spikingbrain"] = {"model": None, "tokenizer": fallback_tokenizer}
+            
             return self.models["spikingbrain"]
     
     def load_whisper(self, model_size: str = "large-v3") -> Any:

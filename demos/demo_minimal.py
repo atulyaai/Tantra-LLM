@@ -29,7 +29,7 @@ def load_personality_config() -> dict:
 def build_demo():
     # Config and env
     cfg = model_config.MODEL_CONFIG
-    spb_repo_or_path = os.environ.get("TANTRA_SPB", "SpikingBrain/SpikingBrain-7B")
+    spb_repo_or_path = os.environ.get("TANTRA_SPB", "gpt2")
     long_vita_dir = os.environ.get("TANTRA_LV_DIR")
 
     # Tokenizer and encoders
