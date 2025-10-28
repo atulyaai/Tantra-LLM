@@ -1,0 +1,56 @@
+# Changelog
+
+All notable changes are tracked by capability versions and tags.
+
+## v0.3-remembers
+- Episodic Memory Integration
+- Tag: v0.3-remembers
+
+Changed/Added files:
+- core/memory/episodic_memory.py (clear(), size() methods added, docstrings improved)
+- core/control/brain_orchestrator.py (prepends retrieved memories to prompt before reasoning)
+- tests/test_demo_minimal.py (smoke tests for demo wiring and episodic retrieval)
+- CHANGELOG.md (this entry)
+
+Notes:
+- Episodic memory now influences response generation
+- Retrieved memories prepended as context before perception step
+- Smoke test confirms memory integration works
+
+## v0.2-eyes_open (alias: v0.2)
+- Dynamic Architecture + Flattened Structure
+- Tags: `v0.2-eyes_open`, `v0.2`
+
+Changed/Added files:
+- README.md (updated to flattened imports and structure)
+- requirements.txt (merged, modernized deps)
+- config/identity.py (behavioral profiles)
+- core/models/dynamic_context.py (dynamic window routing)
+- utils/model_loader.py (mixed local/API loader)
+- demos/demo_minimal.py (flattened imports)
+- LICENSE (added)
+- .github/REPOSITORY_SETTINGS.md (repo settings guide)
+- .github/repository-configure.ps1, .github/repository-configure.sh (automation scripts)
+- .github/topics.txt, .github/description.txt, .github/website.txt (metadata)
+
+Removed/Refactored:
+- Flattened all modules from `tantra_llm/*` → top-level `config/`, `core/`, `encoders/`, `personality/`, `training/`, `utils/`, `demos/`
+- Deleted stale tests with old import paths (`tests/test_phase1_*`, `tests/test_phase2_*`)
+- Deleted `ABOUT.md` per owner request
+
+## v0.1-origins (alias: v0.10)
+- Core Architecture Scaffolding
+- Tags: `v0.1-origins`, `v0.10`
+
+Changed/Added files:
+- Initial scaffolding of config/, core/, encoders/, personality/, training/, utils/, demos/
+- Initial README.md
+- Initial requirements.txt
+
+Notes:
+- Git workflow established (semantic commits, capability tags)
+- Baseline tags created
+
+---
+
+Release notes template lives at `.github/RELEASE_NOTES_TEMPLATE.md`.
