@@ -1,0 +1,191 @@
+{
+  "model_config": {
+    "d_model": 4096,
+    "n_layers": 48,
+    "n_heads": 32,
+    "d_ff": 16384,
+    "vocab_size": 200000,
+    "max_seq_length": 32768,
+    "ocr_image_width": 2048,
+    "ocr_image_height": 2048,
+    "ocr_font_size": 8,
+    "ocr_precision": 10,
+    "memory_window_size": 500000,
+    "ocr_memory_bank_size": 10000,
+    "context_retention": 0.98,
+    "learning_rate": 2e-05,
+    "batch_size": 1,
+    "gradient_accumulation_steps": 16,
+    "text_to_ocr_enabled": true,
+    "speech_to_ocr_enabled": true,
+    "image_ocr_enabled": true
+  },
+  "training_config": {
+    "model_name": "tantra_ultra_large_v1.0",
+    "base_model_path": "Model/weights/Tantra_ultra_large_v1.0.pt",
+    "learning_rate": 2e-05,
+    "batch_size": 1,
+    "num_epochs": 30,
+    "gradient_accumulation_steps": 32,
+    "warmup_steps": 1000,
+    "max_grad_norm": 0.3,
+    "conversation_max_length": 8192,
+    "conversation_context_window": 2048,
+    "conversation_temperature": 0.5,
+    "conversation_top_p": 0.8,
+    "conversation_top_k": 30,
+    "speech_sample_rate": 44100,
+    "speech_max_duration": 120.0,
+    "speech_hop_length": 512,
+    "speech_n_fft": 8192,
+    "speech_n_mels": 256,
+    "speech_f_min": 0.0,
+    "speech_f_max": 22050.0,
+    "conversation_data_path": "data/raw/conversations",
+    "speech_data_path": "data/raw/speech",
+    "processed_data_path": "data/processed",
+    "model_output_path": "Model/weights",
+    "checkpoint_path": "Model/checkpoints",
+    "logs_path": "logs",
+    "github_repo": "tantra-ai/tantra-models",
+    "github_token": null,
+    "auto_commit": true,
+    "commit_message": "Update Tantra conversational speech model",
+    "device": "cpu",
+    "num_workers": 1,
+    "mixed_precision": true,
+    "gradient_checkpointing": true,
+    "eval_steps": 100,
+    "save_steps": 200,
+    "logging_steps": 25,
+    "conversation_types": [
+      "general_chat",
+      "technical_support",
+      "creative_writing",
+      "problem_solving",
+      "emotional_support"
+    ],
+    "personality_traits": [
+      "helpful",
+      "knowledgeable",
+      "empathetic",
+      "creative",
+      "analytical"
+    ],
+    "response_style": "helpful"
+  },
+  "data_config": {
+    "real_data_sources": [
+      "data/raw/real_conversations.json",
+      "data/raw/real_technical_qa.json",
+      "data/raw/real_creative_tasks.json",
+      "data/raw/real_combined_dataset.json"
+    ],
+    "data_validation": {
+      "min_examples": 100,
+      "max_examples": 10000,
+      "quality_threshold": 0.8,
+      "diversity_requirement": true
+    },
+    "data_preprocessing": {
+      "tokenization": "custom_tantra_tokenizer",
+      "max_length": 32768,
+      "padding": "dynamic",
+      "truncation": "smart",
+      "special_tokens": [
+        "<|start|>",
+        "<|end|>",
+        "<|user|>",
+        "<|assistant|>"
+      ]
+    },
+    "data_augmentation": {
+      "enabled": true,
+      "paraphrasing": true,
+      "back_translation": false,
+      "noise_injection": true,
+      "augmentation_factor": 1.5
+    }
+  },
+  "hardware_config": {
+    "device": "cpu",
+    "mixed_precision": true,
+    "gradient_checkpointing": true,
+    "dataloader_workers": 1,
+    "pin_memory": true,
+    "memory_optimization": {
+      "activation_checkpointing": true,
+      "cpu_offload": false,
+      "gradient_accumulation": true,
+      "micro_batch_size": 1
+    }
+  },
+  "training_strategy": {
+    "learning_rate_schedule": {
+      "type": "cosine_with_warmup",
+      "warmup_steps": 1000,
+      "max_lr": 2e-05,
+      "min_lr": 1e-06
+    },
+    "optimizer": {
+      "type": "AdamW",
+      "weight_decay": 0.01,
+      "beta1": 0.9,
+      "beta2": 0.999,
+      "eps": 1e-08
+    },
+    "scheduler": {
+      "type": "cosine_with_warmup",
+      "warmup_steps": 1000,
+      "total_steps": 30000
+    },
+    "gradient_handling": {
+      "max_grad_norm": 0.3,
+      "gradient_accumulation_steps": 32,
+      "gradient_clipping": true
+    },
+    "training_phases": [
+      {
+        "name": "warmup",
+        "epochs": 2,
+        "learning_rate": 1e-06,
+        "batch_size": 1
+      },
+      {
+        "name": "main_training",
+        "epochs": 25,
+        "learning_rate": 2e-05,
+        "batch_size": 1
+      },
+      {
+        "name": "fine_tuning",
+        "epochs": 3,
+        "learning_rate": 5e-06,
+        "batch_size": 1
+      }
+    ]
+  },
+  "evaluation_config": {
+    "metrics": [
+      "perplexity",
+      "bleu_score",
+      "rouge_score",
+      "accuracy",
+      "f1_score",
+      "custom_ocr_accuracy"
+    ],
+    "evaluation_frequency": {
+      "steps": 100,
+      "epochs": 1
+    },
+    "validation_split": 0.1,
+    "test_split": 0.05,
+    "evaluation_tasks": [
+      "conversational_qa",
+      "technical_problem_solving",
+      "creative_writing",
+      "code_generation",
+      "ocr_text_understanding"
+    ]
+  }
+}
