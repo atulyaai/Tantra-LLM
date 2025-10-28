@@ -1,0 +1,47 @@
+# Tantra-LLM Phase 1: Core Brain System Dependencies
+# Semantic versioning per capability milestones (v0.1-origins)
+
+# Core ML libraries
+torch>=2.0.0
+torchvision>=0.15.0
+torchaudio>=2.0.0
+transformers>=4.38.0
+tokenizers>=0.13.0
+safetensors>=0.4.0
+
+# Computer Vision (for multimodal fusion)
+opencv-python>=4.5.0
+pillow>=9.0.0
+
+# Audio Processing
+librosa>=0.9.0
+soundfile>=0.10.0
+whisper>=20231117  # OpenAI Whisper for audio encoding
+TTS>=0.22.0  # Coqui TTS for speech generation
+
+# Memory Systems
+faiss-cpu>=1.7.0  # Vector search for episodic memory
+chromadb>=0.4.0  # Vector database
+networkx>=3.0  # Lightweight graph for semantic memory
+
+# Fine-tuning and Adapters
+peft>=0.4.0
+bitsandbytes>=0.39.0
+
+# Data Processing
+numpy>=1.21.0
+pandas>=1.3.0
+scipy>=1.7.0
+
+# Utilities
+tqdm>=4.62.0
+pyyaml>=6.0.0
+requests>=2.25.0
+psutil>=5.8.0
+
+# Optional: GPU acceleration
+# nvidia-ml-py3>=7.352.0
+
+# Legacy support (from existing OCR-native system)
+# Keep existing utilities: error_handler, web_search, rag_simple
+
