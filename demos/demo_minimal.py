@@ -5,17 +5,17 @@ from __future__ import annotations
 from pathlib import Path
 import json
 
-from tantra_llm.encoders.text import TextTokenizer
-from tantra_llm.encoders.vision import VisionEncoder
-from tantra_llm.encoders.audio import AudioEncoder
-from tantra_llm.core.fusion.sensory_projectors import VisionProjector, AudioProjector
-from tantra_llm.core.fusion.orchestrator import FusionOrchestrator
-from tantra_llm.core.control.perception import Perception
-from tantra_llm.core.control.decision_engine import DecisionEngine
-from tantra_llm.core.control.response_generator import ResponseGenerator
-from tantra_llm.core.control.brain_orchestrator import BrainOrchestrator
-from tantra_llm.core.memory.memory_manager import MemoryManager
-from tantra_llm.personality.personality_layer import PersonalityLayer
+from encoders.text import TextTokenizer
+from encoders.vision import VisionEncoder
+from encoders.audio import AudioEncoder
+from core.fusion.sensory_projectors import VisionProjector, AudioProjector
+from core.fusion.orchestrator import FusionOrchestrator
+from core.control.perception import Perception
+from core.control.decision_engine import DecisionEngine
+from core.control.response_generator import ResponseGenerator
+from core.control.brain_orchestrator import BrainOrchestrator
+from core.memory.memory_manager import MemoryManager
+from personality.personality_layer import PersonalityLayer
 
 
 def load_personality_config() -> dict:

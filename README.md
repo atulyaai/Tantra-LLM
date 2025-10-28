@@ -32,20 +32,19 @@ Versions reflect **capability milestones**, not calendar dates:
 ## 📁 Project Structure
 
 ```
-tantra_llm/
-├── config/               # System identity, model, memory configs
-├── core/
-│   ├── fusion/          # Vision/audio projection layers
-│   ├── memory/           # Working/episodic/semantic memory
-│   ├── control/         # Perception, decision, response, orchestrator
-│   └── models/           # Dynamic context, token streaming
-├── encoders/             # Vision/audio/text encoders
-├── personality/          # Adaptive personality layer
-├── training/             # Fusion layer training pipeline
-├── utils/                # Model loader, device manager
-└── demos/                # Example scripts
+config/                # System identity, model, memory configs
+core/
+  fusion/             # Vision/audio projection layers
+  memory/             # Working/episodic/semantic memory
+  control/            # Perception, decision, response, orchestrator
+  models/             # Dynamic context, token streaming
+encoders/              # Vision/audio/text encoders
+personality/           # Adaptive personality layer
+training/              # Fusion layer training pipeline
+utils/                 # Model loader, device manager
+demos/                 # Example scripts
 
-core/                     # Legacy OCR-native system (reference)
+core/                  # Legacy OCR-native system (reference)
 ```
 
 ## 🚀 Quick Start
@@ -59,9 +58,9 @@ pip install -r requirements.txt
 ### Basic Usage
 
 ```python
-from tantra_llm.config import model_config, identity
-from tantra_llm.utils.model_loader import ModelLoader
-from tantra_llm.core.control.brain_orchestrator import BrainOrchestrator
+from config import model_config, identity
+from utils.model_loader import ModelLoader
+from core.control.brain_orchestrator import BrainOrchestrator
 
 # Initialize model loader
 loader = ModelLoader(model_config.MODEL_CONFIG)
@@ -70,15 +69,14 @@ loader = ModelLoader(model_config.MODEL_CONFIG)
 spikingbrain = loader.load_spikingbrain()
 whisper = loader.load_whisper()
 
-# Build orchestrator (see tantra_llm/demos/demo_minimal.py for full setup)
+# Build orchestrator (see demos/demo_minimal.py for full setup)
 # brain = BrainOrchestrator(...)
 ```
 
 ### Demo
 
 ```bash
-cd tantra_llm/demos
-python demo_minimal.py
+python demos/demo_minimal.py
 ```
 
 ## 🎯 Key Features
@@ -122,13 +120,11 @@ All commits follow `<type>(<scope>): <message>` format:
 - `refactor(utils):` - Structure/cleanup
 - `config(system):` - Build/system changes
 
-See `.git/config` for branch strategy (`main`, `develop`, `feature/*`, `research/*`).
-
 ## 📖 Documentation
 
-- [Architecture Plan](tantra-brain-system.plan.md) - Detailed system design
-- [Phase 1 Notes](tantra_llm/config/identity.py) - System identity definition
-- [Phase 2 Stubs](tantra_llm/core/models/dynamic_context.py) - Dynamic architecture
+- Architecture Plan - Detailed system design
+- Phase 1 Notes - See `config/identity.py`
+- Phase 2 Stubs - See `core/models/dynamic_context.py`
 
 ## 🔒 License
 
@@ -140,10 +136,6 @@ All rights reserved.
 ## 🤝 Contributing
 
 This is a private project. Development follows strict semantic commits, branch protection, and capability-based versioning.
-
-## 📞 Contact
-
-For questions, see [Architecture Plan](tantra-brain-system.plan.md).
 
 ---
 
