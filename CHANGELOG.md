@@ -2,6 +2,17 @@
 
 All notable changes are tracked by capability versions and tags.
 
+## v0.6-fusion_wiring
+- Fusion Stream Wiring & Shape Validation
+- Tag: v0.6-fusion_wiring
+
+Changed/Added files:
+- core/fusion/sensory_projectors.py (input shape handling, output dim checks)
+- tests/test_fusion_stream.py (gate tokens present; projected dims == D)
+
+Notes:
+- IMG/AUD gates present in stream; modality_embeds aligned and non-empty
+
 ## v0.5-self_shaping
 - Adaptive Personality Routing
 - Tag: v0.5-self_shaping
