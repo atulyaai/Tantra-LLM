@@ -3,6 +3,8 @@ from __future__ import annotations
 from typing import Dict, Any
 import torch
 from core.models.compute_routing import ComputeRouter
+from core.memory.advanced_memory import AdvancedMemoryManager
+from core.fusion.multimodal_fusion import MultimodalFusion
 
 
 class ResponseGenerator:
@@ -14,29 +16,16 @@ class ResponseGenerator:
         self.tokenizer = tokenizer
         self.personality = personality_layer
         self.compute_router = ComputeRouter()
+        self.memory_manager = AdvancedMemoryManager()
+        self.multimodal_fusion = MultimodalFusion(
+            text_dim=4096,
+            vision_dim=1024,
+            audio_dim=1024,
+            hidden_dim=4096
+        )
 
     def generate(self, perception_out: Dict[str, Any], decision: Dict[str, Any]) -> str:
-        if self.model is None:
-            # Fallback if model not loaded - generate a simple response based on input
-            text_tokens = perception_out.get("text_tokens", [])
-            if text_tokens and self.tokenizer:
-                try:
-                    # Decode the input text to understand what was asked
-                    input_text = self.tokenizer.decode(text_tokens, skip_special_tokens=True)
-                    # Generate a simple response based on the input
-                    if "hello" in input_text.lower():
-                        return "Hello! I'm here to help, though I'm running in fallback mode."
-                    elif "what" in input_text.lower() or "?" in input_text:
-                        return "I understand you have a question. I'm currently running in fallback mode, so I can't provide detailed responses right now."
-                    elif "mode" in input_text.lower():
-                        return f"I'm currently in {decision.get('mode', 'default')} mode, running in fallback mode."
-                    else:
-                        return f"I received your message: '{input_text[:100]}...' I'm running in fallback mode."
-                except:
-                    return "I received your input but I'm running in fallback mode and can't process it fully."
-            return "I'm running in fallback mode. Please check model loading for full functionality."
-        
-        # Get input text for complexity analysis
+        # Get input text for analysis
         input_text = ""
         if perception_out.get("text_tokens"):
             try:
@@ -44,36 +33,100 @@ class ResponseGenerator:
             except:
                 input_text = str(perception_out.get("text_tokens", ""))
         
+        # Store in memory
+        if input_text:
+            self.memory_manager.store(
+                content=input_text,
+                importance=0.6,
+                modality='text',
+                metadata={'mode': decision.get('mode', 'default')}
+            )
+        
+        # Recall relevant memories
+        relevant_memories = self.memory_manager.recall(input_text, top_k=3)
+        memory_context = " ".join(relevant_memories) if relevant_memories else ""
+        
+        # Build enhanced context
+        if memory_context:
+            enhanced_input = f"[Context: {memory_context}] {input_text}"
+        else:
+            enhanced_input = input_text
+        
+        if self.model is None:
+            # Fallback if model not loaded
+            if "hello" in input_text.lower():
+                return "Hello! I'm here to help, though I'm running in fallback mode."
+            elif "what" in input_text.lower() or "?" in input_text:
+                return "I understand you have a question. I'm currently running in fallback mode, so I can't provide detailed responses right now."
+            elif "mode" in input_text.lower():
+                return f"I'm currently in {decision.get('mode', 'default')} mode, running in fallback mode."
+            else:
+                return f"I received your message: '{input_text[:100]}...' I'm running in fallback mode."
+        
         # Determine compute path based on complexity
         context_len = len(perception_out.get("text_tokens", []))
-        compute_path = self.compute_router.select_path(input_text, context_len)
+        compute_path = self.compute_router.select_path(enhanced_input, context_len)
         max_tokens = self.compute_router.get_max_tokens(compute_path)
         
-        params = self.personality.parameterize(decision["mode"])  # decoding params, prefixes
+        # Get personality parameters
+        params = self.personality.parameterize(decision["mode"])
         prefix = params.get("prompt_prefix", "")
-        text_tokens = self.tokenizer.encode(prefix, add_special_tokens=False) + perception_out.get("text_tokens", [])
         
-        # Build fusion stream
-        stream = self.fusion.build_stream(
-            text_tokens=text_tokens,
-            vision_embeds=perception_out.get("vision_embeds"),
-            audio_embeds=perception_out.get("audio_embeds"),
-        )
-        # Merge embeddings for forward pass
-        merged_embeds = self.fusion.merge_embeddings(
-            input_ids=stream["input_ids"],
-            modality_embeds=stream["modality_embeds"],
-            model=self.model,
-        )
+        # Build input sequence with enhanced context
+        enhanced_tokens = self.tokenizer.encode(enhanced_input, add_special_tokens=True)
+        text_tokens = self.tokenizer.encode(prefix, add_special_tokens=False) + enhanced_tokens
         
-        # Generate with merged embeddings using compute path settings
+        # Handle multimodal inputs
+        vision_embeds = perception_out.get("vision_embeds")
+        audio_embeds = perception_out.get("audio_embeds")
+        
+        if vision_embeds is not None or audio_embeds is not None:
+            # Use multimodal fusion
+            try:
+                # Convert text tokens to embeddings
+                text_embeds = self.model.transformer.wte(torch.tensor(text_tokens, dtype=torch.long))
+                
+                # Fuse modalities
+                fused_embeds = self.multimodal_fusion(
+                    text_embeds=text_embeds,
+                    vision_embeds=vision_embeds,
+                    audio_embeds=audio_embeds
+                )
+                
+                # Generate with fused embeddings
+                with torch.no_grad():
+                    outputs = self.model.generate(
+                        inputs_embeds=fused_embeds.unsqueeze(0),
+                        max_new_tokens=min(max_tokens, params.get("max_tokens", max_tokens)),
+                        temperature=params.get("temperature", 0.8),
+                        top_p=params.get("top_p", 0.9),
+                        do_sample=True,
+                        pad_token_id=self.tokenizer.eos_token_id,
+                        eos_token_id=self.tokenizer.eos_token_id,
+                        repetition_penalty=1.1,
+                    )
+                
+                generated_text = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
+                
+                # Remove prefix if present
+                if prefix and prefix in generated_text:
+                    result = generated_text.split(prefix, 1)[-1].strip()
+                    return result
+                
+                return generated_text
+                
+            except Exception as e:
+                # Fallback to text-only generation
+                pass
+        
+        # Text-only generation
         try:
             # Create attention mask
-            attention_mask = torch.ones(merged_embeds.shape[0], dtype=torch.long)
+            attention_mask = torch.ones(len(text_tokens), dtype=torch.long)
             
             with torch.no_grad():
                 outputs = self.model.generate(
-                    inputs_embeds=merged_embeds.unsqueeze(0),
+                    input_ids=torch.tensor(text_tokens, dtype=torch.long).unsqueeze(0),
                     attention_mask=attention_mask.unsqueeze(0),
                     max_new_tokens=min(max_tokens, params.get("max_tokens", max_tokens)),
                     temperature=params.get("temperature", 0.8),
@@ -83,15 +136,16 @@ class ResponseGenerator:
                     eos_token_id=self.tokenizer.eos_token_id,
                     repetition_penalty=1.1,
                 )
+            
             generated_text = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
             
-            # Strip prefix to return only new generation
+            # Remove prefix if present
             if prefix and prefix in generated_text:
                 result = generated_text.split(prefix, 1)[-1].strip()
                 return result
             
-            # If no prefix or prefix not found, return the full text
             return generated_text
+            
         except Exception as e:
             return f"Generation error: {e}"
 
