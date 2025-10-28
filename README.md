@@ -1,4 +1,4 @@
-# Tantra-LLM v0.3-remembers
+# Tantra-LLM v0.6-fusion_wiring
 
 **Proprietary Multimodal Cognitive Architecture**
 
@@ -26,8 +26,8 @@ Versions reflect **capability milestones**, not calendar dates:
 | v0.2    | eyes_open                | Dynamic architecture + flattened structure ✅      |
 | v0.3    | remembers                | Episodic memory influences output ✅               |
 | v0.4    | understands_relations    | Semantic graph influences responses ✅              |
-| v0.5    | self_shaping             | Adaptive personality fully online                  |
-| v0.6    | fusion_wiring            | Fusion layer pipeline complete                     |
+| v0.5    | self_shaping             | Adaptive personality routing online ✅             |
+| v0.6    | fusion_wiring            | Fusion gates + projector shapes validated ✅        |
 | v0.7    | fusion_training          | Training loop operational                          |
 | v0.8    | dynamic_compute          | Performance optimizations live                     |
 | v0.9    | safety_personality       | Safety + personality modules operational           |
@@ -87,26 +87,21 @@ python demos/demo_minimal.py
 
 ## 🎯 Key Features
 
-### Phase 1 (v0.1-origins)
+### Completed (v0.1–v0.6)
 
-- ✅ System identity configuration with behavioral profiles
-- ✅ Mixed model loading (local SpikingBrain/Whisper + remote Long-VITA)
-- ✅ Project scaffolding with proper imports
-- ✅ Git workflow with semantic commits
+- v0.1: System identity
+- v0.2: Dynamic context + flattened structure
+- v0.3: Episodic memory influence
+- v0.4: Semantic graph influence
+- v0.5: Adaptive personality routing
+- v0.6: Fusion gates + projector shape validation
 
-### Phase 2 (v0.2-eyes_open)
+### Next (→ v1.0)
 
-- ✅ Dynamic context window (short vs long)
-- ✅ Flattened repo structure and updated docs
-
-### Phase 3 (v0.3-remembers)
-
-- ✅ Episodic memory retrieval influences response generation
-- ✅ Smoke tests for demo wiring
-
-### Planned
-
-- Phases 4-6: Fusion training, semantic memory, control loop, performance optimization
+- v0.7: Fusion training loop
+- v0.8: Compute routing + KV reuse + streaming
+- v0.9: Safety + values + style modules
+- v1.0: E2E stability, persona consistency, final docs
 
 ## 🔬 Design Philosophy
 
@@ -132,9 +127,9 @@ All commits follow `<type>(<scope>): <message>` format:
 
 ## 📖 Documentation
 
-- CHANGELOG - See versioned changes and file lists
-- Phase 1 Notes - See `config/identity.py`
-- Phase 2 Stubs - See `core/models/dynamic_context.py`
+- CHANGELOG - versioned changes and file lists
+- Phase 1 Notes - `config/identity.py`
+- Phase 2 Stubs - `core/models/dynamic_context.py`
 
 ## 🔒 License
 
@@ -149,7 +144,7 @@ This is a private project. Development follows strict semantic commits, branch p
 
 ---
 
-**Current Version**: v0.4-understands_relations  
-**Status**: Semantic + episodic memory integrated; next: personality routing (v0.5)  
-**Capability**: Core architecture + dynamic context + hybrid memory active
+**Current Version**: v0.6-fusion_wiring  
+**Status**: Fusion stream wired and validated; next: fusion training (v0.7)  
+**Capability**: Core architecture + hybrid memory + adaptive personality + validated fusion
 
