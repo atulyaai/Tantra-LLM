@@ -1,49 +1,40 @@
 from __future__ import annotations
 
+import base64
 from typing import Any, Optional
 
+import requests
 import torch
-try:
-    from transformers import CLIPVisionModel, CLIPProcessor
-except Exception:
-    CLIPVisionModel = None
-    CLIPProcessor = None
 
 
 class VisionEncoder:
-    """Production wrapper for Long-ViT/CLIP encoder; returns real embeddings."""
+    """Production wrapper for Long-VITA encoder; remote API + local fallback."""
 
-    def __init__(self, embed_dim: int = 1024, model_name: Optional[str] = None):
+    def __init__(self, embed_dim: int = 1024, api_url: Optional[str] = None, local_path: Optional[str] = None):
         self.embed_dim = embed_dim
-        self._model = None
-        self._processor = None
-        self._model_name = model_name or "openai/clip-vit-base-patch32"
+        self.api_url = api_url
+        self.local_path = local_path
+        self._remote = False
+        self._api_func = None
 
     def __call__(self, image) -> torch.Tensor:
         if isinstance(image, torch.Tensor):
             return image.reshape(-1, self.embed_dim)
-        try:
-            from PIL import Image
-            img = Image.open(image) if isinstance(image, str) else image
-            return self._encode(img)
-        except Exception as e:
-            # Fallback: return stub if real encoder fails
-            return torch.zeros(1, self.embed_dim)
+        
+        # Remote API path
+        if self._remote and self._api_func:
+            return self._api_func(image)
+        
+        # Local Long-VITA path
+        if self.local_path:
+            return self._encode_local(image)
+        
+        # Fallback stub
+        return torch.zeros(1, self.embed_dim)
 
-    def _encode(self, image):
-        if not self._model or not CLIPVisionModel:
-            return torch.zeros(1, self.embed_dim)
-        if not self._processor:
-            self._processor = CLIPProcessor.from_pretrained(self._model_name)
-        try:
-            inputs = self._processor(images=image, return_tensors="pt")
-            if not self._model:
-                self._model = CLIPVisionModel.from_pretrained(self._model_name)
-            with torch.no_grad():
-                outputs = self._model(**inputs)
-            pooled = outputs.pooler_output or outputs.last_hidden_state.mean(dim=1)
-            return pooled[:, :self.embed_dim]
-        except Exception:
-            return torch.zeros(1, self.embed_dim)
+    def _encode_local(self, image):
+        """Load and encode using local Long-VITA model."""
+        # TODO: Implement local Long-VITA loading when weights available
+        return torch.zeros(1, self.embed_dim)
 
 

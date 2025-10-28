@@ -2,6 +2,22 @@
 
 All notable changes are tracked by capability versions and tags.
 
+## v0.8-inference_live
+- SpikingBrain Forward Pass + Embeddings Injection
+- Tag: v0.8-inference_live
+
+Changed/Added files:
+- core/control/response_generator.py (actual model.generate() with merged embeddings)
+- core/fusion/orchestrator.py (merge_embeddings() method for gate token replacement)
+- encoders/vision.py (replaced CLIP with Long-VITA placeholder)
+- utils/model_loader.py (updated to use AutoModelForCausalLM from HuggingFace)
+- tests/test_inference.py (smoke test for forward pass)
+
+Notes:
+- SpikingBrain now calls actual model.generate() with embeddings injection
+- Gate tokens replaced with projected modality embeddings in forward pass
+- Uses HuggingFace AutoModelForCausalLM for generation support
+
 ## v0.7-fusion_production
 - Real Encoder Integration
 - Tag: v0.7-fusion_production

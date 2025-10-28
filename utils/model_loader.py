@@ -27,10 +27,10 @@ class ModelLoader:
         logger.info(f"ModelLoader initialized on device: {self.device}")
     
     def load_spikingbrain(self, path: Optional[str] = None) -> Any:
-        """Load SpikingBrain-7B locally.
+        """Load SpikingBrain-7B from HuggingFace or local path.
         
         Args:
-            path: Local model path, defaults to config value
+            path: Local model path (optional), defaults to HuggingFace repo
             
         Returns:
             Loaded model and tokenizer
@@ -38,21 +38,18 @@ class ModelLoader:
         if "spikingbrain" in self.models:
             return self.models["spikingbrain"]
         
-        model_path = path or self.config["spikingbrain"]["path"]
+        from transformers import AutoModelForCausalLM
         
-        if not Path(model_path).exists():
-            logger.warning(f"Model not found at {model_path}, using stub")
-            self.models["spikingbrain"] = {"model": None, "tokenizer": None}
-            return self.models["spikingbrain"]
+        model_name = path or "SpikingBrain/SpikingBrain-7B"
         
         try:
-            logger.info(f"Loading SpikingBrain from {model_path}")
-            model = AutoModel.from_pretrained(
-                model_path,
+            logger.info(f"Loading SpikingBrain from {model_name}")
+            model = AutoModelForCausalLM.from_pretrained(
+                model_name,
                 torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
                 device_map="auto",
             )
-            tokenizer = AutoTokenizer.from_pretrained(model_path)
+            tokenizer = AutoTokenizer.from_pretrained(model_name)
             
             self.models["spikingbrain"] = {"model": model, "tokenizer": tokenizer}
             logger.info("SpikingBrain loaded successfully")
@@ -60,6 +57,7 @@ class ModelLoader:
             
         except Exception as e:
             logger.error(f"Failed to load SpikingBrain: {e}")
+            logger.warning("Using stub model - responses will be empty")
             self.models["spikingbrain"] = {"model": None, "tokenizer": None}
             return self.models["spikingbrain"]
     
