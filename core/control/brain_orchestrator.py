@@ -6,8 +6,8 @@ from typing import Optional
 class BrainOrchestrator:
     """Main orchestrator: perception → decision → response → reflection → memory.
     
-    Episodic memory retrieval now influences responses by prepending retrieved
-    context to user queries before reasoning.
+    Episodic and semantic memory retrieval influence responses by prepending
+    retrieved context to user queries before reasoning.
     """
 
     def __init__(self, perception, decision_engine, response_generator, memory_manager):
@@ -15,12 +15,13 @@ class BrainOrchestrator:
         self.decision = decision_engine
         self.response = response_generator
         self.memory = memory_manager
+        self._last_context_prompt: Optional[str] = None  # test visibility
 
     def step(self, text: Optional[str] = None, image=None, audio=None) -> str:
-        """Process input and generate response with episodic memory influence."""
+        """Process input and generate response with memory influence."""
         user_input = text or ""
         
-        # Retrieve relevant memories
+        # Retrieve relevant memories (semantic facts + episodic episodes)
         recalls = self.memory.recall(user_input)
         
         # Prepend retrieved context if available
@@ -28,6 +29,9 @@ class BrainOrchestrator:
             context_prompt = f"[Memories: {', '.join(recalls[:2])}] {user_input}"
         else:
             context_prompt = user_input
+        
+        # Expose for tests
+        self._last_context_prompt = context_prompt
         
         # Perception
         p = self.perception.perceive(text=context_prompt, image=image, audio=audio)

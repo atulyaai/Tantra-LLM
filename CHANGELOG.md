@@ -2,6 +2,17 @@
 
 All notable changes are tracked by capability versions and tags.
 
+## v0.4-understands_relations
+- Semantic Graph Influence
+- Tag: v0.4-understands_relations
+
+Changed/Added files:
+- core/control/brain_orchestrator.py (exposes _last_context_prompt; includes semantic + episodic context)
+- tests/test_semantic_graph.py (smoke test verifying semantic facts appear in context)
+
+Notes:
+- Semantic facts are prepended alongside episodic recalls when present
+
 ## v0.3-remembers
 - Episodic Memory Integration
 - Tag: v0.3-remembers
