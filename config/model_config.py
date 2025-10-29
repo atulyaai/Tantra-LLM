@@ -1,15 +1,15 @@
 """Model paths, dimensions, and device assignments."""
 
 MODEL_CONFIG = {
-    "model_dim": 4096,  # SpikingBrain hidden size
+    "model_dim": 4096,  # SpikingBrain-7B hidden size
     "wm_tokens": 8192,  # Working memory window
     "spikingbrain": {
-        "max_seq": 32768,   # Max sequence length
+        "max_seq": 32768,   # Max sequence length (full SpikingBrain-7B)
         "path": "Model/spikingbrain-7b",
-        "hidden_size": 4096,
-        "num_attention_heads": 32,
-        "num_hidden_layers": 24,
-        "intermediate_size": 16384,
+        "hidden_size": 4096,  # SpikingBrain-7B dimensions
+        "num_attention_heads": 32,  # SpikingBrain-7B heads
+        "num_hidden_layers": 24,  # SpikingBrain-7B layers
+        "intermediate_size": 16384,  # SpikingBrain-7B intermediate
         "vocab_size": 50257,
         "hidden_dropout_prob": 0.1,
         "attention_probs_dropout_prob": 0.1,
@@ -20,7 +20,7 @@ MODEL_CONFIG = {
         "eos_token_id": 2,
     },
     "vision": {
-        "embed_dim": 4096,  # Aligned with model_dim
+        "embed_dim": 4096,  # Aligned with model_dim (Long-VITA)
         "remote": True,
         "api_url": None,
         "local_path": None,
@@ -28,7 +28,7 @@ MODEL_CONFIG = {
     "audio": {
         "embed_dim": 4096,  # Aligned with model_dim
         "remote": False,
-        "model_name": "openai/whisper-large-v3",
+        "model_name": "base",  # Whisper base for efficiency
         "local_path": None,
     },
     "memory": {

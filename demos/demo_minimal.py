@@ -5,6 +5,10 @@ from __future__ import annotations
 from pathlib import Path
 import json
 import os
+import sys
+
+# Add project root to path
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from encoders.text import TextTokenizer
 from encoders.vision import VisionEncoder
@@ -19,6 +23,7 @@ from core.memory.memory_manager import MemoryManager
 from personality.personality_layer import PersonalityLayer
 from utils.model_loader import ModelLoader
 from config import model_config
+from utils.low_resource import apply_low_resource_settings, is_low_resource_mode
 
 
 def load_personality_config() -> dict:
@@ -27,14 +32,18 @@ def load_personality_config() -> dict:
 
 
 def build_demo():
+    # Low-resource toggles
+    apply_low_resource_settings()
+    
     # Config and env
     cfg = model_config.MODEL_CONFIG
-    spb_repo_or_path = os.environ.get("TANTRA_SPB", "gpt2")
+    spb_repo_or_path = os.environ.get("TANTRA_SPB", "distilgpt2" if is_low_resource_mode() else "gpt2")
     long_vita_dir = os.environ.get("TANTRA_LV_DIR")
 
     # Tokenizer and encoders
     tok = TextTokenizer()
-    vision = VisionEncoder(embed_dim=cfg["vision"]["embed_dim"], api_url=None, local_path=long_vita_dir)
+    # In low-resource mode, avoid heavy Long-VITA load and use fallback
+    vision = VisionEncoder(embed_dim=cfg["vision"]["embed_dim"], api_url=None, local_path=None if is_low_resource_mode() else long_vita_dir)
     audio = AudioEncoder(embed_dim=cfg["audio"]["embed_dim"])
 
     # Projectors and fusion

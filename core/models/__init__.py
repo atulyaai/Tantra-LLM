@@ -4,6 +4,7 @@ __all__ = [
     "dynamic_context",
     "token_streaming",
     "compute_routing",
+    "spikingbrain_model",
 ]
 
 

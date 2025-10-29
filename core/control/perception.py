@@ -15,9 +15,9 @@ class Perception:
         out: Dict[str, Any] = {"text_tokens": [], "vision_embeds": None, "audio_embeds": None}
         if text and self.tokenizer:
             out["text_tokens"] = self.tokenizer.encode(text, add_special_tokens=True)
-        if image and self.vision_encoder:
+        if image is not None and self.vision_encoder:
             out["vision_embeds"] = self.vision_encoder(image)
-        if audio and self.audio_encoder:
+        if audio is not None and self.audio_encoder:
             out["audio_embeds"] = self.audio_encoder(audio)
         return out
 

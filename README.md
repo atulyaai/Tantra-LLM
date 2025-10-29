@@ -1,8 +1,8 @@
-# Tantra-LLM v0.6-fusion_wiring
+# Tantra-LLM
 
-**Proprietary Multimodal Cognitive Architecture**
+**Proprietary Multimodal Cognitive Architecture with SpikingBrain-7B**
 
-A complete rewrite transforming into a proprietary brain system using SpikingBrain-7B + Long-VITA + Whisper with dynamic context, fusion layers, hybrid memory, and adaptive personality.
+A complete multimodal AI system using SpikingBrain-7B + Long-VITA + Whisper with dynamic context, fusion layers, hybrid memory, and adaptive personality.
 
 ## 🧠 Architecture Overview
 
@@ -92,14 +92,16 @@ with open("image.jpg", "rb") as f:
         files={"text": "Describe this", "image": f})
 ```
 
-### Model Status
+### Model Status (4 Required Models)
 
-| Model | Status | Notes |
-|-------|--------|-------|
-| SpikingBrain-7B | ✅ Working | Use `TANTRA_SPB` to set HF model ID |
-| Long-VITA-16K | ⚠️ Partial | Vision embeddings path wired, full forward pending |
-| Whisper | ✅ Installed | Ready for audio encoding |
-| Coqui TTS | ❌ Skipped | Requires MSVC build tools |
+| Model | Status | Type | Memory | Notes |
+|-------|--------|------|--------|-------|
+| SpikingBrain-7B | ✅ Required | Custom LLM (~7B) | ~14GB | Full 7B model, reasoning engine |
+| Long-VITA | ✅ Required | Vision & Text | ~1-2GB | Image/video understanding |
+| Whisper | ✅ Required | Audio STT (base) | ~150MB | Speech-to-text |
+| Coqui TTS | ✅ Required | Audio TTS | ~500MB | Speech generation |
+
+**💡 No Fallbacks**: Only these 4 models are used. All are required.
 
 ## 🎯 Key Features
 
@@ -163,77 +165,28 @@ This is a private project. Development follows strict semantic commits, branch p
 
 ---
 
-## 🔧 Recent Fixes (v1.1-architecture_fixes)
+## 🧪 Testing
 
-### Critical Issues Resolved
+See [TEST_INSTRUCTIONS.md](TEST_INSTRUCTIONS.md) for detailed testing instructions.
 
-1. **✅ SpikingBrain Model Implementation**
-   - Created missing `SpikingBrainForCausalLM` class with spiking dynamics
-   - Implemented proper configuration and model loading
-   - Added comprehensive error handling and fallback mechanisms
+Quick test:
+```powershell
+# Create fresh venv if needed
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
 
-2. **✅ Long-VITA Vision Encoder Integration**
-   - Implemented proper Long-VITA model loading with transformers integration
-   - Added fallback CNN encoder for when Long-VITA is unavailable
-   - Fixed dimension alignment and projection layers
+# Test model
+$env:TANTRA_LOW_RESOURCE="0"
+python -c "from utils.model_loader import ModelLoader; from config import model_config; m = ModelLoader(model_config.MODEL_CONFIG).load_spikingbrain(); print('Loaded:', 'model' in m)"
+```
 
-3. **✅ Unified Multimodal Fusion System**
-   - Resolved conflicts between multiple fusion systems
-   - Created single, consistent `UnifiedMultimodalFusion` approach
-   - Added cross-modal attention and proper error handling
+## 📝 Version History
 
-4. **✅ Enhanced Memory System**
-   - Fixed memory consolidation logic with proper timing
-   - Improved recall scoring with recency and importance weighting
-   - Added memory decay and forgetting mechanisms
-   - Fixed dimension inconsistencies
+See [CHANGELOG.md](CHANGELOG.md) for detailed version history.
 
-5. **✅ Advanced Decision Engine**
-   - Implemented actual decision-making logic (was previously a stub)
-   - Added complexity analysis, safety checking, and priority assignment
-   - Dynamic recall depth determination based on input complexity
-
-6. **✅ Comprehensive Error Handling**
-   - Added centralized error handling system with recovery strategies
-   - Implemented retry, fallback, and graceful degradation
-   - Added error tracking, logging, and monitoring
-
-7. **✅ Configuration Validation**
-   - Added configuration validation and consistency checks
-   - Fixed dimension mismatches across all components
-   - Added health checks and validation reporting
-
-8. **✅ Performance Optimization**
-   - Added caching system for expensive operations
-   - Implemented async processing and batch operations
-   - Added performance monitoring and metrics tracking
-
-9. **✅ Comprehensive Testing**
-   - Added error scenario testing for all components
-   - Created integration tests for the complete system
-   - Added performance and stress testing
-
-10. **✅ Architecture Documentation**
-    - Created comprehensive architecture documentation
-    - Added troubleshooting guides and best practices
-    - Documented all components and data flow
-
-### Configuration Updates
-
-- **Fixed dimension consistency**: All components now use 4096 dimensions
-- **Enhanced model configuration**: Added missing parameters and validation
-- **Improved error handling**: Added comprehensive error recovery mechanisms
-- **Performance optimization**: Added caching and monitoring systems
-
-### Testing Coverage
-
-- **Unit tests**: All components have comprehensive unit tests
-- **Integration tests**: End-to-end system testing
-- **Error scenario tests**: Comprehensive error handling testing
-- **Performance tests**: Performance optimization validation
-
-**Current Version**: v1.1-architecture_fixes  
-**Status**: ✅ Production-ready with comprehensive fixes  
-**Capability**: Full multimodal brain with robust error handling and performance optimization  
-**Models**: SpikingBrain ✅ Working | Long-VITA ✅ Integrated | Whisper ✅ Installed | Fusion ✅ Unified
+**Current Version**: v1.4-original-specs  
+**Status**: Using original model specifications  
+**Changes**: SpikingBrain-7B (full), Whisper base, Long-VITA, Coqui TTS  
+**Next**: Test SpikingBrain-7B → Add Long-VITA → Vision conversations
 

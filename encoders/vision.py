@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import logging
+import os
 from pathlib import Path
 from typing import Any, Optional, Union
 
@@ -23,28 +24,43 @@ class LongVITAVisionEncoder(nn.Module):
         self.model_path = model_path
         self._model = None
         self._processor = None
-        self._device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        # Check for forced CPU mode
+        force_cpu = bool(os.environ.get("TANTRA_FORCE_CPU", "0") in {"1", "true", "True"})
+        if force_cpu:
+            self._device = torch.device("cpu")
+        else:
+            self._device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         
     def _load_model(self):
         """Load Long-VITA model and processor."""
         if self._model is not None:
             return
             
+        from utils.low_resource import is_low_resource_mode
+        if is_low_resource_mode():
+            logger.info("Low-resource mode: skipping Long-VITA load, using fallback encoder")
+            self._model = None
+            self._processor = None
+            return
         try:
-            # Try to load from transformers if available
+            # Try to load Long-VITA model
             from transformers import AutoModel, AutoProcessor
             
             model_name = self.model_path or "microsoft/longvita-16k"
-            logger.info(f"Loading Long-VITA model: {model_name}")
+            logger.info(f"Attempting to load Long-VITA: {model_name}")
             
             self._processor = AutoProcessor.from_pretrained(model_name)
+            use_cuda = self._device.type == "cuda" and torch.cuda.is_available()
             self._model = AutoModel.from_pretrained(
                 model_name,
-                torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
-                device_map="auto" if torch.cuda.is_available() else None
+                dtype=torch.float16 if use_cuda else torch.float32,
+                device_map="auto" if use_cuda else None
             )
+            # If not using device_map, manually move to device
+            if not use_cuda:
+                self._model = self._model.to(self._device)
             self._model.eval()
-            logger.info("Long-VITA model loaded successfully")
+            logger.info(f"Long-VITA model loaded successfully on {self._device}")
             
         except Exception as e:
             logger.warning(f"Failed to load Long-VITA model: {e}")
@@ -117,9 +133,10 @@ class LongVITAVisionEncoder(nn.Module):
                     image = image.permute(1, 2, 0)
                 image = Image.fromarray((image.numpy() * 255).astype(np.uint8)).convert("RGB")
             
-            # Convert to tensor
+            # Convert to tensor and move to device
             image_tensor = torch.from_numpy(np.array(image)).float() / 255.0
             image_tensor = image_tensor.permute(2, 0, 1).unsqueeze(0)  # [1, 3, H, W]
+            image_tensor = image_tensor.to(self._device)
             
             # Simple CNN encoder
             if not hasattr(self, '_fallback_cnn'):
@@ -177,7 +194,9 @@ class VisionEncoder:
     def _fallback_encode(self, image) -> torch.Tensor:
         """Fallback encoding when all else fails."""
         logger.warning("Using fallback vision encoding")
-        return torch.zeros(1, self.embed_dim)
+        # Determine device for fallback
+        device = getattr(self._local_encoder, '_device', torch.device("cpu")) if self._local_encoder else torch.device("cpu")
+        return torch.zeros(1, self.embed_dim, device=device)
 
     def set_remote_mode(self, api_func):
         """Set remote API function."""

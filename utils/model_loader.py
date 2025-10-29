@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -22,7 +23,13 @@ class ModelLoader:
     
     def __init__(self, config: Dict[str, Any]):
         self.config = config
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        # Check for forced CPU mode via environment variable
+        force_cpu = bool(os.environ.get("TANTRA_FORCE_CPU", "0") in {"1", "true", "True"})
+        if force_cpu:
+            self.device = torch.device("cpu")
+            logger.info("Forced CPU mode via TANTRA_FORCE_CPU environment variable")
+        else:
+            self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.models: Dict[str, Any] = {}
         logger.info(f"ModelLoader initialized on device: {self.device}")
     
@@ -38,22 +45,29 @@ class ModelLoader:
         if "spikingbrain" in self.models:
             return self.models["spikingbrain"]
         
+        # Try to load custom SpikingBrain first
         try:
+            from utils.low_resource import is_low_resource_mode
+            if is_low_resource_mode():
+                logger.info("Low-resource mode: using DistilGPT-2 instead of SpikingBrain")
+                raise ImportError("Low-resource mode")
+                
             from core.models.spikingbrain_model import SpikingBrainForCausalLM, SpikingBrainConfig
             from transformers import AutoTokenizer
             
-            logger.info("Loading custom SpikingBrain model")
+            logger.info("Loading custom SpikingBrain-7B model")
             
-            # Create SpikingBrain configuration
+            # Create SpikingBrain-7B configuration (original)
+            sb_config = self.config.get("spikingbrain", {})
             config = SpikingBrainConfig(
-                vocab_size=50257,
-                hidden_size=4096,
-                num_attention_heads=32,
-                num_hidden_layers=24,
-                intermediate_size=16384,
-                max_position_embeddings=32768,
-                hidden_dropout_prob=0.1,
-                attention_probs_dropout_prob=0.1,
+                vocab_size=sb_config.get("vocab_size", 50257),
+                n_embd=sb_config.get("hidden_size", 4096),
+                n_head=sb_config.get("num_attention_heads", 32),
+                n_layer=sb_config.get("num_hidden_layers", 24),
+                n_inner=sb_config.get("intermediate_size", 16384),
+                n_positions=sb_config.get("max_seq", 32768),
+                resid_pdrop=0.1,
+                attn_pdrop=0.1,
                 initializer_range=0.02,
                 use_cache=True,
                 pad_token_id=0,
@@ -63,6 +77,10 @@ class ModelLoader:
             
             # Create model
             model = SpikingBrainForCausalLM(config)
+            
+            # Move model to device (CPU or GPU)
+            model = model.to(self.device)
+            model.eval()  # Set to evaluation mode
             
             # Load tokenizer
             tokenizer = AutoTokenizer.from_pretrained("gpt2")
@@ -75,43 +93,15 @@ class ModelLoader:
                 config.vocab_size = len(tokenizer)
             
             self.models["spikingbrain"] = {"model": model, "tokenizer": tokenizer}
-            logger.info("SpikingBrain loaded successfully")
+            logger.info(f"✅ SpikingBrain-7B loaded successfully on {self.device}!")
             return self.models["spikingbrain"]
             
         except Exception as e:
-            logger.error(f"Failed to load custom SpikingBrain: {e}")
-            logger.warning("Falling back to GPT-2")
-            
-            try:
-                from transformers import AutoModelForCausalLM, AutoTokenizer
-                model_name = path or "gpt2"
-                model = AutoModelForCausalLM.from_pretrained(
-                    model_name,
-                    torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
-                )
-                tokenizer = AutoTokenizer.from_pretrained(model_name)
-                if tokenizer.pad_token is None:
-                    tokenizer.pad_token = tokenizer.eos_token
-                
-                self.models["spikingbrain"] = {"model": model, "tokenizer": tokenizer}
-                logger.info("GPT-2 fallback loaded successfully")
-                return self.models["spikingbrain"]
-            except Exception as e2:
-                logger.error(f"Failed to load GPT-2 fallback: {e2}")
-                logger.warning("Using basic tokenizer only")
-                try:
-                    from transformers import AutoTokenizer
-                    tokenizer = AutoTokenizer.from_pretrained("gpt2")
-                    if tokenizer.pad_token is None:
-                        tokenizer.pad_token = tokenizer.eos_token
-                    self.models["spikingbrain"] = {"model": None, "tokenizer": tokenizer}
-                except:
-                    from encoders.text import TextTokenizer
-                    tokenizer = TextTokenizer()
-                    self.models["spikingbrain"] = {"model": None, "tokenizer": tokenizer}
-                return self.models["spikingbrain"]
+            logger.error(f"SpikingBrain failed to load: {e}")
+            logger.error("Please check your SpikingBrain model configuration")
+            raise RuntimeError("SpikingBrain is required and failed to load") from e
     
-    def load_whisper(self, model_size: str = "large-v3") -> Any:
+    def load_whisper(self, model_size: str = "base") -> Any:
         """Load Whisper locally.
         
         Args:
@@ -125,21 +115,21 @@ class ModelLoader:
         
         try:
             import whisper
-            logger.info(f"Loading Whisper {model_size}")
-            model = whisper.load_model(model_size, device=self.device.name if hasattr(self.device, 'name') else str(self.device))
+            logger.info(f"Loading Whisper {model_size} on {self.device}")
+            # Whisper expects string device name: "cpu" or "cuda"
+            device_str = "cpu" if self.device.type == "cpu" else "cuda"
+            model = whisper.load_model(model_size, device=device_str)
             
             self.models["whisper"] = model
-            logger.info("Whisper loaded successfully")
+            logger.info(f"✅ Whisper loaded successfully on {device_str}")
             return self.models["whisper"]
             
         except ImportError:
-            logger.warning("Whisper not installed, using stub")
-            self.models["whisper"] = None
-            return self.models["whisper"]
+            logger.error("Whisper not installed. Install with: pip install openai-whisper")
+            raise RuntimeError("Whisper is required but not installed")
         except Exception as e:
             logger.error(f"Failed to load Whisper: {e}")
-            self.models["whisper"] = None
-            return self.models["whisper"]
+            raise RuntimeError(f"Whisper failed to load: {e}") from e
     
     def load_coqui_tts(self, model_name: str = "tts_models/en/ljspeech/tacotron2-DDC") -> Any:
         """Load Coqui TTS locally.
@@ -157,20 +147,20 @@ class ModelLoader:
             from TTS.api import TTS
             logger.info(f"Loading Coqui TTS: {model_name}")
             
-            tts = TTS(model_name=model_name, gpu=torch.cuda.is_available())
+            # Coqui TTS: gpu=False forces CPU mode, gpu=True only works if CUDA is available
+            use_gpu = self.device.type == "cuda" and torch.cuda.is_available()
+            tts = TTS(model_name=model_name, gpu=use_gpu)
             
             self.models["coqui_tts"] = tts
-            logger.info("Coqui TTS loaded successfully")
+            logger.info(f"✅ Coqui TTS loaded successfully on {'GPU' if use_gpu else 'CPU'}")
             return self.models["coqui_tts"]
             
         except ImportError:
-            logger.warning("Coqui TTS not installed, using stub")
-            self.models["coqui_tts"] = None
-            return self.models["coqui_tts"]
+            logger.error("Coqui TTS not installed. Install with: pip install TTS")
+            raise RuntimeError("Coqui TTS is required but not installed")
         except Exception as e:
             logger.error(f"Failed to load Coqui TTS: {e}")
-            self.models["coqui_tts"] = None
-            return self.models["coqui_tts"]
+            raise RuntimeError(f"Coqui TTS failed to load: {e}") from e
     
     def get_long_vit_embeddings_remote(self, image_data: bytes, api_key: Optional[str] = None) -> torch.Tensor:
         """Get vision embeddings from remote Long-VITA API.
@@ -189,6 +179,8 @@ class ModelLoader:
             from encoders.vision import LongVITAVisionEncoder
             
             encoder = LongVITAVisionEncoder(embed_dim=self.config["vision"]["embed_dim"])
+            # Ensure encoder is on the same device
+            encoder._device = self.device
             
             # Convert bytes to PIL Image
             from PIL import Image
