@@ -48,22 +48,22 @@ class FusionTrainer:
                 vision_embeds = batch.get("vision_embeds")
                 audio_embeds = batch.get("audio_embeds")
                 targets = batch.get("target_ids")
-                
+
                 if vision_embeds is not None:
                     projected_v = self.vision_projector(vision_embeds)
                 if audio_embeds is not None:
                     projected_a = self.audio_projector(audio_embeds)
-                
+
                 # Compute loss (simplified stub)
                 # TODO: Implement full forward pass with base model + projector pipeline
-                
+
                 # Backward pass
                 self.optimizer.zero_grad()
                 # loss.backward()
                 # self.optimizer.step()
-        
-        # Save checkpoint
-        self.save_checkpoint(f"checkpoints/epoch_{epoch}.pt")
+
+            # Save checkpoint after each epoch
+            self.save_checkpoint(f"checkpoints/epoch_{epoch}.pt")
 
     def save_checkpoint(self, path: str):
         """Save projector weights."""

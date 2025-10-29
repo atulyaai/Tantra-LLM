@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 import torch
 
@@ -29,7 +29,7 @@ class FusionOrchestrator:
         text_tokens: List[int],
         vision_embeds: Optional[torch.Tensor] = None,
         audio_embeds: Optional[torch.Tensor] = None,
-    ) -> Dict[str, torch.Tensor]:
+    ) -> Dict[str, Any]:
         input_ids = list(text_tokens)
         modality_embeds: List[torch.Tensor] = []
 
