@@ -118,7 +118,7 @@ class EpisodicMemory:
         self.importance_scores = self.importance_scores[indices]
     
     def recall(self, query: str, top_k: int = 5) -> List[str]:
-        """Recall relevant memories."""
+        """Recall relevant memories with improved scoring."""
         if len(self.memories) == 0:
             return []
         
@@ -132,11 +132,23 @@ class EpisodicMemory:
             dim=1
         )
         
-        # Weight by importance
-        weighted_scores = similarities * self.importance_scores
+        # Apply recency decay
+        now = datetime.now()
+        recency_scores = torch.tensor([
+            1.0 / (1.0 + (now - memory.timestamp).total_seconds() / 86400)  # Days
+            for memory in self.memories
+        ])
+        
+        # Combine similarity, importance, and recency
+        # Use additive combination instead of multiplicative to avoid suppression
+        combined_scores = (
+            similarities * 0.5 +  # Semantic similarity
+            self.importance_scores * 0.3 +  # Importance
+            recency_scores * 0.2  # Recency
+        )
         
         # Get top-k memories
-        _, indices = torch.topk(weighted_scores, min(top_k, len(self.memories)))
+        _, indices = torch.topk(combined_scores, min(top_k, len(self.memories)))
         
         return [self.memories[i].content for i in indices]
 
@@ -266,6 +278,11 @@ class AdvancedMemoryManager:
         self.consolidation_threshold = 0.7
         self.consolidation_frequency = 100  # Consolidate every 100 new memories
         self.memory_count = 0
+        
+        # Memory decay parameters
+        self.decay_rate = 0.01  # Daily decay rate
+        self.forgetting_threshold = 0.1  # Forget memories below this importance
+        self.last_decay_time = datetime.now()
     
     def store(self, content: str, importance: float = 0.5, modality: str = 'text', metadata: Dict = None) -> None:
         """Store content in appropriate memory system."""
@@ -280,6 +297,9 @@ class AdvancedMemoryManager:
         
         # Increment counter
         self.memory_count += 1
+        
+        # Apply memory decay
+        self._apply_memory_decay()
         
         # Consolidate if needed
         if self.memory_count % self.consolidation_frequency == 0:
@@ -297,11 +317,14 @@ class AdvancedMemoryManager:
         return episodic_recall + semantic_recall
     
     def _consolidate_memories(self) -> None:
-        """Consolidate important episodic memories to semantic memory."""
-        # Get high-importance memories
+        """Consolidate important episodic memories to semantic memory with improved logic."""
+        # Get high-importance memories that haven't been consolidated recently
+        now = datetime.now()
         high_importance = [
             memory for memory in self.episodic.memories
-            if memory.importance > self.consolidation_threshold
+            if (memory.importance > self.consolidation_threshold and 
+                not hasattr(memory, 'consolidated') and
+                (now - memory.timestamp).total_seconds() > 3600)  # At least 1 hour old
         ]
         
         # Convert to semantic facts
@@ -311,6 +334,42 @@ class AdvancedMemoryManager:
             
             # Store as semantic fact
             self.semantic.store_fact(key, memory.content, memory.importance)
+            
+            # Mark as consolidated
+            memory.consolidated = True
+    
+    def _apply_memory_decay(self) -> None:
+        """Apply memory decay and forgetting."""
+        now = datetime.now()
+        days_since_last_decay = (now - self.last_decay_time).total_seconds() / 86400
+        
+        if days_since_last_decay < 1.0:  # Only decay once per day
+            return
+        
+        # Apply decay to episodic memories
+        memories_to_remove = []
+        for i, memory in enumerate(self.episodic.memories):
+            # Apply exponential decay
+            memory.importance *= (1 - self.decay_rate) ** days_since_last_decay
+            
+            # Mark for removal if below threshold
+            if memory.importance < self.forgetting_threshold:
+                memories_to_remove.append(i)
+        
+        # Remove forgotten memories
+        for i in reversed(memories_to_remove):
+            del self.episodic.memories[i]
+            self.episodic.embeddings = torch.cat([
+                self.episodic.embeddings[:i],
+                self.episodic.embeddings[i+1:]
+            ])
+            self.episodic.importance_scores = torch.cat([
+                self.episodic.importance_scores[:i],
+                self.episodic.importance_scores[i+1:]
+            ])
+        
+        # Update last decay time
+        self.last_decay_time = now
     
     def get_working_context(self) -> str:
         """Get current working memory context."""

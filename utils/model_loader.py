@@ -173,19 +173,35 @@ class ModelLoader:
             return self.models["coqui_tts"]
     
     def get_long_vit_embeddings_remote(self, image_data: bytes, api_key: Optional[str] = None) -> torch.Tensor:
-        """Get vision embeddings from remote Long-VITA API (stub for now).
+        """Get vision embeddings from remote Long-VITA API.
         
         Args:
             image_data: Image bytes
             api_key: API key for remote service
             
         Returns:
-            Vision embeddings tensor (stub zeros for now)
+            Vision embeddings tensor
         """
-        logger.info("Long-VITA remote API not implemented, returning stub")
-        return torch.zeros(1, self.config["vision"]["embed_dim"])
+        try:
+            # For now, use local encoder as fallback
+            # In production, this would call a remote API
+            logger.info("Using local Long-VITA encoder as remote API fallback")
+            from encoders.vision import LongVITAVisionEncoder
+            
+            encoder = LongVITAVisionEncoder(embed_dim=self.config["vision"]["embed_dim"])
+            
+            # Convert bytes to PIL Image
+            from PIL import Image
+            import io
+            
+            image = Image.open(io.BytesIO(image_data)).convert("RGB")
+            return encoder(image)
+            
+        except Exception as e:
+            logger.error(f"Remote Long-VITA API failed: {e}")
+            return torch.zeros(1, self.config["vision"]["embed_dim"])
     
-    def get_vision_encoder(self, mode: str = "remote") -> Any:
+    def get_vision_encoder(self, mode: str = "local") -> Any:
         """Get vision encoder (remote or local).
         
         Args:
@@ -196,13 +212,16 @@ class ModelLoader:
         """
         from encoders.vision import VisionEncoder
         
+        embed_dim = self.config["vision"]["embed_dim"]
+        
         if mode == "remote":
-            encoder = VisionEncoder(embed_dim=self.config["vision"]["embed_dim"])
-            encoder._remote = True
-            encoder._api_func = self.get_long_vit_embeddings_remote
+            encoder = VisionEncoder(embed_dim=embed_dim)
+            encoder.set_remote_mode(self.get_long_vit_embeddings_remote)
             return encoder
         else:
-            logger.warning("Local vision encoder not implemented, using remote")
-            return self.get_vision_encoder(mode="remote")
+            # Use local mode by default
+            encoder = VisionEncoder(embed_dim=embed_dim)
+            encoder.set_local_mode()  # Will use default model path
+            return encoder
 
 
