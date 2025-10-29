@@ -15,10 +15,10 @@ class MemoryManager:
         self.episodic = EpisodicMemory()
         self.semantic = SemanticMemory()
 
-    def recall(self, query: str) -> List[str]:
+    def recall(self, query: str, top_k: int = 3) -> List[str]:
         facts = ["; ".join(f) for f in self.semantic.query(query)]
-        episodes = self.episodic.retrieve(query)
-        return facts + episodes
+        episodes = self.episodic.retrieve(query, top_k=top_k)
+        return (facts + episodes)[:top_k]
 
     def consider_store(self, text: str, importance: float = 0.5):
         if importance >= 0.7:
