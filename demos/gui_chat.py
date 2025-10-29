@@ -34,11 +34,11 @@ class TantraGUI:
         )
         self.chat_area.pack(pady=10, padx=10, fill=tk.BOTH, expand=True)
         
-        # Configure tags
+        # Configure tags (use standard color names)
         self.chat_area.config(state=tk.NORMAL)
         self.chat_area.tag_config("title", font=("Arial", 12, "bold"))
-        self.chat_area.tag_config("ready", fg="green")
-        self.chat_area.tag_config("error", fg="red")
+        self.chat_area.tag_config("ready", foreground="green")
+        self.chat_area.tag_config("error", foreground="red")
         self.chat_area.tag_config("user", font=("Arial", 10, "bold"))
         self.chat_area.tag_config("bot", font=("Arial", 10))
         self.chat_area.config(state=tk.DISABLED)
