@@ -1,4 +1,5 @@
-# Tantra-LLM v0.6-fusion_wiring
+# Tantra-LLM v1.2-modernized
+![Modernized 2026](https://img.shields.io/badge/Modernized-2026-gold?style=for-the-badge)
 
 **Proprietary Multimodal Cognitive Architecture**
 
@@ -8,7 +9,7 @@ A complete rewrite transforming into a proprietary brain system using SpikingBra
 
 ### Core Components
 
-- **SpikingBrain-7B**: Reasoning core
+- **Reasoning Core**: SpikingBrain-7B + DeepSeek-R1 Distill
 - **Long-VITA/EVA-ViT**: Vision encoder
 - **Whisper Large-v3**: Audio encoder
 - **Coqui TTS**: Speech generation
