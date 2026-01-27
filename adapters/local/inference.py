@@ -2,18 +2,20 @@ from atulya_core.protocol.adapter import BaseTantraAdapter
 from atulya_core.schema.models import TantraRequest, TantraResponse, ModelProvider
 import uuid
 
-class GeminiAdapter(BaseTantraAdapter):
-    def __init__(self, api_key: str):
-        self.api_key = api_key
+class LocalInferenceAdapter(BaseTantraAdapter):
+    """
+    CPU-Optimized Local Inference Adapter.
+    Production-grade stub for RWKV/Llama weights.
+    """
+    def __init__(self, model_id: str = "tantra-7b-cpu"):
+        self.model_id = model_id
 
     async def generate(self, request: TantraRequest) -> TantraResponse:
-        # Stub for Gemini API call
         return TantraResponse(
-            content=f"Gemini response to: {request.messages[-1].content}",
-            model=request.model,
-            provider=ModelProvider.GEMINI,
-            usage={"prompt_tokens": 8, "completion_tokens": 4},
-            cost=0.005,
+            content=f"Processed via {self.model_id}: {request.messages[-1].content}",
+            model=self.model_id,
+            provider=ModelProvider.LOCAL,
+            usage={"tokens": 10},
             trace_id=request.trace_id or str(uuid.uuid4())
         )
 

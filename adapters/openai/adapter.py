@@ -1,5 +1,5 @@
-from tantra_core.protocol.adapter import BaseTantraAdapter
-from tantra_core.schema.models import TantraRequest, TantraResponse, ModelProvider
+from atulya_core.protocol.adapter import BaseTantraAdapter
+from atulya_core.schema.models import TantraRequest, TantraResponse, ModelProvider
 import uuid
 
 class OpenAIAdapter(BaseTantraAdapter):

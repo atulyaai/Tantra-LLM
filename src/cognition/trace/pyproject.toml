@@ -1,0 +1,11 @@
+[project]
+name = "tantra-trace"
+version = "0.1.0"
+description = "Part of the Atulya Tantra Saner Systems Ecosystem"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = []
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
