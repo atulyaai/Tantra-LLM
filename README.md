@@ -9,14 +9,14 @@ graph TD
     Hub[Unified Inference Hub] --> Adapters[Local/Cloud Adapters]
     
     subgraph "Sensory Integration"
-        Hub --> Voice[src/sensory/voice]
-        Hub --> Vision[src/sensory/vision]
-        Hub --> Sentiment[src/sensory/sentiment]
+        Hub --> Voice[core/sensory/voice]
+        Hub --> Vision[core/sensory/vision]
+        Hub --> Sentiment[core/sensory/sentiment]
     end
 
     subgraph "Cognitive Logic"
-        Hub --> Sutra[src/cognition/sutra: Planning]
-        Hub --> Trace[src/cognition/trace: Observability]
+        Hub --> Sutra[core/cognition/sutra: Planning]
+        Hub --> Trace[core/cognition/trace: Observability]
     end
     
     Hub --> Middleware[Atulya-Core Middleware]
@@ -28,8 +28,8 @@ graph TD
 
 | Sphere | Module Path | Biologic Function | Responsibility |
 | :--- | :--- | :--- | :--- |
-| **SENSORY** | `src/sensory/` | **Perception** | Real-time audio, visual, and emotional stream processing. |
-| **COGNITION** | `src/cognition/` | **Thought** | Prompt compilation (Sutra) and reality verification (Trace). |
+| **SENSORY** | `core/sensory/` | **Perception** | Real-time audio, visual, and emotional stream processing. |
+| **COGNITION** | `core/cognition/` | **Thought** | Prompt compilation (Sutra) and reality verification (Trace). |
 | **INFERENCE** | `core/` | **Reasoning** | Model orchestration and universal adapter management. |
 
 ---
