@@ -1,5 +1,5 @@
 # Tantra-LLM Phase 2: Core Brain System Dependencies
-# Modernized for Late 2025 / Early 2026
+# Modernized for 2026
 
 # Core ML libraries
 torch>=2.5.1
