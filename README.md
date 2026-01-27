@@ -5,6 +5,15 @@
 
 A complete rewrite transforming into a proprietary brain system using SpikingBrain-7B + Long-VITA + Whisper with dynamic context, fusion layers, hybrid memory, and adaptive personality.
 
+---
+
+## ✨ Jan 2026 Modernization (v1.2)
+- **DeepSeek-R1 Distill**: Integrated as a core reasoning component for complex logic.
+- **ML Stack Upgrade**: Full sync with 2026 stable releases (`torch` 2.5, `transformers` 4.48).
+- **Multimodal Evolution**: Verified vision (Long-VITA) and audio (Whisper) encoder routes.
+
+---
+
 ## 🧠 Architecture Overview
 
 ### Core Components
