@@ -55,6 +55,8 @@ all = [
 npdna-chat = "npdna.cli:chat_main"
 npdna-train = "npdna.train_npdna_v3:train"
 npdna-info = "npdna.cli:info_main"
+npdna-benchmark = "npdna.benchmark:benchmark_main"
+npdna-release = "npdna.benchmark:release_main"
 
 [tool.setuptools.packages.find]
 where = ["."]

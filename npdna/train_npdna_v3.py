@@ -211,9 +211,18 @@ def save_tokenizer_assets(core, tag=""):
     }, ASSETS_DIR / f"{name}.pt")
 
 
-def train(max_steps: int | None = None, mtp_depth: int = MTP_DEPTH):
+def train(
+    max_steps: int | None = None,
+    mtp_depth: int = MTP_DEPTH,
+    threads: int | None = None,
+    compile_model: bool = False,
+    freeze_backbone: bool = False,
+    train_embeddings: bool = False,
+):
     CKPT_DIR.mkdir(parents=True, exist_ok=True)
     DATA_DIR = Path("Download")
+    if threads:
+        torch.set_num_threads(max(1, threads))
 
     print(f"  NP-DNA v3: {CONFIG_NAME}, attn={USE_ATTENTION}")
     print(f"  {TOTAL_STEPS} planned steps, batch={BATCH_SIZE}, seq={SEQ_LEN}, mtp_depth={mtp_depth}")
@@ -284,6 +293,24 @@ def train(max_steps: int | None = None, mtp_depth: int = MTP_DEPTH):
 
     # Optimizer
     model = core.model
+    if compile_model and hasattr(torch, "compile"):
+        try:
+            model = torch.compile(model, mode="reduce-overhead")
+            core.model = model
+            print("  torch.compile enabled")
+        except Exception as exc:
+            print(f"  torch.compile skipped: {str(exc)[:120]}")
+
+    if freeze_backbone:
+        from npdna.quant_turbo import freeze_for_partial_training
+
+        trainable = freeze_for_partial_training(
+            core,
+            train_strands=True,
+            train_embeddings=train_embeddings,
+        )
+        print(f"  partial training enabled: {trainable:,} trainable params")
+
     opt = torch.optim.AdamW(model.parameters(), lr=LR, weight_decay=0.01,
                              betas=(0.9, 0.95))
 
@@ -440,5 +467,16 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train NP-DNA.")
     parser.add_argument("--steps", type=int, default=None, help="Run only this many steps for smoke testing.")
     parser.add_argument("--mtp-depth", type=int, default=MTP_DEPTH, help="Multi-token prediction depth.")
+    parser.add_argument("--threads", type=int, default=None, help="PyTorch CPU thread count.")
+    parser.add_argument("--compile", action="store_true", help="Try torch.compile for repeated training steps.")
+    parser.add_argument("--freeze-backbone", action="store_true", help="Train only genome seeds by default.")
+    parser.add_argument("--train-embeddings", action="store_true", help="When freezing, also train embeddings.")
     args = parser.parse_args()
-    train(max_steps=args.steps, mtp_depth=args.mtp_depth)
+    train(
+        max_steps=args.steps,
+        mtp_depth=args.mtp_depth,
+        threads=args.threads,
+        compile_model=args.compile,
+        freeze_backbone=args.freeze_backbone,
+        train_embeddings=args.train_embeddings,
+    )

@@ -139,11 +139,15 @@ Three entry points are installed as `npdna-*` commands:
 | `npdna-info` | Print seed config and parameter counts |
 | `npdna-chat [prompt]` | Generate text from a checkpoint or fresh core |
 | `npdna-train` | Run the full curriculum training pipeline |
+| `npdna-benchmark` | Benchmark checkpoint load and generation speed |
+| `npdna-release VERSION` | Export a versioned model release folder |
 
 ```powershell
 npdna-info
 npdna-chat "What is gravity?" --max-tokens 80
 npdna-train
+npdna-benchmark --checkpoint model/npdna_v3/best
+npdna-release npdna-seed-v0.1
 ```
 
 If installed in editable mode (`pip install -e .`) the commands are available immediately after setup.
@@ -168,6 +172,32 @@ Default script settings:
 | Learning rate | `5e-3` |
 | Checkpoints | Local `model/` output |
 | Tokenizer assets | Local `model/tokenizer/` output |
+
+Fast smoke run:
+
+```powershell
+python npdna\train_npdna_v3.py --steps 50 --mtp-depth 3
+```
+
+CPU speed knobs:
+
+| Option | Use |
+| --- | --- |
+| `--threads N` | Set PyTorch CPU threads for this run. Try physical core count first. |
+| `--compile` | Try `torch.compile`; useful only if compile overhead pays back over many steps. |
+| `--freeze-backbone` | Train only genome seeds for faster/lighter adaptation. |
+| `--train-embeddings` | Use with `--freeze-backbone` when vocabulary embeddings also need updates. |
+
+## Versioning and Benchmarks
+
+After a useful training run, benchmark and export a version:
+
+```powershell
+npdna-benchmark --checkpoint model/npdna_v3/best --output model/npdna_v3/best/benchmark.json
+npdna-release npdna-seed-v0.1 --checkpoint model/npdna_v3/best
+```
+
+Version folders are written under `model/releases/` and include checkpoint files, `benchmark.json`, and `samples.txt`.
 
 ## Configuration
 
