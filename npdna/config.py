@@ -1,12 +1,11 @@
-"""NP-DNA configuration — single dynamic config that auto-scales.
+"""NP-DNA configuration.
 
-No more 6 presets. One config with a complexity parameter.
-hidden_size, layers, strands, vocab all grow on demand when fill > 95%.
+The public release exposes one named configuration, ``seed``. It starts small
+and grows vocabulary, strands, and layers at runtime.
 """
 
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass, field
 
 
@@ -19,10 +18,10 @@ class GenomeConfig:
 
     @property
     def param_estimate(self) -> int:
-        L = self.latent_dim or 0
-        M = self.max_strands or 0
-        encoder = L * self.encoder_hidden + self.encoder_hidden * L
-        seeds = M * L
+        latent = self.latent_dim or 0
+        max_strands = self.max_strands or 0
+        encoder = latent * self.encoder_hidden + self.encoder_hidden * latent
+        seeds = max_strands * latent
         return encoder + seeds
 
 
@@ -30,7 +29,7 @@ class GenomeConfig:
 class StrandConfig:
     hidden_size: int = 128
     state_size: int = 64
-    strand_type: str = "ssm"  # "ssm" or "attention"
+    strand_type: str = "ssm"
 
 
 @dataclass
@@ -53,7 +52,7 @@ class LayerSpec:
     @property
     def total_strands(self) -> int:
         if self.categories:
-            return sum(c[1] for c in self.categories)
+            return sum(count for _, count in self.categories)
         return self.num_strands
 
     def make_mesh_config(self, hidden_size: int, state_size: int) -> MeshConfig:
@@ -83,50 +82,31 @@ class CodecConfig:
     video_codec: str | None = None
 
 
-# Growth thresholds
-_GROW_FILL_RATIO = 0.95
-_GROW_MULTIPLIER = 1.5
+GROW_FILL_RATIO = 0.95
+GROW_MULTIPLIER = 1.5
 
 
 @dataclass
 class NpDnaConfig:
-    """Single auto-scaling config. Start small, grow on demand.
+    """Single auto-scaling config. Start small, grow on demand."""
 
-    The only essential choice is ``complexity`` (0.25–4.0+), which determines
-    the base size.  Everything else scales relative to that and auto-grows
-    when layer/vocab/strand fill exceeds 95%.
-    """
+    complexity: float = 1.0
+    hidden_size: int = 64
+    state_size: int = 32
+    num_layers: int = 5
 
-    # ── Core geometry (derived from complexity) ───────────────────────────
-    complexity: float = 1.0          # 0.5=tiny .. 4.0=large .. 12.0+=massive
-    hidden_size: int = 64            # auto-computed from complexity
-    state_size: int = 32             # auto-computed = hidden_size // 2
-    num_layers: int = 5              # auto-computed from complexity
-
-    # ── Tokenizer ─────────────────────────────────────────────────────────
     initial_vocab: int = 4096
     max_vocab: int = 256_000
 
-    # ── Strands per layer ─────────────────────────────────────────────────
-    strands_per_layer: int = 8       # auto-computed from complexity
-    top_k: int = 3                   # auto-computed = max(2, strands_per_layer // 3)
+    strands_per_layer: int = 8
+    top_k: int = 3
 
-    # ── Mesh specs (auto-built in __post_init__) ──────────────────────────
     mesh_specs: list[LayerSpec] = field(default_factory=list)
-
-    # ── Genome ────────────────────────────────────────────────────────────
     genome: GenomeConfig = field(default_factory=GenomeConfig)
-
-    # ── Mesh defaults (used when mesh_specs is empty) ─────────────────────
     mesh: MeshConfig = field(default_factory=MeshConfig)
-
-    # ── Cortex ────────────────────────────────────────────────────────────
     cortex: CortexConfig = field(default_factory=CortexConfig)
-
-    # ── Embeddings ────────────────────────────────────────────────────────
     tie_embeddings: bool = True
 
-    # ── Dynamic growth state (live counters, not saved in checkpoints) ────
     growth_state: dict = field(default_factory=lambda: {
         "vocab_grows": 0,
         "strand_grows": 0,
@@ -136,21 +116,29 @@ class NpDnaConfig:
         "last_layer_grow_step": 0,
     })
 
-    def __post_init__(self):
-        c = self.complexity
-        self.hidden_size = max(32, int(64 * c))
+    def __post_init__(self) -> None:
+        complexity = self.complexity
+        self.hidden_size = max(32, int(64 * complexity))
         self.state_size = max(16, self.hidden_size // 2)
-        self.strands_per_layer = max(4, int(6 + 1.5 * c))
+        self.strands_per_layer = max(4, int(6 + 1.5 * complexity))
         self.top_k = max(2, self.strands_per_layer // 3)
-        self.initial_vocab = max(2048, int(4096 * c))
+        self.initial_vocab = max(2048, int(4096 * complexity))
 
         if not self.mesh_specs:
             self.mesh_specs = [
                 LayerSpec(name="conversation", num_strands=self.strands_per_layer, top_k=self.top_k),
                 LayerSpec(name="code", num_strands=self.strands_per_layer, top_k=self.top_k),
                 LayerSpec(name="math", num_strands=self.strands_per_layer, top_k=self.top_k),
-                LayerSpec(name="science", num_strands=max(4, self.strands_per_layer - 2), top_k=max(2, self.top_k - 1)),
-                LayerSpec(name="writing", num_strands=max(4, self.strands_per_layer - 2), top_k=max(2, self.top_k - 1)),
+                LayerSpec(
+                    name="science",
+                    num_strands=max(4, self.strands_per_layer - 2),
+                    top_k=max(2, self.top_k - 1),
+                ),
+                LayerSpec(
+                    name="writing",
+                    num_strands=max(4, self.strands_per_layer - 2),
+                    top_k=max(2, self.top_k - 1),
+                ),
             ]
             self.num_layers = len(self.mesh_specs)
 
@@ -162,13 +150,12 @@ class NpDnaConfig:
         self.mesh.strand.state_size = self.state_size
         self.mesh.num_strands = self.total_strands
         self.mesh.top_k = self.top_k
-
         self.cortex.dim = self.hidden_size
 
         if self.genome.latent_dim is None:
             self.genome.latent_dim = min(512, self.hidden_size * 2)
         if self.genome.max_strands is None:
-            self.genome.max_strands = self.total_strands * 4  # room to grow 4x
+            self.genome.max_strands = self.total_strands * 4
 
     @property
     def total_strands(self) -> int:
@@ -176,13 +163,11 @@ class NpDnaConfig:
             return sum(spec.total_strands for spec in self.mesh_specs)
         return self.mesh.num_strands * self.num_layers
 
-    # ── Dynamic growth triggers ───────────────────────────────────────────────
-
     def should_grow_vocab(self, vocab_fill_ratio: float) -> bool:
-        return vocab_fill_ratio >= _GROW_FILL_RATIO and self.initial_vocab < self.max_vocab
+        return vocab_fill_ratio >= GROW_FILL_RATIO and self.initial_vocab < self.max_vocab
 
     def next_vocab_size(self) -> int:
-        return min(int(self.initial_vocab * _GROW_MULTIPLIER), self.max_vocab)
+        return min(int(self.initial_vocab * GROW_MULTIPLIER), self.max_vocab)
 
     def grow_vocab(self) -> int:
         old = self.initial_vocab
@@ -191,10 +176,9 @@ class NpDnaConfig:
         return old
 
     def should_grow_strands(self, max_usage_ratio: float) -> bool:
-        return max_usage_ratio >= _GROW_FILL_RATIO
+        return max_usage_ratio >= GROW_FILL_RATIO
 
     def grow_strands(self, layer_idx: int | None = None) -> int:
-        """Add strands to one or all layers. Returns new count per layer."""
         add_count = max(1, self.strands_per_layer // 4)
         if layer_idx is not None and layer_idx < len(self.mesh_specs):
             self.mesh_specs[layer_idx].num_strands += add_count
@@ -212,7 +196,6 @@ class NpDnaConfig:
         return all_layers_high_usage
 
     def grow_layers(self) -> list[LayerSpec]:
-        """Add a new layer. Returns the new layer specs."""
         new_spec = LayerSpec(
             name=f"layer_{len(self.mesh_specs) + 1}",
             num_strands=self.strands_per_layer,
@@ -224,25 +207,15 @@ class NpDnaConfig:
         return self.mesh_specs
 
 
-def auto_config(complexity: float = 0.5) -> NpDnaConfig:
+def auto_config(complexity: float = 1.0) -> NpDnaConfig:
     return NpDnaConfig(complexity=complexity)
 
 
-# ── Backward-compatible config presets (all dynamic now) ─────────────────────
-# Each name maps to a complexity level. "seed" = 0.25, "nano" = 0.5,
-# "micro" = 1.0, "small" = 2.0, "medium" = 4.0, "large" = 8.0.
-_CONFIG_COMPLEXITY: dict[str, float] = {
-    "seed": 1.0,    # hidden=64,  8 strands/layer,  5 layers
-    "nano": 2.0,    # hidden=128, 9 strands/layer,  5 layers
-    "micro": 4.0,   # hidden=256, 12 strands/layer, 5 layers
-    "small": 6.0,   # hidden=384, 15 strands/layer, 5 layers
-    "medium": 8.0,  # hidden=512, 18 strands/layer, 5 layers
-    "large": 12.0,  # hidden=768, 24 strands/layer, 5 layers
-}
+DEFAULT_CONFIG_NAME = "seed"
+DEFAULT_COMPLEXITY = 1.0
 
 CONFIGS: dict[str, NpDnaConfig] = {
-    name: NpDnaConfig(complexity=c)
-    for name, c in _CONFIG_COMPLEXITY.items()
+    DEFAULT_CONFIG_NAME: NpDnaConfig(complexity=DEFAULT_COMPLEXITY)
 }
 
-PREFERRED_CONFIG_NAMES = tuple(_CONFIG_COMPLEXITY.keys())
+PREFERRED_CONFIG_NAMES = (DEFAULT_CONFIG_NAME,)

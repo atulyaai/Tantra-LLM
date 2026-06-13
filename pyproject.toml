@@ -3,9 +3,9 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "tantra"
+name = "npdna"
 version = "4.1.0"
-description = "Tantra Cognitive OS - CPU-first, local-first, memory-centric Cognitive Operating System"
+description = "NP-DNA - CPU-first, local-first NeuroPlastic DNA Network"
 readme = "README.md"
 license = {file = "LICENSE"}
 requires-python = ">=3.11"
@@ -48,22 +48,20 @@ teacher = [
     "openai>=1.0.0",
 ]
 all = [
-    "tantra[dev,api,spell,ui,benchmark,onnx,teacher]",
+    "npdna[dev,api,spell,ui,benchmark,onnx,teacher]",
 ]
 
 [project.scripts]
-tantra-chat = "scripts.chat:main"
-tantra-train = "tantra.training.trainer:main"
-tantra-api = "scripts.api:main"
-tantra-ui = "scripts.ui:main"
-tantra-export = "tantra.inference.quantize:main"
+npdna-chat = "npdna.cli:chat_main"
+npdna-train = "npdna.train_npdna_v3:train"
+npdna-info = "npdna.cli:info_main"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["tantra*"]
+include = ["npdna*"]
 
 [tool.pytest.ini_options]
-testpaths = ["tantra/tests"]
+testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
@@ -89,8 +87,7 @@ pretty = true
 
 [[tool.mypy.overrides]]
 module = [
-    "tantra.models.student_torch",
-    "tantra.models.rwkv7_cpu",
+    "npdna.*",
 ]
 ignore_missing_imports = true
 
@@ -131,7 +128,7 @@ quote-style = "double"
 indent-style = "space"
 
 [tool.pyright]
-include = ["tantra"]
+include = ["npdna", "tests"]
 exclude = [
     "**/tests/**",
     "**/__pycache__/**",
@@ -147,7 +144,7 @@ reportMissingTypeStubs = false
 reportGeneralTypeIssues = true
 
 [tool.coverage.run]
-source = ["tantra"]
+source = ["npdna"]
 omit = [
     "*/tests/*",
     "*/__pycache__/*",

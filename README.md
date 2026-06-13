@@ -51,7 +51,7 @@ Tantra LLM/
 |   |-- autonomy.py              # ReAct-style agent and safe math evaluator
 |   |-- classifier.py            # Topic classifier helpers
 |   |-- codecs.py                # Frozen codec registry
-|   |-- config.py                # Dynamic config, layer specs, presets
+|   |-- config.py                # One seed config with dynamic expansion
 |   |-- cortex.py                # Memory cortex and auto-store helpers
 |   |-- generation.py            # Text generation and streaming generation
 |   |-- genome.py                # Low-rank genome module
@@ -69,8 +69,13 @@ Tantra LLM/
 |-- model/                       # Local generated model artifacts
 |   |-- .gitkeep
 |   `-- tokenizer/
+|       |-- tokenizer_seed.json
+|       |-- tokenizer_seed.pt
+|       `-- vocab_samples.txt
+|-- Download/                    # Local/private training data
 |-- pyproject.toml
 |-- requirements.txt
+|-- SECURITY.md
 |-- LICENSE
 `-- README.md
 ```
@@ -125,7 +130,7 @@ Default script settings:
 
 | Setting | Value |
 | --- | --- |
-| Config | `nano` |
+| Config | `seed`, then automatic growth |
 | Attention | Enabled |
 | Batch size | 4 |
 | Sequence length | 128 |
@@ -133,20 +138,28 @@ Default script settings:
 | Checkpoints | Local `model/` output |
 | Tokenizer assets | Local `model/tokenizer/` output |
 
-## Config Presets
+## Configuration
 
-`NpDnaCore.from_config(...)` accepts a preset name or a numeric complexity value.
+NP-DNA exposes one public named configuration: `seed`. It starts small and expands automatically as vocabulary, strands, and layers need more capacity.
 
-| Preset | Complexity | Hidden size | Layers | Strands/layer | Initial vocab |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| `seed` | 1.0 | 64 | 5 | 7 | 4096 |
-| `nano` | 2.0 | 128 | 5 | 9 | 8192 |
-| `micro` | 4.0 | 256 | 5 | 12 | 16384 |
-| `small` | 6.0 | 384 | 5 | 15 | 24576 |
-| `medium` | 8.0 | 512 | 5 | 18 | 32768 |
-| `large` | 12.0 | 768 | 5 | 24 | 49152 |
+| Field | Seed start |
+| --- | ---: |
+| Hidden size | 64 |
+| Layers | 5 |
+| Initial vocab capacity | 4096 |
+| Max vocab capacity | 256000 |
 
-All presets use dynamic layer specs by default: conversation, code, math, science, and writing.
+Use `NpDnaCore.from_config("seed")` for normal runs. Numeric complexity values are still supported internally for experiments, but the release path is seed-first auto-expansion.
+
+## Seed Artifacts
+
+The repository includes a small tokenizer/vocab seed pack under `model/tokenizer/`:
+
+| File | Purpose |
+| --- | --- |
+| `model/tokenizer/tokenizer_seed.json` | Loadable tokenizer seed. |
+| `model/tokenizer/tokenizer_seed.pt` | Compact torch metadata for vocab size, capacity, and merges. |
+| `model/tokenizer/vocab_samples.txt` | Sanitized sample text used to shape the seed vocabulary. |
 
 ## Generation
 
@@ -206,23 +219,6 @@ Visual assets live in `assets/` and are referenced by this README:
 | `assets/tantra-banner.svg` | Header/banner image. |
 | `assets/tantra-architecture.svg` | Architecture diagram. |
 | `assets/tantra-memory-learning.svg` | Memory and learning diagram. |
-
-## What Is Missing
-
-These are the main gaps visible in the current repo:
-
-| Gap | Why it matters |
-| --- | --- |
-| `pyproject.toml` metadata is stale | It declares package/scripts under `tantra.*`, but the actual package here is `npdna`. Editable installs and console scripts may fail until this is corrected. |
-| No test suite in the checkout | `pyproject.toml` points to `tantra/tests`, but no matching tests are present. Core tokenizer/model/checkpoint/generation tests would reduce regression risk. |
-| No CLI or app entrypoint | The repo has library and training code, but no working `tantra-chat`, `tantra-ui`, or `tantra-api` implementation in the current structure. |
-| No CI configuration | There is no automated lint/test workflow yet. |
-| No lockfile | Dependencies are listed, but versions are not locked for reproducible training/inference environments. |
-| Public release policy is thin | Add guidance for what can be committed, what must stay private, and how to sanitize examples before release. |
-| Multimodal support is not learned end-to-end | Current multimodal context is metadata-to-text, while `AudioEncoder` and `VisionEncoder` are feature shells. |
-| Agent web/code tools need hardening | The agent exposes useful hooks, but production use should add permissions, sandboxing policy, timeouts, and clearer tool contracts. |
-| Quantization is experimental | CPU optimization helpers exist, but there is no benchmark table or compatibility matrix. |
-| Packaging name mismatch | Project name is `tantra`, but importable code is `npdna`; choose one public package identity or document both deliberately. |
 
 ## Security Notes
 

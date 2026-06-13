@@ -15,7 +15,7 @@ from npdna.config import CONFIGS
 torch.set_num_threads(mp.cpu_count())
 
 # Config
-CONFIG_NAME = "nano"
+CONFIG_NAME = "seed"
 USE_ATTENTION = True
 BATCH_SIZE = 4
 SEQ_LEN = 128

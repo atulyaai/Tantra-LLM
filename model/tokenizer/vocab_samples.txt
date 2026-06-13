@@ -1,0 +1,9 @@
+NP-DNA is a local-first NeuroPlastic DNA Network.
+The seed tokenizer should support English, code tokens, math notation, and Indic text.
+Sparse routing sends each token through a small active set of strands.
+The genome generates strand weights from compact low-rank seeds.
+Memory cortex stores useful facts and retrieves them during generation.
+Example code: def add(a, b): return a + b
+Example math: sqrt(81) = 9 and 2 ** 8 = 256.
+Hindi sample: नमस्ते दुनिया
+Sanskrit sample: वेदान्त ज्ञान योग

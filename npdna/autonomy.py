@@ -113,8 +113,6 @@ class NpDnaAgent:
         # Register default tools
         self.register_tool("cortex_search", self._cortex_search)
         self.register_tool("cortex_store", self._cortex_store)
-        self.register_tool("web_search", self._web_search)
-        self.register_tool("code_execute", self._code_execute)
         self.register_tool("math_eval", self._math_eval)
 
     def register_tool(self, name: str, func: Callable[[str], str]) -> None:
