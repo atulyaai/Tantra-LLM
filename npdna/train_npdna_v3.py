@@ -26,7 +26,7 @@ SAVE_EVERY = 500
 EVAL_EVERY = 250
 
 CKPT_DIR = Path("model/npdna_v3")
-ASSETS_DIR = Path("npdna/assets")
+ASSETS_DIR = Path("model/tokenizer")
 
 # Auto-calculate steps per dataset based on MB size
 DATASET_SIZES = {
