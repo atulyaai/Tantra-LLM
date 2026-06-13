@@ -1,0 +1,94 @@
+{
+  "config_name": "seed",
+  "hidden_size": 64,
+  "state_size": 32,
+  "num_layers": 5,
+  "num_strands": 31,
+  "top_k": 2,
+  "layer_specs": [
+    {
+      "name": "conversation",
+      "num_strands": 7,
+      "top_k": 2
+    },
+    {
+      "name": "code",
+      "num_strands": 7,
+      "top_k": 2
+    },
+    {
+      "name": "math",
+      "num_strands": 7,
+      "top_k": 2
+    },
+    {
+      "name": "science",
+      "num_strands": 5,
+      "top_k": 2
+    },
+    {
+      "name": "writing",
+      "num_strands": 5,
+      "top_k": 2
+    }
+  ],
+  "strand_ids": [
+    [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6
+    ],
+    [
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13
+    ],
+    [
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20
+    ],
+    [
+      21,
+      22,
+      23,
+      24,
+      25
+    ],
+    [
+      26,
+      27,
+      28,
+      29,
+      30
+    ]
+  ],
+  "vocab_capacity": 4096,
+  "vocab_size": 691,
+  "parameter_count": 1898592,
+  "active_parameter_count": 482496,
+  "cortex_entries": 0,
+  "cortex_dim": 64,
+  "cortex_max_entries": 100000,
+  "cortex_top_k": 8,
+  "genome_latent_dim": 128,
+  "genome_rank": 32,
+  "genome_encoder_hidden": 512,
+  "genome_max_strands": 124,
+  "losses": [],
+  "saved_at": 1781382873.9161398,
+  "step": 100,
+  "stage": 0
+}

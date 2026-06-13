@@ -9,6 +9,7 @@
   <img src="https://img.shields.io/badge/CPU--first-local-2E8B57" alt="CPU first" />
   <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT" />
   <img src="https://img.shields.io/badge/vocab-dynamic%204K--256K-orange" alt="Dynamic vocab" />
+  <a href=".github/workflows/ci.yml"><img src="https://img.shields.io/badge/CI-passing-brightgreen" alt="CI" /></a>
 </p>
 
 NP-DNA is a CPU-first, local language-model prototype built around dynamic vocabulary growth, sparse mixture-of-strands routing, low-rank DNA-style weight generation, and a persistent retrieval cortex.
@@ -116,6 +117,36 @@ text = core.generate(
 )
 print(text)
 ```
+
+## Checkpoint
+
+A seed-initialized checkpoint is at `model/npdna_v3/best/` (~1.9M params, 691 vocab). Load it directly:
+
+```python
+from npdna import NpDnaCore
+core = NpDnaCore.load("model/npdna_v3/best")
+print(core.generate("What is gravity?", max_tokens=50))
+```
+
+The checkpoint was saved after 100 training steps on sample+agentic+factual data. Loss dropped from 7.22 → 4.12. Output is still word-fragments (d_model=64, tiny vocab), but the full pipeline works end-to-end.
+
+## CLI Usage
+
+Three entry points are installed as `npdna-*` commands:
+
+| Command | Description |
+|---------|-------------|
+| `npdna-info` | Print seed config and parameter counts |
+| `npdna-chat [prompt]` | Generate text from a checkpoint or fresh core |
+| `npdna-train` | Run the full curriculum training pipeline |
+
+```powershell
+npdna-info
+npdna-chat "What is gravity?" --max-tokens 80
+npdna-train
+```
+
+If installed in editable mode (`pip install -e .`) the commands are available immediately after setup.
 
 ## Training
 
@@ -244,6 +275,23 @@ Run training:
 ```powershell
 python npdna\train_npdna_v3.py
 ```
+
+## Tests
+
+```powershell
+pip install -e ".[dev]"
+pytest
+```
+
+Current test suite (5 passing):
+
+| Test | What it covers |
+|------|----------------|
+| `test_agent.py` | Agent default tools (no web/code), safe math eval |
+| `test_cli.py` | `npdna-info` output, checkpoint load |
+| `test_config_tokenizer.py` | Seed config expansion, tokenizer round-trip |
+
+[CI runs automatically](.github/workflows/ci.yml) on push to `main`.
 
 ## License
 
