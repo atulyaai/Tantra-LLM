@@ -8,4 +8,5 @@ train.py
 .pytest_cache/
 model/npdna_v3/step_*/
 model/npdna_v3/final/
+model/npdna_v3/latest/
 model/releases/
