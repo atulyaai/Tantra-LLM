@@ -212,7 +212,7 @@ def auto_config(complexity: float = 1.0) -> NpDnaConfig:
 
 
 DEFAULT_CONFIG_NAME = "seed"
-DEFAULT_COMPLEXITY = 1.0
+DEFAULT_COMPLEXITY = 2.0
 
 CONFIGS: dict[str, NpDnaConfig] = {
     DEFAULT_CONFIG_NAME: NpDnaConfig(complexity=DEFAULT_COMPLEXITY)

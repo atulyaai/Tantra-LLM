@@ -120,7 +120,7 @@ print(text)
 
 ## Checkpoint
 
-A seed-initialized checkpoint is at `model/npdna_v3/best/` (~1.9M params, 691 vocab). Load it directly:
+A seed checkpoint is at `model/npdna_v3/best/` with 7,800,256 parameters, 2,254,144 active parameters, 8,563 vocabulary tokens, and 12,288 vocabulary capacity. Load it directly:
 
 ```python
 from npdna import NpDnaCore
@@ -128,7 +128,7 @@ core = NpDnaCore.load("model/npdna_v3/best")
 print(core.generate("What is gravity?", max_tokens=50))
 ```
 
-The checkpoint was saved after 100 training steps on sample+agentic+factual data. Loss dropped from 7.22 → 4.12. Output is still word-fragments (d_model=64, tiny vocab), but the full pipeline works end-to-end.
+The checkpoint metadata records step 250 and validation loss 1.1027. It is intentionally small, but it exercises the tokenizer, model, cortex, checkpoint, and generation path end-to-end.
 
 ## CLI Usage
 
@@ -175,9 +175,9 @@ NP-DNA exposes one public named configuration: `seed`. It starts small and expan
 
 | Field | Seed start |
 | --- | ---: |
-| Hidden size | 64 |
+| Hidden size | 128 |
 | Layers | 5 |
-| Initial vocab capacity | 4096 |
+| Initial vocab capacity | 8192 |
 | Max vocab capacity | 256000 |
 
 Use `NpDnaCore.from_config("seed")` for normal runs. Numeric complexity values are still supported internally for experiments, but the release path is seed-first auto-expansion.

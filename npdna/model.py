@@ -306,12 +306,24 @@ class CheckpointMixin:
             max_entries=meta.get("cortex_max_entries", 100_000),
             top_k=meta.get("cortex_top_k", 8),
         )
+        checkpoint_complexity = max(0.5, float(meta["hidden_size"]) / 64.0)
         config = NpDnaConfig(
+            complexity=checkpoint_complexity,
             initial_vocab=meta["vocab_capacity"],
             hidden_size=meta["hidden_size"], state_size=meta["state_size"],
             num_layers=meta["num_layers"], mesh=mesh_cfg,
             mesh_specs=layer_specs, genome=genome_cfg, cortex=cortex_cfg,
         )
+        config.hidden_size = meta["hidden_size"]
+        config.state_size = meta["state_size"]
+        config.initial_vocab = meta["vocab_capacity"]
+        config.num_layers = meta["num_layers"]
+        config.cortex.dim = meta.get("cortex_dim", meta["hidden_size"])
+        config.mesh.strand.hidden_size = config.hidden_size
+        config.mesh.strand.state_size = config.state_size
+        for spec in config.mesh_specs:
+            spec.strand.hidden_size = config.hidden_size
+            spec.strand.state_size = config.state_size
         model = NpDnaModel(config)
         strand_ids = meta.get("strand_ids")
         if strand_ids:
