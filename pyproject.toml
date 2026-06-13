@@ -1,0 +1,163 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tantra"
+version = "4.1.0"
+description = "Tantra Cognitive OS - CPU-first, local-first, memory-centric Cognitive Operating System"
+readme = "README.md"
+license = {file = "LICENSE"}
+requires-python = ">=3.11"
+dependencies = [
+    "gradio>=4.0.0",
+    "pyyaml>=6.0",
+    "numpy>=1.24.0",
+    "requests>=2.31.0",
+    "huggingface_hub>=0.20.0",
+    "transformers>=4.40.0",
+    "torch>=2.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-cov>=4.0.0",
+    "mypy>=1.8.0",
+    "pyright>=1.1.300",
+    "ruff>=0.3.0",
+    "pre-commit>=3.6.0",
+]
+benchmark = [
+    "pytest-benchmark>=4.0.0",
+]
+api = [
+    "fastapi>=0.110.0",
+    "uvicorn>=0.27.0",
+]
+spell = [
+    "pyspellchecker>=0.8.0",
+]
+ui = [
+    "gradio>=4.0.0",
+]
+onnx = [
+    "onnxruntime>=1.17.0",
+]
+teacher = [
+    "openai>=1.0.0",
+]
+all = [
+    "tantra[dev,api,spell,ui,benchmark,onnx,teacher]",
+]
+
+[project.scripts]
+tantra-chat = "scripts.chat:main"
+tantra-train = "tantra.training.trainer:main"
+tantra-api = "scripts.api:main"
+tantra-ui = "scripts.ui:main"
+tantra-export = "tantra.inference.quantize:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["tantra*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tantra/tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short -k \"not student_torch\""
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+check_untyped_defs = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+strict_optional = true
+show_error_codes = true
+pretty = true
+
+[[tool.mypy.overrides]]
+module = [
+    "tantra.models.student_torch",
+    "tantra.models.rwkv7_cpu",
+]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "torch.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "transformers.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "gradio.*"
+ignore_missing_imports = true
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "UP",  # pyupgrade
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "T20", # flake8-print
+]
+ignore = [
+    "E501",  # line too long
+    "B008",  # function calls in default arguments
+    "T201",  # print statements (allowed for CLI)
+]
+fixable = ["I", "UP"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.pyright]
+include = ["tantra"]
+exclude = [
+    "**/tests/**",
+    "**/__pycache__/**",
+    ".pytest_cache/**",
+    "build/**",
+    "dist/**",
+]
+pythonVersion = "3.11"
+pythonPlatform = "Linux"
+typeCheckingMode = "basic"
+reportMissingImports = false
+reportMissingTypeStubs = false
+reportGeneralTypeIssues = true
+
+[tool.coverage.run]
+source = ["tantra"]
+omit = [
+    "*/tests/*",
+    "*/__pycache__/*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+]
