@@ -34,8 +34,8 @@ The current checkout is centered on the `npdna` package. It includes model archi
 | Memory cortex | Built | Dense in-process memory store with retrieval and augmentation. |
 | Generation | Built | Standard and streaming generation with temperature, top-k, top-p, repetition penalty, token suppression, and prompt formatting. |
 | Checkpointing | Built | Saves/loads model, tokenizer, metadata, cortex, component format, and sharded format. |
-| Training | Built | `npdna/train_npdna_v3.py` curriculum trainer over local `Download/` data folders. |
-| Agent wrapper | Built | `NpDnaAgent` with cortex search/store, math eval, code execution hook, and DuckDuckGo instant-answer search. |
+| Training | Built | `npdna/train_npdna_v3.py` local trainer with configurable staged data loading. |
+| Agent wrapper | Built | `NpDnaAgent` with cortex search/store and safe expression tools. Network-backed tools should stay disabled or reviewed in production. |
 | Classification | Built | `NpDnaTopicClassifier` and `tag_text` helpers. |
 | Multimodal context | Practical bridge | Converts image/audio/JSON metadata into text context; not a learned multimodal embedding path yet. |
 | CPU optimization | Experimental | Quantization, torch compile, thread tuning, parameter counting, and partial-freezing helpers. |
@@ -66,19 +66,9 @@ Tantra LLM/
 |   |-- tantra-architecture.svg
 |   |-- tantra-banner.svg
 |   `-- tantra-memory-learning.svg
-|-- model/
+|-- model/                       # Local generated model artifacts
 |   |-- .gitkeep
-|   |-- npdna_v3/                # Local checkpoints
-|   `-- tokenizer/               # Local tokenizer assets
-|-- Download/                    # Local training data folders
-|   |-- samples/
-|   |-- agentic/
-|   |-- factual/
-|   |-- code/
-|   |-- reasoning/
-|   |-- translation/
-|   |-- general/
-|   `-- math/
+|   `-- tokenizer/
 |-- pyproject.toml
 |-- requirements.txt
 |-- LICENSE
@@ -124,14 +114,14 @@ print(text)
 
 ## Training
 
-The training script expects JSONL data under `Download/` using the curriculum folders shown above.
+The training script is intended for local/private training data. Keep datasets, checkpoints, logs, and generated archives out of Git unless they are explicitly sanitized and meant for release.
 
 ```powershell
 $env:KMP_DUPLICATE_LIB_OK="TRUE"
 python npdna\train_npdna_v3.py
 ```
 
-The script currently uses:
+Default script settings:
 
 | Setting | Value |
 | --- | --- |
@@ -140,21 +130,8 @@ The script currently uses:
 | Batch size | 4 |
 | Sequence length | 128 |
 | Learning rate | `5e-3` |
-| Checkpoints | `model/npdna_v3/` |
-| Tokenizer assets | `model/tokenizer/` |
-
-Curriculum folders are accumulated in this order:
-
-| Stage | Folder added | Approx size in script | Cumulative steps |
-| --- | --- | ---: | ---: |
-| 0 | `samples` | 0 MB | 500 |
-| 1 | `agentic` | 151 MB | 775 |
-| 2 | `factual` | 220 MB | 1085 |
-| 3 | `code` | 556 MB | 1563 |
-| 4 | `reasoning` | 559 MB | 2042 |
-| 5 | `translation` | 1814 MB | 3150 |
-| 6 | `general` | 7601 MB | 4650 |
-| 7 | `math` | 9127 MB | 6150 |
+| Checkpoints | Local `model/` output |
+| Tokenizer assets | Local `model/tokenizer/` output |
 
 ## Config Presets
 
@@ -203,6 +180,8 @@ agent.register_tool("echo", lambda text: text)
 print(agent.run("Use math_eval to calculate sqrt(81)."))
 ```
 
+For public or shared deployments, review every enabled agent tool before use. Keep network access, file writes, and code execution behind explicit policy controls.
+
 ## Multimodal Context Bridge
 
 The multimodal helper is intentionally explicit: it turns file metadata or structured JSON into plain text context that the model can consume.
@@ -239,11 +218,22 @@ These are the main gaps visible in the current repo:
 | No CLI or app entrypoint | The repo has library and training code, but no working `tantra-chat`, `tantra-ui`, or `tantra-api` implementation in the current structure. |
 | No CI configuration | There is no automated lint/test workflow yet. |
 | No lockfile | Dependencies are listed, but versions are not locked for reproducible training/inference environments. |
-| Data and checkpoint documentation is thin | `Download/` and `model/` are local working folders; dataset provenance, expected JSONL schema, and checkpoint format examples should be documented. |
+| Public release policy is thin | Add guidance for what can be committed, what must stay private, and how to sanitize examples before release. |
 | Multimodal support is not learned end-to-end | Current multimodal context is metadata-to-text, while `AudioEncoder` and `VisionEncoder` are feature shells. |
 | Agent web/code tools need hardening | The agent exposes useful hooks, but production use should add permissions, sandboxing policy, timeouts, and clearer tool contracts. |
 | Quantization is experimental | CPU optimization helpers exist, but there is no benchmark table or compatibility matrix. |
 | Packaging name mismatch | Project name is `tantra`, but importable code is `npdna`; choose one public package identity or document both deliberately. |
+
+## Security Notes
+
+Before publishing changes, check for:
+
+| Check | Current guidance |
+| --- | --- |
+| Secrets | Do not commit API keys, private tokens, credentials, or `.env` files. |
+| Training data | Do not publish raw local datasets or dataset inventories unless they are intentionally public. |
+| Model artifacts | Treat checkpoints, tokenizer dumps, logs, and generated archives as local artifacts by default. |
+| Agent tools | Review any tool that can access the network, execute code, or write memory before enabling it outside local development. |
 
 ## Verification
 
