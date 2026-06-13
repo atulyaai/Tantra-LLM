@@ -21,14 +21,52 @@ from .genome import Genome
 logger = logging.getLogger(__name__)
 
 
+class AttentionStrand(nn.Module):
+    """Local causal attention strand used when ``strand_type='attention'``."""
+
+    def __init__(self, genome: Genome, strand_id: int, config: StrandConfig,
+                 category: str | None = None, device: torch.device | None = None):
+        super().__init__()
+        self.genome = genome
+        self.strand_id = strand_id
+        self.config = config
+        self.category: str | None = category
+        self.norm = nn.LayerNorm(config.hidden_size, device=device)
+        self.qkv = nn.Linear(config.hidden_size, config.hidden_size * 3, device=device)
+        self.out = nn.Linear(config.hidden_size, config.hidden_size, device=device)
+        self.usage_count: int = 0
+
+    def forward(
+        self,
+        x: Tensor,
+        weights: dict[str, tuple[Tensor, Tensor]] | None = None,
+        init_state: Tensor | None = None,
+        return_final_state: bool = False,
+    ) -> Tensor | tuple[Tensor, Tensor]:
+        B, T, H = x.shape
+        h = self.norm(x)
+        q, k, v = self.qkv(h).chunk(3, dim=-1)
+        scale = H ** -0.5
+        scores = q @ k.transpose(-2, -1) * scale
+        if T > 1:
+            mask = torch.triu(torch.ones(T, T, device=x.device, dtype=torch.bool), diagonal=1)
+            scores = scores.masked_fill(mask, float("-inf"))
+        attn = scores.softmax(dim=-1)
+        out = self.out(attn @ v)
+        self.usage_count += B * T
+        if return_final_state:
+            state_size = self.config.state_size
+            final = out[:, -1, :state_size]
+            if final.shape[-1] < state_size:
+                final = torch.nn.functional.pad(final, (0, state_size - final.shape[-1]))
+            return out, final
+        return out
+
+
 def _make_strand(genome, strand_id, config, category=None, device=None):
     strand_type = getattr(config, "strand_type", "ssm")
     if strand_type == "attention":
-        try:
-            from tantra.models.attention_strand import AttentionStrand
-            return AttentionStrand(genome, strand_id, config, category=category, device=device)
-        except ImportError:
-            logger.warning("AttentionStrand import failed, falling back to standard SSM Strand")
+        return AttentionStrand(genome, strand_id, config, category=category, device=device)
     
     return Strand(genome, strand_id, config, category=category, device=device)
 

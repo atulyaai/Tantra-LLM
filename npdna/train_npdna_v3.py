@@ -1,5 +1,5 @@
 """NP-DNA v3 — curriculum by data volume, dynamic vocab, fresh start."""
-import sys, os, json, time, random, math, gc
+import argparse, sys, os, json, time, random, math, gc
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -24,6 +24,8 @@ WARMUP_STEPS = 200            # shorter warmup
 LOG_EVERY = 25
 SAVE_EVERY = 500
 EVAL_EVERY = 250
+MTP_DEPTH = 3
+MTP_WEIGHT = 0.25
 
 CKPT_DIR = Path("model/npdna_v3")
 ASSETS_DIR = Path("model/tokenizer")
@@ -71,8 +73,8 @@ for s in CURRICULUM:
     idx = CURRICULUM.index(s)
     if idx > 0:
         prev = CURRICULUM[idx-1]["steps"]
-    print(f"  {s['name']:12s} {s['mb']:5d} MB  steps {prev:4d}-{s['steps']:4d}  "
-          f"(+{s['steps']-prev:4d})  folders={len(s['folders'])}")
+    print(f"  Stage {idx:02d} steps {prev:4d}-{s['steps']:4d} "
+          f"(+{s['steps']-prev:4d}, folders={len(s['folders'])})")
 
 
 def get_chunks(data_dir, folders):
@@ -182,6 +184,23 @@ def eval_model(model, ids_list, batch_size=4, seq_len=128):
     return av, math.exp(min(av, 20))
 
 
+def mtp_aux_loss(logits, targets, depth: int = MTP_DEPTH) -> torch.Tensor:
+    """Auxiliary multi-token prediction loss for offsets 2..depth."""
+    if depth <= 1:
+        return logits.new_tensor(0.0)
+    seq_len = targets.size(1)
+    losses = []
+    for offset in range(2, depth + 1):
+        if seq_len < offset:
+            break
+        pred = logits[:, : seq_len - offset + 1, :]
+        tgt = targets[:, offset - 1 :]
+        losses.append(F.cross_entropy(pred.reshape(-1, pred.size(-1)), tgt.reshape(-1)))
+    if not losses:
+        return logits.new_tensor(0.0)
+    return torch.stack(losses).mean()
+
+
 def save_tokenizer_assets(core, tag=""):
     name = f"tokenizer{'_'+tag if tag else ''}"
     core.tokenizer.save(str(ASSETS_DIR / f"{name}.json"))
@@ -192,17 +211,16 @@ def save_tokenizer_assets(core, tag=""):
     }, ASSETS_DIR / f"{name}.pt")
 
 
-def train():
+def train(max_steps: int | None = None, mtp_depth: int = MTP_DEPTH):
     CKPT_DIR.mkdir(parents=True, exist_ok=True)
     DATA_DIR = Path("Download")
 
     print(f"  NP-DNA v3: {CONFIG_NAME}, attn={USE_ATTENTION}")
-    print(f"  {TOTAL_STEPS} steps, batch={BATCH_SIZE}, seq={SEQ_LEN}")
+    print(f"  {TOTAL_STEPS} planned steps, batch={BATCH_SIZE}, seq={SEQ_LEN}, mtp_depth={mtp_depth}")
     for s in CURRICULUM:
         idx = list(CURRICULUM).index(s)
         prev = 0 if idx == 0 else CURRICULUM[idx-1]["steps"]
-        print(f"  Stage {idx}: {s['name']:12s} steps {prev:4d}-{s['steps']:4d} "
-              f"({s['mb']:5d} MB, {len(s['folders'])} folders)")
+        print(f"  Stage {idx}: steps {prev:4d}-{s['steps']:4d} ({len(s['folders'])} folders)")
 
     base_cfg = CONFIGS[CONFIG_NAME]
     if USE_ATTENTION:
@@ -262,7 +280,7 @@ def train():
     # Dataset
     dataset = Dataset(DATA_DIR, CURRICULUM[0]["folders"], core.tokenizer, SEQ_LEN)
     eval_ids = dataset.eval_set(num_samples=2000)
-    print(f"  Eval: {len(eval_ids)} sequences from samples/")
+    print(f"  Eval: {len(eval_ids)} sequences from held-out local data")
 
     # Optimizer
     model = core.model
@@ -280,10 +298,14 @@ def train():
         losses = meta.get("losses", [])
         best_val = meta.get("best_val", float('inf'))
 
-    print(f"\n  Stage 0/7: {CURRICULUM[0]['name']} "
-          f"({dataset.chunk_count} chunks)\n")
+    end_step = TOTAL_STEPS if max_steps is None else min(TOTAL_STEPS, start_step + max_steps - 1)
+    print(f"\n  Stage {current_stage}/7 ({dataset.chunk_count} chunks)")
+    if max_steps is not None:
+        print(f"  Smoke run: steps {start_step}-{end_step}\n")
+    else:
+        print()
 
-    for step in range(start_step, TOTAL_STEPS + 1):
+    for step in range(start_step, end_step + 1):
         # Curriculum stage switch
         new_stage = current_stage
         for si, stage in enumerate(CURRICULUM):
@@ -296,8 +318,7 @@ def train():
             current_stage = new_stage
             stage = CURRICULUM[current_stage]
             dataset.set_folders(stage["folders"])
-            print(f"\n  >>> Stage {current_stage}/7: {stage['name']} "
-                  f"({dataset.chunk_count} chunks) <<<\n")
+            print(f"\n  >>> Stage {current_stage}/7 ({dataset.chunk_count} chunks) <<<\n")
 
             # Grow vocab if needed at stage transitions
             if core.tokenizer.fill_ratio > 0.9:
@@ -327,7 +348,8 @@ def train():
         logits, bal = model(x)
         ce_loss = F.cross_entropy(logits.reshape(-1, logits.size(-1)),
                                    y.reshape(-1))
-        loss = ce_loss + bal * 0.01
+        mtp_loss = mtp_aux_loss(logits, y, depth=mtp_depth)
+        loss = ce_loss + (MTP_WEIGHT * mtp_loss) + bal * 0.01
 
         opt.zero_grad(set_to_none=True)
         loss.backward()
@@ -349,14 +371,14 @@ def train():
             rate = total_tok / max(elapsed, 1)
             cur_lr = opt.param_groups[0]['lr']
             best = min(losses) if losses else 0
-            st = CURRICULUM[current_stage]
             print(f"  step {step:5d}/{TOTAL_STEPS} | "
-                  f"{st['name']:12s} | "
-                  f"loss {smooth_loss:.2f} | best {best:.2f} | "
+                  f"stage {current_stage:02d} | "
+                  f"loss {smooth_loss:.2f} | mtp {float(mtp_loss.detach()):.2f} | best {best:.2f} | "
                   f"lr {cur_lr:.2e} | {rate:.0f} tok/s")
 
         # Eval
-        if step % EVAL_EVERY == 0:
+        force_eval = max_steps is not None and step == end_step
+        if step % EVAL_EVERY == 0 or force_eval:
             vl, vp = eval_model(model, eval_ids, BATCH_SIZE, SEQ_LEN)
             gen = core.generate("Hello.", max_tokens=20, temperature=0.3,
                                 top_k=30, top_p=0.85, repetition_penalty=1.2)
@@ -366,7 +388,8 @@ def train():
                 best_val = vl
                 core.save(str(CKPT_DIR / "best"), losses=losses,
                           metadata_extra={"step": step, "val_loss": vl,
-                                         "stage": current_stage})
+                                         "stage": current_stage,
+                                         "mtp_depth": mtp_depth})
                 save_tokenizer_assets(core)
 
         # Generation check every 1000 steps
@@ -389,11 +412,13 @@ def train():
     # Final
     elapsed = time.time() - t_start
     fv, fp = eval_model(model, eval_ids, BATCH_SIZE, SEQ_LEN)
-    core.save(str(CKPT_DIR / "final"), losses=losses,
-              metadata_extra={"step": TOTAL_STEPS, "val_loss": fv,
-                             "total_tokens": total_tok,
-                             "total_time_sec": elapsed})
-    save_tokenizer_assets(core, tag="final")
+    if max_steps is None:
+        core.save(str(CKPT_DIR / "final"), losses=losses,
+                  metadata_extra={"step": TOTAL_STEPS, "val_loss": fv,
+                                 "total_tokens": total_tok,
+                                 "total_time_sec": elapsed,
+                                 "mtp_depth": mtp_depth})
+        save_tokenizer_assets(core, tag="final")
 
     print(f"\n  DONE: {TOTAL_STEPS} steps in {elapsed:.0f}s ({elapsed/3600:.1f}h)")
     print(f"  Final val loss: {fv:.4f} | Best val: {best_val:.4f}")
@@ -412,4 +437,8 @@ def train():
 
 
 if __name__ == "__main__":
-    train()
+    parser = argparse.ArgumentParser(description="Train NP-DNA.")
+    parser.add_argument("--steps", type=int, default=None, help="Run only this many steps for smoke testing.")
+    parser.add_argument("--mtp-depth", type=int, default=MTP_DEPTH, help="Multi-token prediction depth.")
+    args = parser.parse_args()
+    train(max_steps=args.steps, mtp_depth=args.mtp_depth)
