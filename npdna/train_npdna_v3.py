@@ -24,6 +24,7 @@ WARMUP_STEPS = 200            # shorter warmup
 LOG_EVERY = 25
 SAVE_EVERY = 500
 EVAL_EVERY = 250
+LATEST_EVERY = 25
 MTP_DEPTH = 3
 MTP_WEIGHT = 0.25
 
@@ -211,6 +212,15 @@ def save_tokenizer_assets(core, tag=""):
     }, ASSETS_DIR / f"{name}.pt")
 
 
+def save_training_checkpoint(core, name, losses, step, best_val, stage, mtp_depth, total_tokens=0):
+    core.save(str(CKPT_DIR / name), losses=losses,
+              metadata_extra={"step": step,
+                             "best_val": best_val,
+                             "stage": stage,
+                             "mtp_depth": mtp_depth,
+                             "total_tokens": total_tokens})
+
+
 def train(
     max_steps: int | None = None,
     mtp_depth: int = MTP_DEPTH,
@@ -244,12 +254,16 @@ def train(
     core = None
     current_stage = 0
 
-    if (CKPT_DIR / "best").exists():
-        core = NpDnaCore.load(str(CKPT_DIR / "best"))
-        meta = json.loads((CKPT_DIR / "best" / "metadata.json").read_text())
+    resume_dir = CKPT_DIR / "latest"
+    if not resume_dir.exists():
+        resume_dir = CKPT_DIR / "best"
+
+    if resume_dir.exists():
+        core = NpDnaCore.load(str(resume_dir))
+        meta = json.loads((resume_dir / "metadata.json").read_text())
         start_step = meta.get("step", 0) + 1
         current_stage = meta.get("stage", 0)
-        print(f"\n  Resumed: step {start_step-1}, stage {current_stage}")
+        print(f"\n  Resumed from {resume_dir.name}: step {start_step-1}, stage {current_stage}")
 
     if core is None:
         tok = AtulyaTokenizer(initial_capacity=base_cfg.initial_vocab,
@@ -324,6 +338,10 @@ def train(
         meta = json.loads((CKPT_DIR / "best" / "metadata.json").read_text())
         losses = meta.get("losses", [])
         best_val = meta.get("best_val", float('inf'))
+    if start_step > 1 and (resume_dir / "metadata.json").exists():
+        meta = json.loads((resume_dir / "metadata.json").read_text())
+        losses = meta.get("losses", losses)
+        best_val = meta.get("best_val", best_val)
 
     end_step = TOTAL_STEPS if max_steps is None else min(TOTAL_STEPS, start_step + max_steps - 1)
     print(f"\n  Stage {current_stage}/7 ({dataset.chunk_count} chunks)")
@@ -332,109 +350,123 @@ def train(
     else:
         print()
 
-    for step in range(start_step, end_step + 1):
-        # Curriculum stage switch
-        new_stage = current_stage
-        for si, stage in enumerate(CURRICULUM):
-            if step <= stage["steps"]:
+    last_step = start_step - 1
+    try:
+        for step in range(start_step, end_step + 1):
+            last_step = step
+            # Curriculum stage switch
+            new_stage = current_stage
+            for si, stage in enumerate(CURRICULUM):
+                if step <= stage["steps"]:
+                    new_stage = si
+                    break
                 new_stage = si
-                break
-            new_stage = si
 
-        if new_stage != current_stage:
-            current_stage = new_stage
-            stage = CURRICULUM[current_stage]
-            dataset.set_folders(stage["folders"])
-            print(f"\n  >>> Stage {current_stage}/7 ({dataset.chunk_count} chunks) <<<\n")
+            if new_stage != current_stage:
+                current_stage = new_stage
+                stage = CURRICULUM[current_stage]
+                dataset.set_folders(stage["folders"])
+                print(f"\n  >>> Stage {current_stage}/7 ({dataset.chunk_count} chunks) <<<\n")
 
-            # Grow vocab if needed at stage transitions
-            if core.tokenizer.fill_ratio > 0.9:
-                old_cap = core.tokenizer.capacity
-                more_texts = []
-                for fp in random.sample(dataset._chunks,
-                                         min(3, len(dataset._chunks))):
-                    more_texts.extend(load_texts(fp, max_lines=1000))
-                core.tokenizer.train_bpe(more_texts, target_merges=2000,
-                                          min_pair_freq=2)
-                core.model.resize_embeddings(core.tokenizer.capacity)
-                if core.tokenizer.capacity > old_cap:
-                    print(f"  Vocab grew: {old_cap} -> {core.tokenizer.capacity} "
-                          f"(size={core.tokenizer.size})")
-                    save_tokenizer_assets(core, tag=f"stage{current_stage}")
+                # Grow vocab if needed at stage transitions
+                if core.tokenizer.fill_ratio > 0.9:
+                    old_cap = core.tokenizer.capacity
+                    more_texts = []
+                    for fp in random.sample(dataset._chunks,
+                                             min(3, len(dataset._chunks))):
+                        more_texts.extend(load_texts(fp, max_lines=1000))
+                    core.tokenizer.train_bpe(more_texts, target_merges=2000,
+                                              min_pair_freq=2)
+                    core.model.resize_embeddings(core.tokenizer.capacity)
+                    if core.tokenizer.capacity > old_cap:
+                        print(f"  Vocab grew: {old_cap} -> {core.tokenizer.capacity} "
+                              f"(size={core.tokenizer.size})")
+                        save_tokenizer_assets(core, tag=f"stage{current_stage}")
 
-        # Warmup
-        if step <= WARMUP_STEPS:
-            lr = LR * step / max(WARMUP_STEPS, 1)
-            for g in opt.param_groups:
-                g['lr'] = lr
+            # Warmup
+            if step <= WARMUP_STEPS:
+                lr = LR * step / max(WARMUP_STEPS, 1)
+                for g in opt.param_groups:
+                    g['lr'] = lr
 
-        x, y = dataset.sample_batch(BATCH_SIZE, SEQ_LEN, allow_growth=True)
-        total_tok += x.numel()
+            x, y = dataset.sample_batch(BATCH_SIZE, SEQ_LEN, allow_growth=True)
+            total_tok += x.numel()
 
-        model.train()
-        logits, bal = model(x)
-        ce_loss = F.cross_entropy(logits.reshape(-1, logits.size(-1)),
-                                   y.reshape(-1))
-        mtp_loss = mtp_aux_loss(logits, y, depth=mtp_depth)
-        loss = ce_loss + (MTP_WEIGHT * mtp_loss) + bal * 0.01
+            model.train()
+            logits, bal = model(x)
+            ce_loss = F.cross_entropy(logits.reshape(-1, logits.size(-1)),
+                                       y.reshape(-1))
+            mtp_loss = mtp_aux_loss(logits, y, depth=mtp_depth)
+            loss = ce_loss + (MTP_WEIGHT * mtp_loss) + bal * 0.01
 
-        opt.zero_grad(set_to_none=True)
-        loss.backward()
-        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-        opt.step()
+            opt.zero_grad(set_to_none=True)
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+            opt.step()
 
-        if step > WARMUP_STEPS:
-            decay = 1.0 - step / TOTAL_STEPS
-            for g in opt.param_groups:
-                g['lr'] = max(1e-5, LR * decay)
+            if step > WARMUP_STEPS:
+                decay = 1.0 - step / TOTAL_STEPS
+                for g in opt.param_groups:
+                    g['lr'] = max(1e-5, LR * decay)
 
-        loss_val = float(ce_loss.detach())
-        losses.append(loss_val)
-        smooth_loss = 0.95 * smooth_loss + 0.05 * loss_val if smooth_loss else loss_val
+            loss_val = float(ce_loss.detach())
+            losses.append(loss_val)
+            smooth_loss = 0.95 * smooth_loss + 0.05 * loss_val if smooth_loss else loss_val
 
-        # Log
-        if step % LOG_EVERY == 0 or step == start_step:
-            elapsed = time.time() - t_start
-            rate = total_tok / max(elapsed, 1)
-            cur_lr = opt.param_groups[0]['lr']
-            best = min(losses) if losses else 0
-            print(f"  step {step:5d}/{TOTAL_STEPS} | "
-                  f"stage {current_stage:02d} | "
-                  f"loss {smooth_loss:.2f} | mtp {float(mtp_loss.detach()):.2f} | best {best:.2f} | "
-                  f"lr {cur_lr:.2e} | {rate:.0f} tok/s")
+            # Log
+            if step % LOG_EVERY == 0 or step == start_step:
+                elapsed = time.time() - t_start
+                rate = total_tok / max(elapsed, 1)
+                cur_lr = opt.param_groups[0]['lr']
+                best = min(losses) if losses else 0
+                print(f"  step {step:5d}/{TOTAL_STEPS} | "
+                      f"stage {current_stage:02d} | "
+                      f"loss {smooth_loss:.2f} | mtp {float(mtp_loss.detach()):.2f} | best {best:.2f} | "
+                      f"lr {cur_lr:.2e} | {rate:.0f} tok/s")
 
-        # Eval
-        force_eval = max_steps is not None and step == end_step
-        if step % EVAL_EVERY == 0 or force_eval:
-            vl, vp = eval_model(model, eval_ids, BATCH_SIZE, SEQ_LEN)
-            gen = core.generate("Hello.", max_tokens=20, temperature=0.3,
-                                top_k=30, top_p=0.85, repetition_penalty=1.2)
-            safe = gen.encode('ascii', 'replace').decode('ascii')
-            print(f"  VAL loss={vl:.4f} ppl={vp:.1f} | GEN: {safe[:80]}")
-            if vl < best_val:
-                best_val = vl
-                core.save(str(CKPT_DIR / "best"), losses=losses,
-                          metadata_extra={"step": step, "val_loss": vl,
-                                         "stage": current_stage,
-                                         "mtp_depth": mtp_depth})
-                save_tokenizer_assets(core)
+            if step % LATEST_EVERY == 0:
+                save_training_checkpoint(core, "latest", losses, step, best_val,
+                                         current_stage, mtp_depth, total_tok)
 
-        # Generation check every 1000 steps
-        if step % 1000 == 0 or step == start_step:
-            for p in ["Hi! How are you?", "What is gravity?"]:
-                o = core.generate(p, max_tokens=25, temperature=0.3,
-                                  top_k=30, top_p=0.85, repetition_penalty=1.2)
-                safe = o.encode('ascii', 'replace').decode('ascii')
-                print(f"  GEN [{step}] {p[:20]} -> {safe[:70]}")
+            # Eval
+            force_eval = max_steps is not None and step == end_step
+            if step % EVAL_EVERY == 0 or force_eval:
+                vl, vp = eval_model(model, eval_ids, BATCH_SIZE, SEQ_LEN)
+                gen = core.generate("Hello.", max_tokens=20, temperature=0.3,
+                                    top_k=30, top_p=0.85, repetition_penalty=1.2)
+                safe = gen.encode('ascii', 'replace').decode('ascii')
+                print(f"  VAL loss={vl:.4f} ppl={vp:.1f} | GEN: {safe[:80]}")
+                if vl < best_val:
+                    best_val = vl
+                    core.save(str(CKPT_DIR / "best"), losses=losses,
+                              metadata_extra={"step": step, "val_loss": vl,
+                                             "stage": current_stage,
+                                             "mtp_depth": mtp_depth})
+                    save_tokenizer_assets(core)
 
-        # Checkpoint
-        if step % SAVE_EVERY == 0:
-            core.save(str(CKPT_DIR / f"step_{step}"), losses=losses,
-                      metadata_extra={"step": step, "best_val": best_val,
-                                     "stage": current_stage})
+            # Generation check every 1000 steps
+            if step % 1000 == 0 or step == start_step:
+                for p in ["Hi! How are you?", "What is gravity?"]:
+                    o = core.generate(p, max_tokens=25, temperature=0.3,
+                                      top_k=30, top_p=0.85, repetition_penalty=1.2)
+                    safe = o.encode('ascii', 'replace').decode('ascii')
+                    print(f"  GEN [{step}] {p[:20]} -> {safe[:70]}")
 
-        if step % 500 == 0:
-            gc.collect()
+            # Checkpoint
+            if step % SAVE_EVERY == 0:
+                core.save(str(CKPT_DIR / f"step_{step}"), losses=losses,
+                          metadata_extra={"step": step, "best_val": best_val,
+                                         "stage": current_stage})
+
+            if step % 500 == 0:
+                gc.collect()
+    except KeyboardInterrupt:
+        if last_step >= start_step:
+            print(f"\n  Interrupted. Saving latest checkpoint at step {last_step}...")
+            save_training_checkpoint(core, "latest", losses, last_step, best_val,
+                                     current_stage, mtp_depth, total_tok)
+            save_tokenizer_assets(core)
+        raise
 
     # Final
     elapsed = time.time() - t_start
