@@ -3,7 +3,7 @@ import torch
 from npdna.config import MeshConfig, StrandConfig
 from npdna.genome import Genome, GenomeConfig
 from npdna.mesh import AttentionStrand, NeuralMesh
-from npdna.train_npdna_v3 import build_curriculum, mtp_aux_loss, stage_index_for_step
+from npdna.train_npdna_v3 import build_curriculum, format_duration, mtp_aux_loss, stage_index_for_step
 
 
 def test_attention_strand_is_local_implementation():
@@ -31,3 +31,9 @@ def test_curriculum_scales_to_target_steps():
     assert curriculum[-1]["steps"] == 100_000
     assert all(a["steps"] < b["steps"] for a, b in zip(curriculum, curriculum[1:]))
     assert stage_index_for_step(652, curriculum) == 0
+
+
+def test_format_duration():
+    assert format_duration(42) == "42s"
+    assert format_duration(125) == "2m 05s"
+    assert format_duration(3665) == "1h 01m"

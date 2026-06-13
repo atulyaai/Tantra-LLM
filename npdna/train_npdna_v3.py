@@ -107,6 +107,17 @@ def stage_index_for_step(step: int, curriculum: list[dict]) -> int:
     return max(0, len(curriculum) - 1)
 
 
+def format_duration(seconds: float) -> str:
+    seconds = max(0, int(seconds))
+    hours, rem = divmod(seconds, 3600)
+    minutes, seconds = divmod(rem, 60)
+    if hours:
+        return f"{hours}h {minutes:02d}m"
+    if minutes:
+        return f"{minutes}m {seconds:02d}s"
+    return f"{seconds}s"
+
+
 def get_chunks(data_dir, folders):
     chunks = []
     for f in folders:
@@ -449,12 +460,15 @@ def train(
             if step % LOG_EVERY == 0 or step == start_step:
                 elapsed = time.time() - t_start
                 rate = total_tok / max(elapsed, 1)
+                steps_done = max(1, step - start_step + 1)
+                seconds_per_step = elapsed / steps_done
+                eta = seconds_per_step * max(0, end_step - step)
                 cur_lr = opt.param_groups[0]['lr']
                 best = min(losses) if losses else 0
                 print(f"  step {step:5d}/{TOTAL_STEPS} | "
                       f"stage {current_stage:02d} | "
                       f"loss {smooth_loss:.2f} | mtp {float(mtp_loss.detach()):.2f} | best {best:.2f} | "
-                      f"lr {cur_lr:.2e} | {rate:.0f} tok/s")
+                      f"lr {cur_lr:.2e} | {rate:.0f} tok/s | eta {format_duration(eta)}")
 
             if step % LATEST_EVERY == 0:
                 save_training_checkpoint(core, "latest", losses, step, best_val,
