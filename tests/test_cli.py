@@ -1,4 +1,6 @@
-from npdna.cli import info_main
+from pathlib import Path
+
+from npdna.cli import DEFAULT_CHECKPOINTS, chat_main, info_main
 
 
 def test_info_main_prints_seed_summary(capsys):
@@ -6,3 +8,36 @@ def test_info_main_prints_seed_summary(capsys):
     out = capsys.readouterr().out
     assert "NP-DNA seed configuration" in out
     assert "initial_vocab" in out
+
+
+def test_chat_main_defaults_to_latest_when_present(monkeypatch, tmp_path, capsys):
+    latest = tmp_path / "latest"
+    best = tmp_path / "best"
+    latest.mkdir()
+    best.mkdir()
+
+    class FakeCore:
+        @classmethod
+        def load(cls, checkpoint: Path):
+            assert checkpoint == latest
+            return cls()
+
+        def generate(self, prompt: str, max_tokens: int):
+            assert prompt == "Hello"
+            assert max_tokens == 5
+            return "ok"
+
+    monkeypatch.setattr("npdna.cli.DEFAULT_CHECKPOINTS", (latest, best))
+    monkeypatch.setattr("npdna.cli.NpDnaCore", FakeCore)
+    monkeypatch.setattr("sys.argv", ["npdna-chat", "Hello", "--max-tokens", "5"])
+
+    chat_main()
+
+    out = capsys.readouterr().out
+    assert f"Loaded checkpoint: {latest}" in out
+    assert out.rstrip().endswith("ok")
+
+
+def test_default_checkpoint_order_prefers_latest():
+    assert DEFAULT_CHECKPOINTS[0].as_posix().endswith("model/npdna_v3/latest")
+    assert DEFAULT_CHECKPOINTS[1].as_posix().endswith("model/npdna_v3/best")
