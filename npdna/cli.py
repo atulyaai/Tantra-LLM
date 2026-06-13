@@ -13,6 +13,33 @@ DEFAULT_CHECKPOINTS = (
     Path("model/npdna_v3/best"),
 )
 
+LONG_FORM_HINTS = {
+    "code",
+    "function",
+    "write",
+    "story",
+    "essay",
+    "explain",
+    "describe",
+    "compare",
+    "summarize",
+    "steps",
+    "plan",
+}
+
+
+def infer_max_tokens(prompt: str) -> int:
+    """Pick a practical generation cap until the model learns reliable EOS."""
+    words = prompt.split()
+    lowered = prompt.lower()
+    if any(hint in lowered for hint in LONG_FORM_HINTS):
+        return 120
+    if len(words) <= 8 and prompt.strip().endswith("?"):
+        return 40
+    if len(words) <= 20:
+        return 64
+    return 96
+
 
 def _ensure_utf8() -> None:
     if sys.stdout.encoding.lower() != "utf-8":
@@ -36,7 +63,12 @@ def chat_main() -> None:
     parser = argparse.ArgumentParser(description="Generate text with NP-DNA.")
     parser.add_argument("prompt", nargs="?", default=None, help="Prompt to generate from.")
     parser.add_argument("--checkpoint", default=None, help="Checkpoint directory.")
-    parser.add_argument("--max-tokens", type=int, default=80, help="Maximum generated tokens.")
+    parser.add_argument(
+        "--max-tokens",
+        type=int,
+        default=None,
+        help="Maximum generated tokens. Defaults to an automatic prompt-based cap.",
+    )
     parser.add_argument("-i", "--interactive", action="store_true", help="Start a terminal chat loop.")
     args = parser.parse_args()
 
@@ -63,10 +95,12 @@ def chat_main() -> None:
                 break
             if not prompt:
                 continue
-            print("npdna>", core.generate(prompt, max_tokens=args.max_tokens))
+            max_tokens = args.max_tokens or infer_max_tokens(prompt)
+            print("npdna>", core.generate(prompt, max_tokens=max_tokens))
         return
 
-    print(core.generate(args.prompt, max_tokens=args.max_tokens))
+    max_tokens = args.max_tokens or infer_max_tokens(args.prompt)
+    print(core.generate(args.prompt, max_tokens=max_tokens))
 
 
 if __name__ == "__main__":
