@@ -1,0 +1,83 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="640" viewBox="0 0 1200 640" role="img" aria-labelledby="title desc">
+  <title id="title">Tantra Cognitive OS Architecture</title>
+  <desc id="desc">Architecture diagram showing user input, cognitive layer, memory layer, model backend, learning loop, and failure diagnosis.</desc>
+  <defs>
+    <style>
+      .bg { fill: #f8fafc; }
+      .band { fill: #ffffff; stroke: #d0d7de; stroke-width: 1.5; }
+      .core { fill: #e8f3ff; stroke: #3973b7; }
+      .mem { fill: #e9f8f3; stroke: #26846f; }
+      .learn { fill: #fff4df; stroke: #b86b00; }
+      .fail { fill: #fdecec; stroke: #c94343; }
+      .model { fill: #f0ecff; stroke: #6a55bd; }
+      .label { font: 700 18px Inter, Segoe UI, Arial, sans-serif; fill: #111827; }
+      .small { font: 500 13px Inter, Segoe UI, Arial, sans-serif; fill: #475467; }
+      .title { font: 800 30px Inter, Segoe UI, Arial, sans-serif; fill: #111827; }
+      .arrow { stroke: #667085; stroke-width: 2.5; fill: none; marker-end: url(#arrow); }
+    </style>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#667085"/>
+    </marker>
+  </defs>
+  <rect class="bg" width="1200" height="640" rx="20"/>
+  <text class="title" x="54" y="58">Tantra V4 Architecture</text>
+  <text class="small" x="54" y="84">A local cognitive operating system wrapped around memory, failure diagnosis, tools, experts, and model backends.</text>
+  <rect class="band" x="44" y="116" width="1112" height="470" rx="18"/>
+  <g transform="translate(86 168)">
+    <rect class="core" x="0" y="0" width="160" height="74" rx="12"/>
+    <text class="label" x="40" y="31">User</text>
+    <text class="small" x="28" y="52">input / goal</text>
+    <path class="arrow" d="M160 37 H216"/>
+    <rect class="core" x="216" y="0" width="172" height="74" rx="12"/>
+    <text class="label" x="270" y="31">Manas</text>
+    <text class="small" x="244" y="52">global workspace</text>
+    <path class="arrow" d="M388 37 H444"/>
+    <rect class="core" x="444" y="0" width="172" height="74" rx="12"/>
+    <text class="label" x="496" y="31">Aham</text>
+    <text class="small" x="470" y="52">identity / gates</text>
+    <path class="arrow" d="M616 37 H672"/>
+    <rect class="core" x="672" y="0" width="172" height="74" rx="12"/>
+    <text class="label" x="724" y="31">Vivek</text>
+    <text class="small" x="696" y="52">salience scoring</text>
+  </g>
+  <g transform="translate(154 302)">
+    <rect class="mem" x="0" y="0" width="178" height="78" rx="12"/>
+    <text class="label" x="58" y="32">Chitta</text>
+    <text class="small" x="34" y="54">working memory</text>
+    <path class="arrow" d="M178 39 H236"/>
+    <rect class="mem" x="236" y="0" width="178" height="78" rx="12"/>
+    <text class="label" x="294" y="32">Smriti</text>
+    <text class="small" x="272" y="54">long-term memory</text>
+    <path class="arrow" d="M414 39 H472"/>
+    <rect class="mem" x="472" y="0" width="178" height="78" rx="12"/>
+    <text class="label" x="532" y="32">Sutra</text>
+    <text class="small" x="510" y="54">knowledge graph</text>
+    <path class="arrow" d="M325 0 V-80 H604"/>
+  </g>
+  <g transform="translate(820 300)">
+    <rect class="model" x="0" y="0" width="220" height="88" rx="12"/>
+    <text class="label" x="35" y="34">BaseModelWrapper</text>
+    <text class="small" x="48" y="58">demo / micro / rwkv7</text>
+    <path class="arrow" d="M-170 41 H0"/>
+  </g>
+  <g transform="translate(282 474)">
+    <rect class="learn" x="0" y="0" width="194" height="76" rx="12"/>
+    <text class="label" x="49" y="31">Reflection</text>
+    <text class="small" x="46" y="52">outcome score</text>
+    <path class="arrow" d="M194 38 H250"/>
+    <rect class="learn" x="250" y="0" width="194" height="76" rx="12"/>
+    <text class="label" x="291" y="31">Learning Queue</text>
+    <text class="small" x="300" y="52">human approval</text>
+    <path class="arrow" d="M444 38 H500"/>
+    <rect class="learn" x="500" y="0" width="194" height="76" rx="12"/>
+    <text class="label" x="564" y="31">Experts</text>
+    <text class="small" x="532" y="52">AEF / RTD output</text>
+  </g>
+  <g transform="translate(874 156)">
+    <rect class="fail" x="0" y="0" width="194" height="84" rx="12"/>
+    <text class="label" x="48" y="33">Nirikshak</text>
+    <text class="small" x="45" y="56">F1-F8 diagnosis</text>
+    <path class="arrow" d="M0 42 H-30"/>
+    <path class="arrow" d="M98 84 V140"/>
+  </g>
+</svg>

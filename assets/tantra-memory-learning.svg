@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="420" viewBox="0 0 1200 420" role="img" aria-labelledby="title desc">
+  <title id="title">Tantra Memory and Learning Loop</title>
+  <desc id="desc">Diagram showing memory first, human approved learning, local experts, and rare weight changes.</desc>
+  <defs>
+    <style>
+      .bg { fill: #101828; }
+      .card { fill: #ffffff; fill-opacity: 0.08; stroke: #ffffff; stroke-opacity: 0.2; }
+      .txt { font: 800 26px Inter, Segoe UI, Arial, sans-serif; fill: #ffffff; }
+      .sub { font: 500 15px Inter, Segoe UI, Arial, sans-serif; fill: #d0d5dd; }
+      .note { font: 700 18px Inter, Segoe UI, Arial, sans-serif; fill: #ffd166; }
+      .arrow { stroke: #64d2c8; stroke-width: 3; fill: none; marker-end: url(#arrow); }
+    </style>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#64d2c8"/>
+    </marker>
+  </defs>
+  <rect class="bg" width="1200" height="420" rx="24"/>
+  <text class="txt" x="58" y="58">Memory First, Weights Last</text>
+  <text class="sub" x="58" y="86">Tantra grows through memory, graph structure, examples, tools, and approved experts before touching model weights.</text>
+  <g transform="translate(76 140)">
+    <rect class="card" x="0" y="0" width="178" height="112" rx="16"/>
+    <text class="txt" x="38" y="44" font-size="22">Chitta</text>
+    <text class="sub" x="34" y="70">active context</text>
+    <text class="sub" x="39" y="91">goals / decay</text>
+    <path class="arrow" d="M178 56 H235"/>
+    <rect class="card" x="235" y="0" width="178" height="112" rx="16"/>
+    <text class="txt" x="276" y="44" font-size="22">Smriti</text>
+    <text class="sub" x="262" y="70">durable memory</text>
+    <text class="sub" x="273" y="91">typed records</text>
+    <path class="arrow" d="M413 56 H470"/>
+    <rect class="card" x="470" y="0" width="178" height="112" rx="16"/>
+    <text class="txt" x="514" y="44" font-size="22">Sutra</text>
+    <text class="sub" x="502" y="70">concept graph</text>
+    <text class="sub" x="511" y="91">relations</text>
+    <path class="arrow" d="M648 56 H705"/>
+    <rect class="card" x="705" y="0" width="178" height="112" rx="16"/>
+    <text class="txt" x="738" y="44" font-size="22">Reflection</text>
+    <text class="sub" x="742" y="70">outcome score</text>
+    <text class="sub" x="744" y="91">learning signal</text>
+    <path class="arrow" d="M883 56 H940"/>
+    <rect class="card" x="940" y="0" width="178" height="112" rx="16"/>
+    <text class="txt" x="969" y="44" font-size="22">Approval</text>
+    <text class="sub" x="978" y="70">human gate</text>
+    <text class="sub" x="967" y="91">safe updates</text>
+  </g>
+  <g transform="translate(230 300)">
+    <text class="note" x="0" y="0">Fast path:</text>
+    <text class="sub" x="90" y="0">memory, graph links, local examples, tool routing, expert records</text>
+    <text class="note" x="0" y="38">Rare path:</text>
+    <text class="sub" x="90" y="38">permanent weight changes only after explicit human approval</text>
+  </g>
+</svg>
