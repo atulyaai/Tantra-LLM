@@ -27,6 +27,7 @@ EVAL_EVERY = 250
 LATEST_EVERY = 25
 MTP_DEPTH = 3
 MTP_WEIGHT = 0.25
+DEFAULT_TARGET_STEPS = 100_000
 
 CKPT_DIR = Path("model/npdna_v3")
 ASSETS_DIR = Path("model/tokenizer")
@@ -48,8 +49,8 @@ def calc_steps(mb, base=200, max_steps=2000):
         return 500        # tiny samples get 500 steps to overfit
     return min(max_steps, base + int((mb / 100) * 50))
 
-# Build curriculum with auto step budgets
-CURRICULUM = []
+# Build curriculum weights from data volume, then scale to target steps.
+BASE_CURRICULUM = []
 cumul = 0
 all_folders = ["samples","agentic","factual","code","reasoning",
                "translation","general","math"]
@@ -59,23 +60,51 @@ for i in range(len(all_folders)):
     mb = DATASET_SIZES[name]
     steps = calc_steps(mb, base=200, max_steps=1500)
     cumul += steps
-    CURRICULUM.append({
+    BASE_CURRICULUM.append({
         "name": name,
         "folders": list(folders),
         "steps": cumul,
         "mb": mb,
     })
 
-TOTAL_STEPS = cumul
+BASE_TOTAL_STEPS = cumul
 
-print(f"Auto curriculum: {TOTAL_STEPS} total steps")
-for s in CURRICULUM:
-    prev = 0
-    idx = CURRICULUM.index(s)
-    if idx > 0:
-        prev = CURRICULUM[idx-1]["steps"]
-    print(f"  Stage {idx:02d} steps {prev:4d}-{s['steps']:4d} "
-          f"(+{s['steps']-prev:4d}, folders={len(s['folders'])})")
+
+def build_curriculum(target_steps: int) -> list[dict]:
+    target_steps = max(len(BASE_CURRICULUM), int(target_steps))
+    scaled = []
+    previous = 0
+    for idx, stage in enumerate(BASE_CURRICULUM):
+        if idx == len(BASE_CURRICULUM) - 1:
+            step_limit = target_steps
+        else:
+            ratio = stage["steps"] / max(1, BASE_TOTAL_STEPS)
+            step_limit = max(previous + 1, int(round(target_steps * ratio)))
+        scaled.append({
+            **stage,
+            "steps": min(step_limit, target_steps),
+        })
+        previous = scaled[-1]["steps"]
+    return scaled
+
+
+TOTAL_STEPS = DEFAULT_TARGET_STEPS
+CURRICULUM = build_curriculum(TOTAL_STEPS)
+
+
+def print_curriculum(curriculum: list[dict], total_steps: int) -> None:
+    print(f"Auto curriculum: {total_steps} total steps")
+    for idx, stage in enumerate(curriculum):
+        prev = 0 if idx == 0 else curriculum[idx - 1]["steps"]
+        print(f"  Stage {idx:02d} steps {prev:6d}-{stage['steps']:6d} "
+              f"(+{stage['steps']-prev:6d}, folders={len(stage['folders'])})")
+
+
+def stage_index_for_step(step: int, curriculum: list[dict]) -> int:
+    for idx, stage in enumerate(curriculum):
+        if step <= stage["steps"]:
+            return idx
+    return max(0, len(curriculum) - 1)
 
 
 def get_chunks(data_dir, folders):
@@ -223,12 +252,17 @@ def save_training_checkpoint(core, name, losses, step, best_val, stage, mtp_dept
 
 def train(
     max_steps: int | None = None,
+    target_steps: int = DEFAULT_TARGET_STEPS,
     mtp_depth: int = MTP_DEPTH,
     threads: int | None = None,
     compile_model: bool = False,
     freeze_backbone: bool = False,
     train_embeddings: bool = False,
 ):
+    global CURRICULUM, TOTAL_STEPS
+    TOTAL_STEPS = max(1, int(target_steps))
+    CURRICULUM = build_curriculum(TOTAL_STEPS)
+
     CKPT_DIR.mkdir(parents=True, exist_ok=True)
     DATA_DIR = Path("Download")
     if threads:
@@ -236,10 +270,7 @@ def train(
 
     print(f"  NP-DNA v3: {CONFIG_NAME}, attn={USE_ATTENTION}")
     print(f"  {TOTAL_STEPS} planned steps, batch={BATCH_SIZE}, seq={SEQ_LEN}, mtp_depth={mtp_depth}")
-    for s in CURRICULUM:
-        idx = list(CURRICULUM).index(s)
-        prev = 0 if idx == 0 else CURRICULUM[idx-1]["steps"]
-        print(f"  Stage {idx}: steps {prev:4d}-{s['steps']:4d} ({len(s['folders'])} folders)")
+    print_curriculum(CURRICULUM, TOTAL_STEPS)
 
     base_cfg = CONFIGS[CONFIG_NAME]
     if USE_ATTENTION:
@@ -262,7 +293,7 @@ def train(
         core = NpDnaCore.load(str(resume_dir))
         meta = json.loads((resume_dir / "metadata.json").read_text())
         start_step = meta.get("step", 0) + 1
-        current_stage = meta.get("stage", 0)
+        current_stage = stage_index_for_step(start_step - 1, CURRICULUM)
         print(f"\n  Resumed from {resume_dir.name}: step {start_step-1}, stage {current_stage}")
 
     if core is None:
@@ -301,7 +332,8 @@ def train(
           f"fill={core.tokenizer.fill_ratio:.1%}")
 
     # Dataset
-    dataset = Dataset(DATA_DIR, CURRICULUM[0]["folders"], core.tokenizer, SEQ_LEN)
+    current_stage = stage_index_for_step(start_step - 1, CURRICULUM)
+    dataset = Dataset(DATA_DIR, CURRICULUM[current_stage]["folders"], core.tokenizer, SEQ_LEN)
     eval_ids = dataset.eval_set(num_samples=2000)
     print(f"  Eval: {len(eval_ids)} sequences from held-out local data")
 
@@ -498,6 +530,8 @@ def train(
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train NP-DNA.")
     parser.add_argument("--steps", type=int, default=None, help="Run only this many steps for smoke testing.")
+    parser.add_argument("--target-steps", type=int, default=DEFAULT_TARGET_STEPS,
+                        help="Full training target. Omit --steps to train to this value.")
     parser.add_argument("--mtp-depth", type=int, default=MTP_DEPTH, help="Multi-token prediction depth.")
     parser.add_argument("--threads", type=int, default=None, help="PyTorch CPU thread count.")
     parser.add_argument("--compile", action="store_true", help="Try torch.compile for repeated training steps.")
@@ -506,6 +540,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     train(
         max_steps=args.steps,
+        target_steps=args.target_steps,
         mtp_depth=args.mtp_depth,
         threads=args.threads,
         compile_model=args.compile,

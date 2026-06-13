@@ -179,6 +179,14 @@ Fast smoke run:
 python npdna\train_npdna_v3.py --steps 50 --mtp-depth 3
 ```
 
+Full training target:
+
+```powershell
+python npdna\train_npdna_v3.py --target-steps 100000 --mtp-depth 2 --threads 12
+```
+
+`--steps` is only for short smoke runs. Without `--steps`, training continues until `--target-steps`.
+
 CPU speed knobs:
 
 | Option | Use |
