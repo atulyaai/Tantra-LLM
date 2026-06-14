@@ -3,7 +3,16 @@ import torch
 from npdna.config import MeshConfig, StrandConfig
 from npdna.genome import Genome, GenomeConfig
 from npdna.mesh import AttentionStrand, NeuralMesh
-from npdna.train_npdna_v3 import build_curriculum, format_duration, mtp_aux_loss, stage_index_for_step
+from npdna.train_npdna_v3 import (
+    Dataset,
+    build_curriculum,
+    format_chat_example,
+    format_duration,
+    load_seed_chat,
+    mtp_aux_loss,
+    stage_index_for_step,
+)
+from npdna.tokenizer import AtulyaTokenizer
 
 
 def test_attention_strand_is_local_implementation():
@@ -37,3 +46,45 @@ def test_format_duration():
     assert format_duration(42) == "42s"
     assert format_duration(125) == "2m 05s"
     assert format_duration(3665) == "1h 01m"
+
+
+def test_seed_chat_examples_are_formatted_as_chat(tmp_path):
+    seed_file = tmp_path / "seed_chat.jsonl"
+    seed_file.write_text(
+        '{"system":"","user":"What is gravity?","assistant":"Gravity attracts mass."}\n',
+        encoding="utf-8",
+    )
+
+    examples = load_seed_chat(seed_file)
+
+    assert examples == [
+        "System: You are Atulya. Be warm, thoughtful, and direct.\n"
+        "User: What is gravity?\n"
+        "Assistant: Gravity attracts mass."
+    ]
+    assert format_chat_example("Hi", "Hello", "Be brief.") == (
+        "System: Be brief.\nUser: Hi\nAssistant: Hello"
+    )
+
+
+def test_dataset_can_sample_only_seed_chat(tmp_path):
+    seed_file = tmp_path / "seed_chat.jsonl"
+    seed_file.write_text(
+        '{"user":"Hello","assistant":"Hi there."}\n',
+        encoding="utf-8",
+    )
+    tokenizer = AtulyaTokenizer(initial_capacity=256, max_capacity=512)
+    dataset = Dataset(
+        tmp_path,
+        [],
+        tokenizer,
+        seq_len=16,
+        seed_chat_path=seed_file,
+        seed_chat_ratio=1.0,
+    )
+
+    x, y = dataset.sample_batch(batch_size=2, seq_len=16, allow_growth=True)
+
+    assert len(dataset.seed_chat) == 1
+    assert x.shape == (2, 16)
+    assert y.shape == (2, 16)

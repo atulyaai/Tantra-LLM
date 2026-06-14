@@ -31,6 +31,9 @@ DEFAULT_TARGET_STEPS = 100_000
 
 CKPT_DIR = Path("model/npdna_v3")
 ASSETS_DIR = Path("model/tokenizer")
+SEED_CHAT_PATH = Path("data/seed_chat.jsonl")
+DEFAULT_SEED_CHAT_RATIO = 0.35
+DEFAULT_SYSTEM_PROMPT = "You are Atulya. Be warm, thoughtful, and direct."
 
 # Auto-calculate steps per dataset based on MB size
 DATASET_SIZES = {
@@ -148,11 +151,39 @@ def load_texts(fp, max_lines=None):
     return texts
 
 
+def format_chat_example(user: str, assistant: str, system: str = "") -> str:
+    system = (system or DEFAULT_SYSTEM_PROMPT).strip()
+    user = user.strip()
+    assistant = assistant.strip()
+    return f"System: {system}\nUser: {user}\nAssistant: {assistant}"
+
+
+def load_seed_chat(path=SEED_CHAT_PATH):
+    examples = []
+    path = Path(path)
+    if not path.exists():
+        return examples
+    with open(path, "r", encoding="utf-8", errors="replace") as f:
+        for line in f:
+            try:
+                d = json.loads(line.strip())
+                user = (d.get("user") or d.get("instruction") or d.get("prompt") or "").strip()
+                assistant = (d.get("assistant") or d.get("response") or d.get("output") or "").strip()
+                system = (d.get("system") or "").strip()
+                if user and assistant:
+                    examples.append(format_chat_example(user, assistant, system))
+            except Exception:
+                pass
+    return examples
+
+
 class Dataset:
-    def __init__(self, data_dir, folders, tokenizer, seq_len):
+    def __init__(self, data_dir, folders, tokenizer, seq_len, seed_chat_path=SEED_CHAT_PATH, seed_chat_ratio=DEFAULT_SEED_CHAT_RATIO):
         self.data_dir = data_dir
         self.tokenizer = tokenizer
         self.seq_len = seq_len
+        self.seed_chat_ratio = max(0.0, min(1.0, float(seed_chat_ratio)))
+        self.seed_chat = load_seed_chat(seed_chat_path)
         self._cache = {}
         self._chunks = get_chunks(data_dir, folders)
 
@@ -167,14 +198,21 @@ class Dataset:
     def sample_batch(self, batch_size, seq_len, allow_growth=True):
         x_list, y_list = [], []
         for _ in range(batch_size):
-            fp = random.choice(self._chunks)
-            if str(fp) not in self._cache:
-                self._cache[str(fp)] = load_texts(fp)
-            texts = self._cache[str(fp)]
-            if not texts:
-                continue
-            t = random.choice(texts)
-            ids = self.tokenizer.encode(t, allow_growth=allow_growth)
+            if self.seed_chat and random.random() < self.seed_chat_ratio:
+                t = random.choice(self.seed_chat)
+                encode_growth = allow_growth
+            else:
+                if not self._chunks:
+                    continue
+                fp = random.choice(self._chunks)
+                if str(fp) not in self._cache:
+                    self._cache[str(fp)] = load_texts(fp)
+                texts = self._cache[str(fp)]
+                if not texts:
+                    continue
+                t = random.choice(texts)
+                encode_growth = allow_growth
+            ids = self.tokenizer.encode(t, allow_growth=encode_growth)
             if len(ids) < seq_len + 1:
                 ids = ids + [0] * (seq_len + 1 - len(ids))
             ms = max(0, len(ids) - seq_len - 1)
@@ -189,6 +227,14 @@ class Dataset:
         ids_list = []
         sample_chunks = get_chunks(self.data_dir, ["samples"])
         buffer = []
+        for t in self.seed_chat:
+            ids = self.tokenizer.encode(t, allow_growth=False)
+            buffer.extend(ids)
+            while len(buffer) >= self.seq_len + 1:
+                ids_list.append(buffer[:self.seq_len + 1])
+                buffer = buffer[self.seq_len + 1:]
+                if len(ids_list) >= num_samples:
+                    return ids_list
         for fp in sample_chunks:
             texts = load_texts(fp)
             for t in texts:
@@ -269,6 +315,7 @@ def train(
     compile_model: bool = False,
     freeze_backbone: bool = False,
     train_embeddings: bool = False,
+    seed_chat_ratio: float = DEFAULT_SEED_CHAT_RATIO,
 ):
     global CURRICULUM, TOTAL_STEPS
     TOTAL_STEPS = max(1, int(target_steps))
@@ -280,7 +327,8 @@ def train(
         torch.set_num_threads(max(1, threads))
 
     print(f"  NP-DNA v3: {CONFIG_NAME}, attn={USE_ATTENTION}")
-    print(f"  {TOTAL_STEPS} planned steps, batch={BATCH_SIZE}, seq={SEQ_LEN}, mtp_depth={mtp_depth}")
+    print(f"  {TOTAL_STEPS} planned steps, batch={BATCH_SIZE}, seq={SEQ_LEN}, "
+          f"mtp_depth={mtp_depth}, seed_chat_ratio={seed_chat_ratio:.2f}")
     print_curriculum(CURRICULUM, TOTAL_STEPS)
 
     base_cfg = CONFIGS[CONFIG_NAME]
@@ -333,6 +381,7 @@ def train(
                 for fp in chunks[:2]:
                     bpe_texts.extend(load_texts(fp, max_lines=1000))
             bpe_texts = bpe_texts[:20000]
+            bpe_texts.extend(load_seed_chat())
             print(f"  BPE on {len(bpe_texts):,} texts")
             core.tokenizer.train_bpe(bpe_texts, target_merges=8000, min_pair_freq=2)
             core.model.resize_embeddings(core.tokenizer.capacity)
@@ -344,9 +393,16 @@ def train(
 
     # Dataset
     current_stage = stage_index_for_step(start_step - 1, CURRICULUM)
-    dataset = Dataset(DATA_DIR, CURRICULUM[current_stage]["folders"], core.tokenizer, SEQ_LEN)
+    dataset = Dataset(
+        DATA_DIR,
+        CURRICULUM[current_stage]["folders"],
+        core.tokenizer,
+        SEQ_LEN,
+        seed_chat_ratio=seed_chat_ratio,
+    )
     eval_ids = dataset.eval_set(num_samples=2000)
-    print(f"  Eval: {len(eval_ids)} sequences from held-out local data")
+    print(f"  Seed chat: {len(dataset.seed_chat)} examples")
+    print(f"  Eval: {len(eval_ids)} sequences from held-out local/seed data")
 
     # Optimizer
     model = core.model
@@ -551,6 +607,8 @@ if __name__ == "__main__":
     parser.add_argument("--compile", action="store_true", help="Try torch.compile for repeated training steps.")
     parser.add_argument("--freeze-backbone", action="store_true", help="Train only genome seeds by default.")
     parser.add_argument("--train-embeddings", action="store_true", help="When freezing, also train embeddings.")
+    parser.add_argument("--seed-chat-ratio", type=float, default=DEFAULT_SEED_CHAT_RATIO,
+                        help="Fraction of batches sampled from data/seed_chat.jsonl.")
     args = parser.parse_args()
     train(
         max_steps=args.steps,
@@ -560,4 +618,5 @@ if __name__ == "__main__":
         compile_model=args.compile,
         freeze_backbone=args.freeze_backbone,
         train_embeddings=args.train_embeddings,
+        seed_chat_ratio=args.seed_chat_ratio,
     )
