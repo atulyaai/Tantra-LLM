@@ -33,6 +33,8 @@ CKPT_DIR = Path("model/npdna_v3")
 ASSETS_DIR = Path("model/tokenizer")
 SEED_CHAT_PATH = Path("data/seed_chat.jsonl")
 DEFAULT_SEED_CHAT_RATIO = 0.35
+DEFAULT_SEED_RATIO_MIN = 0.10
+DEFAULT_SEED_RATIO_DECAY_STEPS = 30_000
 DEFAULT_SYSTEM_PROMPT = "You are Atulya. Be warm, thoughtful, and direct."
 
 # Auto-calculate steps per dataset based on MB size
@@ -178,14 +180,30 @@ def load_seed_chat(path=SEED_CHAT_PATH):
 
 
 class Dataset:
-    def __init__(self, data_dir, folders, tokenizer, seq_len, seed_chat_path=SEED_CHAT_PATH, seed_chat_ratio=DEFAULT_SEED_CHAT_RATIO):
+    def __init__(self, data_dir, folders, tokenizer, seq_len, seed_chat_path=SEED_CHAT_PATH,
+                 seed_chat_ratio=DEFAULT_SEED_CHAT_RATIO,
+                 seed_ratio_min=DEFAULT_SEED_RATIO_MIN,
+                 seed_ratio_decay_steps=DEFAULT_SEED_RATIO_DECAY_STEPS,
+                 max_seed_per_batch_pct=0.50):
         self.data_dir = data_dir
         self.tokenizer = tokenizer
         self.seq_len = seq_len
-        self.seed_chat_ratio = max(0.0, min(1.0, float(seed_chat_ratio)))
+        self.seed_chat_peak = max(0.0, min(1.0, float(seed_chat_ratio)))
+        self.seed_chat_ratio = self.seed_chat_peak
+        self.seed_ratio_min = max(0.0, min(1.0, float(seed_ratio_min)))
+        self.seed_ratio_decay_steps = max(1, int(seed_ratio_decay_steps))
+        self.max_seed_per_batch_pct = max(0.0, min(1.0, float(max_seed_per_batch_pct)))
+        self._current_step = 0
         self.seed_chat = load_seed_chat(seed_chat_path)
         self._cache = {}
         self._chunks = get_chunks(data_dir, folders)
+
+    def set_step(self, step: int) -> None:
+        """Update effective seed ratio with linear decay."""
+        self._current_step = max(0, step)
+        fraction = min(1.0, self._current_step / self.seed_ratio_decay_steps)
+        self.seed_chat_ratio = self.seed_chat_peak - (self.seed_chat_peak - self.seed_ratio_min) * fraction
+        self.seed_chat_ratio = max(self.seed_ratio_min, self.seed_chat_ratio)
 
     def set_folders(self, folders):
         self._chunks = get_chunks(self.data_dir, folders)
@@ -197,9 +215,14 @@ class Dataset:
 
     def sample_batch(self, batch_size, seq_len, allow_growth=True):
         x_list, y_list = [], []
+        max_seed = max(1, int(batch_size * self.max_seed_per_batch_pct))
+        seed_count = 0
         for _ in range(batch_size):
-            if self.seed_chat and random.random() < self.seed_chat_ratio:
+            use_seed = (self.seed_chat and seed_count < max_seed
+                        and random.random() < self.seed_chat_ratio)
+            if use_seed:
                 t = random.choice(self.seed_chat)
+                seed_count += 1
                 encode_growth = allow_growth
             else:
                 if not self._chunks:
@@ -328,7 +351,8 @@ def train(
 
     print(f"  NP-DNA v3: {CONFIG_NAME}, attn={USE_ATTENTION}")
     print(f"  {TOTAL_STEPS} planned steps, batch={BATCH_SIZE}, seq={SEQ_LEN}, "
-          f"mtp_depth={mtp_depth}, seed_chat_ratio={seed_chat_ratio:.2f}")
+          f"mtp_depth={mtp_depth}, seed_chat_ratio={seed_chat_ratio:.2f} "
+          f"(decay->{DEFAULT_SEED_RATIO_MIN:.2f} over {DEFAULT_SEED_RATIO_DECAY_STEPS} steps)")
     print_curriculum(CURRICULUM, TOTAL_STEPS)
 
     base_cfg = CONFIGS[CONFIG_NAME]
@@ -399,7 +423,10 @@ def train(
         core.tokenizer,
         SEQ_LEN,
         seed_chat_ratio=seed_chat_ratio,
+        seed_ratio_min=DEFAULT_SEED_RATIO_MIN,
+        seed_ratio_decay_steps=min(TOTAL_STEPS // 2, DEFAULT_SEED_RATIO_DECAY_STEPS),
     )
+    dataset.set_step(start_step - 1)
     eval_ids = dataset.eval_set(num_samples=2000)
     print(f"  Seed chat: {len(dataset.seed_chat)} examples")
     print(f"  Eval: {len(eval_ids)} sequences from held-out local/seed data")
@@ -488,6 +515,7 @@ def train(
                 for g in opt.param_groups:
                     g['lr'] = lr
 
+            dataset.set_step(step)
             x, y = dataset.sample_batch(BATCH_SIZE, SEQ_LEN, allow_growth=True)
             total_tok += x.numel()
 
@@ -523,8 +551,9 @@ def train(
                 best = min(losses) if losses else 0
                 print(f"  step {step:5d}/{TOTAL_STEPS} | "
                       f"stage {current_stage:02d} | "
-                      f"loss {smooth_loss:.2f} | mtp {float(mtp_loss.detach()):.2f} | best {best:.2f} | "
-                      f"lr {cur_lr:.2e} | {rate:.0f} tok/s | eta {format_duration(eta)}")
+                       f"loss {smooth_loss:.2f} | mtp {float(mtp_loss.detach()):.2f} | best {best:.2f} | "
+                       f"seed_r {dataset.seed_chat_ratio:.2f} | "
+                       f"lr {cur_lr:.2e} | {rate:.0f} tok/s | eta {format_duration(eta)}")
 
             if step % LATEST_EVERY == 0:
                 save_training_checkpoint(core, "latest", losses, step, best_val,
@@ -609,6 +638,10 @@ if __name__ == "__main__":
     parser.add_argument("--train-embeddings", action="store_true", help="When freezing, also train embeddings.")
     parser.add_argument("--seed-chat-ratio", type=float, default=DEFAULT_SEED_CHAT_RATIO,
                         help="Fraction of batches sampled from data/seed_chat.jsonl.")
+    parser.add_argument("--seed-ratio-min", type=float, default=DEFAULT_SEED_RATIO_MIN,
+                        help="Floor for seed chat ratio after decay.")
+    parser.add_argument("--seed-ratio-decay", type=int, default=DEFAULT_SEED_RATIO_DECAY_STEPS,
+                        help="Steps over which seed ratio decays from initial to min.")
     args = parser.parse_args()
     train(
         max_steps=args.steps,
