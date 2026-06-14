@@ -8562,7 +8562,10 @@
     " Students": 8559,
     " amounts": 8560,
     " autonomy": 8561,
-    " banti": 8562
+    " banti": 8562,
+    "\n": 8563,
+    "°": 8564,
+    "👋": 8565
   },
   "id_to_token": [
     "<pad>",
@@ -17127,7 +17130,10 @@
     " Students",
     " amounts",
     " autonomy",
-    " banti"
+    " banti",
+    "\n",
+    "°",
+    "👋"
   ],
   "merges": [
     [
