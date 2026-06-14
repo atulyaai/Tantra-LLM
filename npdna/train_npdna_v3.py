@@ -377,13 +377,26 @@ def save_tokenizer_assets(core, tag=""):
     }, ASSETS_DIR / f"{name}.pt")
 
 
-def save_training_checkpoint(core, name, losses, step, best_val, stage, mtp_depth, total_tokens=0):
+def save_training_checkpoint(
+    core,
+    name,
+    losses,
+    step,
+    best_val,
+    stage,
+    mtp_depth,
+    total_tokens=0,
+    batch_size=BATCH_SIZE,
+    seq_len=SEQ_LEN,
+):
     core.save(str(CKPT_DIR / name), losses=losses,
               metadata_extra={"step": step,
                              "best_val": best_val,
                              "stage": stage,
                              "mtp_depth": mtp_depth,
-                             "total_tokens": total_tokens})
+                             "total_tokens": total_tokens,
+                             "batch_size": batch_size,
+                             "seq_len": seq_len})
 
 
 def train(
@@ -395,6 +408,10 @@ def train(
     freeze_backbone: bool = False,
     train_embeddings: bool = False,
     seed_chat_ratio: float = DEFAULT_SEED_CHAT_RATIO,
+    seed_ratio_min: float = DEFAULT_SEED_RATIO_MIN,
+    seed_ratio_decay_steps: int = DEFAULT_SEED_RATIO_DECAY_STEPS,
+    batch_size: int = BATCH_SIZE,
+    seq_len: int = SEQ_LEN,
 ):
     global CURRICULUM, TOTAL_STEPS
     TOTAL_STEPS = max(1, int(target_steps))
@@ -406,9 +423,14 @@ def train(
         torch.set_num_threads(max(1, threads))
 
     print(f"  NP-DNA v3: {CONFIG_NAME}, attn={USE_ATTENTION}")
-    print(f"  {TOTAL_STEPS} planned steps, batch={BATCH_SIZE}, seq={SEQ_LEN}, "
+    batch_size = max(1, int(batch_size))
+    seq_len = max(16, int(seq_len))
+    seed_ratio_min = max(0.0, min(1.0, float(seed_ratio_min)))
+    seed_ratio_decay_steps = max(1, int(seed_ratio_decay_steps))
+
+    print(f"  {TOTAL_STEPS} planned steps, batch={batch_size}, seq={seq_len}, "
           f"mtp_depth={mtp_depth}, seed_chat_ratio={seed_chat_ratio:.2f} "
-          f"(decay->{DEFAULT_SEED_RATIO_MIN:.2f} over {DEFAULT_SEED_RATIO_DECAY_STEPS} steps)")
+          f"(decay->{seed_ratio_min:.2f} over {seed_ratio_decay_steps} steps)")
     print_curriculum(CURRICULUM, TOTAL_STEPS)
 
     base_cfg = CONFIGS[CONFIG_NAME]
@@ -477,10 +499,10 @@ def train(
         DATA_DIR,
         CURRICULUM[current_stage]["folders"],
         core.tokenizer,
-        SEQ_LEN,
+        seq_len,
         seed_chat_ratio=seed_chat_ratio,
-        seed_ratio_min=DEFAULT_SEED_RATIO_MIN,
-        seed_ratio_decay_steps=min(TOTAL_STEPS // 2, DEFAULT_SEED_RATIO_DECAY_STEPS),
+        seed_ratio_min=seed_ratio_min,
+        seed_ratio_decay_steps=min(TOTAL_STEPS // 2, seed_ratio_decay_steps),
     )
     dataset.set_step(start_step - 1)
     eval_ids = dataset.eval_set(num_samples=2000)
@@ -572,7 +594,7 @@ def train(
                     g['lr'] = lr
 
             dataset.set_step(step)
-            x, y = dataset.sample_batch(BATCH_SIZE, SEQ_LEN, allow_growth=True)
+            x, y = dataset.sample_batch(batch_size, seq_len, allow_growth=True)
             total_tok += x.numel()
 
             model.train()
@@ -616,12 +638,13 @@ def train(
 
             if step % LATEST_EVERY == 0:
                 save_training_checkpoint(core, "latest", losses, step, best_val,
-                                         current_stage, mtp_depth, total_tok)
+                                         current_stage, mtp_depth, total_tok,
+                                         batch_size=batch_size, seq_len=seq_len)
 
             # Eval
             force_eval = max_steps is not None and step == end_step
             if step % EVAL_EVERY == 0 or force_eval:
-                vl, vp = eval_model(model, eval_ids, BATCH_SIZE, SEQ_LEN)
+                vl, vp = eval_model(model, eval_ids, batch_size, seq_len)
                 gen = core.generate("Hello.", max_tokens=20, temperature=0.3,
                                     top_k=30, top_p=0.85, repetition_penalty=1.2)
                 safe = gen.encode('ascii', 'replace').decode('ascii')
@@ -631,7 +654,9 @@ def train(
                     core.save(str(CKPT_DIR / "best"), losses=losses,
                               metadata_extra={"step": step, "val_loss": vl,
                                              "stage": current_stage,
-                                             "mtp_depth": mtp_depth})
+                                             "mtp_depth": mtp_depth,
+                                             "batch_size": batch_size,
+                                             "seq_len": seq_len})
                     save_tokenizer_assets(core)
 
             # Generation check every 1000 steps
@@ -646,7 +671,9 @@ def train(
             if step % SAVE_EVERY == 0:
                 core.save(str(CKPT_DIR / f"step_{step}"), losses=losses,
                           metadata_extra={"step": step, "best_val": best_val,
-                                         "stage": current_stage})
+                                         "stage": current_stage,
+                                         "batch_size": batch_size,
+                                         "seq_len": seq_len})
 
             if step % 500 == 0:
                 gc.collect()
@@ -654,19 +681,22 @@ def train(
         if last_step >= start_step:
             print(f"\n  Interrupted. Saving latest checkpoint at step {last_step}...")
             save_training_checkpoint(core, "latest", losses, last_step, best_val,
-                                     current_stage, mtp_depth, total_tok)
+                                     current_stage, mtp_depth, total_tok,
+                                     batch_size=batch_size, seq_len=seq_len)
             save_tokenizer_assets(core)
         raise
 
     # Final
     elapsed = time.time() - t_start
-    fv, fp = eval_model(model, eval_ids, BATCH_SIZE, SEQ_LEN)
+    fv, fp = eval_model(model, eval_ids, batch_size, seq_len)
     if max_steps is None:
         core.save(str(CKPT_DIR / "final"), losses=losses,
                   metadata_extra={"step": TOTAL_STEPS, "val_loss": fv,
                                  "total_tokens": total_tok,
                                  "total_time_sec": elapsed,
-                                 "mtp_depth": mtp_depth})
+                                 "mtp_depth": mtp_depth,
+                                 "batch_size": batch_size,
+                                 "seq_len": seq_len})
         save_tokenizer_assets(core, tag="final")
 
     print(f"\n  DONE: {TOTAL_STEPS} steps in {elapsed:.0f}s ({elapsed/3600:.1f}h)")
@@ -701,6 +731,10 @@ if __name__ == "__main__":
                         help="Floor for seed chat ratio after decay.")
     parser.add_argument("--seed-ratio-decay", type=int, default=DEFAULT_SEED_RATIO_DECAY_STEPS,
                         help="Steps over which seed ratio decays from initial to min.")
+    parser.add_argument("--batch-size", type=int, default=BATCH_SIZE,
+                        help="Training batch size. Higher values train more tokens per step but need more RAM.")
+    parser.add_argument("--seq-len", type=int, default=SEQ_LEN,
+                        help="Training sequence length. Higher values train longer context but are slower.")
     args = parser.parse_args()
     train(
         max_steps=args.steps,
@@ -711,4 +745,8 @@ if __name__ == "__main__":
         freeze_backbone=args.freeze_backbone,
         train_embeddings=args.train_embeddings,
         seed_chat_ratio=args.seed_chat_ratio,
+        seed_ratio_min=args.seed_ratio_min,
+        seed_ratio_decay_steps=args.seed_ratio_decay,
+        batch_size=args.batch_size,
+        seq_len=args.seq_len,
     )
