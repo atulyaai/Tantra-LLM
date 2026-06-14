@@ -96,6 +96,31 @@ def test_dataset_can_sample_only_seed_chat(tmp_path):
     assert (y != IGNORE_INDEX).any()
 
 
+def test_dataset_can_fill_batch_with_seed_chat(tmp_path):
+    seed_file = tmp_path / "seed_chat.jsonl"
+    seed_file.write_text(
+        '{"user":"Hello","assistant":"Hi there."}\n'
+        '{"user":"What is gravity?","assistant":"Gravity attracts mass."}\n',
+        encoding="utf-8",
+    )
+    tokenizer = AtulyaTokenizer(initial_capacity=8192, max_capacity=12288)
+    dataset = Dataset(
+        tmp_path,
+        [],
+        tokenizer,
+        seq_len=128,
+        seed_chat_path=seed_file,
+        seed_chat_ratio=1.0,
+        max_seed_per_batch_pct=1.0,
+    )
+
+    x, y = dataset.sample_batch(batch_size=4, seq_len=128, allow_growth=True)
+
+    assert x.shape == (4, 128)
+    assert y.shape == (4, 128)
+    assert (y != IGNORE_INDEX).any()
+
+
 def test_load_texts_can_start_from_later_line(tmp_path):
     data_file = tmp_path / "chunk.jsonl"
     data_file.write_text(

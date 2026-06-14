@@ -441,6 +441,7 @@ def train(
     seq_len: int = SEQ_LEN,
     mtp_weight: float = MTP_WEIGHT,
     grad_accum_steps: int = 1,
+    seed_only: bool = False,
 ):
     global CURRICULUM, TOTAL_STEPS
     TOTAL_STEPS = max(1, int(target_steps))
@@ -458,11 +459,13 @@ def train(
     seed_ratio_decay_steps = max(1, int(seed_ratio_decay_steps))
     mtp_weight = max(0.0, float(mtp_weight))
     grad_accum_steps = max(1, int(grad_accum_steps))
+    seed_only = bool(seed_only)
 
     print(f"  {TOTAL_STEPS} planned steps, batch={batch_size}, seq={seq_len}, "
           f"mtp_depth={mtp_depth}, seed_chat_ratio={seed_chat_ratio:.2f} "
           f"(decay->{seed_ratio_min:.2f} over {seed_ratio_decay_steps} steps), "
-          f"mtp_weight={mtp_weight:.2f}, grad_accum={grad_accum_steps}")
+          f"mtp_weight={mtp_weight:.2f}, grad_accum={grad_accum_steps}, "
+          f"seed_only={seed_only}")
     print_curriculum(CURRICULUM, TOTAL_STEPS)
 
     base_cfg = CONFIGS[CONFIG_NAME]
@@ -527,14 +530,16 @@ def train(
 
     # Dataset
     current_stage = stage_index_for_step(start_step - 1, CURRICULUM)
+    dataset_folders = [] if seed_only else CURRICULUM[current_stage]["folders"]
     dataset = Dataset(
         DATA_DIR,
-        CURRICULUM[current_stage]["folders"],
+        dataset_folders,
         core.tokenizer,
         seq_len,
         seed_chat_ratio=seed_chat_ratio,
         seed_ratio_min=seed_ratio_min,
         seed_ratio_decay_steps=min(TOTAL_STEPS // 2, seed_ratio_decay_steps),
+        max_seed_per_batch_pct=1.0 if seed_only else 0.50,
     )
     dataset.set_step(start_step - 1)
     eval_ids = dataset.eval_set(num_samples=2000)
@@ -601,7 +606,7 @@ def train(
             if new_stage != current_stage:
                 current_stage = new_stage
                 stage = CURRICULUM[current_stage]
-                dataset.set_folders(stage["folders"])
+                dataset.set_folders([] if seed_only else stage["folders"])
                 print(f"\n  >>> Stage {current_stage}/7 ({dataset.chunk_count} chunks) <<<\n")
 
                 # Grow vocab if needed at stage transitions
@@ -786,6 +791,8 @@ if __name__ == "__main__":
                         help="Weight applied to auxiliary MTP loss.")
     parser.add_argument("--grad-accum-steps", type=int, default=1,
                         help="Accumulate this many micro-batches before each optimizer step.")
+    parser.add_argument("--seed-only", action="store_true",
+                        help="Train only on data/seed_chat.jsonl for short chat-correction runs.")
     args = parser.parse_args()
     train(
         max_steps=args.steps,
@@ -802,4 +809,5 @@ if __name__ == "__main__":
         seq_len=args.seq_len,
         mtp_weight=args.mtp_weight,
         grad_accum_steps=args.grad_accum_steps,
+        seed_only=args.seed_only,
     )
