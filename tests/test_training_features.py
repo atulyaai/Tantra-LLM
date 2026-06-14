@@ -5,8 +5,10 @@ from npdna.genome import Genome, GenomeConfig
 from npdna.mesh import AttentionStrand, NeuralMesh
 from npdna.train_npdna_v3 import (
     Dataset,
+    IGNORE_INDEX,
     build_curriculum,
     format_chat_example,
+    format_chat_prompt,
     format_duration,
     load_seed_chat,
     mtp_aux_loss,
@@ -65,6 +67,7 @@ def test_seed_chat_examples_are_formatted_as_chat(tmp_path):
     assert format_chat_example("Hi", "Hello", "Be brief.") == (
         "System: Be brief.\nUser: Hi\nAssistant: Hello"
     )
+    assert format_chat_prompt("Hi", "Be brief.") == "System: Be brief.\nUser: Hi\nAssistant:"
 
 
 def test_dataset_can_sample_only_seed_chat(tmp_path):
@@ -73,18 +76,20 @@ def test_dataset_can_sample_only_seed_chat(tmp_path):
         '{"user":"Hello","assistant":"Hi there."}\n',
         encoding="utf-8",
     )
-    tokenizer = AtulyaTokenizer(initial_capacity=256, max_capacity=512)
+    tokenizer = AtulyaTokenizer(initial_capacity=8192, max_capacity=12288)
     dataset = Dataset(
         tmp_path,
         [],
         tokenizer,
-        seq_len=16,
+        seq_len=64,
         seed_chat_path=seed_file,
         seed_chat_ratio=1.0,
     )
 
-    x, y = dataset.sample_batch(batch_size=2, seq_len=16, allow_growth=True)
+    x, y = dataset.sample_batch(batch_size=1, seq_len=64, allow_growth=True)
 
     assert len(dataset.seed_chat) == 1
-    assert x.shape == (2, 16)
-    assert y.shape == (2, 16)
+    assert x.shape == (1, 64)
+    assert y.shape == (1, 64)
+    assert (y == IGNORE_INDEX).any()
+    assert (y != IGNORE_INDEX).any()

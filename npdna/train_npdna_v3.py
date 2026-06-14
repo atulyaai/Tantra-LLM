@@ -36,6 +36,7 @@ DEFAULT_SEED_CHAT_RATIO = 0.35
 DEFAULT_SEED_RATIO_MIN = 0.10
 DEFAULT_SEED_RATIO_DECAY_STEPS = 30_000
 DEFAULT_SYSTEM_PROMPT = "You are Atulya. Be warm, thoughtful, and direct."
+IGNORE_INDEX = -100
 
 # Auto-calculate steps per dataset based on MB size
 DATASET_SIZES = {
@@ -153,11 +154,14 @@ def load_texts(fp, max_lines=None):
     return texts
 
 
-def format_chat_example(user: str, assistant: str, system: str = "") -> str:
+def format_chat_prompt(user: str, system: str = "") -> str:
     system = (system or DEFAULT_SYSTEM_PROMPT).strip()
     user = user.strip()
-    assistant = assistant.strip()
-    return f"System: {system}\nUser: {user}\nAssistant: {assistant}"
+    return f"System: {system}\nUser: {user}\nAssistant:"
+
+
+def format_chat_example(user: str, assistant: str, system: str = "") -> str:
+    return f"{format_chat_prompt(user, system)} {assistant.strip()}"
 
 
 def load_seed_chat(path=SEED_CHAT_PATH):
@@ -179,6 +183,29 @@ def load_seed_chat(path=SEED_CHAT_PATH):
     return examples
 
 
+def load_seed_chat_records(path=SEED_CHAT_PATH):
+    records = []
+    path = Path(path)
+    if not path.exists():
+        return records
+    with open(path, "r", encoding="utf-8", errors="replace") as f:
+        for line in f:
+            try:
+                d = json.loads(line.strip())
+                user = (d.get("user") or d.get("instruction") or d.get("prompt") or "").strip()
+                assistant = (d.get("assistant") or d.get("response") or d.get("output") or "").strip()
+                system = (d.get("system") or "").strip()
+                if user and assistant:
+                    records.append({
+                        "prompt": format_chat_prompt(user, system),
+                        "assistant": assistant,
+                        "text": format_chat_example(user, assistant, system),
+                    })
+            except Exception:
+                pass
+    return records
+
+
 class Dataset:
     def __init__(self, data_dir, folders, tokenizer, seq_len, seed_chat_path=SEED_CHAT_PATH,
                  seed_chat_ratio=DEFAULT_SEED_CHAT_RATIO,
@@ -194,7 +221,8 @@ class Dataset:
         self.seed_ratio_decay_steps = max(1, int(seed_ratio_decay_steps))
         self.max_seed_per_batch_pct = max(0.0, min(1.0, float(max_seed_per_batch_pct)))
         self._current_step = 0
-        self.seed_chat = load_seed_chat(seed_chat_path)
+        self.seed_chat_records = load_seed_chat_records(seed_chat_path)
+        self.seed_chat = [record["text"] for record in self.seed_chat_records]
         self._cache = {}
         self._chunks = get_chunks(data_dir, folders)
 
@@ -221,9 +249,12 @@ class Dataset:
             use_seed = (self.seed_chat and seed_count < max_seed
                         and random.random() < self.seed_chat_ratio)
             if use_seed:
-                t = random.choice(self.seed_chat)
+                record = random.choice(self.seed_chat_records)
                 seed_count += 1
-                encode_growth = allow_growth
+                chunk, target = self._encode_seed_chat(record, seq_len, allow_growth)
+                x_list.append(chunk[:-1])
+                y_list.append(target[1:])
+                continue
             else:
                 if not self._chunks:
                     continue
@@ -245,6 +276,22 @@ class Dataset:
         if not x_list:
             x_list.append([0] * seq_len); y_list.append([0] * seq_len)
         return torch.tensor(x_list, dtype=torch.long), torch.tensor(y_list, dtype=torch.long)
+
+    def _encode_seed_chat(self, record, seq_len, allow_growth=True):
+        prompt_ids = self.tokenizer.encode(record["prompt"], allow_growth=allow_growth)
+        answer_ids = self.tokenizer.encode(" " + record["assistant"], allow_growth=allow_growth)
+        ids = prompt_ids + answer_ids
+        targets = [IGNORE_INDEX] * len(prompt_ids) + answer_ids
+        if len(ids) < seq_len + 1:
+            pad = seq_len + 1 - len(ids)
+            ids = ids + [0] * pad
+            targets = targets + [IGNORE_INDEX] * pad
+        elif len(ids) > seq_len + 1:
+            max_start = max(0, min(len(prompt_ids), len(ids) - seq_len - 1))
+            start = random.randint(0, max_start) if max_start else 0
+            ids = ids[start:start + seq_len + 1]
+            targets = targets[start:start + seq_len + 1]
+        return ids, targets
 
     def eval_set(self, num_samples=2000):
         ids_list = []
@@ -287,7 +334,11 @@ def eval_model(model, ids_list, batch_size=4, seq_len=128):
                 x_list.append(ch[:-1]); y_list.append(ch[1:])
             x = torch.tensor(x_list); y = torch.tensor(y_list)
             logits, bal = model(x)
-            loss = F.cross_entropy(logits.reshape(-1, logits.size(-1)), y.reshape(-1))
+            loss = F.cross_entropy(
+                logits.reshape(-1, logits.size(-1)),
+                y.reshape(-1),
+                ignore_index=IGNORE_INDEX,
+            )
             tl += float(loss) * x.numel(); tt += x.numel()
     model.train()
     av = tl / max(tt, 1)
@@ -305,7 +356,12 @@ def mtp_aux_loss(logits, targets, depth: int = MTP_DEPTH) -> torch.Tensor:
             break
         pred = logits[:, : seq_len - offset + 1, :]
         tgt = targets[:, offset - 1 :]
-        losses.append(F.cross_entropy(pred.reshape(-1, pred.size(-1)), tgt.reshape(-1)))
+        if (tgt != IGNORE_INDEX).any():
+            losses.append(F.cross_entropy(
+                pred.reshape(-1, pred.size(-1)),
+                tgt.reshape(-1),
+                ignore_index=IGNORE_INDEX,
+            ))
     if not losses:
         return logits.new_tensor(0.0)
     return torch.stack(losses).mean()
@@ -521,8 +577,11 @@ def train(
 
             model.train()
             logits, bal = model(x)
-            ce_loss = F.cross_entropy(logits.reshape(-1, logits.size(-1)),
-                                       y.reshape(-1))
+            ce_loss = F.cross_entropy(
+                logits.reshape(-1, logits.size(-1)),
+                y.reshape(-1),
+                ignore_index=IGNORE_INDEX,
+            )
             mtp_loss = mtp_aux_loss(logits, y, depth=mtp_depth)
             loss = ce_loss + (MTP_WEIGHT * mtp_loss) + bal * 0.01
 
