@@ -165,8 +165,10 @@ class NpDnaModel(nn.Module):
         new_head = nn.Linear(H, new_vocab, bias=False)
         with torch.no_grad():
             new_emb.weight[:old_n].copy_(self.embedding.weight)
+            new_emb.weight[old_n:].copy_(self.embedding.weight.mean(dim=0, keepdim=True))
             if not self.config.tie_embeddings:
                 new_head.weight[:old_n].copy_(self.lm_head.weight)
+                new_head.weight[old_n:].copy_(self.lm_head.weight.mean(dim=0, keepdim=True))
         self.embedding = new_emb
         self.lm_head = new_head
         if self.config.tie_embeddings:

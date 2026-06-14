@@ -411,6 +411,8 @@ def save_training_checkpoint(
     total_tokens=0,
     batch_size=BATCH_SIZE,
     seq_len=SEQ_LEN,
+    mtp_weight=MTP_WEIGHT,
+    grad_accum_steps=1,
 ):
     core.save(str(CKPT_DIR / name), losses=losses,
               metadata_extra={"step": step,
@@ -419,7 +421,9 @@ def save_training_checkpoint(
                              "mtp_depth": mtp_depth,
                              "total_tokens": total_tokens,
                              "batch_size": batch_size,
-                             "seq_len": seq_len})
+                             "seq_len": seq_len,
+                             "mtp_weight": mtp_weight,
+                             "grad_accum_steps": grad_accum_steps})
 
 
 def train(
@@ -435,6 +439,8 @@ def train(
     seed_ratio_decay_steps: int = DEFAULT_SEED_RATIO_DECAY_STEPS,
     batch_size: int = BATCH_SIZE,
     seq_len: int = SEQ_LEN,
+    mtp_weight: float = MTP_WEIGHT,
+    grad_accum_steps: int = 1,
 ):
     global CURRICULUM, TOTAL_STEPS
     TOTAL_STEPS = max(1, int(target_steps))
@@ -450,10 +456,13 @@ def train(
     seq_len = max(16, int(seq_len))
     seed_ratio_min = max(0.0, min(1.0, float(seed_ratio_min)))
     seed_ratio_decay_steps = max(1, int(seed_ratio_decay_steps))
+    mtp_weight = max(0.0, float(mtp_weight))
+    grad_accum_steps = max(1, int(grad_accum_steps))
 
     print(f"  {TOTAL_STEPS} planned steps, batch={batch_size}, seq={seq_len}, "
           f"mtp_depth={mtp_depth}, seed_chat_ratio={seed_chat_ratio:.2f} "
-          f"(decay->{seed_ratio_min:.2f} over {seed_ratio_decay_steps} steps)")
+          f"(decay->{seed_ratio_min:.2f} over {seed_ratio_decay_steps} steps), "
+          f"mtp_weight={mtp_weight:.2f}, grad_accum={grad_accum_steps}")
     print_curriculum(CURRICULUM, TOTAL_STEPS)
 
     base_cfg = CONFIGS[CONFIG_NAME]
@@ -616,22 +625,27 @@ def train(
                 for g in opt.param_groups:
                     g['lr'] = lr
 
-            dataset.set_step(step)
-            x, y = dataset.sample_batch(batch_size, seq_len, allow_growth=True)
-            total_tok += x.numel()
-
             model.train()
-            logits, bal = model(x)
-            ce_loss = F.cross_entropy(
-                logits.reshape(-1, logits.size(-1)),
-                y.reshape(-1),
-                ignore_index=IGNORE_INDEX,
-            )
-            mtp_loss = mtp_aux_loss(logits, y, depth=mtp_depth)
-            loss = ce_loss + (MTP_WEIGHT * mtp_loss) + bal * 0.01
-
             opt.zero_grad(set_to_none=True)
-            loss.backward()
+            ce_parts = []
+            mtp_parts = []
+            for _ in range(grad_accum_steps):
+                dataset.set_step(step)
+                x, y = dataset.sample_batch(batch_size, seq_len, allow_growth=True)
+                total_tok += x.numel()
+                logits, bal = model(x)
+                ce_loss = F.cross_entropy(
+                    logits.reshape(-1, logits.size(-1)),
+                    y.reshape(-1),
+                    ignore_index=IGNORE_INDEX,
+                )
+                mtp_loss = mtp_aux_loss(logits, y, depth=mtp_depth)
+                loss = ce_loss + (mtp_weight * mtp_loss) + bal * 0.01
+                (loss / grad_accum_steps).backward()
+                ce_parts.append(ce_loss.detach())
+                mtp_parts.append(mtp_loss.detach())
+            ce_loss = torch.stack(ce_parts).mean()
+            mtp_loss = torch.stack(mtp_parts).mean()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             opt.step()
 
@@ -662,7 +676,9 @@ def train(
             if step % LATEST_EVERY == 0:
                 save_training_checkpoint(core, "latest", losses, step, best_val,
                                          current_stage, mtp_depth, total_tok,
-                                         batch_size=batch_size, seq_len=seq_len)
+                                         batch_size=batch_size, seq_len=seq_len,
+                                         mtp_weight=mtp_weight,
+                                         grad_accum_steps=grad_accum_steps)
 
             # Eval
             force_eval = max_steps is not None and step == end_step
@@ -679,7 +695,9 @@ def train(
                                              "stage": current_stage,
                                              "mtp_depth": mtp_depth,
                                              "batch_size": batch_size,
-                                             "seq_len": seq_len})
+                                             "seq_len": seq_len,
+                                             "mtp_weight": mtp_weight,
+                                             "grad_accum_steps": grad_accum_steps})
                     save_tokenizer_assets(core)
 
             # Generation check every 1000 steps
@@ -696,7 +714,9 @@ def train(
                           metadata_extra={"step": step, "best_val": best_val,
                                          "stage": current_stage,
                                          "batch_size": batch_size,
-                                         "seq_len": seq_len})
+                                         "seq_len": seq_len,
+                                         "mtp_weight": mtp_weight,
+                                         "grad_accum_steps": grad_accum_steps})
 
             if step % 500 == 0:
                 gc.collect()
@@ -705,7 +725,9 @@ def train(
             print(f"\n  Interrupted. Saving latest checkpoint at step {last_step}...")
             save_training_checkpoint(core, "latest", losses, last_step, best_val,
                                      current_stage, mtp_depth, total_tok,
-                                     batch_size=batch_size, seq_len=seq_len)
+                                     batch_size=batch_size, seq_len=seq_len,
+                                     mtp_weight=mtp_weight,
+                                     grad_accum_steps=grad_accum_steps)
             save_tokenizer_assets(core)
         raise
 
@@ -719,7 +741,9 @@ def train(
                                  "total_time_sec": elapsed,
                                  "mtp_depth": mtp_depth,
                                  "batch_size": batch_size,
-                                 "seq_len": seq_len})
+                                 "seq_len": seq_len,
+                                 "mtp_weight": mtp_weight,
+                                 "grad_accum_steps": grad_accum_steps})
         save_tokenizer_assets(core, tag="final")
 
     print(f"\n  DONE: {TOTAL_STEPS} steps in {elapsed:.0f}s ({elapsed/3600:.1f}h)")
@@ -758,6 +782,10 @@ if __name__ == "__main__":
                         help="Training batch size. Higher values train more tokens per step but need more RAM.")
     parser.add_argument("--seq-len", type=int, default=SEQ_LEN,
                         help="Training sequence length. Higher values train longer context but are slower.")
+    parser.add_argument("--mtp-weight", type=float, default=MTP_WEIGHT,
+                        help="Weight applied to auxiliary MTP loss.")
+    parser.add_argument("--grad-accum-steps", type=int, default=1,
+                        help="Accumulate this many micro-batches before each optimizer step.")
     args = parser.parse_args()
     train(
         max_steps=args.steps,
@@ -772,4 +800,6 @@ if __name__ == "__main__":
         seed_ratio_decay_steps=args.seed_ratio_decay,
         batch_size=args.batch_size,
         seq_len=args.seq_len,
+        mtp_weight=args.mtp_weight,
+        grad_accum_steps=args.grad_accum_steps,
     )
