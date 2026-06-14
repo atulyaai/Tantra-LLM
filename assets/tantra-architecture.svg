@@ -1,83 +1,118 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="640" viewBox="0 0 1200 640" role="img" aria-labelledby="title desc">
-  <title id="title">Tantra Cognitive OS Architecture</title>
-  <desc id="desc">Architecture diagram showing user input, cognitive layer, memory layer, model backend, learning loop, and failure diagnosis.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" role="img" aria-labelledby="title desc">
+  <title id="title">Tantra V4 Architecture</title>
+  <desc id="desc">Lane-based architecture diagram for Tantra V4 showing user input, cognitive workspace, memory, diagnostics, model backend, experts, and the learning loop.</desc>
   <defs>
     <style>
-      .bg { fill: #f8fafc; }
-      .band { fill: #ffffff; stroke: #d0d7de; stroke-width: 1.5; }
-      .core { fill: #e8f3ff; stroke: #3973b7; }
-      .mem { fill: #e9f8f3; stroke: #26846f; }
-      .learn { fill: #fff4df; stroke: #b86b00; }
-      .fail { fill: #fdecec; stroke: #c94343; }
-      .model { fill: #f0ecff; stroke: #6a55bd; }
-      .label { font: 700 18px Inter, Segoe UI, Arial, sans-serif; fill: #111827; }
-      .small { font: 500 13px Inter, Segoe UI, Arial, sans-serif; fill: #475467; }
-      .title { font: 800 30px Inter, Segoe UI, Arial, sans-serif; fill: #111827; }
-      .arrow { stroke: #667085; stroke-width: 2.5; fill: none; marker-end: url(#arrow); }
+      .bg { fill: #f6f8fb; }
+      .panel { fill: #ffffff; stroke: #d6dee8; stroke-width: 1.5; }
+      .lane { fill: #f9fbfd; stroke: #e4eaf1; stroke-width: 1; }
+      .core { fill: #eaf3ff; stroke: #3974c0; }
+      .mem { fill: #e8f8f3; stroke: #1f8a70; }
+      .learn { fill: #fff4df; stroke: #b96b00; }
+      .diag { fill: #fff0f0; stroke: #c94343; }
+      .model { fill: #f1edff; stroke: #6d55bd; }
+      .tool { fill: #eef6ff; stroke: #4d7ca8; }
+      .title { font: 800 34px Inter, Segoe UI, Arial, sans-serif; fill: #111827; }
+      .subtitle { font: 500 14px Inter, Segoe UI, Arial, sans-serif; fill: #475467; }
+      .laneLabel { font: 800 13px Inter, Segoe UI, Arial, sans-serif; fill: #667085; letter-spacing: 1.2px; }
+      .label { font: 800 17px Inter, Segoe UI, Arial, sans-serif; fill: #111827; }
+      .small { font: 500 12px Inter, Segoe UI, Arial, sans-serif; fill: #475467; }
+      .arrow { stroke: #667085; stroke-width: 2.3; fill: none; marker-end: url(#arrow); }
+      .soft { stroke: #98a2b3; stroke-width: 2; fill: none; stroke-dasharray: 7 7; marker-end: url(#arrowSoft); }
     </style>
-    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
       <path d="M0 0 L10 5 L0 10 z" fill="#667085"/>
     </marker>
+    <marker id="arrowSoft" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M0 0 L10 5 L0 10 z" fill="#98a2b3"/>
+    </marker>
   </defs>
-  <rect class="bg" width="1200" height="640" rx="20"/>
-  <text class="title" x="54" y="58">Tantra V4 Architecture</text>
-  <text class="small" x="54" y="84">A local cognitive operating system wrapped around memory, failure diagnosis, tools, experts, and model backends.</text>
-  <rect class="band" x="44" y="116" width="1112" height="470" rx="18"/>
-  <g transform="translate(86 168)">
-    <rect class="core" x="0" y="0" width="160" height="74" rx="12"/>
-    <text class="label" x="40" y="31">User</text>
-    <text class="small" x="28" y="52">input / goal</text>
-    <path class="arrow" d="M160 37 H216"/>
-    <rect class="core" x="216" y="0" width="172" height="74" rx="12"/>
-    <text class="label" x="270" y="31">Manas</text>
-    <text class="small" x="244" y="52">global workspace</text>
-    <path class="arrow" d="M388 37 H444"/>
-    <rect class="core" x="444" y="0" width="172" height="74" rx="12"/>
-    <text class="label" x="496" y="31">Aham</text>
-    <text class="small" x="470" y="52">identity / gates</text>
-    <path class="arrow" d="M616 37 H672"/>
-    <rect class="core" x="672" y="0" width="172" height="74" rx="12"/>
-    <text class="label" x="724" y="31">Vivek</text>
-    <text class="small" x="696" y="52">salience scoring</text>
+
+  <rect class="bg" width="1280" height="720" rx="24"/>
+  <text class="title" x="64" y="62">Tantra V4 Architecture</text>
+  <text class="subtitle" x="64" y="88">A local cognitive operating system around workspace control, memory, diagnostics, model backends, experts, and approved learning.</text>
+  <rect class="panel" x="52" y="116" width="1176" height="548" rx="18"/>
+
+  <rect class="lane" x="82" y="148" width="1116" height="142" rx="14"/>
+  <rect class="lane" x="82" y="318" width="1116" height="142" rx="14"/>
+  <rect class="lane" x="82" y="488" width="1116" height="142" rx="14"/>
+  <text class="laneLabel" x="104" y="176">COGNITIVE CONTROL</text>
+  <text class="laneLabel" x="104" y="346">MEMORY AND KNOWLEDGE</text>
+  <text class="laneLabel" x="104" y="516">LEARNING AND EXPERTS</text>
+
+  <g transform="translate(132 196)">
+    <rect class="core" x="0" y="0" width="140" height="70" rx="12"/>
+    <text class="label" x="46" y="30">User</text>
+    <text class="small" x="32" y="51">input / goal</text>
+
+    <path class="arrow" d="M140 35 H192"/>
+    <rect class="core" x="192" y="0" width="150" height="70" rx="12"/>
+    <text class="label" x="239" y="30">Manas</text>
+    <text class="small" x="218" y="51">workspace</text>
+
+    <path class="arrow" d="M342 35 H394"/>
+    <rect class="core" x="394" y="0" width="150" height="70" rx="12"/>
+    <text class="label" x="442" y="30">Aham</text>
+    <text class="small" x="420" y="51">identity gates</text>
+
+    <path class="arrow" d="M544 35 H596"/>
+    <rect class="core" x="596" y="0" width="150" height="70" rx="12"/>
+    <text class="label" x="644" y="30">Vivek</text>
+    <text class="small" x="621" y="51">salience score</text>
+
+    <path class="arrow" d="M746 35 H798"/>
+    <rect class="diag" x="798" y="-12" width="160" height="94" rx="12"/>
+    <text class="label" x="840" y="29">Nirikshak</text>
+    <text class="small" x="825" y="50">F1-F8 diagnosis</text>
+    <text class="small" x="832" y="67">failure routing</text>
   </g>
-  <g transform="translate(154 302)">
-    <rect class="mem" x="0" y="0" width="178" height="78" rx="12"/>
-    <text class="label" x="58" y="32">Chitta</text>
-    <text class="small" x="34" y="54">working memory</text>
-    <path class="arrow" d="M178 39 H236"/>
-    <rect class="mem" x="236" y="0" width="178" height="78" rx="12"/>
-    <text class="label" x="294" y="32">Smriti</text>
-    <text class="small" x="272" y="54">long-term memory</text>
-    <path class="arrow" d="M414 39 H472"/>
-    <rect class="mem" x="472" y="0" width="178" height="78" rx="12"/>
-    <text class="label" x="532" y="32">Sutra</text>
-    <text class="small" x="510" y="54">knowledge graph</text>
-    <path class="arrow" d="M325 0 V-80 H604"/>
+
+  <g transform="translate(132 366)">
+    <rect class="mem" x="0" y="0" width="152" height="72" rx="12"/>
+    <text class="label" x="50" y="30">Chitta</text>
+    <text class="small" x="30" y="51">working memory</text>
+
+    <path class="arrow" d="M152 36 H206"/>
+    <rect class="mem" x="206" y="0" width="152" height="72" rx="12"/>
+    <text class="label" x="256" y="30">Smriti</text>
+    <text class="small" x="230" y="51">long-term memory</text>
+
+    <path class="arrow" d="M358 36 H412"/>
+    <rect class="mem" x="412" y="0" width="152" height="72" rx="12"/>
+    <text class="label" x="464" y="30">Sutra</text>
+    <text class="small" x="445" y="51">knowledge graph</text>
+
+    <path class="arrow" d="M564 36 H618"/>
+    <rect class="model" x="618" y="-6" width="184" height="84" rx="12"/>
+    <text class="label" x="639" y="29">BaseModel</text>
+    <text class="label" x="655" y="49">Wrapper</text>
+    <text class="small" x="654" y="68">demo / micro / rwkv7</text>
+
+    <path class="soft" d="M710 -6 V-88 H916 V-117"/>
   </g>
-  <g transform="translate(820 300)">
-    <rect class="model" x="0" y="0" width="220" height="88" rx="12"/>
-    <text class="label" x="35" y="34">BaseModelWrapper</text>
-    <text class="small" x="48" y="58">demo / micro / rwkv7</text>
-    <path class="arrow" d="M-170 41 H0"/>
+
+  <g transform="translate(176 536)">
+    <rect class="learn" x="0" y="0" width="168" height="72" rx="12"/>
+    <text class="label" x="42" y="30">Reflection</text>
+    <text class="small" x="43" y="51">outcome score</text>
+
+    <path class="arrow" d="M168 36 H220"/>
+    <rect class="learn" x="220" y="0" width="178" height="72" rx="12"/>
+    <text class="label" x="254" y="30">Learning Queue</text>
+    <text class="small" x="272" y="51">human approval</text>
+
+    <path class="arrow" d="M398 36 H450"/>
+    <rect class="learn" x="450" y="0" width="168" height="72" rx="12"/>
+    <text class="label" x="506" y="30">Experts</text>
+    <text class="small" x="480" y="51">AEF / RTD output</text>
+
+    <path class="arrow" d="M618 36 H670"/>
+    <rect class="tool" x="670" y="0" width="180" height="72" rx="12"/>
+    <text class="label" x="727" y="30">Tools</text>
+    <text class="small" x="704" y="51">bounded local actions</text>
   </g>
-  <g transform="translate(282 474)">
-    <rect class="learn" x="0" y="0" width="194" height="76" rx="12"/>
-    <text class="label" x="49" y="31">Reflection</text>
-    <text class="small" x="46" y="52">outcome score</text>
-    <path class="arrow" d="M194 38 H250"/>
-    <rect class="learn" x="250" y="0" width="194" height="76" rx="12"/>
-    <text class="label" x="291" y="31">Learning Queue</text>
-    <text class="small" x="300" y="52">human approval</text>
-    <path class="arrow" d="M444 38 H500"/>
-    <rect class="learn" x="500" y="0" width="194" height="76" rx="12"/>
-    <text class="label" x="564" y="31">Experts</text>
-    <text class="small" x="532" y="52">AEF / RTD output</text>
-  </g>
-  <g transform="translate(874 156)">
-    <rect class="fail" x="0" y="0" width="194" height="84" rx="12"/>
-    <text class="label" x="48" y="33">Nirikshak</text>
-    <text class="small" x="45" y="56">F1-F8 diagnosis</text>
-    <path class="arrow" d="M0 42 H-30"/>
-    <path class="arrow" d="M98 84 V140"/>
-  </g>
+
+  <path class="soft" d="M982 278 C1082 310 1082 492 1030 536"/>
+  <path class="soft" d="M644 572 C610 472 630 304 728 260"/>
+  <text class="subtitle" x="865" y="622">Diagnostics and reflection feed approved memory/tool/expert updates before permanent model changes.</text>
 </svg>
