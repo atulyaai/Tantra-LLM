@@ -37,6 +37,8 @@ DEFAULT_SEED_RATIO_MIN = 0.10
 DEFAULT_SEED_RATIO_DECAY_STEPS = 30_000
 DEFAULT_SYSTEM_PROMPT = "You are Atulya. Be warm, thoughtful, and direct."
 IGNORE_INDEX = -100
+MAX_CACHED_TEXTS_PER_CHUNK = 512
+MAX_SCAN_LINES_PER_SAMPLE = 2048
 
 # Auto-calculate steps per dataset based on MB size
 DATASET_SIZES = {
@@ -134,23 +136,43 @@ def get_chunks(data_dir, folders):
     return chunks
 
 
-def load_texts(fp, max_lines=None):
+def _extract_training_text(line: str) -> str:
+    d = json.loads(line.strip())
+    t = (d.get("text") or d.get("output") or "").strip()
+    if d.get("instruction") or d.get("input"):
+        inp = (d.get("instruction") or d.get("input") or "").strip()
+        out = (d.get("response") or d.get("output") or "").strip()
+        t = f"{inp} {out}".strip()
+    return t
+
+
+def load_texts(fp, max_lines=None, start_line=0):
     texts = []
     with open(fp, 'r', encoding='utf-8', errors='replace') as f:
-        for line in f:
+        for idx, line in enumerate(f):
+            if idx < start_line:
+                continue
             try:
-                d = json.loads(line.strip())
-                t = (d.get("text") or d.get("output") or "").strip()
-                if d.get("instruction") or d.get("input"):
-                    inp = (d.get("instruction") or d.get("input") or "").strip()
-                    out = (d.get("response") or d.get("output") or "").strip()
-                    t = f"{inp} {out}".strip()
+                t = _extract_training_text(line)
                 if len(t) > 10:
                     texts.append(t)
                     if max_lines and len(texts) >= max_lines:
                         break
             except:
                 pass
+    return texts
+
+
+def sample_texts_from_chunk(fp, max_texts=MAX_CACHED_TEXTS_PER_CHUNK):
+    """Read a bounded window from a possibly multi-GB JSONL chunk."""
+    try:
+        approx_line_count = max(1, int(fp.stat().st_size // 1024))
+    except OSError:
+        approx_line_count = 1
+    start = random.randint(0, max(0, approx_line_count - MAX_SCAN_LINES_PER_SAMPLE))
+    texts = load_texts(fp, max_lines=max_texts, start_line=start)
+    if not texts and start:
+        texts = load_texts(fp, max_lines=max_texts, start_line=0)
     return texts
 
 
@@ -259,12 +281,13 @@ class Dataset:
                 if not self._chunks:
                     continue
                 fp = random.choice(self._chunks)
-                if str(fp) not in self._cache:
-                    self._cache[str(fp)] = load_texts(fp)
+                cache_key = str(fp)
+                if cache_key not in self._cache or not self._cache[cache_key]:
+                    self._cache[cache_key] = sample_texts_from_chunk(fp)
                 texts = self._cache[str(fp)]
                 if not texts:
                     continue
-                t = random.choice(texts)
+                t = texts.pop()
                 encode_growth = allow_growth
             ids = self.tokenizer.encode(t, allow_growth=encode_growth)
             if len(ids) < seq_len + 1:

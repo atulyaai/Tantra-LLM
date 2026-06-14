@@ -11,6 +11,7 @@ from npdna.train_npdna_v3 import (
     format_chat_prompt,
     format_duration,
     load_seed_chat,
+    load_texts,
     mtp_aux_loss,
     stage_index_for_step,
 )
@@ -81,15 +82,27 @@ def test_dataset_can_sample_only_seed_chat(tmp_path):
         tmp_path,
         [],
         tokenizer,
-        seq_len=64,
+        seq_len=128,
         seed_chat_path=seed_file,
         seed_chat_ratio=1.0,
     )
 
-    x, y = dataset.sample_batch(batch_size=1, seq_len=64, allow_growth=True)
+    x, y = dataset.sample_batch(batch_size=1, seq_len=128, allow_growth=True)
 
     assert len(dataset.seed_chat) == 1
-    assert x.shape == (1, 64)
-    assert y.shape == (1, 64)
+    assert x.shape == (1, 128)
+    assert y.shape == (1, 128)
     assert (y == IGNORE_INDEX).any()
     assert (y != IGNORE_INDEX).any()
+
+
+def test_load_texts_can_start_from_later_line(tmp_path):
+    data_file = tmp_path / "chunk.jsonl"
+    data_file.write_text(
+        '{"text":"first sample text"}\n'
+        '{"text":"second sample text"}\n'
+        '{"text":"third sample text"}\n',
+        encoding="utf-8",
+    )
+
+    assert load_texts(data_file, max_lines=1, start_line=1) == ["second sample text"]
