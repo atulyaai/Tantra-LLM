@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import json
 import logging
+import math
+import os
 import re
 import time
 from copy import deepcopy
@@ -26,6 +28,33 @@ from .tokenizer import AtulyaTokenizer
 from .generation import GenerationMixin
 
 logger = logging.getLogger(__name__)
+
+
+def _replace_with_retries(tmp: Path, path: Path, attempts: int = 12, delay: float = 0.25) -> None:
+    last_error: PermissionError | None = None
+    for _ in range(attempts):
+        try:
+            if path.exists():
+                path.chmod(0o666)
+            tmp.chmod(0o666)
+            os.replace(tmp, path)
+            return
+        except PermissionError as exc:
+            last_error = exc
+            time.sleep(delay)
+    raise last_error or PermissionError(f"Could not replace {path}")
+
+
+def _atomic_torch_save(obj, path: Path) -> None:
+    tmp = path.with_name(path.name + ".tmp")
+    torch.save(obj, tmp)
+    _replace_with_retries(tmp, path)
+
+
+def _atomic_write_text(path: Path, text: str, encoding: str = "utf-8") -> None:
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(text, encoding=encoding)
+    _replace_with_retries(tmp, path)
 
 
 class NpDnaModel(nn.Module):
@@ -220,8 +249,9 @@ class CheckpointMixin:
         path = Path(path)
         self.active_path = path
         path.mkdir(parents=True, exist_ok=True)
-        torch.save(self.model.state_dict(), path / "model.pt")
-        self.tokenizer.save(path / "tokenizer.json")
+        _atomic_torch_save(self.model.state_dict(), path / "model.pt")
+        self.tokenizer.save(path / "tokenizer.json.tmp")
+        _replace_with_retries(path / "tokenizer.json.tmp", path / "tokenizer.json")
         self.cortex.save(path / "cortex")
         meta: dict = {
             "config_name": self._match_config_name(),
@@ -231,9 +261,17 @@ class CheckpointMixin:
             "num_strands": self.config.mesh.num_strands,
             "top_k": self.config.mesh.top_k,
             "layer_specs": [
-                {"name": spec.name, "num_strands": spec.num_strands, "top_k": spec.top_k}
+                {
+                    "name": spec.name,
+                    "num_strands": spec.num_strands,
+                    "top_k": spec.top_k,
+                    "dense": spec.dense,
+                    "categories": spec.categories,
+                    "strand_type": getattr(spec.strand, "strand_type", "ssm"),
+                }
                 for spec in getattr(self.model, "layer_specs", [])
             ],
+            "strand_type": getattr(self.config.mesh.strand, "strand_type", "ssm"),
             "strand_ids": self.model.strand_id_map(),
             "vocab_capacity": self.tokenizer.capacity,
             "vocab_size": self.tokenizer.size,
@@ -243,6 +281,7 @@ class CheckpointMixin:
             "cortex_dim": self.config.cortex.dim,
             "cortex_max_entries": self.config.cortex.max_entries,
             "cortex_top_k": self.config.cortex.top_k,
+            "cortex_min_relevance": self.config.cortex.min_relevance,
             "genome_latent_dim": self.config.genome.latent_dim,
             "genome_rank": self.config.genome.rank,
             "genome_encoder_hidden": self.config.genome.encoder_hidden,
@@ -256,7 +295,7 @@ class CheckpointMixin:
             meta["loss_count"] = len(losses)
         if metadata_extra:
             meta.update(metadata_extra)
-        (path / "metadata.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
+        _atomic_write_text(path / "metadata.json", json.dumps(meta, indent=2), encoding="utf-8")
         logger.info("NpDnaCore saved -> %s (%s params)", path, f"{self.model.parameter_count():,}")
 
     @classmethod
@@ -286,14 +325,25 @@ class CheckpointMixin:
              if (m := re.match(r"mesh_layers\.\d+\.strands\.(\d+)\.", k))),
             default=meta.get("num_strands", 4),
         )
-        strand_cfg = StrandConfig(hidden_size=meta["hidden_size"], state_size=meta["state_size"])
+        default_strand_type = meta.get("strand_type", "ssm")
+        strand_cfg = StrandConfig(
+            hidden_size=meta["hidden_size"],
+            state_size=meta["state_size"],
+            strand_type=default_strand_type,
+        )
         mesh_cfg = MeshConfig(num_strands=inferred_strands, top_k=meta["top_k"], strand=strand_cfg)
         layer_specs = [
             LayerSpec(
                 name=str(item.get("name", "main")),
                 num_strands=int(item.get("num_strands", inferred_strands)),
                 top_k=int(item.get("top_k", meta["top_k"])),
-                strand=StrandConfig(hidden_size=meta["hidden_size"], state_size=meta["state_size"]),
+                categories=item.get("categories"),
+                dense=bool(item.get("dense", False)),
+                strand=StrandConfig(
+                    hidden_size=meta["hidden_size"],
+                    state_size=meta["state_size"],
+                    strand_type=item.get("strand_type", default_strand_type),
+                ),
             )
             for item in meta.get("layer_specs", [])
         ]
@@ -307,6 +357,7 @@ class CheckpointMixin:
             dim=meta.get("cortex_dim", meta["hidden_size"]),
             max_entries=meta.get("cortex_max_entries", 100_000),
             top_k=meta.get("cortex_top_k", 8),
+            min_relevance=meta.get("cortex_min_relevance", 0.3),
         )
         checkpoint_complexity = max(0.5, float(meta["hidden_size"]) / 64.0)
         config = NpDnaConfig(
@@ -323,9 +374,11 @@ class CheckpointMixin:
         config.cortex.dim = meta.get("cortex_dim", meta["hidden_size"])
         config.mesh.strand.hidden_size = config.hidden_size
         config.mesh.strand.state_size = config.state_size
+        config.mesh.strand.strand_type = default_strand_type
         for spec in config.mesh_specs:
             spec.strand.hidden_size = config.hidden_size
             spec.strand.state_size = config.state_size
+            spec.strand.strand_type = getattr(spec.strand, "strand_type", default_strand_type)
         model = NpDnaModel(config)
         strand_ids = meta.get("strand_ids")
         if strand_ids:
@@ -354,6 +407,17 @@ class CheckpointMixin:
                 logger.debug("Key '%s' in checkpoint not found in model. Skipping.", key)
         model.load_state_dict(state, strict=False)
         tokenizer = AtulyaTokenizer.load(path / "tokenizer.json")
+        configured_max_vocab = getattr(config, "max_vocab", None)
+        if configured_max_vocab is not None:
+            configured_max_vocab = max(int(configured_max_vocab), tokenizer.capacity)
+            if tokenizer.max_capacity is None or tokenizer.max_capacity < configured_max_vocab:
+                tokenizer.max_capacity = configured_max_vocab
+        old_tokenizer_capacity = tokenizer.capacity
+        if tokenizer.fill_ratio >= tokenizer.growth_threshold:
+            reserve_capacity = math.ceil(tokenizer.size / 0.75)
+            tokenizer.ensure_capacity(reserve_capacity)
+        if tokenizer.capacity != old_tokenizer_capacity:
+            model.resize_embeddings(tokenizer.capacity)
         cortex_path = path / "cortex"
         cortex = MemoryCortex.load(cortex_path, config.cortex) if cortex_path.exists() else MemoryCortex(config.cortex)
         logger.info("NpDnaCore loaded <- %s (%s params, %d cortex entries)",
