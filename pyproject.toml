@@ -53,10 +53,10 @@ all = [
 
 [project.scripts]
 npdna-chat = "npdna.cli:chat_main"
-npdna-train = "npdna.train_npdna_v3:train"
+npdna-train = "npdna.train:train"
 npdna-info = "npdna.cli:info_main"
-npdna-benchmark = "npdna.benchmark:benchmark_main"
-npdna-release = "npdna.benchmark:release_main"
+npdna-benchmark = "npdna.brain:benchmark_main"
+npdna-release = "npdna.brain:release_main"
 
 [tool.setuptools.packages.find]
 where = ["."]
@@ -68,6 +68,7 @@ python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 addopts = "-v --tb=short -k \"not student_torch\""
+cache_dir = ".pytest-cache"
 filterwarnings = [
     "ignore::DeprecationWarning",
 ]

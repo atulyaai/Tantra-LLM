@@ -86,6 +86,32 @@ class MemoryCortex(torch.nn.Module):
         self._invalidate_cache()
         return self.size - 1
 
+    def store_batch(
+        self,
+        keys: Tensor,
+        values: Tensor | None = None,
+        topic: str = "",
+        source: str = "",
+    ) -> list[int]:
+        """Store multiple knowledge entries at once.
+
+        Args:
+            keys: (batch, dim) tensor of key vectors.
+            values: Optional (batch, dim) tensor of value vectors.
+            topic: Topic label applied to all entries.
+            source: Source string applied to all entries.
+
+        Returns:
+            List of entry indices.
+        """
+        if values is None:
+            values = keys.clone()
+        indices = []
+        for i in range(keys.shape[0]):
+            idx = self.store(keys[i], values[i], topic=topic, source=source)
+            indices.append(idx)
+        return indices
+
     def _invalidate_cache(self) -> None:
         self._keys_cache = None
         self._values_cache = None
@@ -181,10 +207,14 @@ class MemoryCortex(torch.nn.Module):
         B, T, D = hidden.shape
         query = self.query_proj(hidden.reshape(-1, D))  # (B*T, D)
         values, scores = self.retrieve(query)           # (B*T, k, D), (B*T, k)
+        relevant = scores.max(dim=-1).values >= self.config.min_relevance
+        if not relevant.any():
+            return hidden.squeeze(1) if squeeze_seq else hidden
 
         # Soft attention over retrieved values
         attn = torch.softmax(scores, dim=-1).unsqueeze(-1)  # (B*T, k, 1)
         context = (values * attn).sum(dim=1)                 # (B*T, D)
+        context = context * relevant.to(context.dtype).unsqueeze(-1)
         context = self.value_proj(context)
 
         augmented = hidden + context.reshape(B, T, D)
@@ -517,4 +547,3 @@ class CortexAutoStore:
 
     def get_stats(self) -> dict[str, Any]:
         return {"entries": len(self._store), "layers": list({v.get("layer") for v in self._store.values()})}
-

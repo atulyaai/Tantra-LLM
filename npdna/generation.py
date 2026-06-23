@@ -27,13 +27,36 @@ logger = logging.getLogger(__name__)
 
 # ── Sampling helpers ──────────────────────────────────────────────────────────
 
-def _apply_repetition_penalty(logits: Tensor, seen_ids: list[int], penalty: float) -> Tensor:
-    if penalty <= 1.0:
+def _apply_repetition_penalty(logits: Tensor, seen_ids: list[int], penalty: float,
+                               freq_penalty: float = 0.3) -> Tensor:
+    if penalty <= 1.0 and freq_penalty <= 0.0:
         return logits
     logits = logits.clone()
-    for tok_id in set(seen_ids[-128:]):
-        if 0 <= tok_id < logits.numel():
-            logits[tok_id] /= penalty
+    from collections import Counter
+    counts = Counter(seen_ids[-128:])
+    for tok_id, count in counts.items():
+        if 0 <= tok_id < logits.size(0):
+            # Scale penalty by frequency: tokens seen more often get penalized harder
+            import math as _math
+            effective = penalty + freq_penalty * _math.log1p(count)
+            if logits[tok_id] < 0:
+                logits[tok_id] = logits[tok_id] * effective
+            else:
+                logits[tok_id] = logits[tok_id] / effective
+    return logits
+
+
+def _block_ngram_repeats(logits: Tensor, ids: list[int], n: int = 3) -> Tensor:
+    """Block exact n-gram repeats to prevent 'things things things' loops."""
+    if len(ids) < n:
+        return logits
+    logits = logits.clone()
+    last_ngram = tuple(ids[-(n - 1):])
+    for i in range(len(ids) - n):
+        if tuple(ids[i:i + n - 1]) == last_ngram:
+            blocked_next = ids[i + n - 1]
+            if 0 <= blocked_next < logits.size(0):
+                logits[blocked_next] = float("-inf")
     return logits
 
 
@@ -134,16 +157,16 @@ class GenerationMixin:
     def generate(
         self,
         prompt: str,
-        max_tokens: int = 50,
-        temperature: float = 0.35,
-        top_k: int = 12,
+        max_tokens: int = 256,
+        temperature: float = 0.75,
+        top_k: int = 45,
         top_p: float = 1.0,
         repetition_penalty: float = 1.12,
         suppress_byte_tokens: bool = True,
         suppress_rare_unicode: bool = True,
         suppress_non_ascii: bool = False,
         max_token_repeats: int = 6,
-        context_window: int = 128,
+        context_window: int = 512,
         audio_inputs: Optional[Tensor] = None,
         image_inputs: Optional[Tensor] = None,
         system: Optional[str] = None,
@@ -170,16 +193,16 @@ class GenerationMixin:
     def generate_stream(
         self,
         prompt: str,
-        max_tokens: int = 50,
-        temperature: float = 0.35,
-        top_k: int = 12,
+        max_tokens: int = 256,
+        temperature: float = 0.75,
+        top_k: int = 45,
         top_p: float = 1.0,
         repetition_penalty: float = 1.12,
         suppress_byte_tokens: bool = True,
         suppress_rare_unicode: bool = True,
         suppress_non_ascii: bool = False,
         max_token_repeats: int = 6,
-        context_window: int = 128,
+        context_window: int = 512,
         audio_inputs: Optional[Tensor] = None,
         image_inputs: Optional[Tensor] = None,
         system: Optional[str] = None,
@@ -207,15 +230,21 @@ class GenerationMixin:
             self.model.genome.enable_inference_cache()
         with torch.no_grad():
             try:
-                # Prefill: process all prompt tokens to populate strand states
-                strand_states = self.model.alloc_strand_states()
-                prefill_tensor = torch.tensor([ids], dtype=torch.long, device=device)
-                self.model(input_ids=prefill_tensor, strand_states=strand_states)
-
-                # Generation: one token at a time using cached strand states
+                stop_buffer = ""
+                stop_sequences = ["User:", "\nSystem:", "\n\n\n"]
+                # Recompute over the recent full context each step. Local
+                # attention strands need the prompt tokens present at inference;
+                # a one-token cached path drops their attention context.
                 for _ in range(max_tokens):
-                    input_ids = torch.tensor([[ids[-1]]], dtype=torch.long, device=device)
-                    logits, _ = self.model(input_ids=input_ids, strand_states=strand_states)
+                    ctx = ids[-max(1, int(context_window)):]
+                    input_ids = torch.tensor([ctx], dtype=torch.long, device=device)
+                    kwargs = {}
+                    if image_inputs is not None:
+                        kwargs["multimodal_embeddings"] = image_inputs
+                    elif audio_inputs is not None:
+                        kwargs["multimodal_embeddings"] = audio_inputs
+
+                    logits, _ = self.model(input_ids=input_ids, **kwargs)
                     next_logits = logits[0, -1].clone()
 
                     if valid_vocab < next_logits.numel():
@@ -230,6 +259,7 @@ class GenerationMixin:
                                 next_logits[tok_id] = float("-inf")
 
                     next_logits = _apply_repetition_penalty(next_logits, ids, repetition_penalty)
+                    next_logits = _block_ngram_repeats(next_logits, ids, n=3)
 
                     if temperature > 0:
                         next_logits = next_logits / temperature
@@ -246,14 +276,21 @@ class GenerationMixin:
 
                     if next_id == eos_id:
                         break
-                    yield self.decode([next_id])
+
+                    token_text = self.decode([next_id])
+                    yield token_text
+
+                    # Stop at natural boundaries to prevent runaway generation
+                    stop_buffer = (stop_buffer + token_text)[-200:]
+                    if any(stop in stop_buffer for stop in stop_sequences):
+                        break
             finally:
                 if hasattr(self.model.genome, "disable_inference_cache"):
                     self.model.genome.disable_inference_cache()
 
-        self.last_generated_ids = ids
-        self._record_strand_specialization(original_prompt)
-        self._handle_cortex_writeback(ids[len(prompt_ids):], device)
+            self.last_generated_ids = ids
+            self._record_strand_specialization(original_prompt)
+            self._handle_cortex_writeback(ids[len(prompt_ids):], device)
 
     def _record_strand_specialization(self, prompt: str) -> None:
         try:

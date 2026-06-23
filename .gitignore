@@ -1,12 +1,31 @@
+# Virtual envs and python caching
 .venv/
+.venv-win/
+.pip-cache/
+.pip-tmp/
 __pycache__/
 *.pyc
 Download/
-*.log
-*.zip
-train.py
+
+# Build artifacts
+*.egg-info/
+dist/
+build/
+
+# Temp & Cache files
+.tmp/
+.pytest-tmp/
+.pytest-cache/
 .pytest_cache/
-model/npdna_v3/step_*/
-model/npdna_v3/final/
-model/npdna_v3/latest/
+*.log
+
+# Large files
+*.zip
+*.tar.gz
+
+# Model checkpoints (keep only the public best checkpoint)
+model/npdna/latest/
+model/npdna/step_*/
+model/npdna/final/
+model/npdna_clean/
 model/releases/

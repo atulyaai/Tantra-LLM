@@ -22,4 +22,4 @@ jobs:
       - name: Run tests
         run: pytest
       - name: Smoke generate
-        run: python -c "from npdna import NpDnaCore; core = NpDnaCore.load('model/npdna_v3/best'); print(core.generate('Hello.', max_tokens=3))"
+        run: python -c "from npdna import NpDnaCore; core = NpDnaCore.load('model/npdna/best'); print(core.generate('Hello.', max_tokens=3))"

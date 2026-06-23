@@ -1,4 +1,4 @@
-﻿"""NP-DNA Model — full NeuroPlastic DNA Network.
+"""NP-DNA Model — full NeuroPlastic DNA Network.
 
 Architecture:
     Token IDs → Embedding → [Mesh₁ → … → Meshₙ] → Norm → LM Head
@@ -72,31 +72,59 @@ class NpDnaModel(nn.Module):
         self.mesh_layers = nn.ModuleList()
         self.layer_norms = nn.ModuleList()
 
+        groups = config.weight_sharing_groups
+        if groups is None:
+            groups = [list(range(config.num_layers))]  # Default: all layers share one genome!
+
+        layer_to_offset = {}
+        current_offset = 0
+        for group in groups:
+            for l_idx in group:
+                layer_to_offset[l_idx] = current_offset
+            # All layers in a group must have the same number of strands.
+            # We add to offset based on the first layer in the group.
+            first_idx = group[0]
+            if config.mesh_specs and first_idx < len(config.mesh_specs):
+                current_offset += config.mesh_specs[first_idx].total_strands
+            else:
+                current_offset += config.mesh.num_strands
+
         if config.mesh_specs:
             self.layer_specs = config.mesh_specs
-            offset = 0
-            for spec in config.mesh_specs:
+            for i, spec in enumerate(config.mesh_specs):
                 mesh_cfg = spec.make_mesh_config(H, config.state_size)
+                offset = layer_to_offset.get(i, current_offset)
                 if spec.is_category():
                     mesh = CategoryMesh(self.genome, mesh_cfg, spec.categories, layer_offset=offset)
                 else:
                     mesh = NeuralMesh(self.genome, mesh_cfg, layer_offset=offset)
                 self.mesh_layers.append(mesh)
                 self.layer_norms.append(nn.LayerNorm(H))
-                offset += spec.total_strands
         else:
             self.layer_specs = [
                 LayerSpec(name="layer", num_strands=config.mesh.num_strands, top_k=config.mesh.top_k)
                 for _ in range(config.num_layers)
             ]
             for i in range(config.num_layers):
+                offset = layer_to_offset.get(i, current_offset)
                 self.mesh_layers.append(
-                    NeuralMesh(self.genome, deepcopy(config.mesh), layer_offset=i * config.mesh.num_strands)
+                    NeuralMesh(self.genome, deepcopy(config.mesh), layer_offset=offset)
                 )
                 self.layer_norms.append(nn.LayerNorm(H))
 
         self.final_norm = nn.LayerNorm(H)
         self.lm_head = nn.Linear(H, config.initial_vocab, bias=False)
+
+        # True Multimodal Encoders (Vision/Audio)
+        self.vision_projector = nn.Linear(512, H)
+        self.audio_projector = nn.Linear(128, H)
+
+        if getattr(config, "adaptive_depth", False):
+            self.exit_heads = nn.ModuleList([
+                nn.Linear(H, 1) for _ in range(config.num_layers - 1)
+            ])
+        else:
+            self.exit_heads = None
 
         nn.init.normal_(self.embedding.weight, mean=0.0, std=0.02)
         if not config.tie_embeddings:
@@ -194,10 +222,16 @@ class NpDnaModel(nn.Module):
         new_head = nn.Linear(H, new_vocab, bias=False)
         with torch.no_grad():
             new_emb.weight[:old_n].copy_(self.embedding.weight)
-            new_emb.weight[old_n:].copy_(self.embedding.weight.mean(dim=0, keepdim=True))
+            emb_mean = self.embedding.weight.mean(dim=0, keepdim=True)
+            emb_std = self.embedding.weight.std(dim=0, keepdim=True).clamp_min(1e-3)
+            emb_noise = torch.randn(new_vocab - old_n, H, device=emb_mean.device, dtype=emb_mean.dtype)
+            new_emb.weight[old_n:].copy_(emb_mean + 0.02 * emb_std * emb_noise)
             if not self.config.tie_embeddings:
                 new_head.weight[:old_n].copy_(self.lm_head.weight)
-                new_head.weight[old_n:].copy_(self.lm_head.weight.mean(dim=0, keepdim=True))
+                head_mean = self.lm_head.weight.mean(dim=0, keepdim=True)
+                head_std = self.lm_head.weight.std(dim=0, keepdim=True).clamp_min(1e-3)
+                head_noise = torch.randn(new_vocab - old_n, H, device=head_mean.device, dtype=head_mean.dtype)
+                new_head.weight[old_n:].copy_(head_mean + 0.02 * head_std * head_noise)
         self.embedding = new_emb
         self.lm_head = new_head
         if self.config.tie_embeddings:
@@ -214,10 +248,21 @@ class NpDnaModel(nn.Module):
                 for strand, sid in zip(mesh.strands, ids):
                     strand.strand_id = int(sid)
 
-    def forward(self, input_ids: Tensor, strand_states: list[list[Tensor | None]] | None = None) -> tuple[Tensor, Tensor]:
+    def forward(self, input_ids: Tensor, strand_states: list[list[Tensor | None]] | None = None,
+                multimodal_embeddings: Tensor | None = None) -> tuple[Tensor, Tensor]:
         x = self.embedding(input_ids)
+
+        if multimodal_embeddings is not None:
+            if multimodal_embeddings.shape[-1] == 512:
+                m_emb = self.vision_projector(multimodal_embeddings)
+            else:
+                m_emb = self.audio_projector(multimodal_embeddings)
+            x = torch.cat([m_emb, x], dim=1)
+
         total_balance_loss = torch.tensor(0.0, device=x.device)
 
+        exit_logits = []
+        layer_xs = []
         for i, (mesh, norm) in enumerate(zip(self.mesh_layers, self.layer_norms)):
             residual = x
             mesh_states = strand_states[i] if strand_states is not None else None
@@ -225,9 +270,30 @@ class NpDnaModel(nn.Module):
             x = norm(residual + mesh_out)
             total_balance_loss = total_balance_loss + bal
 
-        x = self.cortex.augment(x)
+            # Adaptive Depth (Early Exit)
+            if self.exit_heads is not None and i < len(self.exit_heads):
+                conf_logit = self.exit_heads[i](x)  # (B, T, 1)
+                exit_logits.append(conf_logit)
+                if self.training:
+                    layer_xs.append(x.detach())
+
+                # Only exit early during inference
+                if not self.training:
+                    conf = torch.sigmoid(conf_logit)
+                    # If all tokens in this batch/seq are confident, we exit early
+                    if conf.min().item() > self.config.exit_threshold:
+                        break
+
+        if getattr(self, 'cortex', None) is not None and hasattr(self.cortex, 'augment'):
+            x = self.cortex.augment(x)
         x = self.final_norm(x)
-        return self.lm_head(x), total_balance_loss
+        logits = self.lm_head(x)
+
+        if self.training and self.exit_heads is not None:
+            self._last_exit_logits = exit_logits
+            self._last_layer_xs = layer_xs
+
+        return logits, total_balance_loss
 
     def alloc_strand_states(self) -> list[list[Tensor | None]]:
         """Allocate a strand_states structure for KV-cached generation."""
@@ -268,6 +334,9 @@ class CheckpointMixin:
                     "dense": spec.dense,
                     "categories": spec.categories,
                     "strand_type": getattr(spec.strand, "strand_type", "ssm"),
+                    "use_swiglu": getattr(spec.strand, "use_swiglu", True),
+                    "num_kv_heads": getattr(spec.strand, "num_kv_heads", 0),
+                    "ffn_expansion": getattr(spec.strand, "ffn_expansion", 4.0),
                 }
                 for spec in getattr(self.model, "layer_specs", [])
             ],
@@ -343,6 +412,9 @@ class CheckpointMixin:
                     hidden_size=meta["hidden_size"],
                     state_size=meta["state_size"],
                     strand_type=item.get("strand_type", default_strand_type),
+                    use_swiglu=bool(item.get("use_swiglu", False)),
+                    num_kv_heads=int(item.get("num_kv_heads", 0)),
+                    ffn_expansion=float(item.get("ffn_expansion", 4.0)),
                 ),
             )
             for item in meta.get("layer_specs", [])

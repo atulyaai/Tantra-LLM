@@ -1,8 +1,16 @@
-from npdna.benchmark import benchmark_checkpoint
+import json
+from pathlib import Path
+
+from npdna.brain import benchmark_checkpoint
 
 
 def test_benchmark_checkpoint_smoke():
-    result = benchmark_checkpoint("model/npdna_v3/best", prompts=["Hello."], max_tokens=2)
-    assert result["metadata"]["hidden_size"] == 128
+    checkpoint = Path("model/npdna/best")
+    metadata = json.loads((checkpoint / "metadata.json").read_text(encoding="utf-8"))
+
+    result = benchmark_checkpoint(checkpoint, max_tokens=2)
+    assert result["metadata"]["hidden_size"] == metadata["hidden_size"]
     assert result["load_seconds"] >= 0
     assert result["generations"]
+    assert "overall_score" in result
+    assert "domain_scores" in result

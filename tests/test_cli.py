@@ -39,8 +39,8 @@ def test_chat_main_defaults_to_latest_when_present(monkeypatch, tmp_path, capsys
 
 
 def test_default_checkpoint_order_prefers_latest():
-    assert DEFAULT_CHECKPOINTS[0].as_posix().endswith("model/npdna_v3/latest")
-    assert DEFAULT_CHECKPOINTS[1].as_posix().endswith("model/npdna_v3/best")
+    assert DEFAULT_CHECKPOINTS[0].as_posix().endswith("model/npdna/latest")
+    assert DEFAULT_CHECKPOINTS[1].as_posix().endswith("model/npdna/best")
 
 
 def test_infer_max_tokens_scales_with_prompt_shape():

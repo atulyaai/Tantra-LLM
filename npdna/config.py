@@ -11,10 +11,10 @@ from dataclasses import dataclass, field
 
 @dataclass
 class GenomeConfig:
-    latent_dim: int | None = None
-    rank: int = 32
+    latent_dim: int | None = 128
+    rank: int = 8
     max_strands: int | None = None
-    encoder_hidden: int = 512
+    encoder_hidden: int = 128
 
     @property
     def param_estimate(self) -> int:
@@ -30,6 +30,13 @@ class StrandConfig:
     hidden_size: int = 128
     state_size: int = 64
     strand_type: str = "ssm"
+    # SwiGLU feed-forward layer inside every SSM Strand (enabled by default for new models)
+    use_swiglu: bool = True
+    # ffn_expansion × hidden_size = inner FFN dimension (standard LLM ratio)
+    ffn_expansion: float = 4.0
+    # GQA: num_kv_heads < num_heads to speed up Attention strands on CPU.
+    # 0 = auto (num_heads // 4, minimum 1)
+    num_kv_heads: int = 0
 
 
 @dataclass
@@ -72,6 +79,7 @@ class CortexConfig:
     dim: int = 256
     max_entries: int = 100_000
     top_k: int = 8
+    min_relevance: float = 0.3
 
 
 @dataclass
@@ -83,7 +91,7 @@ class CodecConfig:
 
 
 GROW_FILL_RATIO = 0.95
-GROW_MULTIPLIER = 1.5
+MAX_VOCAB_GROWTH_PER_STAGE = 10000
 
 
 @dataclass
@@ -91,9 +99,13 @@ class NpDnaConfig:
     """Single auto-scaling config. Start small, grow on demand."""
 
     complexity: float = 1.0
-    hidden_size: int = 64
-    state_size: int = 32
-    num_layers: int = 5
+    hidden_size: int = 256
+    state_size: int = 256
+    num_layers: int = 15
+
+    # Adaptive Compute Depth (Early Exit)
+    adaptive_depth: bool = True
+    exit_threshold: float = 0.85
 
     initial_vocab: int = 4096
     max_vocab: int = 256_000
@@ -107,6 +119,10 @@ class NpDnaConfig:
     cortex: CortexConfig = field(default_factory=CortexConfig)
     tie_embeddings: bool = True
 
+    # List of lists, e.g. [[0, 1, 2], [3, 4]] means layers 0,1,2 share a genome, layers 3,4 share another.
+    # If None, all layers share a single genome (default).
+    weight_sharing_groups: list[list[int]] | None = None
+
     growth_state: dict = field(default_factory=lambda: {
         "vocab_grows": 0,
         "strand_grows": 0,
@@ -118,9 +134,10 @@ class NpDnaConfig:
 
     def __post_init__(self) -> None:
         complexity = self.complexity
-        self.hidden_size = max(32, int(64 * complexity))
-        self.state_size = max(16, self.hidden_size // 2)
-        self.strands_per_layer = max(4, int(6 + 1.5 * complexity))
+        # Base scale: complexity 1.0 -> hidden=128, layers=15.
+        self.hidden_size = max(64, int(128 * complexity))
+        self.state_size = self.hidden_size
+        self.strands_per_layer = max(4, int(8 + 2 * complexity))
         self.top_k = max(2, self.strands_per_layer // 3)
         self.initial_vocab = max(2048, int(4096 * complexity))
 
@@ -140,11 +157,45 @@ class NpDnaConfig:
                     top_k=max(2, self.top_k - 1),
                 ),
             ]
+
+            # Fill remaining layers with named training domains up to num_layers.
+            extra_layer_names = [
+                "instruction",
+                "experts",
+                "reasoning",
+                "factual",
+                "general",
+                "chat",
+                "emotion",
+                "spatial",
+                "action",
+                "synthesis",
+            ]
+            extra_i = 0
+            while len(self.mesh_specs) < self.num_layers:
+                name = (
+                    extra_layer_names[extra_i]
+                    if extra_i < len(extra_layer_names)
+                    else f"layer_{len(self.mesh_specs)}"
+                )
+                self.mesh_specs.append(
+                    LayerSpec(
+                        name=name,
+                        num_strands=self.strands_per_layer,
+                        top_k=self.top_k,
+                    )
+                )
+                extra_i += 1
+
             self.num_layers = len(self.mesh_specs)
 
         for spec in self.mesh_specs:
             spec.strand.hidden_size = self.hidden_size
             spec.strand.state_size = self.state_size
+            # Propagate new arch fields to every spec strand
+            if spec.strand.use_swiglu is True:  # only override if still at default
+                pass  # keep as-is (default True)
+
 
         self.mesh.strand.hidden_size = self.hidden_size
         self.mesh.strand.state_size = self.state_size
@@ -153,7 +204,7 @@ class NpDnaConfig:
         self.cortex.dim = self.hidden_size
 
         if self.genome.latent_dim is None:
-            self.genome.latent_dim = min(512, self.hidden_size * 2)
+            self.genome.latent_dim = min(128, self.hidden_size)
         if self.genome.max_strands is None:
             self.genome.max_strands = self.total_strands * 4
 
@@ -167,7 +218,7 @@ class NpDnaConfig:
         return vocab_fill_ratio >= GROW_FILL_RATIO and self.initial_vocab < self.max_vocab
 
     def next_vocab_size(self) -> int:
-        return min(int(self.initial_vocab * GROW_MULTIPLIER), self.max_vocab)
+        return min(self.initial_vocab + MAX_VOCAB_GROWTH_PER_STAGE, self.max_vocab)
 
     def grow_vocab(self) -> int:
         old = self.initial_vocab
@@ -212,7 +263,7 @@ def auto_config(complexity: float = 1.0) -> NpDnaConfig:
 
 
 DEFAULT_CONFIG_NAME = "seed"
-DEFAULT_COMPLEXITY = 2.0
+DEFAULT_COMPLEXITY = 1.0
 
 CONFIGS: dict[str, NpDnaConfig] = {
     DEFAULT_CONFIG_NAME: NpDnaConfig(complexity=DEFAULT_COMPLEXITY)

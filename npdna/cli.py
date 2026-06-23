@@ -9,8 +9,8 @@ from pathlib import Path
 from .model import NpDnaCore
 
 DEFAULT_CHECKPOINTS = (
-    Path("model/npdna_v3/latest"),
-    Path("model/npdna_v3/best"),
+    Path("model/npdna/latest"),
+    Path("model/npdna/best"),
 )
 
 LONG_FORM_HINTS = {

@@ -161,6 +161,22 @@ class AtulyaTokenizer:
         self.growth_events += 1
         logger.info("Tokenizer grew: %d → %d (event #%d)", old, new_cap, self.growth_events)
 
+    def ensure_capacity(self, min_capacity: int) -> None:
+        """Grow capacity until it can hold at least ``min_capacity`` tokens."""
+        min_capacity = max(self.size, int(min_capacity))
+        if self.max_capacity is not None:
+            min_capacity = min(min_capacity, self.max_capacity)
+        while self._capacity < min_capacity:
+            old = self._capacity
+            new_cap = max(self._capacity + 1, math.ceil(self._capacity * self.growth_factor))
+            if self.max_capacity is not None:
+                new_cap = min(new_cap, self.max_capacity)
+            if new_cap <= old:
+                return
+            self._capacity = new_cap
+            self.growth_events += 1
+            logger.info("Tokenizer capacity reserved: %d → %d (event #%d)", old, new_cap, self.growth_events)
+
     def add_token(self, token: str) -> int:
         """Add a token, growing capacity if needed. Returns token ID."""
         if token in self.token_to_id:

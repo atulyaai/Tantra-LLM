@@ -6,19 +6,22 @@ from npdna.cortex import MemoryCortex
 from npdna.genome import Genome, GenomeConfig
 from npdna.mesh import AttentionStrand, NeuralMesh
 from npdna.model import NpDnaCore, NpDnaModel
-from npdna.plasticity import PlasticityEngine
-from npdna.train_npdna_v3 import (
+from npdna.brain import PlasticityEngine
+from npdna.train import (
     Dataset,
     IGNORE_INDEX,
     JsonlSeedRecordStore,
     _extract_training_text,
+    all_folders,
     build_curriculum,
+    eval_model,
     format_chat_example,
     format_chat_prompt,
     format_duration,
     load_seed_chat,
     load_texts,
     mtp_aux_loss,
+    save_training_checkpoint,
     scheduled_lr,
     stage_index_for_step,
 )
@@ -56,6 +59,7 @@ def test_plasticity_diagnosis_calls_usage_stats_method():
             self.called = False
             self.last_router_entropy = 1.0
 
+        @property
         def usage_stats(self):
             self.called = True
             return {0: 0.0, 1: 0.95}
@@ -83,6 +87,10 @@ def test_checkpoint_preserves_attention_strand_type(tmp_path):
     ckpt = tmp_path / "attention_ckpt"
     core.save(ckpt)
 
+    del core
+    import gc
+    gc.collect()
+
     loaded = NpDnaCore.load(ckpt)
 
     assert loaded.config.mesh.strand.strand_type == "attention"
@@ -104,9 +112,14 @@ def test_checkpoint_load_restores_vocab_growth_headroom(tmp_path):
     ckpt = tmp_path / "full_vocab_ckpt"
     core.save(ckpt)
 
+    expected_size = core.tokenizer.size
+    del core
+    import gc
+    gc.collect()
+
     loaded = NpDnaCore.load(ckpt)
 
-    assert loaded.tokenizer.size == core.tokenizer.size
+    assert loaded.tokenizer.size == expected_size
     assert loaded.tokenizer.capacity > saved_capacity
     assert loaded.tokenizer.max_capacity == loaded.config.max_vocab
     assert loaded.model.embedding.num_embeddings == loaded.tokenizer.capacity
@@ -119,10 +132,40 @@ def test_checkpoint_load_raises_low_saved_vocab_ceiling(tmp_path):
     ckpt = tmp_path / "low_vocab_ceiling_ckpt"
     core.save(ckpt)
 
+    expected_capacity = core.tokenizer.capacity
+    del core
+    import gc
+    gc.collect()
+
     loaded = NpDnaCore.load(ckpt)
 
-    assert loaded.tokenizer.capacity == core.tokenizer.capacity
+    assert loaded.tokenizer.capacity == expected_capacity
     assert loaded.tokenizer.max_capacity == loaded.config.max_vocab
+
+
+def test_training_checkpoint_saves_schedule_metadata(tmp_path, monkeypatch):
+    import json
+    import npdna.train as trainer
+
+    monkeypatch.setattr(trainer, "CKPT_DIR", tmp_path)
+    core = NpDnaCore.from_config("seed")
+
+    save_training_checkpoint(
+        core,
+        "latest",
+        losses=[1.0],
+        step=12,
+        best_val=0.5,
+        stage=1,
+        mtp_depth=1,
+        target_steps=150_000,
+        peak_lr=5e-5,
+    )
+
+    meta = json.loads((tmp_path / "latest" / "metadata.json").read_text(encoding="utf-8"))
+
+    assert meta["target_steps"] == 150_000
+    assert meta["peak_lr"] == 5e-5
 
 
 def test_mtp_aux_loss_is_scalar():
@@ -138,6 +181,7 @@ def test_curriculum_scales_to_target_steps():
     assert curriculum[-1]["steps"] == 100_000
     assert all(a["steps"] < b["steps"] for a, b in zip(curriculum, curriculum[1:]))
     assert stage_index_for_step(652, curriculum) == 0
+    assert curriculum[-1]["folders"] == all_folders
 
 
 def test_format_duration():
@@ -182,6 +226,31 @@ def test_extract_training_text_formats_qa_as_chat():
     )
 
     assert text == "System: Be brief.\nUser: What is gravity?\nAssistant: Gravity attracts mass."
+
+
+def test_extract_training_text_wraps_long_plain_text_as_chat():
+    text = _extract_training_text(
+        '{"text":"Gravity is a fundamental interaction. It causes objects with mass to attract one another and shapes planetary motion."}'
+    )
+
+    assert text == (
+        "System: You are Atulya. Be warm, thoughtful, and direct.\n"
+        "User: Tell me about: Gravity is a fundamental interaction.\n"
+        "Assistant: It causes objects with mass to attract one another and shapes planetary motion."
+    )
+
+
+def test_clip_image_embedding_missing_file_is_explicit(tmp_path):
+    from npdna.brain import encode_image_clip
+
+    missing = tmp_path / "missing.png"
+
+    try:
+        encode_image_clip(missing)
+    except FileNotFoundError as exc:
+        assert exc.filename is None or str(missing) in str(exc)
+    else:
+        raise AssertionError("encode_image_clip should reject missing image paths")
 
 
 def test_dataset_can_sample_only_seed_chat(tmp_path):
@@ -316,8 +385,61 @@ def test_eval_set_uses_held_out_masked_seed_records(tmp_path):
     assert any(t != IGNORE_INDEX for t in targets)
 
 
+def test_eval_model_runs_when_samples_are_fewer_than_batch():
+    class ModelStub:
+        def __init__(self):
+            self.training = True
+            self.called = False
+
+        def eval(self):
+            self.training = False
+
+        def train(self):
+            self.training = True
+
+        def __call__(self, x):
+            self.called = True
+            logits = torch.zeros(x.shape[0], x.shape[1], 8)
+            logits[..., 1] = 4.0
+            return logits, torch.tensor(0.0)
+
+    model = ModelStub()
+    loss, ppl = eval_model(model, [[1, 1, 1, 1, 1]], batch_size=4, seq_len=4)
+
+    assert model.called
+    assert loss > 0
+    assert ppl > 1
+    assert model.training
+
+
+def test_eval_set_falls_back_to_current_chunks(tmp_path):
+    data_dir = tmp_path / "data"
+    factual = data_dir / "factual"
+    factual.mkdir(parents=True)
+    (factual / "data.jsonl").write_text(
+        '{"text":"This factual eval fallback sample has enough words to build a window. "}\n'
+        '{"text":"Another fallback sample gives validation real targets instead of dummy zeros. "}\n',
+        encoding="utf-8",
+    )
+
+    tokenizer = AtulyaTokenizer(initial_capacity=8192, max_capacity=12288)
+    dataset = Dataset(
+        data_dir,
+        ["factual"],
+        tokenizer,
+        seq_len=8,
+        seed_chat_path=tmp_path / "missing_seed",
+        seed_chat_ratio=0.0,
+    )
+
+    eval_items = dataset.eval_set(num_samples=2)
+
+    assert eval_items
+    assert any(any(token != 0 for token in item) for item in eval_items)
+
+
 def test_large_seed_chat_uses_indexed_store(tmp_path, monkeypatch):
-    import npdna.train_npdna_v3 as trainer
+    import npdna.train as trainer
 
     seed_file = tmp_path / "large_seed.jsonl"
     seed_file.write_text(

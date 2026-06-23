@@ -16,7 +16,7 @@ Tantra LLM is a local-first research stack for building a small CPU-friendly lan
 
 The project is intentionally practical: it can load a seed checkpoint, run local generation, resume training from `latest`, mix supervised chat examples into raw data, and keep private datasets outside the repository.
 
-![Tantra V4 architecture](assets/tantra-architecture.svg)
+![Tantra architecture](assets/tantra-architecture.svg)
 
 ## System Snapshot
 
@@ -27,7 +27,7 @@ The project is intentionally practical: it can load a seed checkpoint, run local
 | Routing | Genome + sparse mesh | Low-rank strand parameter generation, top-k routing, balance loss. |
 | Attention | Local attention strand | `USE_ATTENTION=True` is backed by an in-repo implementation. |
 | Memory | `MemoryCortex` | Dense local memory store with save/load and retrieval hooks. |
-| Training | `npdna/train_npdna_v3.py` | Resume-safe curriculum trainer with MTP, seed chat, ETA, batch/sequence controls. |
+| Training | `npdna/train.py` | Resume-safe curriculum trainer with MTP, seed chat, ETA, batch/sequence controls. |
 | Chat behavior | Seed chat mix | Supervised `System/User/Assistant` examples train assistant answer tokens only. |
 | CLI | `npdna-*` commands | Info, chat, train, benchmark, and release helpers. |
 | Agent | `NpDnaAgent` | Local tool wrapper with conservative defaults. |
@@ -42,12 +42,11 @@ Tantra LLM/
 |-- npdna/                    # Model, tokenizer, generation, memory, trainer
 |-- tests/                    # Pytest suite
 |-- assets/                   # README diagrams and banner
-|-- data/
-|   `-- seed_chat.jsonl       # Sanitized supervised chat seed examples
 |-- model/
-|   |-- npdna_v3/best/        # Tiny public smoke checkpoint
+|   |-- npdna/best/           # Tiny public smoke checkpoint
 |   `-- tokenizer/            # Seed tokenizer artifacts
 |-- Download/                 # Local/private training data, ignored
+|-- tools/                    # Data download and build scripts
 |-- .github/workflows/ci.yml
 |-- pyproject.toml
 |-- SECURITY.md
@@ -77,7 +76,7 @@ Load the bundled seed checkpoint:
 ```python
 from npdna import NpDnaCore
 
-core = NpDnaCore.load("model/npdna_v3/best")
+core = NpDnaCore.load("model/npdna/best")
 print(core.generate("What is gravity?", max_tokens=40))
 ```
 
@@ -101,28 +100,22 @@ npdna-chat "What is gravity?"
 npdna-chat --interactive
 ```
 
-`npdna-chat` prefers `model/npdna_v3/latest` when present, then falls back to `model/npdna_v3/best`.
+`npdna-chat` prefers `model/npdna/latest` when present, then falls back to `model/npdna/best`.
 
 ## Training
 
-The trainer resumes from `model/npdna_v3/latest` before `best`. Generated checkpoints, logs, and raw datasets are local artifacts by default.
+The trainer resumes from `model/npdna/latest` before `best`. Generated checkpoints, logs, and raw datasets are local artifacts by default.
 
-Recommended correction run after adding seed chat:
-
-```powershell
-python npdna\train_npdna_v3.py --target-steps 35000 --mtp-depth 2 --threads 12 --seed-chat-ratio 0.50 --seed-ratio-min 0.35 --batch-size 4 --seq-len 256
-```
-
-Higher-throughput run if RAM allows:
+Recommended training run with balanced data mix:
 
 ```powershell
-python npdna\train_npdna_v3.py --target-steps 35000 --mtp-depth 2 --threads 12 --seed-chat-ratio 0.50 --seed-ratio-min 0.35 --batch-size 8 --seq-len 256
+python npdna\train.py --target-steps 100000 --mtp-depth 2 --threads 12 --seed-chat-ratio 0.35 --seed-ratio-min 0.10 --batch-size 4 --seq-len 256
 ```
 
 Smoke run:
 
 ```powershell
-python npdna\train_npdna_v3.py --steps 50 --mtp-depth 2 --threads 8
+python npdna\train.py --steps 50 --mtp-depth 2 --threads 8
 ```
 
 Important options:
@@ -140,15 +133,9 @@ Important options:
 | `--compile` | Try `torch.compile` for long runs. |
 | `--freeze-backbone` | Train lighter adaptation parameters. |
 
-Stage 7 datasets can contain multi-GB JSONL chunks. The trainer samples bounded windows from large files instead of loading whole chunks into memory.
+Stage datasets can contain multi-GB JSONL chunks. The trainer samples bounded windows from large files instead of loading whole chunks into memory.
 
 ## Seed Chat Data
-
-`data/seed_chat.jsonl` contains sanitized supervised examples:
-
-```json
-{"system":"You are Atulya. Answer clearly and briefly.","user":"What is gravity?","assistant":"Gravity is the force that pulls objects with mass toward each other."}
-```
 
 During training, seed chat examples are formatted as:
 
@@ -166,12 +153,11 @@ Structured instruction/Q&A/chat datasets should be converted into this format. R
 
 | Path | Purpose |
 | --- | --- |
-| `model/npdna_v3/best/` | Tiny public smoke checkpoint used by tests and CI. |
-| `model/npdna_v3/latest/` | Local resume checkpoint, ignored by Git. |
-| `model/npdna_v3/step_*/` | Local milestone snapshots, ignored by Git. |
+| `model/npdna/best/` | Tiny public smoke checkpoint used by tests and CI. |
+| `model/npdna/latest/` | Local resume checkpoint, ignored by Git. |
+| `model/npdna/step_*/` | Local milestone snapshots, ignored by Git. |
 | `model/tokenizer/tokenizer_seed.json` | Public tokenizer seed. |
 | `model/tokenizer/tokenizer_seed.pt` | Compact tokenizer metadata. |
-| `model/tokenizer/vocab_samples.txt` | Sanitized vocabulary seed samples. |
 | `Download/` | Private local training data, ignored by Git. |
 
 Commit seed tokenizer/checkpoint artifacts only when they are intentionally sanitized and useful for smoke tests. Do not commit raw datasets, private logs, or ad hoc training dumps.
@@ -179,8 +165,8 @@ Commit seed tokenizer/checkpoint artifacts only when they are intentionally sani
 ## Benchmark and Release
 
 ```powershell
-npdna-benchmark --checkpoint model/npdna_v3/best --output model/npdna_v3/best/benchmark.json
-npdna-release npdna-seed-v0.1 --checkpoint model/npdna_v3/best
+npdna-benchmark --checkpoint model/npdna/best --output model/npdna/best/benchmark.json
+npdna-release npdna-seed-v0.1 --checkpoint model/npdna/best
 ```
 
 Release folders are written under `model/releases/` and are ignored by default.
@@ -190,7 +176,7 @@ Release folders are written under `model/releases/` and are ignored by default.
 The current multimodal layer is a prompt bridge, not an end-to-end learned vision/audio model.
 
 ```python
-from npdna.multimodal_context import build_multimodal_prompt
+from npdna.brain import build_multimodal_prompt
 
 prompt = build_multimodal_prompt(
     "Summarize this input.",
@@ -218,7 +204,7 @@ For shared deployments, review every tool before enabling it. Network access, fi
 
 ```powershell
 pytest
-python -c "from npdna import NpDnaCore; core = NpDnaCore.load('model/npdna_v3/best'); print(core.generate('Hello.', max_tokens=3))"
+python -c "from npdna import NpDnaCore; core = NpDnaCore.load('model/npdna/best'); print(core.generate('Hello.', max_tokens=3))"
 ```
 
 The local suite currently covers checkpoint loading, tokenizer/config behavior, CLI routing, agent defaults, benchmark helpers, training utilities, seed-chat formatting, and large dataset window sampling.

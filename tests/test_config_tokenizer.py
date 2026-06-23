@@ -1,3 +1,5 @@
+import torch
+
 from npdna import CONFIGS, PREFERRED_CONFIG_NAMES, AtulyaTokenizer, NpDnaCore
 
 
@@ -12,7 +14,9 @@ def test_seed_core_starts_small_and_can_expand():
     old_mean = core.model.embedding.weight.mean(dim=0).detach().clone()
     core.model.resize_embeddings(old_vocab + 8)
     assert core.model.vocab_size == old_vocab + 8
-    assert core.model.embedding.weight[old_vocab:].detach().sub(old_mean).abs().max().item() < 1e-6
+    new_rows = core.model.embedding.weight[old_vocab:].detach()
+    assert new_rows.sub(old_mean).abs().max().item() > 0
+    assert torch.pdist(new_rows).min().item() > 0
 
 
 def test_tokenizer_round_trip():

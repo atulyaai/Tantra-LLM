@@ -1,4 +1,4 @@
-﻿"""DNA Genome â€” weight generator for the NP-DNA architecture.
+"""DNA Genome â€” weight generator for the NP-DNA architecture.
 
 The Genome is a small neural network (~2-5M params) that generates weight
 matrices for Strands on demand.  Like biological DNA encoding proteins,
@@ -105,7 +105,7 @@ class Genome(nn.Module):
                 f"Strand {strand_id} out of range (genome has {self.seeds.shape[0]} seeds). "
                 f"Call add_strand_capacity() before routing to new strands."
             )
-        seed = self.seeds[strand_id]
+        seed = self.seeds[strand_id].unsqueeze(0)
         latent = self.encoder(seed)
 
         rows, cols = self._shapes[role]
@@ -115,7 +115,7 @@ class Genome(nn.Module):
         V = self.decoders[f"{role}_V"](latent).reshape(R, cols)
         weight = U @ V  # (rows, cols)
 
-        bias = self.bias_decoders[role](latent)  # (cols,)
+        bias = self.bias_decoders[role](latent).squeeze(0)  # (cols,)
 
         return weight, bias
 
@@ -167,4 +167,19 @@ class Genome(nn.Module):
 
         self.config.max_strands = new_max
         logger.info("Genome: expanded seed bank %d -> %d", old_max, new_max)
+
+    def clone_strand(self, src_id: int, noise_scale: float = 0.05) -> int:
+        """Clone a strand's seed and apply slight mutation (evolution). Returns new strand_id."""
+        self.add_strand_capacity(1)
+        new_id = self.seeds.shape[0] - 1
+        with torch.no_grad():
+            self.seeds.data[new_id] = self.seeds.data[src_id] + torch.randn_like(self.seeds.data[src_id]) * noise_scale
+        logger.info("Genome: Cloned strand %d -> %d with noise %.2f", src_id, new_id, noise_scale)
+        return new_id
+
+    def prune_strand(self, strand_id: int) -> None:
+        """Mark a strand's seed as dead (zero out). It can still be used, but shouldn't be routed to."""
+        with torch.no_grad():
+            self.seeds.data[strand_id].zero_()
+        logger.info("Genome: Pruned strand %d", strand_id)
 
