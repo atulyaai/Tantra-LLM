@@ -56,6 +56,48 @@ SEED_VOCAB_SAMPLE_SIZE = 250_000
 SEED_VOCAB_MERGE_ROUNDS = 12_000
 SEED_TARGET_VOCAB_SIZE = 64_000
 
+GENERATION_PROBE_PROMPTS = [
+    "Hi! How are you?",
+    "Can you help me plan my study session?",
+    "Explain gravity simply.",
+    "Why do things fall down?",
+    "What is machine learning?",
+    "Explain photosynthesis in one paragraph.",
+    "Who was Chanakya?",
+    "Tell me one interesting fact.",
+    "Write a Python function to add two numbers.",
+    "Write a Python function to multiply two numbers.",
+    "What is 17 plus 29?",
+    "If I have 12 apples and give away 5, how many are left?",
+    "Give me three tips for learning faster.",
+    "Write a short paragraph about discipline.",
+    "Explain why clean data matters for training.",
+    "What should I do if I feel stressed?",
+]
+
+FINAL_GENERATION_PROMPTS = [
+    "Hello. How are you?",
+    "Explain gravity to a 10 year old.",
+    "Why do things fall down?",
+    "Tell me something interesting.",
+    "Write a Python function to add two numbers.",
+    "Write a Python function to multiply two numbers.",
+    "Who was Chanakya?",
+    "What is machine learning?",
+    "Explain photosynthesis.",
+    "Give me study tips.",
+    "Write a short paragraph about focus.",
+    "If I have 9 apples and give away 4, how many are left?",
+]
+
+
+def sample_generation_prompts(step: int, count: int = 4) -> list[str]:
+    """Pick stable random generation probes so logs test more than seed prompts."""
+    if count >= len(GENERATION_PROBE_PROMPTS):
+        return list(GENERATION_PROBE_PROMPTS)
+    rng = random.Random(int(step))
+    return rng.sample(GENERATION_PROBE_PROMPTS, count)
+
 # Auto-calculate steps per dataset based on local dataset size.
 DATASET_SIZES = {
     "factual": 679,
@@ -1287,7 +1329,7 @@ def train(
 
             # Generation check every 1000 steps
             if step % 1000 == 0 or step == start_step:
-                for p in ["Hi! How are you?", "What is gravity?"]:
+                for p in sample_generation_prompts(step):
                     o = core.generate(p, max_tokens=25, temperature=0.3,
                                       top_k=30, top_p=0.85, repetition_penalty=1.2,
                                       context_window=256)
@@ -1348,12 +1390,7 @@ def train(
     print(f"  Final val loss: {fv:.4f} | Best val: {best_val:.4f}")
 
     print("\n  --- Generation ---")
-    for p in ["Hello. How are you?",
-              "What is gravity?",
-              "Tell me something interesting.",
-              "Write a Python function.",
-              "Who was Chanakya?",
-              "What is machine learning?"]:
+    for p in FINAL_GENERATION_PROMPTS:
         o = core.generate(p, max_tokens=50, temperature=0.3,
                           top_k=30, top_p=0.85, repetition_penalty=1.2,
                           context_window=256)

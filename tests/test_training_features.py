@@ -9,6 +9,8 @@ from npdna.model import NpDnaCore, NpDnaModel
 from npdna.brain import PlasticityEngine
 from npdna.train import (
     Dataset,
+    FINAL_GENERATION_PROMPTS,
+    GENERATION_PROBE_PROMPTS,
     IGNORE_INDEX,
     JsonlSeedRecordStore,
     _extract_training_text,
@@ -22,6 +24,7 @@ from npdna.train import (
     load_texts,
     mtp_aux_loss,
     save_training_checkpoint,
+    sample_generation_prompts,
     scheduled_lr,
     stage_index_for_step,
 )
@@ -182,6 +185,19 @@ def test_curriculum_scales_to_target_steps():
     assert all(a["steps"] < b["steps"] for a, b in zip(curriculum, curriculum[1:]))
     assert stage_index_for_step(652, curriculum) == 0
     assert curriculum[-1]["folders"] == all_folders
+
+
+def test_generation_probe_prompts_are_varied_and_stable():
+    prompts = sample_generation_prompts(step=1234, count=4)
+
+    assert len(prompts) == 4
+    assert prompts == sample_generation_prompts(step=1234, count=4)
+    assert prompts != sample_generation_prompts(step=1235, count=4)
+    assert len(GENERATION_PROBE_PROMPTS) >= 12
+    assert any("Python" in prompt for prompt in GENERATION_PROBE_PROMPTS)
+    assert any("gravity" in prompt.lower() for prompt in GENERATION_PROBE_PROMPTS)
+    assert any("study" in prompt.lower() for prompt in GENERATION_PROBE_PROMPTS)
+    assert len(FINAL_GENERATION_PROMPTS) >= len(prompts)
 
 
 def test_format_duration():
