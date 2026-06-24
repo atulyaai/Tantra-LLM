@@ -92,6 +92,7 @@ class CodecConfig:
 
 GROW_FILL_RATIO = 0.95
 MAX_VOCAB_GROWTH_PER_STAGE = 10000
+BIG_LAYER_NAMES = {"code", "experts", "reasoning", "synthesis"}
 
 
 @dataclass
@@ -111,6 +112,9 @@ class NpDnaConfig:
     max_vocab: int = 256_000
 
     strands_per_layer: int = 8
+    normal_max_strands_per_layer: int = 4
+    big_layer_strands: int = 8
+    max_strands_per_layer: int = 8
     top_k: int = 3
 
     mesh_specs: list[LayerSpec] = field(default_factory=list)
@@ -134,28 +138,28 @@ class NpDnaConfig:
 
     def __post_init__(self) -> None:
         complexity = self.complexity
+        has_explicit_specs = bool(self.mesh_specs)
         # Base scale: complexity 1.0 -> hidden=128, layers=15.
         self.hidden_size = max(64, int(128 * complexity))
         self.state_size = self.hidden_size
-        self.strands_per_layer = max(4, int(8 + 2 * complexity))
-        self.top_k = max(2, self.strands_per_layer // 3)
+        self.normal_max_strands_per_layer = min(
+            self.max_strands_per_layer,
+            max(2, int(self.normal_max_strands_per_layer)),
+        )
+        normal_strands = min(self.normal_max_strands_per_layer, max(2, int(round(2 + complexity))))
+        heavy_strands = min(self.max_strands_per_layer, max(normal_strands, self.big_layer_strands))
+        self.strands_per_layer = normal_strands
+        self.big_layer_strands = heavy_strands
+        self.top_k = self._top_k_for(self.strands_per_layer)
         self.initial_vocab = max(2048, int(4096 * complexity))
 
         if not self.mesh_specs:
             self.mesh_specs = [
-                LayerSpec(name="conversation", num_strands=self.strands_per_layer, top_k=self.top_k),
-                LayerSpec(name="code", num_strands=self.strands_per_layer, top_k=self.top_k),
-                LayerSpec(name="math", num_strands=self.strands_per_layer, top_k=self.top_k),
-                LayerSpec(
-                    name="science",
-                    num_strands=max(4, self.strands_per_layer - 2),
-                    top_k=max(2, self.top_k - 1),
-                ),
-                LayerSpec(
-                    name="writing",
-                    num_strands=max(4, self.strands_per_layer - 2),
-                    top_k=max(2, self.top_k - 1),
-                ),
+                self._make_layer_spec("conversation"),
+                self._make_layer_spec("code"),
+                self._make_layer_spec("math"),
+                self._make_layer_spec("science"),
+                self._make_layer_spec("writing"),
             ]
 
             # Fill remaining layers with named training domains up to num_layers.
@@ -179,11 +183,7 @@ class NpDnaConfig:
                     else f"layer_{len(self.mesh_specs)}"
                 )
                 self.mesh_specs.append(
-                    LayerSpec(
-                        name=name,
-                        num_strands=self.strands_per_layer,
-                        top_k=self.top_k,
-                    )
+                    self._make_layer_spec(name)
                 )
                 extra_i += 1
 
@@ -195,6 +195,9 @@ class NpDnaConfig:
             # Propagate new arch fields to every spec strand
             if spec.strand.use_swiglu is True:  # only override if still at default
                 pass  # keep as-is (default True)
+            if not has_explicit_specs:
+                spec.num_strands = min(spec.num_strands, self._strand_cap_for(spec.name))
+            spec.top_k = min(spec.top_k, self._top_k_for(spec.num_strands))
 
 
         self.mesh.strand.hidden_size = self.hidden_size
@@ -206,7 +209,28 @@ class NpDnaConfig:
         if self.genome.latent_dim is None:
             self.genome.latent_dim = min(128, self.hidden_size)
         if self.genome.max_strands is None:
-            self.genome.max_strands = self.total_strands * 4
+            if has_explicit_specs:
+                self.genome.max_strands = self.total_strands
+            else:
+                self.genome.max_strands = sum(self._strand_cap_for(spec.name) for spec in self.mesh_specs)
+
+    def _top_k_for(self, num_strands: int) -> int:
+        num_strands = max(1, int(num_strands))
+        if num_strands <= 2:
+            return 1
+        if num_strands <= 4:
+            return 2
+        return min(3, num_strands)
+
+    def _make_layer_spec(self, name: str) -> LayerSpec:
+        strands = self.big_layer_strands if name in BIG_LAYER_NAMES else self.strands_per_layer
+        strands = min(self._strand_cap_for(name), max(1, int(strands)))
+        return LayerSpec(name=name, num_strands=strands, top_k=self._top_k_for(strands))
+
+    def _strand_cap_for(self, name: str) -> int:
+        if name in BIG_LAYER_NAMES:
+            return max(1, int(self.max_strands_per_layer))
+        return max(1, int(self.normal_max_strands_per_layer))
 
     @property
     def total_strands(self) -> int:
@@ -227,19 +251,22 @@ class NpDnaConfig:
         return old
 
     def should_grow_strands(self, max_usage_ratio: float) -> bool:
-        return max_usage_ratio >= GROW_FILL_RATIO
+        if max_usage_ratio < GROW_FILL_RATIO:
+            return False
+        return any(spec.num_strands < self._strand_cap_for(spec.name) for spec in self.mesh_specs)
 
     def grow_strands(self, layer_idx: int | None = None) -> int:
-        add_count = max(1, self.strands_per_layer // 4)
+        add_count = 1
         if layer_idx is not None and layer_idx < len(self.mesh_specs):
-            self.mesh_specs[layer_idx].num_strands += add_count
-            self.mesh_specs[layer_idx].top_k = max(2, self.mesh_specs[layer_idx].num_strands // 3)
+            spec = self.mesh_specs[layer_idx]
+            spec.num_strands = min(self._strand_cap_for(spec.name), spec.num_strands + add_count)
+            spec.top_k = self._top_k_for(spec.num_strands)
         else:
             for spec in self.mesh_specs:
-                spec.num_strands += add_count
-                spec.top_k = max(2, spec.num_strands // 3)
-        self.strands_per_layer += add_count
-        self.top_k = max(2, self.strands_per_layer // 3)
+                spec.num_strands = min(self._strand_cap_for(spec.name), spec.num_strands + add_count)
+                spec.top_k = self._top_k_for(spec.num_strands)
+        self.strands_per_layer = min(self.normal_max_strands_per_layer, self.strands_per_layer + add_count)
+        self.top_k = self._top_k_for(self.strands_per_layer)
         self.growth_state["strand_grows"] += 1
         return self.strands_per_layer
 

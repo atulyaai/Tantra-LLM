@@ -181,13 +181,29 @@ class NpDnaModel(nn.Module):
         if count <= 0:
             return
         old_total = sum(spec.num_strands for spec in self.layer_specs)
-        self.genome.add_strand_capacity(self.config.num_layers * count)
-        for grow_i in range(count):
-            for layer_i, mesh in enumerate(self.mesh_layers):
-                strand_id = old_total + grow_i * self.config.num_layers + layer_i
-                mesh.add_strand(strand_id=strand_id)
-        for spec in self.layer_specs:
-            spec.num_strands += count
+        growth_plan: list[tuple[int, int]] = []
+        for layer_i, spec in enumerate(self.layer_specs):
+            cap_for = getattr(self.config, "_strand_cap_for", None)
+            cap = cap_for(spec.name) if cap_for is not None else spec.num_strands + count
+            add_n = max(0, min(count, cap - spec.num_strands))
+            if add_n:
+                growth_plan.append((layer_i, add_n))
+        if not growth_plan:
+            return
+
+        self.genome.add_strand_capacity(sum(add_n for _, add_n in growth_plan))
+        next_strand_id = old_total
+        for layer_i, add_n in growth_plan:
+            mesh = self.mesh_layers[layer_i]
+            for _ in range(add_n):
+                mesh.add_strand(strand_id=next_strand_id)
+                next_strand_id += 1
+            self.layer_specs[layer_i].num_strands += add_n
+
+        top_k_for = getattr(self.config, "_top_k_for", None)
+        if top_k_for is not None:
+            for spec in self.layer_specs:
+                spec.top_k = top_k_for(spec.num_strands)
         new_total = sum(spec.num_strands for spec in self.layer_specs)
         if self.layer_specs:
             self.config.mesh.num_strands = self.layer_specs[0].num_strands
