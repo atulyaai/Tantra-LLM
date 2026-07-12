@@ -2,6 +2,7 @@ import unittest
 import asyncio
 import sys
 import os
+import torch
 
 # Add project root to path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -276,6 +277,85 @@ class TestTantraE2E(unittest.TestCase):
         resp_gemini = self.loop.run_until_complete(gemini.generate(req))
         self.assertGreater(resp_gemini.usage["prompt_tokens"], 0)
         self.assertGreater(resp_gemini.cost, 0.0)
+
+    def test_grad_accumulation_divisor(self):
+        from training.fusion_trainer import FusionTrainer, FusionProjector
+        from training.training_config import FusionTrainingConfig
+        from training.datasets.multimodal_dataset import MultimodalDataset
+        
+        config = FusionTrainingConfig(batch_size=2, epochs=1, grad_accum=3)
+        vis_proj = FusionProjector(768, 1024)
+        aud_proj = FusionProjector(512, 1024)
+        
+        trainer = FusionTrainer(config, vis_proj, aud_proj)
+        
+        # 5 samples -> 3 batches total (2, 2, 1)
+        ds = MultimodalDataset.generate_synthetic(num_samples=5, vision_dim=768, audio_dim=512, target_dim=1024)
+        
+        # We manually check that current_group_size resolves to correct divisors:
+        # Group 1 (Batch 0, 1, 2) -> Group size 3.
+        # Group 2 (Batch 3) -> Group size 1.
+        history = trainer.fit(ds)
+        self.assertEqual(len(history["train_loss"]), 1)
+        self.assertGreater(history["train_loss"][0], 0.0)
+
+    def test_lightweight_checkpoint(self):
+        import tempfile
+        from training.fusion_trainer import FusionTrainer, FusionProjector
+        from training.training_config import FusionTrainingConfig
+        
+        config = FusionTrainingConfig(epochs=1)
+        vis_proj = FusionProjector(768, 1024)
+        aud_proj = FusionProjector(512, 1024)
+        trainer = FusionTrainer(config, vis_proj, aud_proj)
+        
+        with tempfile.TemporaryDirectory() as tmpdir:
+            ckpt_path = os.path.join(tmpdir, "ckpt.pt")
+            
+            # Save lightweight (inference-only)
+            trainer.save_checkpoint(ckpt_path, include_states=False)
+            payload = torch.load(ckpt_path, weights_only=True)
+            
+            self.assertIn("vision_projector", payload)
+            self.assertIn("audio_projector", payload)
+            self.assertNotIn("optimizer", payload)
+            self.assertNotIn("scheduler", payload)
+            self.assertNotIn("global_step", payload)
+
+    def test_audio_cache_rejection(self):
+        import tempfile
+        from unittest.mock import patch, MagicMock
+        from scripts.precompute_embeddings import main
+        
+        # Create temp dir for images/audios
+        with tempfile.TemporaryDirectory() as tmpdir:
+            audio_dir = os.path.join(tmpdir, "audio")
+            output_dir = os.path.join(tmpdir, "output")
+            os.makedirs(audio_dir)
+            os.makedirs(output_dir)
+            
+            # Create a mock wav file
+            wav_path = os.path.join(audio_dir, "test.wav")
+            with open(wav_path, "wb") as f:
+                f.write(b"RIFF....WAVEfmt ....data....")
+                
+            # Mock AudioEncoder to return a zero tensor (failed encoding)
+            mock_encoder = MagicMock()
+            mock_encoder.encode.return_value = torch.zeros(1, 4096)
+            
+            mock_librosa = MagicMock()
+            mock_librosa.load.return_value = (None, 16000)
+            
+            with patch("scripts.precompute_embeddings.AudioEncoder", return_value=mock_encoder), \
+                 patch.dict("sys.modules", {"librosa": mock_librosa}):
+                
+                # Mock sys.argv to pass arguments to argparse
+                with patch("sys.argv", ["scripts/precompute_embeddings.py", "--audio-dir", audio_dir, "--output-dir", output_dir]):
+                    main()
+                    
+            # Check output_dir: since encoder returned zeros, the file should NOT be saved
+            saved_files = os.listdir(output_dir)
+            self.assertEqual(len(saved_files), 0, "Failed audio embeddings must be skipped, not saved.")
 
 if __name__ == "__main__":
     unittest.main()

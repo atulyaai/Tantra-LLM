@@ -43,6 +43,7 @@ def parse_args():
     p.add_argument("--audio-dim", type=int, default=512)
     p.add_argument("--model-dim", type=int, default=4096)
     p.add_argument("--compile", action="store_true")
+    p.add_argument("--cache-dir", type=str, default="training/cache/", help="Directory containing pre-computed .pt files")
     return p.parse_args()
 
 
@@ -59,19 +60,28 @@ def main():
     print(f"{'='*60}")
 
     # -- 1. Dataset --
-    logger.info(f"Generating {args.num_samples} synthetic samples...")
-    full_ds = MultimodalDataset.generate_synthetic(
-        num_samples=args.num_samples,
-        vision_dim=args.vision_dim,
-        audio_dim=args.audio_dim,
-        target_dim=args.model_dim,
-        seq_len=32
-    )
+    has_cache = False
+    if args.cache_dir and os.path.isdir(args.cache_dir):
+        pt_files = [f for f in os.listdir(args.cache_dir) if f.endswith(".pt")]
+        if pt_files:
+            logger.info(f"Loading real pre-computed dataset from cache directory: {args.cache_dir} ({len(pt_files)} files)...")
+            full_ds = MultimodalDataset(cache_dir=args.cache_dir)
+            has_cache = True
+
+    if not has_cache:
+        logger.info(f"Cache empty or not specified. Generating {args.num_samples} synthetic samples...")
+        full_ds = MultimodalDataset.generate_synthetic(
+            num_samples=args.num_samples,
+            vision_dim=args.vision_dim,
+            audio_dim=args.audio_dim,
+            target_dim=args.model_dim,
+            seq_len=32
+        )
 
     val_size = int(len(full_ds) * args.val_split)
     train_size = len(full_ds) - val_size
     train_ds, val_ds = torch.utils.data.random_split(full_ds, [train_size, val_size])
-    logger.info(f"Train: {train_size}, Val: {val_size}")
+    logger.info(f"Dataset Size - Train: {train_size}, Val: {val_size}")
 
     # -- 2. Projectors (smaller, with dropout) --
     vis_proj = FusionProjector(args.vision_dim, args.model_dim, dropout=args.dropout)

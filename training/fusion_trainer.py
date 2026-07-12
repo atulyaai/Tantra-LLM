@@ -157,16 +157,14 @@ class FusionTrainer:
                     loss = self._forward_step(vision_e, audio_e, targets)
 
                 if loss is not None:
-                    # Determine the actual divisor: full grad_accum for normal batches,
-                    # or the remaining count for the final incomplete group
-                    is_last_batch = (batch_idx + 1) == len(train_loader)
+                    # Calculate group size at the start of each accumulation group
+                    if accum_count == 0:
+                        remaining = len(train_loader) - batch_idx
+                        current_group_size = min(self.config.grad_accum, remaining)
+
                     accum_count += 1
-
-                    actual_divisor = self.config.grad_accum
-                    if is_last_batch and accum_count < self.config.grad_accum:
-                        actual_divisor = accum_count
-
-                    scaled_loss = loss / actual_divisor
+                    is_last_batch = (batch_idx + 1) == len(train_loader)
+                    scaled_loss = loss / current_group_size
 
                     if self.scaler:
                         self.scaler.scale(scaled_loss).backward()

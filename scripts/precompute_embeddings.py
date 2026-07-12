@@ -110,7 +110,8 @@ def main():
                     
                     # Verify we didn't get all-zeros (encoder fallback)
                     if embed.abs().sum().item() == 0.0:
-                        logger.warning(f"Zero embedding for {filename} - encoder may have failed silently")
+                        logger.error(f"Failed to encode audio for {filename}: Whisper encoder returned zeros. Skipping file.")
+                        continue
                     
                     torch.save(embed.cpu(), out_path)
                 except Exception as e:
