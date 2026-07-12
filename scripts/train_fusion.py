@@ -1,12 +1,11 @@
 """
-Tantra-LLM Fusion Projector Training Script
+Tantra-LLM Fusion Projector Training + Verification Script
 
-Trains vision and audio projection layers to align multimodal embeddings
-into the base model's hidden space using contrastive learning.
+Trains projectors, tests checkpoint save/load, measures inference speed.
 
 Usage:
     python scripts/train_fusion.py
-    python scripts/train_fusion.py --epochs 10 --batch-size 16 --lr 3e-4
+    python scripts/train_fusion.py --epochs 15 --batch-size 32 --lr 5e-4
 """
 
 import sys
@@ -23,126 +22,203 @@ from training.training_config import FusionTrainingConfig
 from training.fusion_trainer import FusionTrainer, FusionProjector
 from training.datasets.multimodal_dataset import MultimodalDataset
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(name)s] %(message)s",
-    datefmt="%H:%M:%S"
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s", datefmt="%H:%M:%S")
 logger = logging.getLogger("train_fusion")
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Train fusion projectors")
-    parser.add_argument("--epochs", type=int, default=5, help="Number of training epochs")
-    parser.add_argument("--batch-size", type=int, default=16, help="Batch size")
-    parser.add_argument("--lr", type=float, default=3e-4, help="Learning rate")
-    parser.add_argument("--weight-decay", type=float, default=0.01, help="Weight decay")
-    parser.add_argument("--patience", type=int, default=3, help="Early stopping patience")
-    parser.add_argument("--num-samples", type=int, default=1000, help="Number of synthetic samples")
-    parser.add_argument("--val-split", type=float, default=0.2, help="Validation split ratio")
-    parser.add_argument("--vision-dim", type=int, default=768, help="Vision encoder output dim")
-    parser.add_argument("--audio-dim", type=int, default=512, help="Audio encoder output dim")
-    parser.add_argument("--model-dim", type=int, default=4096, help="Base model hidden dim (projector target)")
-    parser.add_argument("--compile", action="store_true", help="Use torch.compile on projectors")
-    return parser.parse_args()
+    p = argparse.ArgumentParser(description="Train fusion projectors")
+    p.add_argument("--epochs", type=int, default=15)
+    p.add_argument("--batch-size", type=int, default=32)
+    p.add_argument("--lr", type=float, default=5e-4)
+    p.add_argument("--weight-decay", type=float, default=0.01)
+    p.add_argument("--dropout", type=float, default=0.1)
+    p.add_argument("--patience", type=int, default=5)
+    p.add_argument("--warmup-steps", type=int, default=10)
+    p.add_argument("--grad-clip", type=float, default=1.0)
+    p.add_argument("--grad-accum", type=int, default=2)
+    p.add_argument("--num-samples", type=int, default=1000)
+    p.add_argument("--val-split", type=float, default=0.2)
+    p.add_argument("--vision-dim", type=int, default=768)
+    p.add_argument("--audio-dim", type=int, default=512)
+    p.add_argument("--model-dim", type=int, default=4096)
+    p.add_argument("--compile", action="store_true")
+    return p.parse_args()
 
 
 def main():
     args = parse_args()
-    
+
     print(f"\n{'='*60}")
     print(f"  TANTRA-LLM FUSION PROJECTOR TRAINING")
-    print(f"  PyTorch: {torch.__version__}")
-    print(f"  CUDA: {'Available (' + torch.cuda.get_device_name(0) + ')' if torch.cuda.is_available() else 'Not available (CPU mode)'}")
+    print(f"  PyTorch {torch.__version__}")
+    if torch.cuda.is_available():
+        print(f"  CUDA: {torch.cuda.get_device_name(0)}")
+    else:
+        print(f"  CPU mode ({os.cpu_count()} threads)")
     print(f"{'='*60}")
-    
-    # ── 1. Generate synthetic dataset ──
-    # In production, replace this with real pre-computed embeddings
-    logger.info(f"Generating {args.num_samples} synthetic multimodal samples...")
-    full_dataset = MultimodalDataset.generate_synthetic(
+
+    # -- 1. Dataset --
+    logger.info(f"Generating {args.num_samples} synthetic samples...")
+    full_ds = MultimodalDataset.generate_synthetic(
         num_samples=args.num_samples,
         vision_dim=args.vision_dim,
         audio_dim=args.audio_dim,
         target_dim=args.model_dim,
         seq_len=32
     )
-    
-    # Split into train/val
-    val_size = int(len(full_dataset) * args.val_split)
-    train_size = len(full_dataset) - val_size
-    train_dataset, val_dataset = torch.utils.data.random_split(full_dataset, [train_size, val_size])
-    
-    logger.info(f"Train: {train_size} samples, Val: {val_size} samples")
-    
-    # ── 2. Create projectors ──
-    vision_projector = FusionProjector(
-        input_dim=args.vision_dim, 
-        output_dim=args.model_dim
-    )
-    audio_projector = FusionProjector(
-        input_dim=args.audio_dim, 
-        output_dim=args.model_dim
-    )
-    
-    # ── 3. Configure trainer ──
+
+    val_size = int(len(full_ds) * args.val_split)
+    train_size = len(full_ds) - val_size
+    train_ds, val_ds = torch.utils.data.random_split(full_ds, [train_size, val_size])
+    logger.info(f"Train: {train_size}, Val: {val_size}")
+
+    # -- 2. Projectors (smaller, with dropout) --
+    vis_proj = FusionProjector(args.vision_dim, args.model_dim, dropout=args.dropout)
+    aud_proj = FusionProjector(args.audio_dim, args.model_dim, dropout=args.dropout)
+
+    # -- 3. Config --
     config = FusionTrainingConfig(
         lr=args.lr,
         batch_size=args.batch_size,
         epochs=args.epochs,
         weight_decay=args.weight_decay,
+        grad_accum=args.grad_accum,
+        grad_clip=args.grad_clip,
+        warmup_steps=args.warmup_steps,
+        dropout=args.dropout,
     )
-    
+
     trainer = FusionTrainer(
         config=config,
-        vision_projector=vision_projector,
-        audio_projector=audio_projector,
-        base_model=None,  # No base model needed for projector-only training
-        use_compile=args.compile,
+        vision_projector=vis_proj,
+        audio_projector=aud_proj,
         patience=args.patience,
     )
-    
+
     # -- 4. Train --
-    start = time.time()
-    history = trainer.fit(train_dataset, val_dataset)
-    elapsed = time.time() - start
-    
-    # -- 5. Report --
+    t0 = time.time()
+    history = trainer.fit(train_ds, val_ds)
+    train_time = time.time() - t0
+
+    # -- 5. Checkpoint Save/Load Verification --
     print(f"\n{'-'*60}")
-    print(f"  TRAINING REPORT")
+    print(f"  CHECKPOINT VERIFICATION")
     print(f"{'-'*60}")
-    print(f"  Wall time:        {elapsed:.2f}s")
+
+    ckpt_path = "checkpoints/final_projectors.pt"
+    if os.path.exists(ckpt_path):
+        ckpt_size = os.path.getsize(ckpt_path) / (1024 * 1024)
+        print(f"  Checkpoint file: {ckpt_path} ({ckpt_size:.1f} MB)")
+
+        # Create fresh projectors and load
+        vis_proj2 = FusionProjector(args.vision_dim, args.model_dim, dropout=args.dropout)
+        aud_proj2 = FusionProjector(args.audio_dim, args.model_dim, dropout=args.dropout)
+        trainer2 = FusionTrainer(
+            config=config,
+            vision_projector=vis_proj2,
+            audio_projector=aud_proj2,
+            patience=args.patience,
+        )
+        trainer2.load_checkpoint(ckpt_path)
+
+        # Verify weights match
+        for (n1, p1), (n2, p2) in zip(
+            trainer.vision_projector.named_parameters(),
+            trainer2.vision_projector.named_parameters()
+        ):
+            if not torch.equal(p1, p2):
+                print(f"  [FAIL] Vision param mismatch: {n1}")
+                break
+        else:
+            print(f"  [PASS] Vision projector weights verified")
+
+        for (n1, p1), (n2, p2) in zip(
+            trainer.audio_projector.named_parameters(),
+            trainer2.audio_projector.named_parameters()
+        ):
+            if not torch.equal(p1, p2):
+                print(f"  [FAIL] Audio param mismatch: {n1}")
+                break
+        else:
+            print(f"  [PASS] Audio projector weights verified")
+    else:
+        print(f"  [WARN] No checkpoint found at {ckpt_path}")
+
+    # -- 6. Inference Speed Test --
+    print(f"\n{'-'*60}")
+    print(f"  INFERENCE SPEED TEST")
+    print(f"{'-'*60}")
+
+    trainer.vision_projector.eval()
+    trainer.audio_projector.eval()
+
+    # Warmup
+    dummy_v = torch.randn(1, args.vision_dim, device=trainer.device)
+    dummy_a = torch.randn(1, args.audio_dim, device=trainer.device)
+    with torch.no_grad():
+        for _ in range(5):
+            trainer.vision_projector(dummy_v)
+            trainer.audio_projector(dummy_a)
+
+    # Benchmark single inference
+    n_runs = 100
+    t_start = time.time()
+    with torch.no_grad():
+        for _ in range(n_runs):
+            trainer.vision_projector(dummy_v)
+            trainer.audio_projector(dummy_a)
+    t_total = time.time() - t_start
+    per_call_ms = (t_total / n_runs) * 1000
+
+    print(f"  Single inference: {per_call_ms:.2f}ms (avg over {n_runs} runs)")
+
+    # Benchmark batch inference
+    dummy_v_batch = torch.randn(32, args.vision_dim, device=trainer.device)
+    dummy_a_batch = torch.randn(32, args.audio_dim, device=trainer.device)
+    t_start = time.time()
+    with torch.no_grad():
+        for _ in range(n_runs):
+            trainer.vision_projector(dummy_v_batch)
+            trainer.audio_projector(dummy_a_batch)
+    t_total = time.time() - t_start
+    batch_ms = (t_total / n_runs) * 1000
+
+    print(f"  Batch-32 inference: {batch_ms:.2f}ms (avg over {n_runs} runs)")
+    print(f"  Throughput: {32 / (batch_ms / 1000):.0f} samples/sec")
+
+    # -- 7. Final Report --
+    print(f"\n{'='*60}")
+    print(f"  TRAINING REPORT")
+    print(f"{'='*60}")
+    print(f"  Wall time:        {train_time:.2f}s")
     print(f"  Epochs completed: {len(history['train_loss'])}")
     print(f"  Final train loss: {history['train_loss'][-1]:.6f}")
     if history["val_loss"]:
         print(f"  Best val loss:    {min(history['val_loss']):.6f}")
-    
-    # Loss convergence check
+
     if len(history["train_loss"]) >= 2:
         first = history["train_loss"][0]
         last = history["train_loss"][-1]
         reduction = ((first - last) / abs(first)) * 100 if first != 0 else 0
         print(f"  Loss reduction:   {reduction:.1f}%")
-        
         if reduction > 5:
-            print(f"  Status:           [PASS] Loss is converging")
+            print(f"  Status:           [PASS] Converging")
         elif reduction > 0:
-            print(f"  Status:           [WARN] Slow convergence - try higher LR or more epochs")
+            print(f"  Status:           [WARN] Slow - try higher LR or more epochs")
         else:
-            print(f"  Status:           [FAIL] Loss not decreasing - check loss function or LR")
-    
-    print(f"{'-'*60}")
-    
-    # Per-epoch details
+            print(f"  Status:           [FAIL] Not decreasing")
+
     print(f"\n  Epoch | Train Loss | Val Loss   | LR         | Time")
     print(f"  ------|------------|------------|------------|------")
     for i in range(len(history["train_loss"])):
-        t_loss = history["train_loss"][i]
-        v_loss = history["val_loss"][i] if i < len(history["val_loss"]) else float("nan")
+        tl = history["train_loss"][i]
+        vl = history["val_loss"][i] if i < len(history["val_loss"]) else float("nan")
         lr = history["lr"][i]
-        t = history["epoch_time_s"][i]
-        print(f"  {i+1:5d} | {t_loss:10.6f} | {v_loss:10.6f} | {lr:10.2e} | {t:.2f}s")
-    
-    print()
+        et = history["epoch_time_s"][i]
+        print(f"  {i+1:5d} | {tl:10.6f} | {vl:10.6f} | {lr:10.2e} | {et:.2f}s")
+
+    print(f"{'='*60}\n")
 
 
 if __name__ == "__main__":
