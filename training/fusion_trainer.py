@@ -271,14 +271,18 @@ class FusionTrainer:
     def save_checkpoint(self, path: str):
         import os
         os.makedirs(os.path.dirname(path), exist_ok=True)
+        # Convert state dicts to FP16 to reduce file size on disk
+        vision_sd = {k: v.half() if torch.is_tensor(v) else v for k, v in self.vision_projector.state_dict().items()}
+        audio_sd = {k: v.half() if torch.is_tensor(v) else v for k, v in self.audio_projector.state_dict().items()}
         torch.save({
-            "vision_projector": self.vision_projector.state_dict(),
-            "audio_projector": self.audio_projector.state_dict(),
+            "vision_projector": vision_sd,
+            "audio_projector": audio_sd,
             "optimizer": self.optimizer.state_dict(),
             "scheduler": self.scheduler.state_dict(),
             "global_step": self.global_step,
         }, path)
-        logger.info(f"[Checkpoint] Saved to {path}")
+        logger.info(f"[Checkpoint] Saved to {path} (FP16)")
+
 
     def load_checkpoint(self, path: str):
         ckpt = torch.load(path, map_location=self.device, weights_only=True)

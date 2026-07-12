@@ -61,7 +61,10 @@ class UnifiedInferenceHub:
     def _get_active_adapters(self, provider: ModelProvider) -> List[BaseTantraAdapter]:
         """Finds all adapters that are registered and not currently tripped by the circuit breaker."""
         now = time.time()
-        candidates = self.adapters.get(provider, []) + self.adapters.get(ModelProvider.LOCAL, [])
+        candidates = list(self.adapters.get(provider, []))
+        if provider != ModelProvider.LOCAL:
+            candidates.extend(self.adapters.get(ModelProvider.LOCAL, []))
+            
         active = []
         for adapter in candidates:
             if adapter in active:
@@ -73,6 +76,13 @@ class UnifiedInferenceHub:
                 continue
             active.append(adapter)
         return active
+
+
+    def get_active_adapter(self, provider: ModelProvider) -> Optional[BaseTantraAdapter]:
+        """Returns the first active, non-tripped adapter for the given provider."""
+        active = self._get_active_adapters(provider)
+        return active[0] if active else None
+
 
     def _record_failure(self, adapter: BaseTantraAdapter):
         """Records a failure on the adapter, tripping the circuit if max_failures is reached."""

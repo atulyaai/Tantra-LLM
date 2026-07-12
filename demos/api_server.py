@@ -56,10 +56,14 @@ async def root():
 @app.get("/health")
 async def health():
     health_status = {}
-    for provider, adapter in hub.adapters.items():
-        try:
-            health_status[provider.value] = adapter.health_check()
-        except Exception:
+    for provider in ModelProvider:
+        adapter = hub.get_active_adapter(provider)
+        if adapter:
+            try:
+                health_status[provider.value] = adapter.health_check()
+            except Exception:
+                health_status[provider.value] = False
+        else:
             health_status[provider.value] = False
     return {"status": "ok", "adapters": health_status}
 
@@ -104,7 +108,7 @@ async def generate_stream(req: GenerateRequestSchema):
     )
 
     async def event_generator():
-        adapter = hub.adapters.get(provider_enum) or hub.adapters.get(ModelProvider.LOCAL)
+        adapter = hub.get_active_adapter(provider_enum)
         if not adapter:
             yield f"data: {json.dumps({'error': 'Adapter unavailable'})}\n\n"
             return

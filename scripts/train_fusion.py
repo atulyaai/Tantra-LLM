@@ -122,12 +122,13 @@ def main():
         )
         trainer2.load_checkpoint(ckpt_path)
 
-        # Verify weights match
+        # Verify weights match (using allclose to support FP16 conversion tolerance)
         for (n1, p1), (n2, p2) in zip(
             trainer.vision_projector.named_parameters(),
             trainer2.vision_projector.named_parameters()
         ):
-            if not torch.equal(p1, p2):
+            # Convert p1 to match the loaded dtype of p2 for correct comparison
+            if not torch.allclose(p1.to(p2.dtype), p2, atol=1e-3):
                 print(f"  [FAIL] Vision param mismatch: {n1}")
                 break
         else:
@@ -137,7 +138,7 @@ def main():
             trainer.audio_projector.named_parameters(),
             trainer2.audio_projector.named_parameters()
         ):
-            if not torch.equal(p1, p2):
+            if not torch.allclose(p1.to(p2.dtype), p2, atol=1e-3):
                 print(f"  [FAIL] Audio param mismatch: {n1}")
                 break
         else:
