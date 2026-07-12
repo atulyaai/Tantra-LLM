@@ -253,51 +253,76 @@ class TestTantraE2E(unittest.TestCase):
         self.assertEqual(len(store.registry), 2)
 
     def test_adapter_telemetry(self):
+        """Adapters without API keys must fall back to simulation and mark usage['simulated']=True."""
         from adapters.openai.adapter import OpenAIAdapter
         from adapters.gemini.adapter import GeminiAdapter
-        
-        # Instantiate without keys (falls back to empty strings)
-        openai = OpenAIAdapter()
-        gemini = GeminiAdapter()
-        
-        # Check health checks do not crash
-        self.assertTrue(openai.health_check() or not openai.health_check())
-        
+
+        # No API key -> simulation mode
+        openai_adapter = OpenAIAdapter(api_key="")
+        gemini_adapter = GeminiAdapter(api_key="")
+
+        # health_check returns False when no key configured
+        self.assertFalse(openai_adapter.health_check())
+        self.assertFalse(gemini_adapter.health_check())
+
         req = TantraRequest(
             messages=[Message(role="user", content="Explain AGI dynamic context sliding window routing parameters.")],
-            provider=ModelProvider.OPENAI
+            provider=ModelProvider.OPENAI,
         )
-        
-        # Check OpenAI cost and token estimates
-        resp_openai = self.loop.run_until_complete(openai.generate(req))
+
+        # Simulation mode: token counts positive, cost positive, simulated flag set
+        resp_openai = self.loop.run_until_complete(openai_adapter.generate(req))
         self.assertGreater(resp_openai.usage["prompt_tokens"], 0)
         self.assertGreater(resp_openai.cost, 0.0)
-        
-        # Check Gemini cost and token estimates
-        resp_gemini = self.loop.run_until_complete(gemini.generate(req))
+        self.assertTrue(resp_openai.usage["simulated"],
+                        "OpenAI adapter without a key must mark response as simulated")
+        self.assertIn("[SIMULATED]", resp_openai.content)
+
+        resp_gemini = self.loop.run_until_complete(gemini_adapter.generate(req))
         self.assertGreater(resp_gemini.usage["prompt_tokens"], 0)
         self.assertGreater(resp_gemini.cost, 0.0)
+        self.assertTrue(resp_gemini.usage["simulated"],
+                        "Gemini adapter without a key must mark response as simulated")
+        self.assertIn("[SIMULATED]", resp_gemini.content)
 
     def test_grad_accumulation_divisor(self):
+        """Verify that an incomplete final accumulation group fires the optimizer correctly.
+
+        Layout:
+          7 samples, batch_size=2 -> 4 batches
+          grad_accum=3 -> Group 1 (batches 0,1,2) + Group 2 (batch 3)
+          Expected optimizer steps: exactly 2  (trainer.global_step increments once per step).
+
+        We read trainer.global_step after fit() — it is the canonical counter that
+        increments inside the same branch that calls optimizer.step, so it is the
+        cleanest way to verify group boundaries without touching the optimizer object.
+        """
         from training.fusion_trainer import FusionTrainer, FusionProjector
         from training.training_config import FusionTrainingConfig
         from training.datasets.multimodal_dataset import MultimodalDataset
-        
-        config = FusionTrainingConfig(batch_size=2, epochs=1, grad_accum=3)
-        vis_proj = FusionProjector(768, 1024)
-        aud_proj = FusionProjector(512, 1024)
-        
-        trainer = FusionTrainer(config, vis_proj, aud_proj)
-        
-        # 5 samples -> 3 batches total (2, 2, 1)
-        ds = MultimodalDataset.generate_synthetic(num_samples=5, vision_dim=768, audio_dim=512, target_dim=1024)
-        
-        # We manually check that current_group_size resolves to correct divisors:
-        # Group 1 (Batch 0, 1, 2) -> Group size 3.
-        # Group 2 (Batch 3) -> Group size 1.
+
+        config = FusionTrainingConfig(batch_size=2, epochs=1, grad_accum=3,
+                                      warmup_steps=0)
+        vis_proj = FusionProjector(768, 256)
+        aud_proj = FusionProjector(512, 256)
+        trainer  = FusionTrainer(config, vis_proj, aud_proj)
+
+        ds = MultimodalDataset.generate_synthetic(
+            num_samples=7, vision_dim=768, audio_dim=512, target_dim=256
+        )
         history = trainer.fit(ds)
+
+        # 4 batches / grad_accum=3 -> 2 optimizer steps -> global_step == 2
+        self.assertEqual(
+            trainer.global_step, 2,
+            f"Expected global_step=2 (2 optimizer steps), got {trainer.global_step}"
+        )
+
+        # Loss must be finite and positive
         self.assertEqual(len(history["train_loss"]), 1)
-        self.assertGreater(history["train_loss"][0], 0.0)
+        train_loss = history["train_loss"][0]
+        self.assertGreater(train_loss, 0.0)
+        self.assertFalse(train_loss != train_loss, "Train loss must not be NaN")   # NaN check
 
     def test_lightweight_checkpoint(self):
         import tempfile
@@ -323,39 +348,44 @@ class TestTantraE2E(unittest.TestCase):
             self.assertNotIn("global_step", payload)
 
     def test_audio_cache_rejection(self):
+        """Verify that zero-embedding samples are never written to the cache directory."""
         import tempfile
         from unittest.mock import patch, MagicMock
         from scripts.precompute_embeddings import main
-        
-        # Create temp dir for images/audios
+
         with tempfile.TemporaryDirectory() as tmpdir:
-            audio_dir = os.path.join(tmpdir, "audio")
+            audio_dir  = os.path.join(tmpdir, "audio")
             output_dir = os.path.join(tmpdir, "output")
             os.makedirs(audio_dir)
             os.makedirs(output_dir)
-            
-            # Create a mock wav file
+
+            # Create a stub .wav file
             wav_path = os.path.join(audio_dir, "test.wav")
-            with open(wav_path, "wb") as f:
-                f.write(b"RIFF....WAVEfmt ....data....")
-                
-            # Mock AudioEncoder to return a zero tensor (failed encoding)
+            open(wav_path, "wb").close()
+
+            # AudioEncoder.encode returns all-zeros (Whisper unavailable)
             mock_encoder = MagicMock()
-            mock_encoder.encode.return_value = torch.zeros(1, 4096)
-            
+            mock_encoder.encode.return_value = torch.zeros(1, 512)  # audio_dim default
+
+            # librosa.load returns a trivial waveform
             mock_librosa = MagicMock()
-            mock_librosa.load.return_value = (None, 16000)
-            
+            mock_librosa.load.return_value = (torch.zeros(16000).numpy(), 16000)
+
             with patch("scripts.precompute_embeddings.AudioEncoder", return_value=mock_encoder), \
-                 patch.dict("sys.modules", {"librosa": mock_librosa}):
-                
-                # Mock sys.argv to pass arguments to argparse
-                with patch("sys.argv", ["scripts/precompute_embeddings.py", "--audio-dir", audio_dir, "--output-dir", output_dir]):
-                    main()
-                    
-            # Check output_dir: since encoder returned zeros, the file should NOT be saved
+                 patch.dict("sys.modules", {"librosa": mock_librosa}), \
+                 patch("sys.argv", [
+                     "scripts/precompute_embeddings.py",
+                     "--audio-dir",  audio_dir,
+                     "--output-dir", output_dir,
+                     "--audio-dim",  "512",
+                 ]):
+                main()
+
             saved_files = os.listdir(output_dir)
-            self.assertEqual(len(saved_files), 0, "Failed audio embeddings must be skipped, not saved.")
+            self.assertEqual(
+                len(saved_files), 0,
+                "Zero-embedding audio samples must be skipped, not cached."
+            )
 
 if __name__ == "__main__":
     unittest.main()

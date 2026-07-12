@@ -42,6 +42,8 @@ psutil>=6.1.1
 pydantic>=2.0.0
 fastapi>=0.115.0
 uvicorn>=0.30.0
+openai>=1.0.0
+google-genai>=1.0.0
 
 # GPU acceleration
 # nvidia-ml-py3>=7.352.0
