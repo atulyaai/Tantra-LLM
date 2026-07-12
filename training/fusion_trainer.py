@@ -6,7 +6,6 @@ import torch
 import torch.nn.functional as F
 import logging
 import time
-import math
 from torch.nn import Module
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import CosineAnnealingLR
@@ -89,7 +88,7 @@ class FusionTrainer:
         logger.info(f"[Trainer] Trainable parameters: {self.total_trainable:,}")
 
         self.optimizer = AdamW(trainable_params, lr=config.lr, weight_decay=config.weight_decay)
-        self.scheduler = CosineAnnealingLR(self.optimizer, T_max=config.epochs, eta_min=1e-6)
+        self.scheduler = None  # Setup dynamically inside fit() based on dataset size
 
         self.use_amp = torch.cuda.is_available()
         self.scaler = torch.amp.GradScaler("cuda") if self.use_amp else None
@@ -111,6 +110,12 @@ class FusionTrainer:
             pin_memory=torch.cuda.is_available()
         )
         val_loader = DataLoader(val_dataset, batch_size=self.config.batch_size, shuffle=False) if val_dataset else None
+
+        # Setup Cosine Annealing scheduler based on actual step updates
+        steps_per_epoch = (len(train_loader) + self.config.grad_accum - 1) // self.config.grad_accum
+        total_steps = steps_per_epoch * self.config.epochs
+        t_max = max(1, total_steps - self.config.warmup_steps)
+        self.scheduler = CosineAnnealingLR(self.optimizer, T_max=t_max, eta_min=1e-6)
 
         history: Dict[str, List[float]] = {"train_loss": [], "val_loss": [], "lr": [], "epoch_time_s": []}
         best_val_loss = float("inf")
@@ -158,8 +163,9 @@ class FusionTrainer:
                     else:
                         loss.backward()
 
-                    # Accumulate gradients
-                    if (batch_idx + 1) % self.config.grad_accum == 0:
+                    # Accumulate gradients or step on the last batch
+                    is_last_batch = (batch_idx + 1) == len(train_loader)
+                    if (batch_idx + 1) % self.config.grad_accum == 0 or is_last_batch:
                         if self.scaler:
                             self.scaler.unscale_(self.optimizer)
                         torch.nn.utils.clip_grad_norm_(
@@ -172,6 +178,11 @@ class FusionTrainer:
                         else:
                             self.optimizer.step()
                         self.optimizer.zero_grad(set_to_none=True)
+                        
+                        # Step step-based cosine scheduler only after warmup
+                        if self.global_step >= self.config.warmup_steps:
+                            self.scheduler.step()
+                            
                         self.global_step += 1
 
                     epoch_loss += loss.item() * self.config.grad_accum
@@ -181,10 +192,6 @@ class FusionTrainer:
             current_lr = self.optimizer.param_groups[0]["lr"]
             history["train_loss"].append(avg_train)
             history["lr"].append(current_lr)
-
-            # Step cosine scheduler only after warmup
-            if self.global_step >= self.config.warmup_steps:
-                self.scheduler.step()
 
             epoch_time = time.time() - t0
             history["epoch_time_s"].append(epoch_time)
@@ -217,7 +224,8 @@ class FusionTrainer:
             print(f"  Best val: {best_val_loss:.6f}")
         print(f"{'='*60}\n")
 
-        self.save_checkpoint("checkpoints/final_projectors.pt")
+        # Save final light weights (excluding optimizer/scheduler states for inference/production)
+        self.save_checkpoint("checkpoints/final_projectors.pt", include_states=False)
         return history
 
     def _evaluate(self, val_loader) -> float:
@@ -268,27 +276,33 @@ class FusionTrainer:
         sq_pdist = torch.pdist(p_norm, p=2).pow(2)
         return sq_pdist.mul(-2).exp().mean().log()
 
-    def save_checkpoint(self, path: str):
+    def save_checkpoint(self, path: str, include_states: bool = True):
         import os
         os.makedirs(os.path.dirname(path), exist_ok=True)
         # Convert state dicts to FP16 to reduce file size on disk
         vision_sd = {k: v.half() if torch.is_tensor(v) else v for k, v in self.vision_projector.state_dict().items()}
         audio_sd = {k: v.half() if torch.is_tensor(v) else v for k, v in self.audio_projector.state_dict().items()}
-        torch.save({
+        
+        payload = {
             "vision_projector": vision_sd,
             "audio_projector": audio_sd,
-            "optimizer": self.optimizer.state_dict(),
-            "scheduler": self.scheduler.state_dict(),
-            "global_step": self.global_step,
-        }, path)
-        logger.info(f"[Checkpoint] Saved to {path} (FP16)")
-
+        }
+        if include_states:
+            payload["optimizer"] = self.optimizer.state_dict()
+            if self.scheduler:
+                payload["scheduler"] = self.scheduler.state_dict()
+            payload["global_step"] = self.global_step
+            
+        torch.save(payload, path)
+        logger.info(f"[Checkpoint] Saved to {path} (FP16, include_states={include_states})")
 
     def load_checkpoint(self, path: str):
         ckpt = torch.load(path, map_location=self.device, weights_only=True)
         self.vision_projector.load_state_dict(ckpt["vision_projector"])
         self.audio_projector.load_state_dict(ckpt["audio_projector"])
-        self.optimizer.load_state_dict(ckpt["optimizer"])
-        self.scheduler.load_state_dict(ckpt["scheduler"])
+        if "optimizer" in ckpt:
+            self.optimizer.load_state_dict(ckpt["optimizer"])
+        if "scheduler" in ckpt and self.scheduler:
+            self.scheduler.load_state_dict(ckpt["scheduler"])
         self.global_step = ckpt.get("global_step", 0)
         logger.info(f"[Checkpoint] Loaded from {path} (step {self.global_step})")

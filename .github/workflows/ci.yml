@@ -1,0 +1,33 @@
+name: Tantra-LLM CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up Python 3.12
+      uses: actions/setup-python@v5
+      with:
+        python-level: '3.12'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        # Install CPU-only torch to run tests fast on runners
+        pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+        pip install pydantic fastapi uvicorn requests
+        # Install remaining dependencies from requirements.txt
+        if [ -f requirements.txt ]; then pip install -r requirements.txt || true; fi
+
+    - name: Run tests
+      run: |
+        python tests/test_e2e_brain.py

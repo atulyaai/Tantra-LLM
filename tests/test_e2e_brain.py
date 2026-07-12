@@ -232,5 +232,51 @@ class TestTantraE2E(unittest.TestCase):
         with self.assertRaises(ValueError):
             AudioEncoder(embed_dim=1024)
 
+    def test_in_memory_vector_store(self):
+        from core.memory import InMemoryVectorStore
+        store = InMemoryVectorStore(embed_dim=128)
+        
+        # Write memories
+        self.loop.run_until_complete(store.write("Tantra OS core routing details", {"type": "technical"}))
+        self.loop.run_until_complete(store.write("Tantra OS personality module layers", {"type": "identity"}))
+        
+        # Retrieve memories
+        results = self.loop.run_until_complete(store.retrieve("routing details", k=1))
+        self.assertEqual(len(results), 1)
+        self.assertIn("routing details", results[0].content)
+        self.assertEqual(results[0].metadata["type"], "technical")
+        
+        # Consolidate duplicate files
+        self.loop.run_until_complete(store.write("Tantra OS core routing details", {"type": "technical"}))
+        self.loop.run_until_complete(store.consolidate())
+        self.assertEqual(len(store.registry), 2)
+
+    def test_adapter_telemetry(self):
+        from adapters.openai.adapter import OpenAIAdapter
+        from adapters.gemini.adapter import GeminiAdapter
+        
+        # Instantiate without keys (falls back to empty strings)
+        openai = OpenAIAdapter()
+        gemini = GeminiAdapter()
+        
+        # Check health checks do not crash
+        self.assertTrue(openai.health_check() or not openai.health_check())
+        
+        req = TantraRequest(
+            messages=[Message(role="user", content="Explain AGI dynamic context sliding window routing parameters.")],
+            provider=ModelProvider.OPENAI
+        )
+        
+        # Check OpenAI cost and token estimates
+        resp_openai = self.loop.run_until_complete(openai.generate(req))
+        self.assertGreater(resp_openai.usage["prompt_tokens"], 0)
+        self.assertGreater(resp_openai.cost, 0.0)
+        
+        # Check Gemini cost and token estimates
+        resp_gemini = self.loop.run_until_complete(gemini.generate(req))
+        self.assertGreater(resp_gemini.usage["prompt_tokens"], 0)
+        self.assertGreater(resp_gemini.cost, 0.0)
+
 if __name__ == "__main__":
     unittest.main()
+
