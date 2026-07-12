@@ -9,17 +9,20 @@ graph TD
     Hub[Unified Inference Hub] --> Adapters[Local/Cloud Adapters]
     
     subgraph "Sensory Integration"
-        Hub --> Voice[core/sensory/voice]
-        Hub --> Vision[core/sensory/vision]
-        Hub --> Sentiment[core/sensory/sentiment]
+        Hub --> Voice[core/voice.py]
+        Hub --> Vision[core/vision.py]
+        Hub --> Sentiment[core/sentiment.py]
     end
 
     subgraph "Cognitive Logic"
-        Hub --> Sutra[core/cognition/sutra: Planning]
-        Hub --> Trace[core/cognition/trace: Observability]
+        Hub --> Sutra[core/planning.py: AGI Planning]
+        Hub --> Trace[core/observability.py: Trace Middleware]
     end
     
     Hub --> Middleware[Atulya-Core Middleware]
+    Hub --> Safety[personality/safety_module.py]
+    Hub --> Personality[personality/personality_layer.py]
+    Hub --> Context[core/dynamic_context.py]
 ```
 
 ---
@@ -28,9 +31,10 @@ graph TD
 
 | Sphere | Module Path | Biologic Function | Responsibility |
 | :--- | :--- | :--- | :--- |
-| **SENSORY** | `core/sensory/` | **Perception** | Real-time audio, visual, and emotional stream processing. |
-| **COGNITION** | `core/cognition/` | **Thought** | Prompt compilation (Sutra) and reality verification (Trace). |
-| **INFERENCE** | `core/` | **Reasoning** | Model orchestration and universal adapter management. |
+| **SENSORY** | `core/voice.py`, `core/vision.py`, `core/sentiment.py` | **Perception** | Real-time audio, visual, and emotional stream processing. |
+| **COGNITION** | `core/planning.py`, `core/observability.py` | **Thought** | Prompt compilation (Sutra) and reality verification (Trace). |
+| **INFERENCE** | `core/inference.py` | **Reasoning** | Model orchestration, cognitive wiring, and universal adapter management. |
+| **PERSONALITY** | `personality/personality_layer.py`, `personality/safety_module.py` | **Identity** | Tone selection, safety auditing, and behavioral boundaries. |
 
 ---
 
@@ -90,6 +94,20 @@ Engineering stability across different silicon. Below is a trace from a **Cross-
 - [ ] Self-adaptive routing (Auto-selecting best model per node).
 - [ ] Peer-to-peer compute sharing.
 - [ ] Real-time emotional modulation via `Tantra-Sentiment`.
+
+## 🔋 RWKV Integration (Multimodal)
+Tantra-LLM now supports **RWKV** as a local, RNN-based brain for efficient multimodal processing.
+
+### Capabilities:
+- **Text**: Efficient long-context generation.
+- **Vision**: Camera integration via `core/vision`.
+- **Voice**: Speech-to-Text (Whisper) and Text-to-Speech via `core/voice`.
+- **Sentiment**: Real-time vibe analysis.
+
+### Usage:
+1. Install dependencies: `pip install -r requirements.txt`.
+2. Download RWKV model (e.g. `RWKV-x060-World-3B`) to `models/`.
+3. Configure `adapters/local/rwkv_adapter.py` with your model path.
 
 ---
 *Engineered with discipline by Antigravity in pursuit of the Atulya Tantra.*

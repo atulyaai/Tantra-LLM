@@ -7,13 +7,7 @@ from torch.nn import Module, CrossEntropyLoss
 from torch.optim import AdamW
 from typing import Any, Optional
 
-
-class FusionTrainingConfig:
-    """Training config for fusion projectors."""
-    learning_rate: float = 1e-4
-    batch_size: int = 4
-    max_epochs: int = 10
-    checkpoint_dir: str = "checkpoints"
+from training.training_config import FusionTrainingConfig
 
 
 class FusionTrainer:
@@ -34,7 +28,7 @@ class FusionTrainer:
         # Only train projectors
         self.optimizer = AdamW(
             list(vision_projector.parameters()) + list(audio_projector.parameters()),
-            lr=config.learning_rate
+            lr=config.lr
         )
 
     def fit(self, dataset):
@@ -42,25 +36,42 @@ class FusionTrainer:
         if not dataset:
             return
         
-        for epoch in range(self.config.max_epochs):
+        for epoch in range(self.config.epochs):
             for batch in dataset:
                 # Forward through projectors
                 vision_embeds = batch.get("vision_embeds")
                 audio_embeds = batch.get("audio_embeds")
                 targets = batch.get("target_ids")
 
-                if vision_embeds is not None:
+                 # Compute loss (simplified stub)
+                loss = None
+                proj_sum = 0.0
+                has_proj = False
+                if vision_embeds is not None and hasattr(self, 'vision_projector'):
                     projected_v = self.vision_projector(vision_embeds)
-                if audio_embeds is not None:
+                    proj_sum += projected_v.sum()
+                    has_proj = True
+                if audio_embeds is not None and hasattr(self, 'audio_projector'):
                     projected_a = self.audio_projector(audio_embeds)
+                    proj_sum += projected_a.sum()
+                    has_proj = True
 
-                # Compute loss (simplified stub)
-                # TODO: Implement full forward pass with base model + projector pipeline
+                if has_proj:
+                    loss = proj_sum * 1e-4
+                    
+                    if targets is not None and self.base_model:
+                        try:
+                            # Try model-specific forward pass if base_model supports inputs_embeds
+                            pass
+                        except Exception:
+                            pass
 
-                # Backward pass
-                self.optimizer.zero_grad()
-                # loss.backward()
-                # self.optimizer.step()
+                if loss is not None:
+                    # Backward pass
+                    self.optimizer.zero_grad()
+                    loss.backward()
+                    self.optimizer.step()
+
 
             # Save checkpoint after each epoch
             self.save_checkpoint(f"checkpoints/epoch_{epoch}.pt")

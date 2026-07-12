@@ -58,21 +58,12 @@ class DynamicContextManager:
         return (self.max_short + self.max_long) // 2
 
     def trim(self, token_ids: List[int], target_len: int) -> List[int]:
-        """Trim token sequence to fit target_len with importance weighting.
-        
-        Args:
-            token_ids: Input token IDs
-            target_len: Desired length after trimming
-            
-        Returns:
-            Trimmed token IDs
-        """
+        """Trim token sequence to fit target_len with sliding window."""
         if len(token_ids) <= target_len:
             return token_ids
         
-        # For now, simple truncation from end (preserve start)
-        # TODO: Implement sliding window based on attention scores
-        return token_ids[:target_len]
+        # Sliding window truncation: keep the most recent tokens (end of sequence)
+        return token_ids[-target_len:]
     
     def update_recurrent_state(self, kv_cache: Optional[Dict[str, torch.Tensor]] = None):
         """Update recurrent state for KV-cache reuse.

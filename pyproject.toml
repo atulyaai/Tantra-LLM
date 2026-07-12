@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=61.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tantra-llm"
+version = "1.0.0"
+description = "Universal Multimodal Inference Hub & Cognition Framework for Atulya Tantra"
+readme = "README.md"
+requires-python = ">=3.9"
+authors = [
+    { name = "Antigravity Dev Team" }
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent"
+]
+dependencies = [
+    "torch>=2.5.1",
+    "transformers>=4.48.0",
+    "pydantic>=2.0.0"
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["core*", "adapters*", "atulya_core*", "config*", "encoders*", "personality*"]

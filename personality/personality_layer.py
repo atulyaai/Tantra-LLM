@@ -32,12 +32,15 @@ class PersonalityLayer:
             if k in lt:
                 self.session_mode = v
                 return v
-        if self.session_mode:
-            return self.session_mode
+        # Natural auto-cues override manual sticky session modes and reset them
         for mode, cues in AUTO_CUES.items():
             if any(c in lt for c in cues):
+                self.session_mode = None
                 return mode
+        if self.session_mode:
+            return self.session_mode
         return self.default_mode
+
 
     def parameterize(self, mode: str) -> Dict:
         tones = self.config.get("tones", {})

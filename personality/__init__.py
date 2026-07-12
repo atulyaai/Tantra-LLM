@@ -5,7 +5,6 @@ __all__ = [
     "values_module",
     "style_module",
     "safety_module",
-    "parameterizer",
 ]
 
 

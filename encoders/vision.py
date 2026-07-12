@@ -11,6 +11,9 @@ import torch.nn as nn
 from PIL import Image
 import numpy as np
 
+from atulya_core.protocol.encoder import ModalityEncoder
+from config.settings import get_settings
+
 logger = logging.getLogger(__name__)
 
 
@@ -19,11 +22,16 @@ class LongVITAVisionEncoder(nn.Module):
     
     def __init__(self, embed_dim: int = 1024, model_path: Optional[str] = None):
         super().__init__()
-        self.embed_dim = embed_dim
+        self._embed_dim = embed_dim
         self.model_path = model_path
         self._model = None
         self._processor = None
         self._device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        
+    @property
+    def embed_dim(self) -> int:
+        return self._embed_dim
+
         
     def _load_model(self):
         """Load Long-VITA model and processor."""
@@ -34,8 +42,9 @@ class LongVITAVisionEncoder(nn.Module):
             # Try to load from transformers if available
             from transformers import AutoModel, AutoProcessor
             
-            model_name = self.model_path or "microsoft/longvita-16k"
-            logger.info(f"Loading Long-VITA model: {model_name}")
+            model_name = self.model_path or "google/vit-base-patch16-224"
+            logger.info(f"Loading Long-VITA fallback model (ViT): {model_name}")
+
             
             self._processor = AutoProcessor.from_pretrained(model_name)
             self._model = AutoModel.from_pretrained(
@@ -142,16 +151,27 @@ class LongVITAVisionEncoder(nn.Module):
             return torch.zeros(1, self.embed_dim, device=self._device)
 
 
-class VisionEncoder:
+class VisionEncoder(ModalityEncoder):
     """Production wrapper for Long-VITA encoder; remote API + local fallback."""
 
-    def __init__(self, embed_dim: int = 1024, api_url: Optional[str] = None, local_path: Optional[str] = None):
-        self.embed_dim = embed_dim
+    def __init__(self, embed_dim: int = 4096, api_url: Optional[str] = None, local_path: Optional[str] = None):
+        settings = get_settings()
+        if embed_dim != settings.model_dim:
+            raise ValueError(f"VisionEncoder embed_dim ({embed_dim}) must match model_dim ({settings.model_dim})")
+        self._embed_dim = embed_dim
         self.api_url = api_url
         self.local_path = local_path
         self._remote = False
         self._api_func = None
         self._local_encoder = None
+
+    @property
+    def embed_dim(self) -> int:
+        return self._embed_dim
+
+    def encode(self, image) -> torch.Tensor:
+        """Process and encode image, returning shape [1, embed_dim]."""
+        return self(image)
 
     def __call__(self, image) -> torch.Tensor:
         if isinstance(image, torch.Tensor) and image.size(-1) == self.embed_dim:
@@ -189,5 +209,6 @@ class VisionEncoder:
         self._remote = False
         self.local_path = model_path
         self._local_encoder = None  # Will be created on first use
+
 
 

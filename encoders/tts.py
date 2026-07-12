@@ -129,8 +129,4 @@ def get_tts_engine() -> TTSEncoder:
     global _tts_instance
     if _tts_instance is None:
         _tts_instance = TTSEncoder()
-    return _tts_instance</content>
-</xai:function_call"> 
-
-<xai:function_call name="write">
-<parameter name="filePath">D:\Atulya\Tantra-LLM\demos\enhanced_gui.py
+    return _tts_instance

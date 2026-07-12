@@ -1,20 +1,26 @@
-﻿# One-click start: venv + env + API
+# One-click start: venv + env + API
 Param(
-  [string] = "D:\models\longvita-16k",
-  [string] = "microsoft/DialoGPT-medium",
-  [int] = 8000
+  [string]$ModelPath = "D:\models\longvita-16k",
+  [string]$DialogueModel = "microsoft/DialoGPT-medium",
+  [int]$Port = 8000
 )
 
-Continue = "Stop"
+$ErrorActionPreference = "Stop"
 
 # Activate venv
- = ".\.venv\Scripts\Activate.ps1"
-if (Test-Path ) { .  } else { Write-Host "Venv not found. Run: python -m venv .venv"; exit 1 }
+$ActivatePath = ".\.venv\Scripts\Activate.ps1"
+if (Test-Path $ActivatePath) {
+    . $ActivatePath
+} else {
+    Write-Host "Venv not found. Run: python -m venv .venv"
+    exit 1
+}
 
 # Set env
-D:\Atulya\Tantra-LLM = (Get-Location).Path
-D:\models\longvita-16k = 
-microsoft/DialoGPT-medium = 
+$env:PYTHONPATH = (Get-Location).Path
+$env:TANTRA_LV_DIR = $ModelPath
+$env:TANTRA_SPB = $DialogueModel
 
 # Start API
-uvicorn demos.api_server:app --host 0.0.0.0 --port 
+Write-Host "Starting API on port $Port..."
+uvicorn demos.api_server:app --host 0.0.0.0 --port $Port
