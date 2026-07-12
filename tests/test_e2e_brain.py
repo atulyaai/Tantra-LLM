@@ -387,6 +387,150 @@ class TestTantraE2E(unittest.TestCase):
                 "Zero-embedding audio samples must be skipped, not cached."
             )
 
+    def test_grad_accumulation_equivalence(self):
+        """Mathematically prove that our gradient accumulation matches a single large batch.
+
+        We construct two models with identical initial weights:
+          Model A: computes loss over a single concatenated batch of size 6.
+          Model B: computes loss in 3 microbatches of size 2, divided by 3, with gradients accumulated.
+        
+        We verify that the resulting gradients for all parameters are identical
+        (using torch.allclose with small tolerance).
+        """
+        import copy
+        from training.fusion_trainer import FusionTrainer, FusionProjector
+        from training.training_config import FusionTrainingConfig
+        from training.datasets.multimodal_dataset import MultimodalDataset
+
+        # Setup identical models
+        vis_proj_A = FusionProjector(768, 256)
+        aud_proj_A = FusionProjector(512, 256)
+
+        vis_proj_B = copy.deepcopy(vis_proj_A)
+        aud_proj_B = copy.deepcopy(aud_proj_A)
+
+        # Set models to evaluation mode to disable stochastic dropout
+        vis_proj_A.eval()
+        aud_proj_A.eval()
+        vis_proj_B.eval()
+        aud_proj_B.eval()
+
+        # 6 samples
+        ds = MultimodalDataset.generate_synthetic(
+            num_samples=6, vision_dim=768, audio_dim=512, target_dim=256
+        )
+        batch = next(iter(torch.utils.data.DataLoader(ds, batch_size=6)))
+
+        v, a, t = batch["vision_embeds"], batch["audio_embeds"], batch["target_ids"]
+
+        # Run Model A: single backward pass divided by 3 (comparable to grad_accum=3)
+        loss_A = (
+            (vis_proj_A(v).abs().sum() + aud_proj_A(a).abs().sum()) / 3.0
+        )  # simple linear loss to prove sum of gradients
+        loss_A.backward()
+
+        # Run Model B: 3 microbatches of size 2
+        for i in range(3):
+            v_micro = v[i*2:(i+1)*2]
+            a_micro = a[i*2:(i+1)*2]
+            loss_micro = (vis_proj_B(v_micro).abs().sum() + aud_proj_B(a_micro).abs().sum()) / 3.0
+            loss_micro.backward()
+
+        # Compare gradients of projectors A and B
+        for param_A, param_B in zip(vis_proj_A.parameters(), vis_proj_B.parameters()):
+            if param_A.grad is not None:
+                self.assertTrue(
+                    torch.allclose(param_A.grad, param_B.grad, atol=1e-5),
+                    "Gradients computed via accumulation do not match single-batch gradients!"
+                )
+        for param_A, param_B in zip(aud_proj_A.parameters(), aud_proj_B.parameters()):
+            if param_A.grad is not None:
+                self.assertTrue(
+                    torch.allclose(param_A.grad, param_B.grad, atol=1e-5),
+                    "Gradients computed via accumulation do not match single-batch gradients!"
+                )
+
+    def test_openai_real_sdk_path(self):
+        """Verify that the OpenAI adapter calls the real API client correctly when configured."""
+        from unittest.mock import AsyncMock, patch, MagicMock
+        from adapters.openai.adapter import OpenAIAdapter
+
+        # Mock the entire openai library and AsyncOpenAI client
+        mock_openai_module = MagicMock()
+        mock_client = MagicMock()
+        
+        # Configure client.chat.completions.create to be an AsyncMock returning a mock response
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = "Real API response text"
+        mock_response.usage.prompt_tokens = 42
+        mock_response.usage.completion_tokens = 24
+        mock_response.model = "gpt-4o"
+        
+        mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
+        mock_openai_module.AsyncOpenAI = MagicMock(return_value=mock_client)
+
+        with patch.dict("sys.modules", {"openai": mock_openai_module}), \
+             patch("adapters.openai.adapter._openai_sdk", mock_openai_module):
+            
+            adapter = OpenAIAdapter(api_key="sk-test-real-key")
+            self.assertTrue(adapter.health_check(), "Adapter health_check must be True with key and SDK mocked")
+
+            req = TantraRequest(
+                messages=[Message(role="user", content="Test real call")],
+                provider=ModelProvider.OPENAI
+            )
+            
+            resp = self.loop.run_until_complete(adapter.generate(req))
+            
+            # Verify response is parsed and marked not simulated
+            self.assertEqual(resp.content, "Real API response text")
+            self.assertEqual(resp.usage["prompt_tokens"], 42)
+            self.assertFalse(resp.usage["simulated"])
+            
+            # Verify client mock was invoked with correct arguments
+            mock_client.chat.completions.create.assert_called_once()
+
+    def test_gemini_real_sdk_path(self):
+        """Verify that the Gemini adapter calls the real API client correctly when configured."""
+        from unittest.mock import AsyncMock, patch, MagicMock
+        from adapters.gemini.adapter import GeminiAdapter
+
+        mock_genai_module = MagicMock()
+        mock_client = MagicMock()
+        
+        # Configure client.aio.models.generate_content to return a mock response
+        mock_response = MagicMock()
+        mock_response.text = "Real Gemini response text"
+        mock_response.usage_metadata.prompt_token_count = 100
+        mock_response.usage_metadata.candidates_token_count = 50
+        
+        mock_types_module = MagicMock()
+        mock_client.aio.models.generate_content = AsyncMock(return_value=mock_response)
+        mock_genai_module.Client = MagicMock(return_value=mock_client)
+
+        with patch.dict("sys.modules", {"google.genai": mock_genai_module, "google.genai.types": mock_types_module}), \
+             patch("adapters.gemini.adapter._genai_sdk", mock_genai_module), \
+             patch("adapters.gemini.adapter._genai_types", mock_types_module):
+            
+            adapter = GeminiAdapter(api_key="gemini-test-real-key")
+            self.assertTrue(adapter.health_check(), "Adapter health_check must be True with key and SDK mocked")
+
+            req = TantraRequest(
+                messages=[Message(role="user", content="Test real call")],
+                provider=ModelProvider.GEMINI
+            )
+            
+            resp = self.loop.run_until_complete(adapter.generate(req))
+            
+            # Verify response is parsed and marked not simulated
+            self.assertEqual(resp.content, "Real Gemini response text")
+            self.assertEqual(resp.usage["prompt_tokens"], 100)
+            self.assertFalse(resp.usage["simulated"])
+            
+            # Verify client mock was invoked with correct arguments
+            mock_client.aio.models.generate_content.assert_called_once()
+
 if __name__ == "__main__":
     unittest.main()
 

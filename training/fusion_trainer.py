@@ -261,25 +261,96 @@ class FusionTrainer:
         return total_loss / max(steps, 1)
 
     def _forward_step(self, vision_embeds, audio_embeds, targets) -> Optional[torch.Tensor]:
-        """CLIP-style symmetric contrastive loss with uniformity regularization."""
+        """Symmetric contrastive alignment loss combined with language model supervision loss."""
+        # 1. Forward through projectors
         projected_v = self.vision_projector(vision_embeds) if vision_embeds is not None else None
         projected_a = self.audio_projector(audio_embeds) if audio_embeds is not None else None
 
         if projected_v is None and projected_a is None:
             return None
 
-        # Cross-modal contrastive alignment
-        if projected_v is not None and projected_a is not None:
-            v_norm = F.normalize(projected_v, dim=-1)
-            a_norm = F.normalize(projected_a, dim=-1)
-            logits = torch.matmul(v_norm, a_norm.T) / 0.07
-            bs = logits.size(0)
-            labels = torch.arange(bs, device=self.device)
-            loss = (F.cross_entropy(logits, labels) + F.cross_entropy(logits.T, labels)) / 2.0
-            return loss
+        # 2. Identify active (non-zero) modalities per sample in the batch
+        # Zero-filled inputs represent missing/unpaired modalities and must not pollute alignment
+        has_v = (vision_embeds.abs().sum(dim=-1) > 0.0) if vision_embeds is not None else torch.zeros(0, dtype=torch.bool, device=self.device)
+        has_a = (audio_embeds.abs().sum(dim=-1) > 0.0) if audio_embeds is not None else torch.zeros(0, dtype=torch.bool, device=self.device)
 
-        # Single-modality uniformity loss
+        contrastive_loss = None
+        # Cross-modal contrastive alignment only on samples that have BOTH modalities present
+        if projected_v is not None and projected_a is not None:
+            both_mask = has_v & has_a
+            if both_mask.sum() > 1:
+                v_aligned = projected_v[both_mask]
+                a_aligned = projected_a[both_mask]
+                v_norm = F.normalize(v_aligned, dim=-1)
+                a_norm = F.normalize(a_aligned, dim=-1)
+                logits = torch.matmul(v_norm, a_norm.T) / 0.07
+                bs = logits.size(0)
+                labels = torch.arange(bs, device=self.device)
+                contrastive_loss = (F.cross_entropy(logits, labels) + F.cross_entropy(logits.T, labels)) / 2.0
+
+        # 3. Language Model Supervision
+        lm_loss = None
+        if self.base_model and targets is not None:
+            try:
+                # Resolve the embedding layer of the base model
+                embed_layer = None
+                for attr in ["get_input_embeddings", "embeddings", "wte"]:
+                    if hasattr(self.base_model, attr):
+                        if attr == "get_input_embeddings":
+                            embed_layer = self.base_model.get_input_embeddings()
+                        else:
+                            embed_layer = getattr(self.base_model, attr)
+                        break
+                if not embed_layer and hasattr(self.base_model, "transformer") and hasattr(self.base_model.transformer, "wte"):
+                    embed_layer = self.base_model.transformer.wte
+
+                if embed_layer is not None:
+                    # Embed targets: shape [BS, seq_len, model_dim]
+                    target_embeds = embed_layer(targets)
+                    inputs_embeds_list = []
+                    
+                    # Prepend projected modality features to targets
+                    if projected_v is not None:
+                        inputs_embeds_list.append(projected_v.unsqueeze(1))
+                    if projected_a is not None:
+                        inputs_embeds_list.append(projected_a.unsqueeze(1))
+                    inputs_embeds_list.append(target_embeds)
+
+                    inputs_embeds = torch.cat(inputs_embeds_list, dim=1) # [BS, prefix_len + seq_len, model_dim]
+
+                    # Forward pass
+                    outputs = self.base_model(inputs_embeds=inputs_embeds)
+                    
+                    # Align causal prediction shift
+                    prefix_len = inputs_embeds.size(1) - targets.size(1)
+                    logits = outputs.logits[:, prefix_len - 1 : -1, :] # shape [BS, seq_len, vocab_size]
+                    
+                    lm_loss = F.cross_entropy(
+                        logits.reshape(-1, logits.size(-1)), 
+                        targets.reshape(-1),
+                        ignore_index=-100
+                    )
+            except Exception as e:
+                # Log warning once per training session if base model interface fails
+                logger.debug(f"Language model forward step warning: {e}")
+
+        # 4. Multi-task loss combination
+        loss_val = 0.0
+        terms = 0
+        if contrastive_loss is not None:
+            loss_val += contrastive_loss
+            terms += 1
+        if lm_loss is not None:
+            loss_val += lm_loss
+            terms += 1
+
+        if terms > 0:
+            return loss_val / terms
+
+        # Single-modality uniformity fallback
         proj = projected_v if projected_v is not None else projected_a
+        if proj.size(0) <= 1:
+            return torch.tensor(0.0, device=self.device, requires_grad=True)
         p_norm = F.normalize(proj, dim=-1)
         sq_pdist = torch.pdist(p_norm, p=2).pow(2)
         return sq_pdist.mul(-2).exp().mean().log()

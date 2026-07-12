@@ -26,7 +26,7 @@ class GeminiAdapter(BaseTantraAdapter):
         if self._is_configured():
             try:
                 client = _genai_sdk.Client(api_key=self.api_key)
-                model_name = request.model or "gemini-1.5-pro"
+                model_name = getattr(request, "model", None) or "gemini-1.5-pro"
                 config = _genai_types.GenerateContentConfig(
                     temperature=request.temperature or 0.7,
                     top_p=request.top_p or 0.9,
@@ -82,7 +82,7 @@ class GeminiAdapter(BaseTantraAdapter):
         if self._is_configured():
             try:
                 client = _genai_sdk.Client(api_key=self.api_key)
-                model_name = request.model or "gemini-1.5-pro"
+                model_name = getattr(request, "model", None) or "gemini-1.5-pro"
                 config = _genai_types.GenerateContentConfig(
                     temperature=request.temperature or 0.7,
                     top_p=request.top_p or 0.9,

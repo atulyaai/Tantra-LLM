@@ -44,6 +44,7 @@ def parse_args():
     p.add_argument("--model-dim", type=int, default=4096)
     p.add_argument("--compile", action="store_true")
     p.add_argument("--cache-dir", type=str, default="training/cache/", help="Directory containing pre-computed .pt files")
+    p.add_argument("--require-cache", action="store_true", help="Fail if no pre-computed cache files found in --cache-dir")
     return p.parse_args()
 
 
@@ -69,6 +70,11 @@ def main():
             has_cache = True
 
     if not has_cache:
+        if args.require_cache:
+            raise ValueError(
+                f"Strict mode: --require-cache was requested, but no valid pre-computed cache files "
+                f"were found in directory: {args.cache_dir}"
+            )
         logger.info(f"Cache empty or not specified. Generating {args.num_samples} synthetic samples...")
         full_ds = MultimodalDataset.generate_synthetic(
             num_samples=args.num_samples,

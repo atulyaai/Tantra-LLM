@@ -25,7 +25,7 @@ class OpenAIAdapter(BaseTantraAdapter):
             try:
                 client = _openai_sdk.AsyncOpenAI(api_key=self.api_key)
                 response = await client.chat.completions.create(
-                    model=request.model or "gpt-4o",
+                    model=getattr(request, "model", None) or "gpt-4o",
                     messages=[{"role": m.role, "content": m.content} for m in request.messages],
                     temperature=request.temperature or 0.7,
                     top_p=request.top_p or 0.9,
@@ -77,7 +77,7 @@ class OpenAIAdapter(BaseTantraAdapter):
             try:
                 client = _openai_sdk.AsyncOpenAI(api_key=self.api_key)
                 stream = await client.chat.completions.create(
-                    model=request.model or "gpt-4o",
+                    model=getattr(request, "model", None) or "gpt-4o",
                     messages=[{"role": m.role, "content": m.content} for m in request.messages],
                     temperature=request.temperature or 0.7,
                     top_p=request.top_p or 0.9,

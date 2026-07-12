@@ -153,10 +153,16 @@ class UnifiedInferenceHub:
         response = await handler(request, context)
 
         if self.bus and _BUS_AVAILABLE:
+            # Safely check if the response usage metadata flags it as simulated
+            is_simulated = False
+            if hasattr(response, "usage") and isinstance(response.usage, dict):
+                is_simulated = response.usage.get("simulated", False)
+            
             asyncio.create_task(self.bus.emit("inference_complete", {
                 "trace_id": response.trace_id,
-                "cost": response.cost,
-                "entropy": response.entropy_score
+                "cost": 0.0 if is_simulated else response.cost,
+                "entropy": response.entropy_score,
+                "simulated": is_simulated
             }))
 
         return response
