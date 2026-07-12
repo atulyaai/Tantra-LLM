@@ -19,11 +19,11 @@ soundfile>=0.13.0
 openai-whisper>=20240930
 TTS>=0.23.0
 
-# Memory Systems — ASPIRATIONAL: no memory/RAG store is implemented yet.
-# Keep listed for near-term roadmap; remove if not building memory soon.
-faiss-cpu>=1.9.0          # Not imported anywhere yet
-chromadb>=0.6.0           # Not imported anywhere yet
-networkx>=3.4             # Not imported anywhere yet
+# Memory Systems — InMemoryVectorStore implemented in core/memory.py.
+# These are optional for production-scale vector search:
+faiss-cpu>=1.9.0          # Optional: production vector index
+chromadb>=0.6.0           # Optional: persistent vector DB
+networkx>=3.4             # Optional: knowledge graph
 
 # Fine-tuning and Adapters — ASPIRATIONAL: only fusion_trainer.py exists.
 peft>=0.14.0              # Not imported anywhere yet
@@ -39,6 +39,9 @@ tqdm>=4.67.0
 pyyaml>=6.0.2
 requests>=2.32.3
 psutil>=6.1.1
+pydantic>=2.0.0
+fastapi>=0.115.0
+uvicorn>=0.30.0
 
 # GPU acceleration
 # nvidia-ml-py3>=7.352.0

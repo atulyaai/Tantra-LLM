@@ -89,6 +89,12 @@ def main():
         ])
         
         if audio_files:
+            try:
+                import librosa
+            except ImportError:
+                logger.error("librosa is required for audio precomputation: pip install librosa")
+                return
+                
             logger.info("Initializing AudioEncoder...")
             aud_encoder = AudioEncoder(embed_dim=args.model_dim)
             logger.info(f"Processing {len(audio_files)} audio files...")
@@ -98,9 +104,14 @@ def main():
                 out_path = os.path.join(args.output_dir, f"aud_{filename}.pt")
                 
                 try:
-                    # Load audio waveform (placeholder or standard load)
-                    # For whisper, it handles path or numpy arrays
-                    embed = aud_encoder.encode(path)
+                    # Load audio waveform as float32 numpy array at 16kHz (Whisper's expected sample rate)
+                    waveform, sr = librosa.load(path, sr=16000, mono=True)
+                    embed = aud_encoder.encode(waveform)
+                    
+                    # Verify we didn't get all-zeros (encoder fallback)
+                    if embed.abs().sum().item() == 0.0:
+                        logger.warning(f"Zero embedding for {filename} - encoder may have failed silently")
+                    
                     torch.save(embed.cpu(), out_path)
                 except Exception as e:
                     logger.error(f"Failed to encode audio {filename}: {e}")

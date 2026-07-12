@@ -138,6 +138,7 @@ class FusionTrainer:
             self.audio_projector.train()
             epoch_loss = 0.0
             steps = 0
+            accum_count = 0  # Track microbatches accumulated since last optimizer step
             self.optimizer.zero_grad(set_to_none=True)
 
             for batch_idx, batch in enumerate(train_loader):
@@ -156,16 +157,24 @@ class FusionTrainer:
                     loss = self._forward_step(vision_e, audio_e, targets)
 
                 if loss is not None:
-                    loss = loss / self.config.grad_accum
+                    # Determine the actual divisor: full grad_accum for normal batches,
+                    # or the remaining count for the final incomplete group
+                    is_last_batch = (batch_idx + 1) == len(train_loader)
+                    accum_count += 1
+
+                    actual_divisor = self.config.grad_accum
+                    if is_last_batch and accum_count < self.config.grad_accum:
+                        actual_divisor = accum_count
+
+                    scaled_loss = loss / actual_divisor
 
                     if self.scaler:
-                        self.scaler.scale(loss).backward()
+                        self.scaler.scale(scaled_loss).backward()
                     else:
-                        loss.backward()
+                        scaled_loss.backward()
 
-                    # Accumulate gradients or step on the last batch
-                    is_last_batch = (batch_idx + 1) == len(train_loader)
-                    if (batch_idx + 1) % self.config.grad_accum == 0 or is_last_batch:
+                    # Step optimizer on full accumulation boundary or final batch
+                    if accum_count == self.config.grad_accum or is_last_batch:
                         if self.scaler:
                             self.scaler.unscale_(self.optimizer)
                         torch.nn.utils.clip_grad_norm_(
@@ -178,14 +187,15 @@ class FusionTrainer:
                         else:
                             self.optimizer.step()
                         self.optimizer.zero_grad(set_to_none=True)
-                        
-                        # Step step-based cosine scheduler only after warmup
+                        accum_count = 0
+
+                        # Step cosine scheduler only after warmup
                         if self.global_step >= self.config.warmup_steps:
                             self.scheduler.step()
-                            
+
                         self.global_step += 1
 
-                    epoch_loss += loss.item() * self.config.grad_accum
+                    epoch_loss += loss.item()
                     steps += 1
 
             avg_train = epoch_loss / max(steps, 1)
@@ -207,7 +217,7 @@ class FusionTrainer:
                 if avg_val < best_val_loss:
                     best_val_loss = avg_val
                     patience_counter = 0
-                    self.save_checkpoint("checkpoints/best_projectors.pt")
+                    self.save_checkpoint("checkpoints/best_projectors.pt", include_states=False)
                 else:
                     patience_counter += 1
                     if patience_counter >= self.patience:
