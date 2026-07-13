@@ -6,6 +6,8 @@ __pycache__/
 .Python
 models/
 checkpoints/
+model/
+Download/
 *.pt
 *.pth
 .DS_Store

@@ -7,18 +7,18 @@ import torch
 # Add project root to path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from atulya_core.schema.models import TantraRequest, Message, ModelProvider, RequestContext, TantraResponse
-from atulya_core.protocol.middleware import TantraMiddleware
-from core.inference import UnifiedInferenceHub
-from adapters.local.rwkv_adapter import RWKVAdapter
-from personality.safety_module import SafetyModule
-from core.compute_routing import ComputeRouter
-from personality.personality_layer import PersonalityLayer
-from core.dynamic_context import DynamicContextManager
-from core.planning import AGIPlanningSutra
-from config.settings import get_settings
-from encoders.vision import VisionEncoder
-from encoders.audio import AudioEncoder
+from npdna.atulya_core.schema.models import TantraRequest, Message, ModelProvider, RequestContext, TantraResponse
+from npdna.atulya_core.protocol.middleware import TantraMiddleware
+from npdna.core.inference import UnifiedInferenceHub
+from npdna.adapters.local.rwkv_adapter import RWKVAdapter
+from npdna.personality.safety_module import SafetyModule
+from npdna.core.compute_routing import ComputeRouter
+from npdna.personality.personality_layer import PersonalityLayer
+from npdna.core.dynamic_context import DynamicContextManager
+from npdna.core.planning import AGIPlanningSutra
+from npdna.fusion_config.settings import get_settings
+from npdna.encoders.vision import VisionEncoder
+from npdna.encoders.audio import AudioEncoder
 
 class FailingAdapter(RWKVAdapter):
     """An adapter that always throws exceptions to trigger fallback/circuit breaking."""
@@ -234,7 +234,7 @@ class TestTantraE2E(unittest.TestCase):
             AudioEncoder(embed_dim=1024)
 
     def test_in_memory_vector_store(self):
-        from core.memory import InMemoryVectorStore
+        from npdna.core.memory import InMemoryVectorStore
         store = InMemoryVectorStore(embed_dim=128)
         
         # Write memories
@@ -254,8 +254,8 @@ class TestTantraE2E(unittest.TestCase):
 
     def test_adapter_telemetry(self):
         """Adapters without API keys must fall back to simulation and mark usage['simulated']=True."""
-        from adapters.openai.adapter import OpenAIAdapter
-        from adapters.gemini.adapter import GeminiAdapter
+        from npdna.adapters.openai.adapter import OpenAIAdapter
+        from npdna.adapters.gemini.adapter import GeminiAdapter
 
         # No API key -> simulation mode
         openai_adapter = OpenAIAdapter(api_key="")
@@ -297,9 +297,9 @@ class TestTantraE2E(unittest.TestCase):
         increments inside the same branch that calls optimizer.step, so it is the
         cleanest way to verify group boundaries without touching the optimizer object.
         """
-        from training.fusion_trainer import FusionTrainer, FusionProjector
-        from training.training_config import FusionTrainingConfig
-        from training.datasets.multimodal_dataset import MultimodalDataset
+        from npdna.training.fusion_trainer import FusionTrainer, FusionProjector
+        from npdna.training.training_config import FusionTrainingConfig
+        from npdna.training.datasets.multimodal_dataset import MultimodalDataset
 
         config = FusionTrainingConfig(batch_size=2, epochs=1, grad_accum=3,
                                       warmup_steps=0)
@@ -326,8 +326,8 @@ class TestTantraE2E(unittest.TestCase):
 
     def test_lightweight_checkpoint(self):
         import tempfile
-        from training.fusion_trainer import FusionTrainer, FusionProjector
-        from training.training_config import FusionTrainingConfig
+        from npdna.training.fusion_trainer import FusionTrainer, FusionProjector
+        from npdna.training.training_config import FusionTrainingConfig
         
         config = FusionTrainingConfig(epochs=1)
         vis_proj = FusionProjector(768, 1024)
@@ -351,7 +351,7 @@ class TestTantraE2E(unittest.TestCase):
         """Verify that zero-embedding samples are never written to the cache directory."""
         import tempfile
         from unittest.mock import patch, MagicMock
-        from scripts.precompute_embeddings import main
+        from tools.scripts.precompute_embeddings import main
 
         with tempfile.TemporaryDirectory() as tmpdir:
             audio_dir  = os.path.join(tmpdir, "audio")
@@ -371,7 +371,7 @@ class TestTantraE2E(unittest.TestCase):
             mock_librosa = MagicMock()
             mock_librosa.load.return_value = (torch.zeros(16000).numpy(), 16000)
 
-            with patch("scripts.precompute_embeddings.AudioEncoder", return_value=mock_encoder), \
+            with patch("tools.scripts.precompute_embeddings.AudioEncoder", return_value=mock_encoder), \
                  patch.dict("sys.modules", {"librosa": mock_librosa}), \
                  patch("sys.argv", [
                      "scripts/precompute_embeddings.py",
@@ -398,9 +398,9 @@ class TestTantraE2E(unittest.TestCase):
         (using torch.allclose with small tolerance).
         """
         import copy
-        from training.fusion_trainer import FusionTrainer, FusionProjector
-        from training.training_config import FusionTrainingConfig
-        from training.datasets.multimodal_dataset import MultimodalDataset
+        from npdna.training.fusion_trainer import FusionTrainer, FusionProjector
+        from npdna.training.training_config import FusionTrainingConfig
+        from npdna.training.datasets.multimodal_dataset import MultimodalDataset
 
         # Setup identical models
         vis_proj_A = FusionProjector(768, 256)
@@ -453,7 +453,7 @@ class TestTantraE2E(unittest.TestCase):
     def test_openai_real_sdk_path(self):
         """Verify that the OpenAI adapter calls the real API client correctly when configured."""
         from unittest.mock import AsyncMock, patch, MagicMock
-        from adapters.openai.adapter import OpenAIAdapter
+        from npdna.adapters.openai.adapter import OpenAIAdapter
 
         # Mock the entire openai library and AsyncOpenAI client
         mock_openai_module = MagicMock()
@@ -471,7 +471,7 @@ class TestTantraE2E(unittest.TestCase):
         mock_openai_module.AsyncOpenAI = MagicMock(return_value=mock_client)
 
         with patch.dict("sys.modules", {"openai": mock_openai_module}), \
-             patch("adapters.openai.adapter._openai_sdk", mock_openai_module):
+            patch("npdna.adapters.openai.adapter._openai_sdk", mock_openai_module):
             
             adapter = OpenAIAdapter(api_key="sk-test-real-key")
             self.assertTrue(adapter.health_check(), "Adapter health_check must be True with key and SDK mocked")
@@ -494,7 +494,7 @@ class TestTantraE2E(unittest.TestCase):
     def test_gemini_real_sdk_path(self):
         """Verify that the Gemini adapter calls the real API client correctly when configured."""
         from unittest.mock import AsyncMock, patch, MagicMock
-        from adapters.gemini.adapter import GeminiAdapter
+        from npdna.adapters.gemini.adapter import GeminiAdapter
 
         mock_genai_module = MagicMock()
         mock_client = MagicMock()
@@ -510,8 +510,8 @@ class TestTantraE2E(unittest.TestCase):
         mock_genai_module.Client = MagicMock(return_value=mock_client)
 
         with patch.dict("sys.modules", {"google.genai": mock_genai_module, "google.genai.types": mock_types_module}), \
-             patch("adapters.gemini.adapter._genai_sdk", mock_genai_module), \
-             patch("adapters.gemini.adapter._genai_types", mock_types_module):
+            patch("npdna.adapters.gemini.adapter._genai_sdk", mock_genai_module), \
+            patch("npdna.adapters.gemini.adapter._genai_types", mock_types_module):
             
             adapter = GeminiAdapter(api_key="gemini-test-real-key")
             self.assertTrue(adapter.health_check(), "Adapter health_check must be True with key and SDK mocked")

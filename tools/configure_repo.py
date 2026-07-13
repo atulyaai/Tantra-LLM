@@ -33,7 +33,7 @@ def main():
 
     # 1) Description, homepage, default branch
     desc = (
-        "\ud83e\udde0 Proprietary Multimodal Cognitive Architecture - SpikingBrain + Long-VITA + Whisper "
+        "\ud83e\udde0 Proprietary Multimodal Cognitive Architecture - NP-DNA + Long-VITA + Whisper "
         "with dynamic context, fusion layers, hybrid memory, and adaptive personality. Not a chatbot. A cognitive mind."
     )
     patch_body = {
@@ -47,7 +47,7 @@ def main():
     topics = [
         "tantra-llm",
         "multimodal-ai",
-        "spikingbrain",
+        "npdna",
         "cognitive-architecture",
         "fusion-layers",
         "adaptive-personality",

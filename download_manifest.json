@@ -1,0 +1,344 @@
+{
+  "HuggingFaceFW/fineweb": [
+    {
+      "timestamp": "2026-06-17T12:59:28.716484+00:00",
+      "config": "CC-MAIN-2024-10",
+      "split": "train",
+      "rows_attempted": 0,
+      "rows_written": 0,
+      "status": "skipped",
+      "file_path": null,
+      "error": "no parquet files",
+      "machine": "SublimeW_PC"
+    },
+    {
+      "timestamp": "2026-06-17T12:59:28.793736+00:00",
+      "config": "CC-MAIN-2024-10",
+      "split": "train",
+      "rows_attempted": 200000,
+      "rows_written": 0,
+      "status": "error",
+      "file_path": null,
+      "error": "no rows",
+      "machine": "SublimeW_PC"
+    },
+    {
+      "timestamp": "2026-06-17T12:59:29.114505+00:00",
+      "config": "CC-MAIN-2024-51",
+      "split": "train",
+      "rows_attempted": 0,
+      "rows_written": 0,
+      "status": "skipped",
+      "file_path": null,
+      "error": "no parquet files",
+      "machine": "SublimeW_PC"
+    },
+    {
+      "timestamp": "2026-06-17T12:59:29.132353+00:00",
+      "config": "CC-MAIN-2024-51",
+      "split": "train",
+      "rows_attempted": 200000,
+      "rows_written": 0,
+      "status": "error",
+      "file_path": null,
+      "error": "no rows",
+      "machine": "SublimeW_PC"
+    }
+  ],
+  "HuggingFaceFW/fineweb-2": [
+    {
+      "timestamp": "2026-06-17T12:59:30.395132+00:00",
+      "config": "CC-MAIN-2025-07",
+      "split": "train",
+      "rows_attempted": 200000,
+      "rows_written": 0,
+      "status": "error",
+      "file_path": null,
+      "error": "no rows",
+      "machine": "SublimeW_PC"
+    }
+  ],
+  "mlfoundations/dclm-baseline-1.0-parquet": [
+    {
+      "timestamp": "2026-06-17T13:06:34.686126+00:00",
+      "config": "default",
+      "split": "train",
+      "rows_attempted": 200000,
+      "rows_written": 200693,
+      "status": "ok",
+      "file_path": "Download\\general\\big_mlfoundations_dclm-baseline-1.0-parquet_default_train.jsonl",
+      "error": null,
+      "machine": "SublimeW_PC"
+    },
+    {
+      "timestamp": "2026-06-17T13:06:35.537742+00:00",
+      "config": "default",
+      "split": "validation",
+      "rows_attempted": 50000,
+      "rows_written": 0,
+      "status": "error",
+      "file_path": null,
+      "error": "no rows",
+      "machine": "SublimeW_PC"
+    }
+  ],
+  "HuggingFaceTB/cosmopedia-v2": [
+    {
+      "timestamp": "2026-06-17T13:06:36.003008+00:00",
+      "config": "web_samples_v1_en",
+      "split": "train",
+      "rows_attempted": 0,
+      "rows_written": 0,
+      "status": "skipped",
+      "file_path": null,
+      "error": "no parquet files",
+      "machine": "SublimeW_PC"
+    },
+    {
+      "timestamp": "2026-06-17T13:06:36.011649+00:00",
+      "config": "web_samples_v1_en",
+      "split": "train",
+      "rows_attempted": 200000,
+      "rows_written": 0,
+      "status": "error",
+      "file_path": null,
+      "error": "no rows",
+      "machine": "SublimeW_PC"
+    },
+    {
+      "timestamp": "2026-06-17T13:06:36.315645+00:00",
+      "config": "auto_math_text_v1_en",
+      "split": "train",
+      "rows_attempted": 0,
+      "rows_written": 0,
+      "status": "skipped",
+      "file_path": null,
+      "error": "no parquet files",
+      "machine": "SublimeW_PC"
+    },
+    {
+      "timestamp": "2026-06-17T13:06:36.317654+00:00",
+      "config": "auto_math_text_v1_en",
+      "split": "train",
+      "rows_attempted": 100000,
+      "rows_written": 0,
+      "status": "error",
+      "file_path": null,
+      "error": "no rows",
+      "machine": "SublimeW_PC"
+    }
+  ],
+  "codeparrot/github-code": [
+    {
+      "timestamp": "2026-06-17T13:06:36.627772+00:00",
+      "config": "data",
+      "split": "train",
+      "rows_attempted": 0,
+      "rows_written": 0,
+      "status": "skipped",
+      "file_path": null,
+      "error": "no parquet files",
+      "machine": "SublimeW_PC"
+    },
+    {
+      "timestamp": "2026-06-17T13:06:36.627772+00:00",
+      "config": "data",
+      "split": "train",
+      "rows_attempted": 200000,
+      "rows_written": 0,
+      "status": "error",
+      "file_path": null,
+      "error": "no rows",
+      "machine": "SublimeW_PC"
+    }
+  ],
+  "bigcode/gigacode": [
+    {
+      "timestamp": "2026-06-17T13:06:36.928243+00:00",
+      "config": "default",
+      "split": "train",
+      "rows_attempted": 0,
+      "rows_written": 0,
+      "status": "skipped",
+      "file_path": null,
+      "error": "no parquet files",
+      "machine": "SublimeW_PC"
+    },
+    {
+      "timestamp": "2026-06-17T13:06:36.935409+00:00",
+      "config": "default",
+      "split": "train",
+      "rows_attempted": 50000,
+      "rows_written": 0,
+      "status": "error",
+      "file_path": null,
+      "error": "no rows",
+      "machine": "SublimeW_PC"
+    }
+  ],
+  "scientific_papers": [
+    {
+      "timestamp": "2026-06-17T13:06:37.228251+00:00",
+      "config": "arxiv",
+      "split": "train",
+      "rows_attempted": 0,
+      "rows_written": 0,
+      "status": "skipped",
+      "file_path": null,
+      "error": "no parquet files",
+      "machine": "SublimeW_PC"
+    },
+    {
+      "timestamp": "2026-06-17T13:06:37.233958+00:00",
+      "config": "arxiv",
+      "split": "train",
+      "rows_attempted": 100000,
+      "rows_written": 0,
+      "status": "error",
+      "file_path": null,
+      "error": "no rows",
+      "machine": "SublimeW_PC"
+    }
+  ],
+  "wikimedia/wikipedia": [
+    {
+      "timestamp": "2026-06-17T13:12:34.604173+00:00",
+      "config": "20231101.en",
+      "split": "train",
+      "rows_attempted": 200000,
+      "rows_written": 200754,
+      "status": "ok",
+      "file_path": "Download\\factual\\big_wikimedia_wikipedia_20231101.en_train.jsonl",
+      "error": null,
+      "machine": "SublimeW_PC"
+    }
+  ],
+  "openai/gsm8k": [
+    {
+      "timestamp": "2026-06-17T13:12:38.101159+00:00",
+      "config": "main",
+      "split": "train",
+      "rows_attempted": 7473,
+      "rows_written": 7473,
+      "status": "ok",
+      "file_path": "Download\\reasoning\\big_openai_gsm8k_main_train.jsonl",
+      "error": null,
+      "machine": "SublimeW_PC"
+    }
+  ],
+  "google-research-datasets/mbpp": [
+    {
+      "timestamp": "2026-06-17T13:12:38.502183+00:00",
+      "config": "default",
+      "split": "train",
+      "rows_attempted": 974,
+      "rows_written": 0,
+      "status": "error",
+      "file_path": null,
+      "error": "no rows",
+      "machine": "SublimeW_PC"
+    }
+  ],
+  "HuggingFaceH4/ultrachat_200k": [
+    {
+      "timestamp": "2026-06-17T13:15:25.952349+00:00",
+      "config": "default",
+      "split": "train_sft",
+      "rows_attempted": 200000,
+      "rows_written": 200166,
+      "status": "ok",
+      "file_path": "Download\\instruction\\big_HuggingFaceH4_ultrachat_200k_default_train_sft.jsonl",
+      "error": null,
+      "machine": "SublimeW_PC"
+    }
+  ],
+  "HuggingFaceTB/smoltalk": [
+    {
+      "timestamp": "2026-06-17T13:15:58.005742+00:00",
+      "config": "all",
+      "split": "train",
+      "rows_attempted": 50000,
+      "rows_written": 50500,
+      "status": "ok",
+      "file_path": "Download\\instruction\\big_HuggingFaceTB_smoltalk_all_train.jsonl",
+      "error": null,
+      "machine": "SublimeW_PC"
+    }
+  ],
+  "HuggingFaceH4/no_robots": [
+    {
+      "timestamp": "2026-06-17T13:16:02.639255+00:00",
+      "config": "default",
+      "split": "train",
+      "rows_attempted": 10000,
+      "rows_written": 9497,
+      "status": "ok",
+      "file_path": "Download\\instruction\\big_HuggingFaceH4_no_robots_default_train.jsonl",
+      "error": null,
+      "machine": "SublimeW_PC"
+    }
+  ],
+  "tatsu-lab/alpaca": [
+    {
+      "timestamp": "2026-06-17T13:16:08.097532+00:00",
+      "config": "default",
+      "split": "train",
+      "rows_attempted": 50000,
+      "rows_written": 50531,
+      "status": "ok",
+      "file_path": "Download\\instruction\\big_tatsu-lab_alpaca_default_train.jsonl",
+      "error": null,
+      "machine": "SublimeW_PC"
+    }
+  ],
+  "yahma/alpaca-cleaned": [
+    {
+      "timestamp": "2026-06-17T13:16:16.221720+00:00",
+      "config": "default",
+      "split": "train",
+      "rows_attempted": 50000,
+      "rows_written": 50943,
+      "status": "ok",
+      "file_path": "Download\\instruction\\big_yahma_alpaca-cleaned_default_train.jsonl",
+      "error": null,
+      "machine": "SublimeW_PC"
+    }
+  ],
+  "LDJnr/Capybara": [
+    {
+      "timestamp": "2026-06-17T13:16:20.993552+00:00",
+      "config": "default",
+      "split": "train",
+      "rows_attempted": 100000,
+      "rows_written": 0,
+      "status": "error",
+      "file_path": null,
+      "error": "no rows",
+      "machine": "SublimeW_PC"
+    }
+  ],
+  "p-ym/gutenberg": [
+    {
+      "timestamp": "2026-06-17T13:16:21.277885+00:00",
+      "config": "default",
+      "split": "train",
+      "rows_attempted": 0,
+      "rows_written": 0,
+      "status": "skipped",
+      "file_path": null,
+      "error": "no parquet files",
+      "machine": "SublimeW_PC"
+    },
+    {
+      "timestamp": "2026-06-17T13:16:21.293628+00:00",
+      "config": "default",
+      "split": "train",
+      "rows_attempted": 100000,
+      "rows_written": 0,
+      "status": "error",
+      "file_path": null,
+      "error": "no rows",
+      "machine": "SublimeW_PC"
+    }
+  ]
+}
