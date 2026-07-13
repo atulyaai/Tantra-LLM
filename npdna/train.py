@@ -220,11 +220,21 @@ def print_curriculum(curriculum: list[dict], total_steps: int) -> None:
               f"(+{stage['steps']-prev:6d}, folders={len(stage['folders'])})")
 
 
-def stage_index_for_step(step: int, curriculum: list[dict]) -> int:
+def stage_index_for_step(
+    step: int,
+    curriculum: list[dict],
+    max_stage: int | None = None,
+) -> int:
+    """Return the scheduled stage, optionally capped to a safe maximum."""
     for idx, stage in enumerate(curriculum):
         if step <= stage["steps"]:
-            return idx
-    return max(0, len(curriculum) - 1)
+            selected = idx
+            break
+    else:
+        selected = max(0, len(curriculum) - 1)
+    if max_stage is not None:
+        selected = min(selected, max(0, int(max_stage)))
+    return selected
 
 
 def format_duration(seconds: float) -> str:
@@ -1013,6 +1023,7 @@ def train(
     distill: bool = False,
     use_attention: bool = USE_ATTENTION,
     all_folders_now: bool = False,
+    max_stage: int | None = None,
     device: str | None = None,
     multi_gpu: bool = False,
     freeze_vocab: bool = False,
@@ -1026,6 +1037,10 @@ def train(
     DATA_DIR = Path(data_dir) if data_dir else Path("Download")
     refresh_dataset_sizes(DATA_DIR)
     CURRICULUM = build_curriculum(TOTAL_STEPS)
+    if max_stage is not None:
+        max_stage = max(0, min(int(max_stage), len(CURRICULUM) - 1))
+    if all_folders_now and max_stage is not None:
+        raise ValueError("--all-folders and --max-stage cannot be used together")
     if threads:
         torch.set_num_threads(max(1, threads))
     device_obj = _resolve_device(device)
@@ -1080,7 +1095,8 @@ def train(
           f"mtp_depth={mtp_depth}, seed_chat_ratio={seed_chat_ratio:.2f} "
           f"(decay->{seed_ratio_min:.2f} over {seed_ratio_decay_steps} steps), "
           f"lr={lr:.2e}, mtp_weight={mtp_weight:.2f}, grad_accum={grad_accum_steps}, "
-          f"seed_only={seed_only}, all_folders={all_folders_now}, latest_every={latest_every}, "
+          f"seed_only={seed_only}, all_folders={all_folders_now}, max_stage={max_stage}, "
+          f"latest_every={latest_every}, "
           f"eval_every={eval_every}, save_every={save_every}, "
           f"fresh_start={fresh_start}, reset_step_on_resume={reset_step_on_resume}, "
           f"retrain_tokenizer={retrain_tokenizer}, "
@@ -1127,7 +1143,7 @@ def train(
             print(f"  Restored target_steps={TOTAL_STEPS} from checkpoint metadata")
         loaded_step = meta.get("step", 0)
         start_step = 1 if reset_step_on_resume else loaded_step + 1
-        current_stage = stage_index_for_step(start_step - 1, CURRICULUM)
+        current_stage = stage_index_for_step(start_step - 1, CURRICULUM, max_stage)
         reset_note = " (step counter reset)" if reset_step_on_resume else ""
         print(f"\n  Resumed from {resume_dir.name}: loaded step {loaded_step}, "
               f"starting step {start_step}, stage {current_stage}{reset_note}")
@@ -1182,7 +1198,7 @@ def train(
           f"fill={core.tokenizer.fill_ratio:.1%}")
 
     # Dataset
-    current_stage = stage_index_for_step(start_step - 1, CURRICULUM)
+    current_stage = stage_index_for_step(start_step - 1, CURRICULUM, max_stage)
     if seed_only:
         dataset_folders = []
     elif all_folders_now:
@@ -1355,7 +1371,8 @@ def train(
     consecutive_nonfinite = 0
 
     end_step = TOTAL_STEPS if max_steps is None else min(TOTAL_STEPS, start_step + max_steps - 1)
-    print(f"\n  Stage {current_stage}/{len(CURRICULUM)-1} ({dataset.chunk_count} chunks)")
+    stage_display_max = max_stage if max_stage is not None else len(CURRICULUM) - 1
+    print(f"\n  Stage {current_stage}/{stage_display_max} ({dataset.chunk_count} chunks)")
     if max_steps is not None:
         print(f"  Smoke run: steps {start_step}-{end_step}\n")
     else:
@@ -1378,12 +1395,7 @@ def train(
                 g['lr'] = step_lr
 
             # Curriculum stage switch
-            new_stage = current_stage
-            for si, stage in enumerate(CURRICULUM):
-                if step <= stage["steps"]:
-                    new_stage = si
-                    break
-                new_stage = si
+            new_stage = stage_index_for_step(step, CURRICULUM, max_stage)
 
             if new_stage != current_stage:
                 current_stage = new_stage
@@ -1395,7 +1407,7 @@ def train(
                 else:
                     next_folders = stage["folders"]
                 dataset.set_folders(next_folders)
-                print(f"\n  >>> Stage {current_stage}/{len(CURRICULUM)-1} ({dataset.chunk_count} chunks) <<<\n")
+                print(f"\n  >>> Stage {current_stage}/{stage_display_max} ({dataset.chunk_count} chunks) <<<\n")
 
                 # Grow vocab if needed at stage transitions
                 if train_allow_growth and core.tokenizer.fill_ratio > 0.9:
@@ -1674,9 +1686,25 @@ def train(
     # Final
     elapsed = time.time() - t_start
     fv, fp = eval_model(model, eval_ids, batch_size, seq_len, device_obj)
+    if fv < best_val:
+        best_val = fv
+        core.save(str(CKPT_DIR / "best"), losses=losses,
+                  metadata_extra={"step": last_step, "val_loss": fv,
+                                  "stage": current_stage,
+                                  "mtp_depth": mtp_depth,
+                                  "batch_size": batch_size,
+                                  "seq_len": seq_len,
+                                  "mtp_weight": mtp_weight,
+                                  "grad_accum_steps": grad_accum_steps,
+                                  "ema_loss": ema_loss,
+                                  "best_ema_loss": best_ema_loss,
+                                  "target_steps": TOTAL_STEPS,
+                                  "peak_lr": lr})
+        save_training_state(CKPT_DIR / "best", opt=opt, scaler=scaler)
+        save_tokenizer_assets(core)
     if max_steps is None:
         core.save(str(CKPT_DIR / "final"), losses=losses,
-                  metadata_extra={"step": TOTAL_STEPS, "val_loss": fv,
+                  metadata_extra={"step": last_step, "val_loss": fv,
                                  "total_tokens": total_tok,
                                  "total_time_sec": elapsed,
                                  "mtp_depth": mtp_depth,
@@ -1691,7 +1719,9 @@ def train(
         save_training_state(CKPT_DIR / "final", opt=opt, scaler=scaler)
         save_tokenizer_assets(core, tag="final")
 
-    print(f"\n  DONE: {TOTAL_STEPS} steps in {elapsed:.0f}s ({elapsed/3600:.1f}h)")
+    steps_executed = max(0, last_step - start_step + 1)
+    print(f"\n  DONE: {steps_executed} steps executed "
+          f"({start_step}-{last_step}) in {elapsed:.0f}s ({elapsed/3600:.1f}h)")
     print(f"  Final val loss: {fv:.4f} | Best val: {best_val:.4f}")
 
     print("\n  --- Generation ---")
@@ -1750,6 +1780,8 @@ if __name__ == "__main__":
                         help="Train only on data/seed_chat.jsonl for short chat-correction runs.")
     parser.add_argument("--all-folders", action="store_true",
                         help="Sample all dataset folders immediately instead of following curriculum stages.")
+    parser.add_argument("--max-stage", type=int, default=None,
+                        help="Cap curriculum progression at this zero-based stage (for example, 2 keeps instruction+code+chat).")
     parser.add_argument("--log-every", type=int, default=LOG_EVERY,
                         help="Print training progress every N steps.")
     parser.add_argument("--latest-every", type=int, default=LATEST_EVERY,
@@ -1825,6 +1857,7 @@ if __name__ == "__main__":
         distill=args.distill,
         use_attention=args.use_attention,
         all_folders_now=args.all_folders,
+        max_stage=args.max_stage,
         device=args.device,
         multi_gpu=args.multi_gpu,
         freeze_vocab=args.freeze_vocab,

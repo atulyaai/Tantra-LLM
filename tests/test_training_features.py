@@ -243,6 +243,14 @@ def test_curriculum_scales_to_target_steps():
     assert curriculum[-1]["folders"] == all_folders
 
 
+def test_curriculum_stage_can_be_capped():
+    curriculum = build_curriculum(50_000)
+
+    assert stage_index_for_step(50_000, curriculum) == len(curriculum) - 1
+    assert stage_index_for_step(50_000, curriculum, max_stage=2) == 2
+    assert stage_index_for_step(1, curriculum, max_stage=2) == 0
+
+
 def test_generation_probe_prompts_are_varied_and_stable():
     prompts = sample_generation_prompts(step=1234, count=4)
 
