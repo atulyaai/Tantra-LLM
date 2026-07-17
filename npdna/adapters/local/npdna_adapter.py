@@ -32,8 +32,10 @@ class NpDnaAdapter(BaseTantraAdapter):
                     "No NP-DNA checkpoint found. Expected model/npdna/best or model/npdna/latest."
                 )
             core = NpDnaCore.load(self.checkpoint_path)
+            suffix = self.checkpoint_path.name if self.checkpoint_path else "injected"
+        else:
+            suffix = "injected"
         self.core = core
-        suffix = self.checkpoint_path.name if self.checkpoint_path else "injected"
         self.model_name = f"npdna-{suffix}"
 
     @classmethod
