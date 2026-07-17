@@ -13,6 +13,7 @@ from npdna.atulya_core.protocol.middleware import TantraMiddleware
 from npdna.core.dynamic_context import DynamicContextManager
 from npdna.core.observability import TraceObservabilityMiddleware
 from npdna.core.cognitive_middleware import PersonalityMiddleware, SafetyMiddleware
+from npdna.core.compute_routing import ComputeRouter
 
 # Nervous System Link (vendored from Tantra-Bus)
 try:
@@ -40,6 +41,7 @@ class UnifiedInferenceHub:
         self.circuit_breakers: Dict[BaseTantraAdapter, Dict[str, Any]] = {}
 
         self.context_manager = DynamicContextManager()
+        self.router = ComputeRouter()
 
         # Register middleware chain in execution order:
         # 1. Personality processing (mutates request early)
@@ -103,13 +105,16 @@ class UnifiedInferenceHub:
         trace_id = request.trace_id or f"TRC-{uuid.uuid4().hex[:8]}"
         context = RequestContext(trace_id=trace_id)
 
-        # Apply Dynamic Context trimming (sliding window) early
+        # Select path and apply Dynamic Context trimming (sliding window) early
+        selected_path = "medium"
         if request.messages:
-            meta = {"complexity": 0.5}
-            target_limit = self.context_manager.select_window(meta)
-            
-            # Convert user message to pseudo token IDs to apply trim
             raw_content = request.messages[-1].content
+            provider = request.provider or self._route(request)
+            provider_str = provider.value if hasattr(provider, 'value') else str(provider)
+            selected_path = self.router.select_path(raw_content, provider_str)
+            
+            # Apply dynamic sliding window limit based on path
+            target_limit = self.router.get_max_context(selected_path)
             pseudo_tokens = [ord(c) for c in raw_content]
             trimmed_tokens = self.context_manager.trim(pseudo_tokens, target_limit)
             
@@ -164,6 +169,15 @@ class UnifiedInferenceHub:
                 "entropy": response.entropy_score,
                 "simulated": is_simulated
             }))
+
+        # Record performance history back to ComputeRouter
+        latency_ms = context.metadata.get("latency_ms", 0.0)
+        is_simulated = False
+        if hasattr(response, "usage") and isinstance(response.usage, dict):
+            is_simulated = response.usage.get("simulated", False)
+        if not is_simulated and latency_ms > 0.0:
+            provider_str = response.provider.value if hasattr(response.provider, 'value') else str(response.provider)
+            self.router.record_performance(selected_path, provider_str, latency_ms, response.cost)
 
         return response
 

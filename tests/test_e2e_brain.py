@@ -48,11 +48,11 @@ class ContextMutatingMiddleware(TantraMiddleware):
 
 class TestTantraE2E(unittest.TestCase):
     def setUp(self):
-        try:
-            self.loop = asyncio.get_event_loop()
-        except RuntimeError:
-            self.loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(self.loop)
+        self.loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(self.loop)
+
+    def tearDown(self):
+        self.loop.close()
 
     def test_protocol_and_inference(self):
         hub = UnifiedInferenceHub()
