@@ -1,26 +1,158 @@
 [build-system]
-requires = ["setuptools>=61.0.0", "wheel"]
+requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "tantra-llm"
-version = "1.0.0"
-description = "Universal Multimodal Inference Hub & Cognition Framework for Atulya Tantra"
+name = "npdna"
+version = "4.1.0"
+description = "NP-DNA - CPU-first, local-first NeuroPlastic DNA Network with Multimodal Fusion"
 readme = "README.md"
-requires-python = ">=3.9"
-authors = [
-    { name = "Antigravity Dev Team" }
-]
-classifiers = [
-    "Programming Language :: Python :: 3",
-    "Operating System :: OS Independent"
-]
+license = {file = "LICENSE"}
+requires-python = ">=3.11"
 dependencies = [
-    "torch>=2.5.1",
-    "transformers>=4.48.0",
-    "pydantic>=2.0.0"
+    "torch>=2.0.0",
+    "transformers>=4.40.0",
+    "numpy>=1.24.0",
+    "pyyaml>=6.0",
+    "requests>=2.31.0",
+    "huggingface_hub>=0.20.0",
+    "pydantic>=2.0.0",
 ]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-cov>=4.0.0",
+    "pytest-asyncio>=0.21.0",
+    "mypy>=1.8.0",
+    "pyright>=1.1.300",
+    "ruff>=0.3.0",
+    "pre-commit>=3.6.0",
+]
+benchmark = [
+    "pytest-benchmark>=4.0.0",
+]
+api = [
+    "fastapi>=0.110.0",
+    "uvicorn>=0.27.0",
+]
+vision = [
+    "pillow>=10.0.0",
+    "opencv-python>=4.8.0",
+    "torchvision>=0.15.0",
+]
+audio = [
+    "librosa>=0.10.0",
+    "soundfile>=0.12.0",
+    "openai-whisper>=20231117",
+    "torchaudio>=2.0.0",
+]
+cloud = [
+    "openai>=1.0.0",
+    "google-genai>=1.0.0",
+]
+spell = [
+    "pyspellchecker>=0.8.0",
+]
+onnx = [
+    "onnxruntime>=1.17.0",
+]
+teacher = [
+    "openai>=1.0.0",
+]
+all = [
+    "npdna[dev,api,vision,audio,cloud,spell,benchmark,onnx,teacher]",
+]
+
+[project.scripts]
+npdna-chat = "npdna.cli:chat_main"
+npdna-train = "npdna.train:train"
+npdna-info = "npdna.cli:info_main"
+npdna-benchmark = "npdna.brain:benchmark_main"
+npdna-release = "npdna.brain:release_main"
 
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["npdna*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"
+cache_dir = ".pytest-cache"
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+check_untyped_defs = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+strict_optional = true
+show_error_codes = true
+pretty = true
+
+[[tool.mypy.overrides]]
+module = [
+    "npdna.*",
+]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "torch.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "transformers.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "gradio.*"
+ignore_missing_imports = true
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "UP",  # pyupgrade
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+]
+ignore = [
+    "E501",  # line too long
+    "B008",  # function calls in default arguments
+]
+fixable = ["I", "UP"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.coverage.run]
+source = ["npdna"]
+omit = [
+    "*/tests/*",
+    "*/__pycache__/*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+]

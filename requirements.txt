@@ -1,53 +1,37 @@
-# Tantra-LLM Phase 2: Core Brain System Dependencies
-# Modernized for 2026
+# NP-DNA Core Dependencies
+# Only packages that are actually imported in the codebase.
+# Optional groups are defined in pyproject.toml [project.optional-dependencies].
 
-# Core ML libraries
-torch>=2.5.1
-torchvision>=0.20.1
-torchaudio>=2.5.1
-transformers>=4.48.0
-tokenizers>=0.21.0
-safetensors>=0.4.5
+# Core ML
+torch>=2.0.0
+transformers>=4.40.0
+numpy>=1.24.0
 
-# Computer Vision (for multimodal fusion)
-opencv-python>=4.11.0
-pillow>=11.1.0
-
-# Audio Processing
-librosa>=0.10.2
-soundfile>=0.13.0
-openai-whisper>=20240930
-TTS>=0.23.0
-
-# Memory Systems — InMemoryVectorStore implemented in core/memory.py.
-# These are optional for production-scale vector search:
-faiss-cpu>=1.9.0          # Optional: production vector index
-chromadb>=0.6.0           # Optional: persistent vector DB
-networkx>=3.4             # Optional: knowledge graph
-
-# Fine-tuning and Adapters — ASPIRATIONAL: only fusion_trainer.py exists.
-peft>=0.14.0              # Not imported anywhere yet
-bitsandbytes>=0.44.0      # Not imported anywhere yet
-
-# Data Processing
-numpy>=2.1.0
-scipy>=1.14.1
-pandas>=2.2.3             # Not imported anywhere yet
-
-# Utilities
-tqdm>=4.67.0
-pyyaml>=6.0.2
-requests>=2.32.3
-psutil>=6.1.1
+# Config & Validation
+pyyaml>=6.0
 pydantic>=2.0.0
-fastapi>=0.115.0
-uvicorn>=0.30.0
-openai>=1.0.0
-google-genai>=1.0.0
+requests>=2.31.0
+huggingface_hub>=0.20.0
 
-# GPU acceleration
-# nvidia-ml-py3>=7.352.0
+# Testing
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
 
-# RWKV (Main Brain)
-rwkv>=0.8.26
-accelerate>=0.26.0
+# --- Optional: install via `pip install npdna[vision]` ---
+# pillow>=10.0.0
+# opencv-python>=4.8.0
+# torchvision>=0.15.0
+
+# --- Optional: install via `pip install npdna[audio]` ---
+# librosa>=0.10.0
+# soundfile>=0.12.0
+# openai-whisper>=20231117
+# torchaudio>=2.0.0
+
+# --- Optional: install via `pip install npdna[api]` ---
+# fastapi>=0.110.0
+# uvicorn>=0.27.0
+
+# --- Optional: install via `pip install npdna[cloud]` ---
+# openai>=1.0.0
+# google-genai>=1.0.0

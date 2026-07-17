@@ -90,8 +90,8 @@ class FusionTrainer:
         self.optimizer = AdamW(trainable_params, lr=config.lr, weight_decay=config.weight_decay)
         self.scheduler = None  # Setup dynamically inside fit() based on dataset size
 
-        self.use_amp = torch.cuda.is_available()
-        self.scaler = torch.amp.GradScaler("cuda") if self.use_amp else None
+        self.use_amp = torch.cuda.is_available() or getattr(config, "cpu_bf16", False)
+        self.scaler = torch.amp.GradScaler("cuda") if torch.cuda.is_available() else None
         self.global_step = 0
 
     def _warmup_lr(self):
@@ -152,8 +152,9 @@ class FusionTrainer:
                 if audio_e is not None: audio_e = audio_e.to(self.device)
                 if targets is not None: targets = targets.to(self.device)
 
-                device_type = "cuda" if self.use_amp else "cpu"
-                with torch.amp.autocast(device_type=device_type, enabled=self.use_amp):
+                device_type = "cuda" if torch.cuda.is_available() else "cpu"
+                dtype = torch.float16 if torch.cuda.is_available() else torch.bfloat16
+                with torch.amp.autocast(device_type=device_type, dtype=dtype, enabled=self.use_amp):
                     loss = self._forward_step(vision_e, audio_e, targets)
 
                 if loss is not None:
@@ -241,7 +242,8 @@ class FusionTrainer:
         self.audio_projector.eval()
         total_loss = 0.0
         steps = 0
-        device_type = "cuda" if self.use_amp else "cpu"
+        device_type = "cuda" if torch.cuda.is_available() else "cpu"
+        dtype = torch.float16 if torch.cuda.is_available() else torch.bfloat16
 
         with torch.no_grad():
             for batch in val_loader:
@@ -252,7 +254,7 @@ class FusionTrainer:
                 if a is not None: a = a.to(self.device)
                 if t is not None: t = t.to(self.device)
 
-                with torch.amp.autocast(device_type=device_type, enabled=self.use_amp):
+                with torch.amp.autocast(device_type=device_type, dtype=dtype, enabled=self.use_amp):
                     loss = self._forward_step(v, a, t)
                 if loss is not None:
                     total_loss += loss.item()
