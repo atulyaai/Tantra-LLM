@@ -2127,18 +2127,18 @@ def train(
                 improved = vl < previous_best_val
                 if improved:
                     best_val = vl
-                    core.save(str(CKPT_DIR / "best"), losses=losses,
-                              metadata_extra={"step": step, "val_loss": vl,
-                                             "stage": current_stage,
-                                             "mtp_depth": mtp_depth,
-                                             "batch_size": batch_size,
-                                             "seq_len": seq_len,
-                                             "mtp_weight": mtp_weight,
-                                             "grad_accum_steps": grad_accum_steps,
-                                             "ema_loss": ema_loss,
-                                             "best_ema_loss": best_ema_loss,
-                                             "target_steps": TOTAL_STEPS,
-                                             "peak_lr": lr})
+                    # Route best through save_training_checkpoint so it gets rolling backups + Drive mirror.
+                    save_training_checkpoint(core, "best", losses, step, best_val,
+                                           current_stage, mtp_depth, total_tok,
+                                           batch_size=batch_size, seq_len=seq_len,
+                                           mtp_weight=mtp_weight,
+                                           grad_accum_steps=grad_accum_steps,
+                                           ema_loss=ema_loss,
+                                           best_ema_loss=best_ema_loss,
+                                           target_steps=TOTAL_STEPS,
+                                           peak_lr=lr,
+                                           opt=opt,
+                                           scaler=scaler)
                     save_training_state(CKPT_DIR / "best", opt=opt, scaler=scaler)
                     save_tokenizer_assets(core)
 
