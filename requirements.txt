@@ -1,0 +1,40 @@
+# NP-DNA Core Dependencies
+# Only packages that are actually imported in the codebase.
+# Optional groups are defined in pyproject.toml [project.optional-dependencies].
+
+# Core ML
+torch>=2.0.0
+transformers>=4.40.0
+numpy>=1.24.0
+
+# System metrics (EventBus heartbeat, CPU runtime, benchmarks)
+psutil>=5.9.0
+
+# Config & Validation
+pyyaml>=6.0
+pydantic>=2.0.0
+requests>=2.31.0
+huggingface_hub>=0.20.0
+
+# Testing
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+
+# --- Optional: install via `pip install npdna[vision]` ---
+# pillow>=10.0.0
+# opencv-python>=4.8.0
+# torchvision>=0.15.0
+
+# --- Optional: install via `pip install npdna[audio]` ---
+# librosa>=0.10.0
+# soundfile>=0.12.0
+# openai-whisper>=20231117
+# torchaudio>=2.0.0
+
+# --- Optional: install via `pip install npdna[api]` ---
+# fastapi>=0.110.0
+# uvicorn>=0.27.0
+
+# --- Optional: install via `pip install npdna[cloud]` ---
+# openai>=1.0.0
+# google-genai>=1.0.0

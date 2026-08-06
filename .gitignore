@@ -1,0 +1,26 @@
+﻿# Python and local environments
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Test and profiling artifacts
+.pytest-cache/
+pytest-*/
+tmp_pytest/
+logs/
+
+# Local data and trained artifacts (publish through an explicit release process)
+Download/
+model/
+models/
+checkpoints/
+*.pt
+*.pth
+*.onnx
+
+# Archives and operating-system files
+*.zip
+*.rar
+.DS_Store
+

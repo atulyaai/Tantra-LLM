@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="360" viewBox="0 0 1200 360" role="img" aria-labelledby="title desc">
+  <title id="title">Tantra Cognitive OS V4</title>
+  <desc id="desc">A CPU-first local-first memory-centric cognitive operating system banner.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0%" stop-color="#101828"/>
+      <stop offset="55%" stop-color="#19324f"/>
+      <stop offset="100%" stop-color="#245c5a"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" x2="1">
+      <stop offset="0%" stop-color="#ff7a45"/>
+      <stop offset="50%" stop-color="#ffd166"/>
+      <stop offset="100%" stop-color="#64d2c8"/>
+    </linearGradient>
+    <filter id="softShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="10" stdDeviation="14" flood-color="#000000" flood-opacity="0.28"/>
+    </filter>
+  </defs>
+  <rect width="1200" height="360" rx="28" fill="url(#bg)"/>
+  <g opacity="0.22">
+    <circle cx="1030" cy="72" r="150" fill="#64d2c8"/>
+    <circle cx="166" cy="306" r="118" fill="#ff7a45"/>
+  </g>
+  <g transform="translate(86 68)" filter="url(#softShadow)">
+    <circle cx="92" cy="92" r="74" fill="#ffffff" opacity="0.1"/>
+    <path d="M92 26c34 0 62 24 62 54 0 22-15 41-37 50l8 28-31-22h-2c-34 0-62-25-62-56s28-54 62-54z" fill="url(#accent)"/>
+    <path d="M65 83c8-18 26-31 47-31 15 0 29 6 38 16-8-5-18-8-29-8-30 0-54 24-54 54 0 8 2 16 5 23-12-10-20-25-20-42 0-4 1-8 3-12z" fill="#ffffff" opacity="0.35"/>
+  </g>
+  <g transform="translate(270 86)">
+    <text x="0" y="42" fill="#ffffff" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="50" font-weight="800">Tantra Cognitive OS</text>
+    <text x="0" y="90" fill="#d9f5f0" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="23" font-weight="500">Reasoning Core + Cognitive Layer + Memory + Experts + Tools</text>
+    <rect x="0" y="126" width="720" height="2" fill="url(#accent)" opacity="0.9"/>
+    <g font-family="Inter, Segoe UI, Arial, sans-serif" font-size="18" font-weight="700">
+      <rect x="0" y="160" width="132" height="40" rx="10" fill="#ffffff" opacity="0.12"/>
+      <text x="22" y="186" fill="#ffffff">CPU-first</text>
+      <rect x="152" y="160" width="142" height="40" rx="10" fill="#ffffff" opacity="0.12"/>
+      <text x="174" y="186" fill="#ffffff">Local-first</text>
+      <rect x="314" y="160" width="174" height="40" rx="10" fill="#ffffff" opacity="0.12"/>
+      <text x="336" y="186" fill="#ffffff">Memory-centric</text>
+      <rect x="508" y="160" width="144" height="40" rx="10" fill="#ffffff" opacity="0.12"/>
+      <text x="530" y="186" fill="#ffffff">68 tests</text>
+    </g>
+  </g>
+</svg>
