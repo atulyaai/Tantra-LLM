@@ -292,7 +292,7 @@ def run_training(model, vcfg, steps=20, resume=False):
     trainer.save_checkpoint(ckpt_path)
 
 
-def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False, eval_every=250, log_every=50, batch_size=1):
+def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False, eval_every=250, log_every=50, batch_size=1, seq_len=128):
     log.info("== [DATASET PRE-TRAINING MODE] =====================")
     log.info(f"Loading real dataset from: {dataset_path}")
     repair = SelfRepairEngine()
@@ -324,7 +324,7 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
     # Initial pre-training evaluation
     eval_callback(0)
 
-    dataset = JSONLDataset(dataset_path, tokenizer, seq_len=128, max_samples=steps * batch_size)
+    dataset = JSONLDataset(dataset_path, tokenizer, seq_len=seq_len, max_samples=steps * batch_size)
     import torch
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, num_workers=0)
     trainer.train_dataset(dataloader, max_steps=steps, log_every=log_every, eval_every=eval_every, eval_callback=eval_callback)
@@ -425,7 +425,7 @@ def main():
     if args.mode == "train":
         run_training(model, vcfg, steps=args.steps, resume=args.resume)
     elif args.mode == "dataset":
-        run_dataset_training(model, tok, args.dataset, steps=args.steps, resume=args.resume, eval_every=args.eval_every, log_every=args.log_every, batch_size=args.batch_size)
+        run_dataset_training(model, tokenizer, args.dataset, steps=args.steps, resume=args.resume, eval_every=args.eval_every, log_every=args.log_every, batch_size=args.batch_size, seq_len=args.seq_len)
     elif args.mode == "eval":
         run_evaluation(model, tok, args.dataset)
     elif args.mode == "generate":
