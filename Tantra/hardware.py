@@ -196,7 +196,7 @@ class HardwareDetector:
         is_tty = getattr(sys.stdout, "isatty", lambda: False)()
         if Console is not None and Table is not None and is_tty:
             try:
-                console = Console()
+                console = Console(width=120, force_terminal=False)
                 table = Table(title="Hardware Profile")
                 table.add_column("Component", style="cyan")
                 table.add_column("Details", style="magenta")

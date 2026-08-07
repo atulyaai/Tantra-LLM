@@ -186,7 +186,10 @@ def run_interactive_chat(model, tokenizer, device, temp=0.8, top_p=0.95):
 def detect_hardware():
     log.info("== [1] HARDWARE AUTO-DETECTION & PROACTIVE HEALTH ==")
     
-    is_colab = 'google.colab' in sys.modules
+    is_colab = ('google.colab' in sys.modules 
+                or os.environ.get('COLAB_RELEASE_TAG') is not None
+                or os.environ.get('COLAB_GPU') is not None
+                or os.path.exists('/content'))
     is_non_tty = not getattr(sys.stdout, "isatty", lambda: False)()
     
     if is_colab or is_non_tty:
@@ -461,9 +464,31 @@ def main():
         return
 
     rt, sched = detect_hardware()
-    if args.device != "auto":
-        rt.device = args.device
-        log.info(f"  [DEVICE OVERRIDE] Target device explicitly set to: {rt.device}")
+    
+    # ── Hybrid Device Selection: GPU if available, else CPU ──
+    if args.device == "auto":
+        # Auto-detect best available device
+        if torch.cuda.is_available():
+            rt.device = "cuda:0"
+            log.info(f"  [HYBRID] CUDA GPU detected → using {torch.cuda.get_device_name(0)}")
+        elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+            rt.device = "mps"
+            log.info(f"  [HYBRID] Apple MPS detected → using Metal GPU")
+        else:
+            rt.device = "cpu"
+            log.info(f"  [HYBRID] No GPU found → using CPU ({os.cpu_count()} threads)")
+    else:
+        # Manual override with validation
+        requested = args.device
+        if requested.startswith("cuda") and not torch.cuda.is_available():
+            log.warning(f"  [DEVICE] CUDA requested but not available! Falling back to CPU.")
+            rt.device = "cpu"
+        elif requested == "mps" and not (hasattr(torch.backends, 'mps') and torch.backends.mps.is_available()):
+            log.warning(f"  [DEVICE] MPS requested but not available! Falling back to CPU.")
+            rt.device = "cpu"
+        else:
+            rt.device = requested
+            log.info(f"  [DEVICE OVERRIDE] Target device explicitly set to: {rt.device}")
     tok = build_vocab(vcfg, args.dataset)
     codec = DNACodec(ccfg)
     reg, loader = init_experts(moe, mcfg, codec)
