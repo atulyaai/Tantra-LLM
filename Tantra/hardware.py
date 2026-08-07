@@ -167,7 +167,20 @@ class HardwareDetector:
         return gpus
         
     def _detect_ram(self) -> Tuple[int, int]:
-        """Detect RAM total and free in MB."""
+        """Detect RAM total and free in MB, using non-blocking proc filesystem on Linux."""
+        if os.name != 'nt':
+            try:
+                meminfo = {}
+                with open('/proc/meminfo', 'r') as f:
+                    for line in f:
+                        parts = line.split()
+                        if len(parts) >= 2:
+                            meminfo[parts[0]] = int(parts[1])
+                total = meminfo.get('MemTotal:', 8192 * 1024) // 1024
+                free = meminfo.get('MemAvailable:', 4096 * 1024) // 1024
+                return total, free
+            except Exception:
+                pass
         try:
             vm = psutil.virtual_memory()
             return vm.total // (1024*1024), vm.available // (1024*1024)
@@ -471,13 +484,32 @@ class AdaptiveScheduler:
             time.sleep(5)
             
     def _adjust_for_memory_pressure(self) -> None:
-        """Adjust parameters if memory usage is too high."""
-        mem = psutil.virtual_memory()
+        """Adjust parameters if memory usage is too high using non-blocking proc filesystem on Linux."""
+        percent = 50.0
+        if os.name != 'nt':
+            try:
+                meminfo = {}
+                with open('/proc/meminfo', 'r') as f:
+                    for line in f:
+                        parts = line.split()
+                        if len(parts) >= 2:
+                            meminfo[parts[0]] = int(parts[1])
+                total = meminfo.get('MemTotal:', 8192 * 1024)
+                free = meminfo.get('MemAvailable:', 4096 * 1024)
+                percent = ((total - free) / total) * 100.0
+            except Exception:
+                pass
+        else:
+            try:
+                mem = psutil.virtual_memory()
+                percent = mem.percent
+            except Exception:
+                pass
         
-        if mem.percent > 95.0:
+        if percent > 95.0:
             self.config.batch_size = 1
             self.config.expert_cache_size = 1
-        elif mem.percent > 85.0:
+        elif percent > 85.0:
             if self.config.expert_cache_size > 1:
                 self.config.expert_cache_size -= 1
 
