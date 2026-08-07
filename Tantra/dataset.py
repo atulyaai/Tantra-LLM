@@ -17,7 +17,24 @@ log = get_logger(__name__)
 
 
 def format_jsonl_prompt(item: Dict[str, Any]) -> str:
-    """Format a JSONL entry into a structured conversation prompt."""
+    """Format a JSONL entry into a structured conversation prompt.
+    
+    Supports both flat format ({system, user, assistant}) and ChatML format
+    ({messages: [{role, content}, ...]}).
+    """
+    # Handle ChatML format: {"messages": [{"role": ..., "content": ...}]}
+    messages = item.get("messages")
+    if messages and isinstance(messages, list):
+        parts = []
+        for msg in messages:
+            role = msg.get("role", "").strip()
+            content = msg.get("content", "").strip()
+            if role and content:
+                parts.append(f"<|{'system' if role == 'system' else role}|>\n{content}")
+        if parts:
+            return "\n\n".join(parts)
+    
+    # Handle flat format: {"system": ..., "user": ..., "assistant": ...}
     system = item.get("system", "").strip()
     user = item.get("user", "").strip()
     assistant = item.get("assistant", "").strip()
@@ -68,9 +85,10 @@ class JSONLDataset(IterableDataset):
                     text = line
 
                 ids = self.tokenizer.encode(text, modality="text")
-                # Clamp token IDs to valid vocabulary range [0, vocab_size - 1]
-                ids = [min(max(0, int(i)), self.vocab_size - 1) for i in ids]
-                token_buffer.extend(ids)
+                if ids:
+                    # Fast vector clamping via PyTorch tensor
+                    t_ids = torch.tensor(ids, dtype=torch.long).clamp_(0, self.vocab_size - 1)
+                    token_buffer.extend(t_ids.tolist())
 
                 while len(token_buffer) >= self.seq_len + 1:
                     chunk = token_buffer[: self.seq_len + 1]
