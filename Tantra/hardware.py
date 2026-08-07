@@ -31,7 +31,7 @@ log = logging.getLogger("tantra.hardware")
 def configure_cpu_performance(num_threads: Optional[int] = None) -> None:
     """Configures OpenMP/MKL thread counts and PyTorch CPU vectorization settings."""
     if num_threads is None or num_threads <= 0:
-        num_threads = psutil.cpu_count(logical=False) or os.cpu_count() or 4
+        num_threads = os.cpu_count() or 4
 
     try:
         torch.set_num_threads(num_threads)
