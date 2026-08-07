@@ -122,20 +122,30 @@ class HardwareDetector:
         return profile
         
     def _detect_cpu(self) -> CPUInfo:
-        """Detect CPU details with fast non-blocking system calls."""
+        """Detect CPU details with fast non-blocking system calls and safe fallbacks."""
         brand = platform.processor() or "AMD/Intel x86_64 Processor"
-        if "AMD" in brand or "Intel" in brand or "Ryzen" in brand or "Core" in brand:
-            has_avx2 = True
-        else:
-            has_avx2 = True  # Standard x86_64 assumption
+        has_avx2 = True
             
-        freq = psutil.cpu_freq()
-        max_freq = freq.max if freq else 0.0
+        max_freq = 2500.0
+        try:
+            freq = psutil.cpu_freq()
+            if freq and getattr(freq, 'max', 0):
+                max_freq = freq.max
+        except Exception:
+            pass
+        
+        p_cores = 4
+        l_cores = 8
+        try:
+            p_cores = psutil.cpu_count(logical=False) or 4
+            l_cores = psutil.cpu_count(logical=True) or 8
+        except Exception:
+            pass
         
         return CPUInfo(
             brand=brand,
-            physical_cores=psutil.cpu_count(logical=False) or 4,
-            logical_cores=psutil.cpu_count(logical=True) or 8,
+            physical_cores=p_cores,
+            logical_cores=l_cores,
             max_freq_mhz=max_freq,
             has_avx2=has_avx2,
             has_avx512=False,
@@ -145,33 +155,39 @@ class HardwareDetector:
         )
         
     def _detect_gpus(self) -> List[GPUInfo]:
-        """Detect GPUs."""
+        """Detect GPUs with exception guards."""
         gpus = []
-        if torch.cuda.is_available():
-            for i in range(torch.cuda.device_count()):
-                props = torch.cuda.get_device_properties(i)
-                cc = f"{props.major}.{props.minor}"
+        try:
+            if torch.cuda.is_available():
+                for i in range(torch.cuda.device_count()):
+                    props = torch.cuda.get_device_properties(i)
+                    cc = f"{props.major}.{props.minor}"
+                    gpus.append(GPUInfo(
+                        index=i,
+                        name=props.name,
+                        vram_mb=props.total_memory // (1024*1024),
+                        compute_capability=cc,
+                        backend='cuda'
+                    ))
+            elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
                 gpus.append(GPUInfo(
-                    index=i,
-                    name=props.name,
-                    vram_mb=props.total_memory // (1024*1024),
-                    compute_capability=cc,
-                    backend='cuda'
+                    index=0,
+                    name='Apple Silicon GPU',
+                    vram_mb=psutil.virtual_memory().total // (1024*1024),
+                    compute_capability=None,
+                    backend='mps'
                 ))
-        elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
-            gpus.append(GPUInfo(
-                index=0,
-                name='Apple Silicon GPU',
-                vram_mb=psutil.virtual_memory().total // (1024*1024),
-                compute_capability=None,
-                backend='mps'
-            ))
+        except Exception:
+            pass
         return gpus
         
     def _detect_ram(self) -> Tuple[int, int]:
         """Detect RAM total and free in MB."""
-        vm = psutil.virtual_memory()
-        return vm.total // (1024*1024), vm.available // (1024*1024)
+        try:
+            vm = psutil.virtual_memory()
+            return vm.total // (1024*1024), vm.available // (1024*1024)
+        except Exception:
+            return 8192, 4096
         
     def _benchmark_disk(self, size_mb: int = 8) -> float:
         """Benchmark sequential disk read speed in MB/s."""
