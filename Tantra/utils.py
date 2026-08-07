@@ -28,7 +28,11 @@ import numpy as np
 try:
     from rich.console import Console
     from rich.logging import RichHandler
-    _console = Console(force_terminal=True, legacy_windows=False)
+    is_tty = getattr(sys.stdout, "isatty", lambda: False)()
+    if is_tty:
+        _console = Console(force_terminal=True, legacy_windows=False)
+    else:
+        _console = Console(force_terminal=False, width=120)
     _HAS_RICH = True
 except ImportError:
     _console = None
