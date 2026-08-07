@@ -1,12 +1,12 @@
 <!-- Full-width hero banner (has TANTRA LLM title and Sanskrit embedded in the image itself) -->
-<p align="center">
-  <img src="Assets/tantra_hero_banner.jpg" alt="Tantra LLM — Weaving Intelligence · तन्त्र" width="100%"/>
-</p>
+<div align="center">
+  
+  <img src="Assets/tantra_hero_banner_animated.gif" alt="Tantra LLM - Weaving Intelligence" width="100%"/>
 
-<!-- Animated italic title in Cinzel Decorative gold font -->
-<p align="center">
-  <img src="https://readme-typing-svg.demolab.com?font=Cinzel+Decorative&weight=700&size=36&pause=2500&color=F0C040&center=true&vCenter=true&width=620&lines=Tantra+LLM;%E0%A4%A4%E0%A4%A8%E0%A5%8D%E0%A4%A4%E0%A5%8D%E0%A4%B0+%E2%80%94+Weaving+Intelligence" alt="Tantra LLM"/>
-</p>
+  <h1>
+    <img src="https://readme-typing-svg.herokuapp.com?font=Cinzel&weight=700&size=45&duration=4000&pause=1000&color=F7931A&center=true&vCenter=true&width=600&height=80&lines=TANTRA+LLM;WEAVING+INTELLIGENCE;+?????+" alt="Typing SVG" />
+  </h1>
+</div>
 
 <p align="center">
   <em><strong>तन्त्र</strong> (Sanskrit) — An instrument that weaves threads of knowledge · <strong>तंत्र</strong> (Hindi) — System, mechanism, governance</em>
