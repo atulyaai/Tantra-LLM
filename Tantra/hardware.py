@@ -416,16 +416,9 @@ class RuntimeConfigBuilder:
     def _select_offload_strategy(self, hw: HardwareProfile, perf: PerformanceProfile) -> str:
         if not hw.gpus:
             return 'cpu_only'
-            
-        vram = hw.gpus[0].vram_mb
         if len(hw.gpus) > 1:
             return 'multi_gpu'
-        elif vram >= 24576:
-            return 'full_gpu'
-        elif vram >= 8192:
-            return 'gpu_attn'
-        else:
-            return 'cpu_only'
+        return 'full_gpu'
             
     def _select_compression_level(self, hw: HardwareProfile) -> str:
         if hw.ram_total_mb <= 16384:
