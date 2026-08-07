@@ -1,0 +1,82 @@
+{
+  "0": {
+    "expert_id": 0,
+    "name": "expert_0000",
+    "dna_path": "D:\\Atulya Tantra\\Tantra-LLM\\model\\experts\\expert_0000.dna",
+    "specialization": "language",
+    "param_count": 2000000000,
+    "compressed_size_bytes": 0,
+    "usage_count": 0,
+    "last_used_step": 0
+  },
+  "1": {
+    "expert_id": 1,
+    "name": "expert_0001",
+    "dna_path": "D:\\Atulya Tantra\\Tantra-LLM\\model\\experts\\expert_0001.dna",
+    "specialization": "code",
+    "param_count": 2000000000,
+    "compressed_size_bytes": 0,
+    "usage_count": 0,
+    "last_used_step": 0
+  },
+  "2": {
+    "expert_id": 2,
+    "name": "expert_0002",
+    "dna_path": "D:\\Atulya Tantra\\Tantra-LLM\\model\\experts\\expert_0002.dna",
+    "specialization": "math",
+    "param_count": 2000000000,
+    "compressed_size_bytes": 0,
+    "usage_count": 0,
+    "last_used_step": 0
+  },
+  "3": {
+    "expert_id": 3,
+    "name": "expert_0003",
+    "dna_path": "D:\\Atulya Tantra\\Tantra-LLM\\model\\experts\\expert_0003.dna",
+    "specialization": "science",
+    "param_count": 2000000000,
+    "compressed_size_bytes": 0,
+    "usage_count": 0,
+    "last_used_step": 0
+  },
+  "4": {
+    "expert_id": 4,
+    "name": "expert_0004",
+    "dna_path": "D:\\Atulya Tantra\\Tantra-LLM\\model\\experts\\expert_0004.dna",
+    "specialization": "reasoning",
+    "param_count": 2000000000,
+    "compressed_size_bytes": 0,
+    "usage_count": 0,
+    "last_used_step": 0
+  },
+  "5": {
+    "expert_id": 5,
+    "name": "expert_0005",
+    "dna_path": "D:\\Atulya Tantra\\Tantra-LLM\\model\\experts\\expert_0005.dna",
+    "specialization": "vision",
+    "param_count": 2000000000,
+    "compressed_size_bytes": 0,
+    "usage_count": 0,
+    "last_used_step": 0
+  },
+  "6": {
+    "expert_id": 6,
+    "name": "expert_0006",
+    "dna_path": "D:\\Atulya Tantra\\Tantra-LLM\\model\\experts\\expert_0006.dna",
+    "specialization": "audio",
+    "param_count": 2000000000,
+    "compressed_size_bytes": 0,
+    "usage_count": 0,
+    "last_used_step": 0
+  },
+  "7": {
+    "expert_id": 7,
+    "name": "expert_0007",
+    "dna_path": "D:\\Atulya Tantra\\Tantra-LLM\\model\\experts\\expert_0007.dna",
+    "specialization": "general",
+    "param_count": 2000000000,
+    "compressed_size_bytes": 0,
+    "usage_count": 0,
+    "last_used_step": 0
+  }
+}

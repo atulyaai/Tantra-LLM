@@ -1,46 +1,20 @@
 # Changelog
 
-All notable changes are tracked here. The repository uses a flat 12-file layout
-under `npdna/` (no sub-packages). Large binaries and datasets are gitignored;
-checkpoints live in `model/` and datasets in `Download/` (runtime-local only).
+All notable changes to **Tantra-LLM** will be documented in this file.
 
-## v1.0.0 — Flat NP-DNA (NeuroPlastic DNA) baseline
-- **Core**: from-scratch neuroplastic transformer `NpDnaModel` (embedding → Mesh
-  strands via shared `Genome` hypernetwork → final norm → LM head). Strands are
-  small learnable seeds expanded into real weight matrices, so each checkpoint
-  stores a compact genome rather than dense per-strand matrices.
-- **Dynamic growth**: vocab, strand count, and layer count auto-scale during
-  training; LoRA adapters (`nn.Linear` low-rank) for fine-tuning.
-- **Multimodal fusion (activation-level)**: built-in single `vision_projector` /
-  `audio_projector` as `nn.Linear(4096, H)` in `model.py`; projectors are the
-  only multimodal weights (no separate standalone MLP trainer).
-- **Layout**: single package `npdna/` (12 .py + `personality_config.json`),
-  `tests/` (pytest), `tools/` (standalone one-shot scripts).
-- **Entry points** registered in `pyproject.toml`: `npdna-chat`, `npdna-train`,
-  `npdna-info`, `npdna-benchmark`, `npdna-cpu-benchmark`, `npdna-release`,
-  `npdna-serve`, `npdna-studio`.
-- **Checkpoint slots** (flat): `model/best`, `model/latest` (with rolling
-  `latest.1`/`.2`/`.3` backups), `model/final`, `model/step_N`.
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-### Fixes since baseline
-- Checkpoint slot layout flattened: slots now live at `model/<name>` rather than
-  nested under `model/latest/<name>`.
-- Stripped legacy 512/128-dim `vision_projector`/`audio_projector` weights from
-  the bundled checkpoint so they no longer trigger size-mismatch warnings on
-  resume (projectors are re-initialized to the correct 4096-dim shape).
-- Hardened `NpDnaCore.load`: shape-mismatched checkpoint keys now raise a clear
-  `RuntimeError` (set `NPDNA_REPAIR=1` to restore the old strip-and-warn recovery
-  path for rebuilding a checkpoint).
-- `--distill` (GPT-2 teacher) no longer crashes training on network/Hub download
-  failures — it warns and continues without distillation.
-- Rolling-latest backup rotation is best-effort on Windows (retries + non-fatal
-  fallback) instead of crashing the run on a transient file lock.
-- Repaired UTF-8 mojibake (cp1252 round-trip) in `serving.py` and
-  `architecture.py` section dividers and emoji.
+## [1.0.0] - 2026-08-07
 
-## Notable removals
-- `FusionTrainer` / `FusionProjector` / `FusionTrainingConfig` classes —
-  projectors are built-in to the text model and trained via `--fusion`.
-- `train_fusion.py` / `generate_training_data.py` standalone scripts — folded
-  into the single `npdna/train.py` entrypoint.
-- `final_projectors.pt` orphaned artifact from the old standalone-projector era.
+### Added
+- **NeuroCore Engine**: Custom Transformer replacement featuring:
+  - **ALRA (Adaptive Linear Resonance Attention)**: $O(n)$ linear-time attention mechanism with dynamic learnable forget gates.
+  - **SGP (Sparse Gated Projection)**: Brain-inspired sparse Feed-Forward Network with top-$k\%$ (10%) neuron activation per token.
+  - **DSN (Dynamic Scale Norm)**: Dynamic LayerNorm replacement with input-dependent learned scale.
+- **BitNet 1-Bit Ternary Weights**: Drop-in `BitLinear` layers with ternary weights $\{-1, 0, +1\}$, straight-through gradient estimators, and optimized CPU kernels using positive/negative mask decomposition.
+- **DNA-AI Weight Compression**: Custom near-lossless / lossless weight codec integrating ZSTD domain dictionaries, neural residual prediction, adaptive Huffman coding, 2-bit DNA symbol packing, and parity checking.
+- **Unified Multimodal Fusion**: 32K token space accommodating text (Byte-BPE), raw byte streams (MegaByte patcher), audio VQ-VAE, image VQ-VAE, and video 3D-VQ codecs via `ModalityRouter` and `OutputRouter`.
+- **Auto-Adaptive Hardware Engine**: Runtime profiling for CPU (AVX2/AVX512), GPU (CUDA/MPS), RAM budget tracking, and real-time `AdaptiveScheduler`.
+- **Sparse MoE Architecture**: Expert registry tracking up to 500 domain experts, ALRA context-aware router, auxiliary load-balancer, and `LazyExpertLoader` with LRU RAM caching.
+- **Clean AI Engineer Refactoring**: Consolidated 50+ fragmented files across 11 subdirectories into a unified `tantra` core package with 9 clean modules.

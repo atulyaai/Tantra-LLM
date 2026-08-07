@@ -1,26 +1,45 @@
-﻿# Python and local environments
-.venv/
+# Python
 __pycache__/
 *.py[cod]
-*.egg-info/
+*$py.class
+*.so
+env/
+venv/
+.venv/
 
-# Test and profiling artifacts
-.pytest-cache/
-pytest-*/
-tmp_pytest/
-logs/
+# Testing
+.pytest_cache/
+.benchmarks/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
 
-# Local data and trained artifacts (publish through an explicit release process)
+# Large binary checkpoints (use releases for these)
+model/checkpoint_*.pt
+model/converted_*.pt
+model/corpus_sample.txt
+
+# Raw training data (too large for GitHub)
 Download/
-model/
-models/
-checkpoints/
-*.pt
-*.pth
-*.onnx
+*.parquet
+*.h5
 
-# Archives and operating-system files
-*.zip
-*.rar
+# Logs
+*.log
+logs/
+reports/
+
+# Secrets
+.env
+.env.*
+*.pem
+*.key
+secrets/
+
+# IDE & OS
+.vscode/
+.idea/
+*.swp
 .DS_Store
-
+Thumbs.db

@@ -1,40 +1,38 @@
-# NP-DNA Core Dependencies
-# Only packages that are actually imported in the codebase.
-# Optional groups are defined in pyproject.toml [project.optional-dependencies].
+# NeuroCore — Python Dependencies
+# Install: pip install -r requirements.txt
 
-# Core ML
-torch>=2.0.0
-transformers>=4.40.0
-numpy>=1.24.0
+# Core deep learning
+torch>=2.2.0
+numpy>=1.26.0
 
-# System metrics (EventBus heartbeat, CPU runtime, benchmarks)
-psutil>=5.9.0
+# Tokenization
+tokenizers>=0.19.0       # HuggingFace fast BPE
+sentencepiece>=0.2.0     # SentencePiece fallback
+morfessor>=2.0.6         # Morphological segmentation
 
-# Config & Validation
-pyyaml>=6.0
-pydantic>=2.0.0
-requests>=2.31.0
-huggingface_hub>=0.20.0
+# Compression
+zstandard>=0.22.0        # ZSTD compression
+brotli>=1.1.0            # Brotli fallback
+
+# Hardware detection
+psutil>=5.9.0            # RAM / CPU info
+py-cpuinfo>=9.0.0        # Detailed CPU features (AVX2/512)
+gpustat>=1.1.1           # GPU stats (optional, graceful fallback)
+
+# Audio / Vision (for multimodal fusion)
+torchaudio>=2.2.0        # Audio processing
+torchvision>=0.17.0      # Image processing
+Pillow>=10.0.0           # Image I/O
+
+# Server (optional, inference/server.py only)
+fastapi>=0.110.0
+uvicorn>=0.29.0
 
 # Testing
-pytest>=7.4.0
-pytest-asyncio>=0.21.0
+pytest>=8.0.0
+pytest-benchmark>=4.0.0
 
-# --- Optional: install via `pip install npdna[vision]` ---
-# pillow>=10.0.0
-# opencv-python>=4.8.0
-# torchvision>=0.15.0
-
-# --- Optional: install via `pip install npdna[audio]` ---
-# librosa>=0.10.0
-# soundfile>=0.12.0
-# openai-whisper>=20231117
-# torchaudio>=2.0.0
-
-# --- Optional: install via `pip install npdna[api]` ---
-# fastapi>=0.110.0
-# uvicorn>=0.27.0
-
-# --- Optional: install via `pip install npdna[cloud]` ---
-# openai>=1.0.0
-# google-genai>=1.0.0
+# Utilities
+tqdm>=4.66.0
+rich>=13.7.0             # Pretty terminal output
+dataclasses-json>=0.6.0  # Config serialization

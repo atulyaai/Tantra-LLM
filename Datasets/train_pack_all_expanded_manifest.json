@@ -1,0 +1,23 @@
+{
+  "input": "Download\\train_pack\\train_pack_all_expanded_1040k.jsonl",
+  "output": "Download\\train_pack\\train_pack_all_expanded_clean_1040k.jsonl",
+  "rows": 761960,
+  "raw_rows": 1177647,
+  "dedup_threshold": 0.9,
+  "drop_reasons": {
+    "few_words": 290701,
+    "length": 99207,
+    "echo": 16861,
+    "low_info_opener": 7342,
+    "boilerplate": 1565
+  },
+  "categories": {
+    "code": 223890,
+    "reasoning": 207848,
+    "chat": 187842,
+    "instruction": 94860,
+    "sentiment": 27628,
+    "factual": 19292,
+    "general": 600
+  }
+}
