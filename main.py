@@ -185,6 +185,53 @@ def run_interactive_chat(model, tokenizer, device, temp=0.8, top_p=0.95):
 
 def detect_hardware():
     log.info("== [1] HARDWARE AUTO-DETECTION & PROACTIVE HEALTH ==")
+    
+    is_colab = 'google.colab' in sys.modules
+    is_non_tty = not getattr(sys.stdout, "isatty", lambda: False)()
+    
+    if is_colab or is_non_tty:
+        log.info("  [INFO] Running in Container/Non-TTY mode. Skipping benchmarks for instant startup.")
+        from Tantra.hardware import GPUInfo, RuntimeConfig
+        
+        # Check for GPU without blocking
+        has_cuda = False
+        gpus = []
+        try:
+            import torch
+            has_cuda = torch.cuda.is_available()
+            if has_cuda:
+                gpus = [GPUInfo(0, torch.cuda.get_device_name(0), torch.cuda.get_device_properties(0).total_memory // (1024*1024), "8.0", "cuda")]
+        except Exception:
+            pass
+            
+        device = 'cuda:0' if gpus else 'cpu'
+        log.info(f"  Detected Device: {device} | strategy: {'full_gpu' if gpus else 'cpu_only'}")
+        
+        rt = RuntimeConfig(
+            device=device,
+            dtype='bfloat16' if gpus else 'int8',
+            use_bitnet=True,
+            batch_size=4 if gpus else 1,
+            max_seq_len=8192,
+            active_experts=1,
+            expert_cache_size=8,
+            prefetch_depth=2,
+            compression_level='high',
+            offload_strategy='full_gpu' if gpus else 'cpu_only',
+            ram_budget_mb=8192,
+            vram_budget_mb=12000,
+            expert_size_mb=500,
+            num_threads=4,
+            prefill_chunk_size=512,
+            profile_name="COLAB-GPU" if gpus else "COLAB-CPU"
+        )
+        
+        class FastScheduler:
+            def start(self): pass
+            def stop(self): pass
+            
+        return rt, FastScheduler()
+
     hw = HardwareDetector()
     profile = hw.detect()
     hw.print_profile(profile)
