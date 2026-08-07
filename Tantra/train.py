@@ -12,6 +12,7 @@ from torch.optim import AdamW
 from typing import Iterable, Tuple
 
 from Tantra.utils import get_logger
+from Tantra.evolution import SelfRepairEngine
 
 log = get_logger(__name__)
 
@@ -102,6 +103,12 @@ class NeuroTrainer:
                 
             loss, acc, ppl, grad_norm = self.train_step(x, y)
             losses.append(loss)
+            
+            # Dynamic Self-Repair
+            if math.isnan(loss) or loss > 15.0:
+                log.warning(f"Loss instability detected (Loss: {loss:.4f}). Triggering dynamic Self-Repair...")
+                repair = SelfRepairEngine()
+                repair.scan_and_repair(self.model)
             
             if (self.step_count % log_every == 0) or (i == 0) or (self.step_count == max_steps):
                 elapsed = time.perf_counter() - self._start_time

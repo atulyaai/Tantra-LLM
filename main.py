@@ -292,7 +292,7 @@ def run_training(model, vcfg, steps=20, resume=False):
     trainer.save_checkpoint(ckpt_path)
 
 
-def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False, eval_every=250):
+def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False, eval_every=250, log_every=50, batch_size=1):
     log.info("== [DATASET PRE-TRAINING MODE] =====================")
     log.info(f"Loading real dataset from: {dataset_path}")
     repair = SelfRepairEngine()
@@ -316,12 +316,18 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
         response = tokenizer.decode(out.tolist()[0])
         log.info(f"Output: {response}")
         log.info("----------------------------------\n")
-        trainer.save_checkpoint(ckpt_path)
-        if step % (eval_every * 2) == 0:
-            trainer.save_checkpoint(best_path)
+        if step > 0:
+            trainer.save_checkpoint(ckpt_path)
+            if step % (eval_every * 2) == 0:
+                trainer.save_checkpoint(best_path)
 
-    dataset = JSONLDataset(dataset_path, tokenizer, seq_len=128, max_samples=steps)
-    trainer.train_dataset(dataset, max_steps=steps, log_every=1, eval_every=eval_every, eval_callback=eval_callback)
+    # Initial pre-training evaluation
+    eval_callback(0)
+
+    dataset = JSONLDataset(dataset_path, tokenizer, seq_len=128, max_samples=steps * batch_size)
+    import torch
+    dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, num_workers=0)
+    trainer.train_dataset(dataloader, max_steps=steps, log_every=log_every, eval_every=eval_every, eval_callback=eval_callback)
     
     trainer.save_checkpoint(ckpt_path)
     trainer.save_checkpoint(best_path)
@@ -367,6 +373,8 @@ def main():
     parser.add_argument("--port", type=int, default=8000, help="Server port (serve mode)")
     parser.add_argument("--resume", action="store_true", help="Resume from latest checkpoint if available")
     parser.add_argument("--eval-every", type=int, default=250, help="Evaluate and save checkpoint every N steps (dataset mode)")
+    parser.add_argument("--log-every", type=int, default=50, help="Log progress every N steps")
+    parser.add_argument("--batch-size", type=int, default=1, help="Batch size for training")
     args = parser.parse_args()
 
     vcfg = VocabConfig()
@@ -417,7 +425,7 @@ def main():
     if args.mode == "train":
         run_training(model, vcfg, steps=args.steps, resume=args.resume)
     elif args.mode == "dataset":
-        run_dataset_training(model, tok, args.dataset, steps=args.steps, resume=args.resume, eval_every=args.eval_every)
+        run_dataset_training(model, tok, args.dataset, steps=args.steps, resume=args.resume, eval_every=args.eval_every, log_every=args.log_every, batch_size=args.batch_size)
     elif args.mode == "eval":
         run_evaluation(model, tok, args.dataset)
     elif args.mode == "generate":
