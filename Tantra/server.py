@@ -772,7 +772,7 @@ HTML_WEB_STUDIO = """<!DOCTYPE html>
                     <div class="message-content">${htmlContent}</div>
                     <div class="message-meta">
                         <span>${timeStr}</span>
-                        ${!isUser ? `<button class="copy-btn" onclick="navigator.clipboard.writeText(\`${content.replace(/`/g, '\\`')}\`)">Copy</button>` : ''}
+                        ${!isUser ? `<button class="copy-btn" onclick="navigator.clipboard.writeText(\`${content.replace(/`/g, "'")}\`)">Copy</button>` : ''}
                     </div>
                 </div>
             `;
