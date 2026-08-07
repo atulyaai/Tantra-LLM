@@ -207,10 +207,12 @@ def build_vocab(cfg: VocabConfig, corpus_file: str | None = None) -> UnifiedToke
     bpe = ByteBPETokenizer(cfg)
     
     status = "Cached Artifact"
-    if corpus_file and os.path.exists(corpus_file):
+    if not os.path.exists(VOCAB_PATH) and corpus_file and os.path.exists(corpus_file):
         sample_txt = extract_corpus_sample(corpus_file, os.path.join(MODEL_DIR, "corpus_sample.txt"))
         bpe.train([sample_txt], vocab_size=cfg.vocab_size)
         status = f"Trained on BPE Corpus ({corpus_file})"
+    elif os.path.exists(VOCAB_PATH):
+        status = f"Loaded Cached Vocab Artifact ({VOCAB_PATH})"
         
     patcher = MegabytePatcher()
     tok = UnifiedTokenizer(cfg, bpe, patcher)
