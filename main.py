@@ -299,7 +299,8 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False)
     repair.scan_and_repair(model)
     
     trainer = NeuroTrainer(model, lr=1e-4)
-    ckpt_path = os.path.join(MODEL_DIR, "checkpoint_dataset_trained.pt")
+    ckpt_path = os.path.join(MODEL_DIR, "checkpoint_latest.pt")
+    best_path = os.path.join(MODEL_DIR, "checkpoint_best.pt")
     
     if resume and os.path.exists(ckpt_path):
         log.info(f"RESUMING from existing checkpoint: {ckpt_path}")
@@ -311,6 +312,7 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False)
     trainer.train_dataset(dataset, max_steps=steps, log_every=1)
     
     trainer.save_checkpoint(ckpt_path)
+    trainer.save_checkpoint(best_path)
 
 
 def run_evaluation(model, tokenizer, dataset_path):
@@ -380,8 +382,8 @@ def main():
     
     trainer = NeuroTrainer(model, lr=1e-4)
     # Check if a checkpoint exists for status
-    if os.path.exists(os.path.join(MODEL_DIR, "checkpoint_dataset_trained.pt")):
-        try: trainer.load_checkpoint(os.path.join(MODEL_DIR, "checkpoint_dataset_trained.pt"))
+    if os.path.exists(os.path.join(MODEL_DIR, "checkpoint_latest.pt")):
+        try: trainer.load_checkpoint(os.path.join(MODEL_DIR, "checkpoint_latest.pt"))
         except: pass
 
     if args.mode == "status":
