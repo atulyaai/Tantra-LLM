@@ -392,6 +392,7 @@ def main():
     parser.add_argument("--eval-every", type=int, default=250, help="Evaluate and save checkpoint every N steps (dataset mode)")
     parser.add_argument("--log-every", type=int, default=50, help="Log progress every N steps")
     parser.add_argument("--batch-size", type=int, default=1, help="Batch size for training")
+    parser.add_argument("--device", type=str, default="auto", help="Target device (auto, cuda, cpu, mps)")
     args = parser.parse_args()
 
     vcfg = VocabConfig()
@@ -413,6 +414,9 @@ def main():
         return
 
     rt, sched = detect_hardware()
+    if args.device != "auto":
+        rt.device = args.device
+        log.info(f"  [DEVICE OVERRIDE] Target device explicitly set to: {rt.device}")
     tok = build_vocab(vcfg, args.dataset)
     codec = DNACodec(ccfg)
     reg, loader = init_experts(moe, mcfg, codec)
