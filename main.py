@@ -281,12 +281,19 @@ def run_training(model, vcfg, steps=20, resume=False):
     
     trainer = NeuroTrainer(model, lr=1e-4)
     ckpt_path = os.path.join(MODEL_DIR, "checkpoint_latest.pt")
+    best_path = os.path.join(MODEL_DIR, "checkpoint_best.pt")
     
-    if resume and os.path.exists(ckpt_path):
-        log.info(f"RESUMING from existing checkpoint: {ckpt_path}")
-        trainer.load_checkpoint(ckpt_path)
+    resume_target = None
+    if os.path.exists(ckpt_path):
+        resume_target = ckpt_path
+    elif os.path.exists(best_path):
+        resume_target = best_path
+        
+    if resume_target:
+        log.info(f"RESUMING training from existing checkpoint: {resume_target}")
+        trainer.load_checkpoint(resume_target)
     else:
-        log.info("Starting FRESH training run")
+        log.info("No previous checkpoint found. Starting FRESH training run.")
 
     trainer.train_demo(steps=steps, vocab_size=vcfg.vocab_size)
     trainer.save_checkpoint(ckpt_path)
@@ -302,11 +309,18 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
     ckpt_path = os.path.join(MODEL_DIR, "checkpoint_latest.pt")
     best_path = os.path.join(MODEL_DIR, "checkpoint_best.pt")
     
-    if resume and os.path.exists(ckpt_path):
-        log.info(f"RESUMING from existing checkpoint: {ckpt_path}")
-        trainer.load_checkpoint(ckpt_path)
+    # Auto-resume logic: check checkpoint_latest.pt first, then checkpoint_best.pt
+    resume_target = None
+    if os.path.exists(ckpt_path):
+        resume_target = ckpt_path
+    elif os.path.exists(best_path):
+        resume_target = best_path
+        
+    if resume_target:
+        log.info(f"RESUMING training from existing checkpoint: {resume_target}")
+        trainer.load_checkpoint(resume_target)
     else:
-        log.info("Starting FRESH dataset training run")
+        log.info("No previous checkpoint found. Starting FRESH dataset training run.")
 
     def eval_callback(step):
         log.info("\n--- [ EVALUATION @ Step %d ] ---" % step)
