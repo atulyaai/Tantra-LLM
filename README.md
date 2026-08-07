@@ -3,13 +3,13 @@
 </p>
 
 <h1 align="center">
-  <img src="Assets/tantra_logo.jpg" alt="Tantra Logo" width="80"/>
+  <img src="Assets/tantra_logo.jpg" alt="Tantra Logo" width="120"/>
   <br/>
   तन्त्र — Tantra LLM
 </h1>
 
 <p align="center">
-  <em>An instrument that weaves threads of knowledge to expand understanding</em>
+  <em>An instrument that weaves threads of knowledge to expand human awareness and machine intelligence</em>
 </p>
 
 <p align="center">
@@ -70,61 +70,75 @@ The word comes from two Sanskrit roots:
   <img src="Assets/tantra_architecture.jpg" alt="Tantra NeuroCore Architecture" width="90%"/>
 </p>
 
-### NeuroCore Engine — Block Diagram
+### NeuroCore Engine — Clean Block Diagram
 
-```mermaid
-graph TB
-    subgraph INPUT["📝 INPUT"]
-        TXT[Text Tokens]
-    end
-
-    subgraph TOKENIZER["🔤 TOKENIZER (Tantra/tokenizer.py)"]
-        BPE[BPE 32K Vocab] --> BYTE[Megabyte Byte-Fallback]
-    end
-
-    subgraph HW["⚙️ HARDWARE (Tantra/hardware.py)"]
-        DET[Auto-Detect CPU/RAM/GPU] --> PROF[Profiler] --> RC[Runtime Config]
-    end
-
-    subgraph CORE["🧠 NEUROCORE (Tantra/model.py)"]
-        EMB[Token Embedding + RoPE]
-        subgraph BLOCK["NeuroCore Block × N"]
-            DSN1["DSN (Dynamic Scale Norm)"]
-            ALRA["ALRA Attention<br/>Chunked O(1) Scan"]
-            RES1[Residual + Gate]
-            DSN2["DSN (Dynamic Scale Norm)"]
-            SGP["SGP (Sparse Gated Proj)<br/>10% Active Neurons"]
-            RES2[Residual + Gate]
-        end
-        MTP["MTP Heads (t+1, t+2)"]
-        COT["Latent CoT Reasoning"]
-    end
-
-    subgraph QUANT["⚡ BITNET (Tantra/bitnet.py)"]
-        BL["BitLinear 1.58-bit"] --> TQ["Ternary {-1,0,+1}"]
-    end
-
-    subgraph COMPRESS["📦 DNA-AI (Tantra/codec.py)"]
-        SER[Binary Serialize] --> XOR[NumPy XOR Obfuscation] --> ZSTD[ZSTD + Dict] --> PACK[DNA 2-bit Pack]
-    end
-
-    TXT --> BPE
-    BYTE --> EMB --> DSN1 --> ALRA --> RES1 --> DSN2 --> SGP --> RES2 --> MTP
-    MTP --> COT
-    TQ -.powers.-> ALRA
-    TQ -.powers.-> SGP
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                          1. INPUT TOKENIZER LAYER                           │
+│  Text / Multi-modal Prompt  ──► BPE (32,000 Vocab) ──► Megabyte Byte-Fallback│
+└─────────────────────────────────────┬───────────────────────────────────────┘
+                                      │
+                                      ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         2. HARDWARE RUNTIME ENGINE                          │
+│  CPU Core Affinity ──► Thread Pinning (KMP/OMP) ──► INDUCTOR / oneDNN Kernel │
+└─────────────────────────────────────┬───────────────────────────────────────┘
+                                      │
+                                      ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         3. NEUROCORE BACKBONE BLOCK                         │
+│  ┌───────────────────────────────────────────────────────────────────────┐  │
+│  │ ──► DSN (Dynamic Scale Norm) ──► ALRA Gated Attention [O(1) Scan]     │  │
+│  │ ──► Residual Addition        ──► DSN (Dynamic Scale Norm)             │  │
+│  │ ──► SGP (Sparse Gated Proj)  ──► BitNet 1.58-Bit Ternary Quantization │  │
+│  └───────────────────────────────────────────────────────────────────────┘  │
+└─────────────────────────────────────┬───────────────────────────────────────┘
+                                      │
+                                      ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                       4. DUAL-HEAD PREDICTION ENGINE                        │
+│  Main Output Head (Token t+1)  ◄───►  MTP Speculative Head (Token t+2)      │
+│  Latent Chain-of-Thought       ◄───►  Auxiliary Speculation Loss              │
+└─────────────────────────────────────┬───────────────────────────────────────┘
+                                      │
+                                      ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                      5. COMPACT DNA WEIGHT STORAGE                          │
+│  NumPy Bitwise XOR Encryption ──► ZSTD Dictionary ──► DNA 2-Bit Disk Pack    │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Key Equations
+### Mathematical Foundations
 
-**ALRA Chunked Attention** — Recurrent state update per token $t$:
+**1. ALRA Chunked Attention (Linear Memory Recurrence)** — State update per token $t$:
 $$S_t = g_t \cdot S_{t-1} + K_t^T V_t, \quad z_t = g_t \cdot z_{t-1} + K_t, \quad o_t = \frac{Q_t \cdot S_t}{Q_t \cdot z_t + \epsilon}$$
 
-**BitNet 1.58-bit Quantization**:
+**2. BitNet 1.58-bit Ternary Quantization**:
 $$W_q = \text{RoundClip}\left(\frac{W}{\gamma + \epsilon},\ -1,\ +1\right), \quad \gamma = \frac{1}{nm}\sum|W_{ij}|$$
 
-**Multi-Token Prediction Loss**:
-$$\mathcal{L}_{\text{total}} = \mathcal{L}_{\text{next-token}} + 0.25 \cdot \mathcal{L}_{\text{MTP}(t+2)}$$
+**3. Multi-Token Prediction (MTP) Loss**:
+$$\mathcal{L}_{\text{total}} = \mathcal{L}_{\text{main}(t+1)} + 0.25 \cdot \mathcal{L}_{\text{MTP}(t+2)}$$
+
+---
+
+## GPU-on-CPU Performance Optimizations
+
+To achieve GPU-like throughput directly on consumer CPUs without dedicated graphics hardware, Tantra incorporates cutting-edge CPU acceleration techniques:
+
+### 1. Vectorized BitNet 1.58-Bit SIMD Execution
+Traditional floating-point matrix multiplications ($O(N^3)$ multiplies) are replaced by ternary addition/subtraction passes ($\{-1, 0, +1\}$). Weights are bit-packed into 2-bit representations, allowing $4\times$ memory compression and hardware AVX2 / AVX-512 vector alignment.
+
+### 2. $O(1)$ Memory Recurrent ALRA Attention
+Instead of standard quadratic softmax attention ($O(T^2)$ memory), ALRA uses chunked blockwise state recurrence ($C=256$). Memory consumption remains constant regardless of sequence length ($T=1024$ or $T=32768$), eliminating CPU cache thrashing.
+
+### 3. OpenMP & MKL Thread Affinity
+Tantra auto-detects physical CPU cores vs logical threads and pins worker threads using optimal thread scheduling:
+- `KMP_AFFINITY=granularity=fine,compact,1,0`
+- `torch.set_num_threads(physical_cores)`
+- PyTorch MKLDNN / oneDNN backend primitives for vectorized tensor routines.
+
+### 4. Multi-Token Prediction ($2\times$ Step Sample Efficiency)
+By predicting two tokens ($t+1$ and $t+2$) in parallel during training, each forward-backward step extracts twice the learning signal from the same data volume.
 
 ---
 

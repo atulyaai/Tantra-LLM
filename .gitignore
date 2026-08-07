@@ -16,12 +16,14 @@ htmlcov/
 .ruff_cache/
 
 # Large binary checkpoints (use releases for these)
-model/checkpoint_*.pt
-model/converted_*.pt
-model/corpus_sample.txt
+[Mm]odel/checkpoint_*.pt
+[Mm]odel/checkpoint_*.dna
+[Mm]odel/converted_*.pt
+[Mm]odel/corpus_sample.txt
 
 # Raw training data (too large for GitHub)
 Download/
+Datasets/train_pack_all_expanded_1040k.jsonl
 *.parquet
 *.h5
 

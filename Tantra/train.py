@@ -36,6 +36,8 @@ class NeuroTrainer:
         self.optimizer = AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
         self.criterion = nn.CrossEntropyLoss()
         self.step_count = 0
+        self.best_loss = float('inf')
+        self.total_tokens = 0
         self._start_time = time.perf_counter()
 
     def train_step(self, x: torch.Tensor, y: torch.Tensor) -> float:
@@ -85,6 +87,7 @@ class NeuroTrainer:
         self.optimizer.step()
 
         self.step_count += 1
+        self.total_tokens += x.numel()
         return loss.item(), accuracy, ppl, grad_norm
 
     def train_dataset(self, data_stream: Iterable[Tuple[torch.Tensor, torch.Tensor]], max_steps: int = 100, log_every: int = 1) -> list[float]:
@@ -110,7 +113,7 @@ class NeuroTrainer:
                 eta_sec = remaining_steps * avg_sec_per_step
                 eta_str = time.strftime("%H:%M:%S", time.gmtime(eta_sec))
                 
-                log.info(f"[STEP {self.step_count:>4d}/{max_steps}] | Loss: {loss:.4f} | PPL: {ppl:.1f} | Acc: {acc:.2f}% | GradNorm: {grad_norm:.2f} | Speed: {tok_per_sec:.1f} tok/s | ETA: {eta_str} [Self-Repair: OK]")
+                log.info(f"Step {self.step_count:>4d}/{max_steps} │ Loss: {loss:.4f} │ PPL: {ppl:.1f} │ Acc: {acc:.2f}% │ ∇: {grad_norm:.2f} │ ⚡ {tok_per_sec:.1f} tok/s │ Tokens: {self.total_tokens/1000:.1f}K │ ETA: {eta_str}")
                 
             if self.step_count >= max_steps:
                 break
@@ -138,6 +141,9 @@ class NeuroTrainer:
         ckpt_data = {
             "model_state_dict": {k: v.half() if v.is_floating_point() else v for k, v in self.model.state_dict().items()},
             "step_count": self.step_count,
+            "best_loss": getattr(self, "best_loss", float('inf')),
+            "total_tokens": getattr(self, "total_tokens", 0),
+            "training_hours": (time.perf_counter() - self._start_time) / 3600.0,
         }
         if save_optimizer:
             ckpt_data["optimizer_state_dict"] = self.optimizer.state_dict()
@@ -174,8 +180,21 @@ class NeuroTrainer:
 
     def load_checkpoint(self, path: str) -> None:
         """Load model + optimizer state."""
-        ckpt = torch.load(path, map_location=self.device)
-        self.model.load_state_dict(ckpt["model_state_dict"])
-        self.optimizer.load_state_dict(ckpt["optimizer_state_dict"])
+        ckpt = torch.load(path, map_location=self.device, weights_only=False)
+        # Handle half-precision saved weights
+        state_dict = ckpt["model_state_dict"]
+        model_state = self.model.state_dict()
+        for k, v in state_dict.items():
+            if k in model_state and v.dtype != model_state[k].dtype:
+                state_dict[k] = v.to(model_state[k].dtype)
+        self.model.load_state_dict(state_dict)
+        # Optimizer is optional (only saved when save_optimizer=True)
+        if "optimizer_state_dict" in ckpt:
+            try:
+                self.optimizer.load_state_dict(ckpt["optimizer_state_dict"])
+            except Exception:
+                log.warning("Could not restore optimizer state — using fresh optimizer.")
         self.step_count = ckpt.get("step_count", 0)
-        log.info(f"Checkpoint loaded <- {path} (step {self.step_count})")
+        self.best_loss = ckpt.get("best_loss", float('inf'))
+        self.total_tokens = ckpt.get("total_tokens", 0)
+        log.info(f"Checkpoint loaded <- {path} (step {self.step_count}, best_loss={self.best_loss:.4f})")
