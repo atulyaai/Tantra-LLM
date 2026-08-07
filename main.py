@@ -314,7 +314,15 @@ def init_model(cfg, device):
     log.info(f"  Quantization Scheme  : BitLinear 1.58-bit Ternary ({{-1, 0, +1}})")
     log.info(f"  Multi-Token Speculation: Enabled (MTP t+1, t+2 concurrent prediction)")
     
-    model.to(torch.device(device))
+    dev = torch.device(device)
+    model.to(dev)
+    actual_device = next(model.parameters()).device
+    log.info(f"  Model Target Device  : {dev}")
+    log.info(f"  Model Actual Device  : {actual_device}")
+    if dev.type == 'cuda':
+        vram_used = torch.cuda.memory_allocated(dev) / (1024*1024)
+        vram_total = torch.cuda.get_device_properties(dev).total_mem / (1024*1024)
+        log.info(f"  GPU VRAM Allocated   : {vram_used:.1f} MB / {vram_total:.0f} MB")
     return model
 
 

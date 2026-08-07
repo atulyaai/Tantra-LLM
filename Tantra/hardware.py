@@ -11,7 +11,10 @@ import logging
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
-import psutil
+try:
+    import psutil
+except (ImportError, OSError):
+    psutil = None
 import torch
 
 try:

@@ -8,7 +8,7 @@ from Tantra.bitnet import BitLinear, TernaryQuantizer
 from Tantra.moe import ExpertRegistry, MoERouter, LazyExpertLoader
 from Tantra.tokenizer import UnifiedTokenizer, ByteBPETokenizer, ModalityRouter
 from Tantra.codec import DNACodec, CompressionBenchmark
-from Tantra.hardware import HardwareDetector, Profiler, RuntimeConfigBuilder
+# hardware module is imported lazily to avoid psutil blocking on Colab/containers
 from Tantra.train import NeuroTrainer
 from Tantra.dataset import JSONLDataset, extract_corpus_sample
 from Tantra.evolution import AutoGrowthController, SelfRepairEngine
@@ -23,7 +23,6 @@ __all__ = [
     "ExpertRegistry", "MoERouter", "LazyExpertLoader",
     "UnifiedTokenizer", "ByteBPETokenizer", "ModalityRouter",
     "DNACodec", "CompressionBenchmark",
-    "HardwareDetector", "Profiler", "RuntimeConfigBuilder",
     "NeuroTrainer", "JSONLDataset", "extract_corpus_sample",
     "AutoGrowthController", "SelfRepairEngine", "EvaluationEngine",
 ]

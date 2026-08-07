@@ -34,6 +34,7 @@ class NeuroTrainer:
     def __init__(self, model: nn.Module, lr: float = 1e-4, weight_decay: float = 0.01):
         self.model = model
         self.device = next(model.parameters()).device if list(model.parameters()) else torch.device("cpu")
+        log.info(f"  NeuroTrainer initialized on device: {self.device} (type={self.device.type})")
         self.optimizer = AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
         self.criterion = nn.CrossEntropyLoss()
         self.step_count = 0
@@ -48,9 +49,9 @@ class NeuroTrainer:
 
         x, y = x.to(self.device), y.to(self.device)
         
-        # Use autocast when CUDA is available for GPU acceleration; clean float32 on CPU
-        device_type = "cuda" if torch.cuda.is_available() else "cpu"
-        autocast_enabled = torch.cuda.is_available()
+        # Use autocast based on actual model device, not global CUDA query
+        device_type = self.device.type if self.device.type in ('cuda', 'mps') else 'cpu'
+        autocast_enabled = device_type != 'cpu'
         with torch.autocast(device_type=device_type, dtype=torch.bfloat16, enabled=autocast_enabled):
             out = self.model(x, return_mtp=True)
             if isinstance(out[0], tuple):
@@ -89,6 +90,8 @@ class NeuroTrainer:
 
         self.step_count += 1
         self.total_tokens += x.numel()
+        if loss < self.best_loss:
+            self.best_loss = loss
         return loss.item(), accuracy, ppl, grad_norm
 
     def train_dataset(self, data_stream: Iterable[Tuple[torch.Tensor, torch.Tensor]], max_steps: int = 100, log_every: int = 1, eval_every: int = 0, eval_callback = None) -> list[float]:
@@ -146,9 +149,8 @@ class NeuroTrainer:
                 log.info(f"Step {self.step_count:>4d}/{steps} | Loss: {loss:.4f} | PPL: {ppl:.1f} | Acc: {acc:.2f}% | GradNorm: {grad_norm:.2f} | Speed: {tok_per_sec:.1f} tok/s [Self-Repair: OK]")
         return losses
 
-    def save_checkpoint(self, path: str, save_optimizer: bool = False, compress_dna: bool = True) -> None:
-        """Save model checkpoint with optional DNA 1.58-bit compression and compact storage."""
-        # 1. Save compact state dict
+    def save_checkpoint(self, path: str, save_optimizer: bool = True, compress_dna: bool = False) -> None:
+        """Save model checkpoint with optional DNA compression and compact storage."""
         ckpt_data = {
             "model_state_dict": {k: v.half() if v.is_floating_point() else v for k, v in self.model.state_dict().items()},
             "step_count": self.step_count,
@@ -163,16 +165,13 @@ class NeuroTrainer:
         torch.save(ckpt_data, path)
         log.info(f"Compact checkpoint saved -> {path}")
 
-        # 2. Export DNA compressed weights (.dna format)
         if compress_dna:
             dna_path = path.replace(".pt", ".dna")
             if not dna_path.endswith(".dna"):
                 dna_path += ".dna"
-            
             try:
                 from Tantra.codec import MultimodalWeightFormatter, CompressionConfig
                 formatter = MultimodalWeightFormatter(CompressionConfig())
-                
                 tensor_weights = {}
                 for k, v in self.model.state_dict().items():
                     if isinstance(v, torch.Tensor):
@@ -182,7 +181,6 @@ class NeuroTrainer:
                             tensor_weights[k] = v.float().cpu()
                         else:
                             tensor_weights[k] = v.view(v.size(0), -1).float().cpu()
-                            
                 formatter.format_weights(tensor_weights, dna_path)
                 dna_size_mb = os.path.getsize(dna_path) / (1024 * 1024)
                 log.info(f"Compressed DNA weights exported -> {dna_path} ({dna_size_mb:.1f} MB compressed)")
