@@ -1,20 +1,15 @@
-<!-- Banner with embedded Tantra LLM title and Sanskrit — text is part of the image -->
+<!-- Full-width hero banner (has TANTRA LLM title and Sanskrit embedded in the image itself) -->
 <p align="center">
   <img src="Assets/tantra_hero_banner.jpg" alt="Tantra LLM — Weaving Intelligence · तन्त्र" width="100%"/>
 </p>
 
-<!-- Styled title using Cinzel Decorative (Google Fonts) via SVG badge trick -->
+<!-- Animated italic title in Cinzel Decorative gold font -->
 <p align="center">
-  <img src="https://readme-typing-svg.demolab.com?font=Cinzel+Decorative&weight=700&size=38&pause=2000&color=F0C040&center=true&vCenter=true&width=600&lines=Tantra+LLM;%E0%A4%A4%E0%A4%A8%E0%A5%8D%E0%A4%A4%E0%A5%8D%E0%A4%B0+%E2%80%94+Tantra" alt="Tantra LLM Title Animation"/>
+  <img src="https://readme-typing-svg.demolab.com?font=Cinzel+Decorative&weight=700&size=36&pause=2500&color=F0C040&center=true&vCenter=true&width=620&lines=Tantra+LLM;%E0%A4%A4%E0%A4%A8%E0%A5%8D%E0%A4%A4%E0%A5%8D%E0%A4%B0+%E2%80%94+Weaving+Intelligence" alt="Tantra LLM"/>
 </p>
 
 <p align="center">
-  <img src="Assets/tantra_logo.jpg" alt="Tantra Logo" width="110"/>
-</p>
-
-<p align="center">
-  <em><strong>तन्त्र</strong> (Sanskrit) — An instrument that weaves threads of knowledge to expand human awareness and machine intelligence</em><br/>
-  <em><strong>तंत्र</strong> (Hindi) — System, mechanism, the governing framework — as in लोकतंत्र (democracy)</em>
+  <em><strong>तन्त्र</strong> (Sanskrit) — An instrument that weaves threads of knowledge · <strong>तंत्र</strong> (Hindi) — System, mechanism, governance</em>
 </p>
 
 <p align="center">
