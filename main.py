@@ -194,7 +194,7 @@ def detect_hardware():
     # Proactive Health Watchdog
     from Tantra.health import HealthWatchdog
     watchdog = HealthWatchdog(MODEL_DIR)
-    watchdog.audit_storage_and_compress_duplicates()
+    watchdog.audit_storage_and_compress_duplicates(threshold_mb=5000.0)
     
     sched = AdaptiveScheduler(rt)
     sched.start()
@@ -309,28 +309,25 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
         log.info("Starting FRESH dataset training run")
 
     def eval_callback(step):
-        log.info(f"\n--- [ EVALUATION @ Step {step} ] ---")
-        prompt = "User: What is Tantra?\nAssistant:"
-        log.info(f"Prompt: {prompt}")
-        out = model.generate(prompt, max_new_tokens=32, temperature=0.7, use_mtp_speculation=True)
+        log.info("\n--- [ EVALUATION @ Step %d ] ---" % step)
+        prompt_text = "User: What is Tantra?\nAssistant:"
+        log.info("Prompt: %s" % prompt_text)
+        prompt_ids = torch.tensor([tokenizer.encode(prompt_text)], device=model.embed.weight.device)
+        out = model.generate(prompt_ids, max_new_tokens=32, temperature=0.7, use_mtp_speculation=True)
         response = tokenizer.decode(out.tolist()[0])
-        log.info(f"Output: {response}")
+        log.info("Output: %s" % response)
         log.info("----------------------------------\n")
-        if step > 0:
-            trainer.save_checkpoint(ckpt_path)
-            if step % (eval_every * 2) == 0:
-                trainer.save_checkpoint(best_path)
+        trainer.save_checkpoint(ckpt_path)
+        if trainer.best_loss <= 2.0 or step % (eval_every * 4) == 0:
+            trainer.save_checkpoint(best_path)
 
-    # Initial pre-training evaluation
     eval_callback(0)
 
     dataset = JSONLDataset(dataset_path, tokenizer, seq_len=seq_len, max_samples=steps * batch_size)
-    import torch
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, num_workers=0)
     trainer.train_dataset(dataloader, max_steps=steps, log_every=log_every, eval_every=eval_every, eval_callback=eval_callback)
-    
+
     trainer.save_checkpoint(ckpt_path)
-    trainer.save_checkpoint(best_path)
 
 
 def run_evaluation(model, tokenizer, dataset_path):
@@ -425,7 +422,7 @@ def main():
     if args.mode == "train":
         run_training(model, vcfg, steps=args.steps, resume=args.resume)
     elif args.mode == "dataset":
-        run_dataset_training(model, tokenizer, args.dataset, steps=args.steps, resume=args.resume, eval_every=args.eval_every, log_every=args.log_every, batch_size=args.batch_size, seq_len=args.seq_len)
+        run_dataset_training(model, tok, args.dataset, steps=args.steps, resume=args.resume, eval_every=args.eval_every, log_every=args.log_every, batch_size=args.batch_size, seq_len=args.seq_len)
     elif args.mode == "eval":
         run_evaluation(model, tok, args.dataset)
     elif args.mode == "generate":
