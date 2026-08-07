@@ -1,6 +1,7 @@
 """tantra/hardware.py — Auto-adaptive hardware detection and runtime configuration. Contains: CPUInfo, GPUInfo, HardwareProfile, HardwareDetector, PerformanceProfile, Profiler, RuntimeConfig, RuntimeConfigBuilder, AdaptiveScheduler."""
 
 import os
+import sys
 import platform
 import subprocess
 import tempfile
@@ -239,12 +240,6 @@ class HardwareDetector:
                 pass
 
         log.info(f"Hardware Profile -> CPU: {profile.cpu.brand} ({profile.cpu.physical_cores}C/{profile.cpu.logical_cores}T) | RAM: {profile.ram_total_mb} MB | GPU: {profile.gpus[0].name if profile.gpus else 'CPU Mode'}")
-            print(f"=== Hardware Profile ===")
-            print(f"  CPU      : {profile.cpu.brand} ({profile.cpu.physical_cores}C/{profile.cpu.logical_cores}T)")
-            print(f"  RAM      : {profile.ram_total_mb} MB total ({profile.ram_free_mb} MB free)")
-            print(f"  GPU      : {profile.gpus[0].name if profile.gpus else 'None (CPU Mode)'}")
-            print(f"  Disk Read: {profile.disk_read_mbps:.2f} MB/s")
-            print(f"  Platform : {profile.platform}")
 
 # ── PerformanceProfile + Profiler ──
 
