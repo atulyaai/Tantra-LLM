@@ -213,26 +213,32 @@ class HardwareDetector:
                     pass
             
     def print_profile(self, profile: HardwareProfile) -> None:
-        """Print the hardware profile using rich (or standard print fallback)."""
-        if Console is not None and Table is not None:
-            console = Console()
-            table = Table(title="Hardware Profile")
-            table.add_column("Component", style="cyan")
-            table.add_column("Details", style="magenta")
-            
-            table.add_row("CPU", f"{profile.cpu.brand} ({profile.cpu.physical_cores}C/{profile.cpu.logical_cores}T)")
-            table.add_row("RAM", f"{profile.ram_total_mb} MB ({profile.ram_free_mb} MB free)")
-            
-            if profile.gpus:
-                for gpu in profile.gpus:
-                    table.add_row(f"GPU {gpu.index}", f"{gpu.name} ({gpu.vram_mb} MB, {gpu.backend})")
-            else:
-                table.add_row("GPU", "None (CPU Mode)")
+        """Print the hardware profile safely on all platforms (TTY & non-TTY)."""
+        is_tty = getattr(sys.stdout, "isatty", lambda: False)()
+        if Console is not None and Table is not None and is_tty:
+            try:
+                console = Console()
+                table = Table(title="Hardware Profile")
+                table.add_column("Component", style="cyan")
+                table.add_column("Details", style="magenta")
                 
-            table.add_row("Disk Read", f"{profile.disk_read_mbps:.2f} MB/s")
-            table.add_row("Platform", profile.platform)
-            console.print(table)
-        else:
+                table.add_row("CPU", f"{profile.cpu.brand} ({profile.cpu.physical_cores}C/{profile.cpu.logical_cores}T)")
+                table.add_row("RAM", f"{profile.ram_total_mb} MB ({profile.ram_free_mb} MB free)")
+                
+                if profile.gpus:
+                    for gpu in profile.gpus:
+                        table.add_row(f"GPU {gpu.index}", f"{gpu.name} ({gpu.vram_mb} MB, {gpu.backend})")
+                else:
+                    table.add_row("GPU", "None (CPU Mode)")
+                    
+                table.add_row("Disk Read", f"{profile.disk_read_mbps:.2f} MB/s")
+                table.add_row("Platform", profile.platform)
+                console.print(table)
+                return
+            except Exception:
+                pass
+
+        log.info(f"Hardware Profile -> CPU: {profile.cpu.brand} ({profile.cpu.physical_cores}C/{profile.cpu.logical_cores}T) | RAM: {profile.ram_total_mb} MB | GPU: {profile.gpus[0].name if profile.gpus else 'CPU Mode'}")
             print(f"=== Hardware Profile ===")
             print(f"  CPU      : {profile.cpu.brand} ({profile.cpu.physical_cores}C/{profile.cpu.logical_cores}T)")
             print(f"  RAM      : {profile.ram_total_mb} MB total ({profile.ram_free_mb} MB free)")

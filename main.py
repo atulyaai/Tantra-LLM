@@ -53,18 +53,22 @@ EXPERTS_DIR = os.path.join(MODEL_DIR, "Experts")
 DEFAULT_DATASET = os.path.join(os.path.dirname(__file__), "Datasets", "train_pack_all_expanded_1040k.jsonl")
 
 def print_banner():
-    if console:
-        console.print(Panel.fit(
-            "  [bold cyan]तन्त्र[/bold cyan]  [bold]TANTRA LLM[/bold]\n"
-            "  [dim]NeuroCore Architecture • CPU-First • Local AI[/dim]",
-            title="[yellow]Initializing[/yellow]",
-            border_style="cyan"
-        ))
-    else:
-        print("╔══════════════════════════════════════════════════════╗")
-        print("║  तन्त्र  TANTRA LLM                                ║")
-        print("║  NeuroCore Architecture • CPU-First • Local AI      ║")
-        print("╚══════════════════════════════════════════════════════╝")
+    is_tty = getattr(sys.stdout, "isatty", lambda: False)()
+    if console and is_tty:
+        try:
+            console.print(Panel.fit(
+                "  [bold cyan]तन्त्र[/bold cyan]  [bold]TANTRA LLM[/bold]\n"
+                "  [dim]NeuroCore Architecture • CPU-First • Local AI[/dim]",
+                title="[yellow]Initializing[/yellow]",
+                border_style="cyan"
+            ))
+            return
+        except Exception:
+            pass
+    print("╔══════════════════════════════════════════════════════╗")
+    print("║  तन्त्र  TANTRA LLM                                ║")
+    print("║  NeuroCore Architecture • CPU-First • Local AI      ║")
+    print("╚══════════════════════════════════════════════════════╝")
 
 def print_status_dashboard(model, trainer, expert_reg, rt):
     if console:
