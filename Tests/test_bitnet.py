@@ -7,8 +7,8 @@ import pytest
 import torch
 import torch.nn as nn
 
-from tantra.config import BitNetConfig
-from tantra.bitnet import StraightThrough, TernaryQuantizer, BitLinear, TernaryCPUKernel, BitNetTrainerHooks
+from Tantra.config import BitNetConfig
+from Tantra.bitnet import StraightThrough, TernaryQuantizer, BitLinear, TernaryCPUKernel, BitNetTrainerHooks
 
 
 def test_quantizer_pack_unpack_int32():

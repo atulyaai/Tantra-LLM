@@ -11,7 +11,7 @@ import torch
 import torch.nn as nn
 from typing import Dict, List, Any, Optional
 
-from tantra.utils import get_logger
+from Tantra.utils import get_logger
 
 log = get_logger("tantra.evolution")
 

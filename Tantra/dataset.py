@@ -11,7 +11,7 @@ from typing import Iterator, List, Dict, Any, Optional
 import torch
 from torch.utils.data import IterableDataset, DataLoader
 
-from tantra.utils import get_logger
+from Tantra.utils import get_logger
 
 log = get_logger(__name__)
 

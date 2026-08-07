@@ -7,7 +7,7 @@ import torch.nn.functional as F
 from torch import Tensor
 from typing import Tuple, Optional
 
-from tantra.config import BitNetConfig
+from Tantra.config import BitNetConfig
 
 
 # ── StraightThrough ──

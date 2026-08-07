@@ -1,9 +1,9 @@
 <p align="center">
-  <img src="assets/tantra_hero_banner.jpg" alt="Tantra LLM — Weaving Intelligence" width="100%"/>
+  <img src="Assets/tantra_hero_banner.jpg" alt="Tantra LLM — Weaving Intelligence" width="100%"/>
 </p>
 
 <h1 align="center">
-  <img src="assets/tantra_logo.jpg" alt="Tantra Logo" width="80"/>
+  <img src="Assets/tantra_logo.jpg" alt="Tantra Logo" width="80"/>
   <br/>
   तन्त्र — Tantra LLM
 </h1>
@@ -67,7 +67,7 @@ The word comes from two Sanskrit roots:
 ## Architecture
 
 <p align="center">
-  <img src="assets/tantra_architecture.jpg" alt="Tantra NeuroCore Architecture" width="90%"/>
+  <img src="Assets/tantra_architecture.jpg" alt="Tantra NeuroCore Architecture" width="90%"/>
 </p>
 
 ### NeuroCore Engine — Block Diagram
@@ -78,15 +78,15 @@ graph TB
         TXT[Text Tokens]
     end
 
-    subgraph TOKENIZER["🔤 TOKENIZER (tantra/tokenizer.py)"]
+    subgraph TOKENIZER["🔤 TOKENIZER (Tantra/tokenizer.py)"]
         BPE[BPE 32K Vocab] --> BYTE[Megabyte Byte-Fallback]
     end
 
-    subgraph HW["⚙️ HARDWARE (tantra/hardware.py)"]
+    subgraph HW["⚙️ HARDWARE (Tantra/hardware.py)"]
         DET[Auto-Detect CPU/RAM/GPU] --> PROF[Profiler] --> RC[Runtime Config]
     end
 
-    subgraph CORE["🧠 NEUROCORE (tantra/model.py)"]
+    subgraph CORE["🧠 NEUROCORE (Tantra/model.py)"]
         EMB[Token Embedding + RoPE]
         subgraph BLOCK["NeuroCore Block × N"]
             DSN1["DSN (Dynamic Scale Norm)"]
@@ -100,11 +100,11 @@ graph TB
         COT["Latent CoT Reasoning"]
     end
 
-    subgraph QUANT["⚡ BITNET (tantra/bitnet.py)"]
+    subgraph QUANT["⚡ BITNET (Tantra/bitnet.py)"]
         BL["BitLinear 1.58-bit"] --> TQ["Ternary {-1,0,+1}"]
     end
 
-    subgraph COMPRESS["📦 DNA-AI (tantra/codec.py)"]
+    subgraph COMPRESS["📦 DNA-AI (Tantra/codec.py)"]
         SER[Binary Serialize] --> XOR[NumPy XOR Obfuscation] --> ZSTD[ZSTD + Dict] --> PACK[DNA 2-bit Pack]
     end
 
@@ -164,7 +164,7 @@ python main.py --mode eval
 
 ## Training Data & Identity
 
-Tantra is trained with a dedicated **identity & safety dataset** ([`data/tantra_identity_safety.jsonl`](data/tantra_identity_safety.jsonl)) that teaches:
+Tantra is trained with a dedicated **identity & safety dataset** ([`Datasets/tantra_identity_safety.jsonl`](Datasets/tantra_identity_safety.jsonl)) that teaches:
 
 | Category | Coverage |
 |---|---|
@@ -198,13 +198,13 @@ From a real 10-step pre-training run on AMD Ryzen 5 7520U (4C/8T, 14GB RAM):
 
 ```
 Tantra-LLM/
-├── assets/                  # Logo, architecture diagram, hero banner
+├── Assets/                  # Logo, architecture diagram, hero banner
 │   ├── tantra_logo.jpg
 │   ├── tantra_architecture.jpg
 │   └── tantra_hero_banner.jpg
-├── data/
+├── Datasets/
 │   └── tantra_identity_safety.jsonl   # Identity & safety training data (30+ conversations)
-├── tantra/
+├── Tantra/
 │   ├── config.py            # All configuration dataclasses
 │   ├── utils.py             # Logger (propagate=False), tensor utilities
 │   ├── model.py             # Chunked ALRA + DSN + RoPE + SGP + MTP + Latent CoT
@@ -216,14 +216,14 @@ Tantra-LLM/
 │   ├── train.py             # Training loop with MTP loss & live logging
 │   ├── dataset.py           # JSONL dataset loader
 │   └── evolution.py         # Self-repair engine (NaN/exploded tensor recovery)
-├── tests/                   # 40 tests, 100% pass rate
+├── Tests/                   # 40 tests, 100% pass rate
 │   ├── test_model.py
 │   ├── test_bitnet.py
 │   ├── test_data.py
 │   ├── test_hardware.py
 │   ├── test_multimodal_weights.py
 │   └── test_robustness.py
-├── model/                   # Checkpoints & tokenizer artifacts
+├── Model/                   # Checkpoints & tokenizer artifacts
 ├── main.py                  # CLI entry point
 ├── requirements.txt
 └── README.md

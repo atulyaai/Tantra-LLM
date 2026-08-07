@@ -6,9 +6,9 @@ import torch
 import torch.nn as nn
 from typing import Dict, Any, Optional
 
-from tantra.utils import get_logger
-from tantra.model import NeuroCoreModel
-from tantra.config import NeuroCoreConfig
+from Tantra.utils import get_logger
+from Tantra.model import NeuroCoreModel
+from Tantra.config import NeuroCoreConfig
 
 log = get_logger("tantra.converter")
 

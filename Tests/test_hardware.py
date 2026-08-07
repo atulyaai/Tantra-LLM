@@ -1,6 +1,6 @@
 """Tests for tantra.hardware"""
 import pytest
-from tantra.hardware import HardwareDetector, Profiler, RuntimeConfigBuilder
+from Tantra.hardware import HardwareDetector, Profiler, RuntimeConfigBuilder
 
 
 def test_detector_runs():

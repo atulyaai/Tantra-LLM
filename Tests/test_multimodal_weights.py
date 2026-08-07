@@ -6,10 +6,10 @@ import os
 import pytest
 import torch
 
-from tantra.config import CompressionConfig, NeuroCoreConfig, VocabConfig
-from tantra.codec import MultimodalWeightFormatter, ZSTDDictTrainer
-from tantra.tokenizer import UnifiedTokenizer, ByteBPETokenizer, MegabytePatcher
-from tantra.model import NeuroCoreModel
+from Tantra.config import CompressionConfig, NeuroCoreConfig, VocabConfig
+from Tantra.codec import MultimodalWeightFormatter, ZSTDDictTrainer
+from Tantra.tokenizer import UnifiedTokenizer, ByteBPETokenizer, MegabytePatcher
+from Tantra.model import NeuroCoreModel
 
 
 @pytest.fixture

@@ -18,24 +18,24 @@ import argparse
 import os
 import torch
 
-from tantra.config import NeuroCoreConfig, VocabConfig, MoEConfig, CompressionConfig
-from tantra.utils import get_logger
-from tantra.hardware import HardwareDetector, Profiler, RuntimeConfigBuilder, AdaptiveScheduler
-from tantra.tokenizer import ByteBPETokenizer, MegabytePatcher, UnifiedTokenizer
-from tantra.model import NeuroCoreModel
-from tantra.moe import ExpertRegistry, LazyExpertLoader
-from tantra.codec import DNACodec, CompressionBenchmark
-from tantra.train import NeuroTrainer
-from tantra.dataset import JSONLDataset, extract_corpus_sample
-from tantra.evolution import AutoGrowthController, SelfRepairEngine
-from tantra.eval import EvaluationEngine
-from tantra.server import serve
+from Tantra.config import NeuroCoreConfig, VocabConfig, MoEConfig, CompressionConfig
+from Tantra.utils import get_logger
+from Tantra.hardware import HardwareDetector, Profiler, RuntimeConfigBuilder, AdaptiveScheduler
+from Tantra.tokenizer import ByteBPETokenizer, MegabytePatcher, UnifiedTokenizer
+from Tantra.model import NeuroCoreModel
+from Tantra.moe import ExpertRegistry, LazyExpertLoader
+from Tantra.codec import DNACodec, CompressionBenchmark
+from Tantra.train import NeuroTrainer
+from Tantra.dataset import JSONLDataset, extract_corpus_sample
+from Tantra.evolution import AutoGrowthController, SelfRepairEngine
+from Tantra.eval import EvaluationEngine
+from Tantra.server import serve
 
 log = get_logger("tantra")
 
-MODEL_DIR   = os.path.join(os.path.dirname(__file__), "model")
+MODEL_DIR   = os.path.join(os.path.dirname(__file__), "Model")
 VOCAB_PATH  = os.path.join(MODEL_DIR, "tokenizer.pt")
-EXPERTS_DIR = os.path.join(MODEL_DIR, "experts")
+EXPERTS_DIR = os.path.join(MODEL_DIR, "Experts")
 DEFAULT_DATASET = os.path.join(os.path.dirname(__file__), "Datasets", "train_pack_all_expanded_1040k.jsonl")
 
 
@@ -52,7 +52,7 @@ def detect_hardware():
     log.info(f"  Expert Cache: {rt.expert_cache_size} in RAM | batch: {rt.batch_size}")
     
     # Proactive Health Watchdog
-    from tantra.health import HealthWatchdog
+    from Tantra.health import HealthWatchdog
     watchdog = HealthWatchdog(MODEL_DIR)
     watchdog.audit_storage_and_compress_duplicates()
     

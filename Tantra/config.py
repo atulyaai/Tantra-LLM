@@ -72,7 +72,7 @@ class MoEConfig:
     router_layers: int = 4
     load_balance_coeff: float = 0.01  # Weight of load balancing loss
     expert_cache_size: int = 8   # LRU cache: experts kept in RAM
-    expert_dir: str = "experts"  # Directory containing .dna expert files
+    expert_dir: str = "Experts"  # Directory containing .dna expert files
 
 
 @dataclass
@@ -137,7 +137,7 @@ class NeuroCoreConfig:
 
     # Paths
     checkpoint_dir: str = "checkpoints"
-    expert_dir: str = "experts"
+    expert_dir: str = "Experts"
     vocab_dir: str = "vocab_data"
     reports_dir: str = "reports"
     log_dir: str = "logs"

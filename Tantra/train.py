@@ -11,7 +11,7 @@ import torch.nn as nn
 from torch.optim import AdamW
 from typing import Iterable, Tuple
 
-from tantra.utils import get_logger
+from Tantra.utils import get_logger
 
 log = get_logger(__name__)
 
@@ -153,7 +153,7 @@ class NeuroTrainer:
                 dna_path += ".dna"
             
             try:
-                from tantra.codec import MultimodalWeightFormatter, CompressionConfig
+                from Tantra.codec import MultimodalWeightFormatter, CompressionConfig
                 formatter = MultimodalWeightFormatter(CompressionConfig())
                 
                 tensor_weights = {}

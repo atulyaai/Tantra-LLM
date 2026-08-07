@@ -2,8 +2,8 @@
 import pytest
 import torch
 
-from tantra.config import NeuroCoreConfig, MoEConfig
-from tantra.model import DynamicScaleNorm, RotaryPositionalEncoding, ALRAAttention, SparseGatedProjection, NeuroCoreBlock, NeuroCoreModel
+from Tantra.config import NeuroCoreConfig, MoEConfig
+from Tantra.model import DynamicScaleNorm, RotaryPositionalEncoding, ALRAAttention, SparseGatedProjection, NeuroCoreBlock, NeuroCoreModel
 
 
 def test_dsn_output_shape():

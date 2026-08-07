@@ -7,8 +7,8 @@ import torch
 import torch.nn as nn
 from typing import Dict, Any, List
 
-from tantra.utils import get_logger
-from tantra.codec import MultimodalWeightFormatter, CompressionConfig
+from Tantra.utils import get_logger
+from Tantra.codec import MultimodalWeightFormatter, CompressionConfig
 
 log = get_logger("tantra.health")
 

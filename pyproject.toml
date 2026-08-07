@@ -3,7 +3,7 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "tantra-llm"
+name = "Tantra-llm"
 version = "1.0.0"
 description = "Tantra-LLM: NeuroCore Architecture — O(n) Linear Attention, 1-Bit BitNet, DNA Weight Compression, and Unified Multimodal Fusion"
 readme = "README.md"
@@ -53,12 +53,12 @@ server = [
 ]
 
 [project.scripts]
-tantra = "main:main"
+Tantra = "main:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["tantra*"]
+include = ["Tantra*"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["Tests"]
 python_files = ["test_*.py"]

@@ -12,10 +12,10 @@ from typing import Any, Optional
 
 import torch
 
-from tantra.config import NeuroCoreConfig, VocabConfig
-from tantra.model import NeuroCoreModel
-from tantra.tokenizer import ByteBPETokenizer, MegabytePatcher, UnifiedTokenizer
-from tantra.utils import get_logger
+from Tantra.config import NeuroCoreConfig, VocabConfig
+from Tantra.model import NeuroCoreModel
+from Tantra.tokenizer import ByteBPETokenizer, MegabytePatcher, UnifiedTokenizer
+from Tantra.utils import get_logger
 
 log = get_logger("tantra.server")
 

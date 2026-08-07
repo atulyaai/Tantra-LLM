@@ -9,16 +9,16 @@ import pytest
 import torch
 import torch.nn as nn
 
-from tantra.config import NeuroCoreConfig, BitNetConfig, CompressionConfig, MoEConfig, VocabConfig
-from tantra.bitnet import StraightThrough, TernaryQuantizer, BitLinear, TernaryCPUKernel
-from tantra.codec import DNACodec, ResidualPredictor, ZSTDDictTrainer, AdaptiveHuffmanCoder
-from tantra.model import NeuroCoreModel, ALRAAttention, DynamicScaleNorm, RotaryPositionalEncoding, SparseGatedProjection
-from tantra.tokenizer import ByteBPETokenizer, MegabytePatcher, UnifiedTokenizer
-from tantra.evolution import AutoGrowthController, SelfRepairEngine
-from tantra.moe import MoERouter, LoadBalancer, ExpertRegistry, LazyExpertLoader
-from tantra.dataset import JSONLDataset, format_jsonl_prompt
-from tantra.eval import EvaluationEngine
-from tantra.train import NeuroTrainer, generate_synthetic_batch
+from Tantra.config import NeuroCoreConfig, BitNetConfig, CompressionConfig, MoEConfig, VocabConfig
+from Tantra.bitnet import StraightThrough, TernaryQuantizer, BitLinear, TernaryCPUKernel
+from Tantra.codec import DNACodec, ResidualPredictor, ZSTDDictTrainer, AdaptiveHuffmanCoder
+from Tantra.model import NeuroCoreModel, ALRAAttention, DynamicScaleNorm, RotaryPositionalEncoding, SparseGatedProjection
+from Tantra.tokenizer import ByteBPETokenizer, MegabytePatcher, UnifiedTokenizer
+from Tantra.evolution import AutoGrowthController, SelfRepairEngine
+from Tantra.moe import MoERouter, LoadBalancer, ExpertRegistry, LazyExpertLoader
+from Tantra.dataset import JSONLDataset, format_jsonl_prompt
+from Tantra.eval import EvaluationEngine
+from Tantra.train import NeuroTrainer, generate_synthetic_batch
 
 
 # ── 1. BitNet Edge Cases & Stress Tests ──────────────────────────────────────

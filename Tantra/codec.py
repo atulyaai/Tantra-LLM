@@ -23,7 +23,7 @@ try:
 except ImportError:
     zstd = None
 
-from tantra.config import CompressionConfig
+from Tantra.config import CompressionConfig
 
 # ── ZSTDDictTrainer ──
 

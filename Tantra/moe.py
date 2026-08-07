@@ -14,10 +14,10 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 
-from tantra.codec import DNACodec
-from tantra.config import ALRAConfig, MoEConfig, NeuroCoreConfig
-from tantra.model import ALRAAttention, NeuroCoreModel
-from tantra.utils import get_logger
+from Tantra.codec import DNACodec
+from Tantra.config import ALRAConfig, MoEConfig, NeuroCoreConfig
+from Tantra.model import ALRAAttention, NeuroCoreModel
+from Tantra.utils import get_logger
 
 log = get_logger(__name__)
 
@@ -341,7 +341,7 @@ class LazyExpertLoader:
         dna_path = os.path.join(self._registry._dir, f"expert_{expert_id:04d}.dna")
         
         try:
-            from tantra.codec import MultimodalWeightFormatter, CompressionConfig
+            from Tantra.codec import MultimodalWeightFormatter, CompressionConfig
             formatter = MultimodalWeightFormatter(CompressionConfig(zstd_level=3))
             
             tensor_weights = {}

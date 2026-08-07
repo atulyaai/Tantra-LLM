@@ -2,8 +2,8 @@
 import pytest
 import torch
 
-from tantra.config import VocabConfig
-from tantra.tokenizer import ByteBPETokenizer, MegabytePatcher, UnifiedTokenizer, AudioTokenizer, ImageTokenizer
+from Tantra.config import VocabConfig
+from Tantra.tokenizer import ByteBPETokenizer, MegabytePatcher, UnifiedTokenizer, AudioTokenizer, ImageTokenizer
 
 
 def test_megabyte_patcher_roundtrip():

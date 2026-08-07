@@ -9,8 +9,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
 
-from tantra.config import NeuroCoreConfig, ALRAConfig, SGPConfig, NeuroCoreBlockConfig
-from tantra.utils import elu_plus_one, top_k_mask
+from Tantra.config import NeuroCoreConfig, ALRAConfig, SGPConfig, NeuroCoreBlockConfig
+from Tantra.utils import elu_plus_one, top_k_mask
 
 
 # ── DynamicScaleNorm ──
@@ -279,7 +279,7 @@ class NeuroCoreBlock(nn.Module):
         self.mlp = SparseGatedProjection(config.sgp)
 
         if self.use_moe and moe_config is not None:
-            from tantra.moe import MoERouter
+            from Tantra.moe import MoERouter
             self.router = MoERouter(moe_config, embed_dim=dim)
         else:
             self.router = None

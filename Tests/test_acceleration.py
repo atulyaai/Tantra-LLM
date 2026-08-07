@@ -4,9 +4,9 @@ tests/test_acceleration.py — Tests for MTP loss, bfloat16 autocast, and specul
 import pytest
 import torch
 
-from tantra.config import NeuroCoreConfig, ALRAConfig, SGPConfig, VocabConfig
-from tantra.model import NeuroCoreModel
-from tantra.train import NeuroTrainer
+from Tantra.config import NeuroCoreConfig, ALRAConfig, SGPConfig, VocabConfig
+from Tantra.model import NeuroCoreModel
+from Tantra.train import NeuroTrainer
 
 @pytest.fixture
 def micro_config():
