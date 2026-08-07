@@ -292,7 +292,7 @@ def run_training(model, vcfg, steps=20, resume=False):
     trainer.save_checkpoint(ckpt_path)
 
 
-def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False):
+def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False, eval_every=250):
     log.info("== [DATASET PRE-TRAINING MODE] =====================")
     log.info(f"Loading real dataset from: {dataset_path}")
     repair = SelfRepairEngine()
@@ -308,8 +308,20 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False)
     else:
         log.info("Starting FRESH dataset training run")
 
+    def eval_callback(step):
+        log.info(f"\n--- [ EVALUATION @ Step {step} ] ---")
+        prompt = "User: What is Tantra?\nAssistant:"
+        log.info(f"Prompt: {prompt}")
+        out = model.generate(prompt, max_new_tokens=32, temperature=0.7, use_mtp_speculation=True)
+        response = tokenizer.decode(out.tolist()[0])
+        log.info(f"Output: {response}")
+        log.info("----------------------------------\n")
+        trainer.save_checkpoint(ckpt_path)
+        if step % (eval_every * 2) == 0:
+            trainer.save_checkpoint(best_path)
+
     dataset = JSONLDataset(dataset_path, tokenizer, seq_len=128, max_samples=steps)
-    trainer.train_dataset(dataset, max_steps=steps, log_every=1)
+    trainer.train_dataset(dataset, max_steps=steps, log_every=1, eval_every=eval_every, eval_callback=eval_callback)
     
     trainer.save_checkpoint(ckpt_path)
     trainer.save_checkpoint(best_path)
@@ -354,6 +366,7 @@ def main():
     parser.add_argument("--top-p", type=float, default=0.95, help="Top-p nucleus sampling")
     parser.add_argument("--port", type=int, default=8000, help="Server port (serve mode)")
     parser.add_argument("--resume", action="store_true", help="Resume from latest checkpoint if available")
+    parser.add_argument("--eval-every", type=int, default=250, help="Evaluate and save checkpoint every N steps (dataset mode)")
     args = parser.parse_args()
 
     vcfg = VocabConfig()
@@ -404,7 +417,7 @@ def main():
     if args.mode == "train":
         run_training(model, vcfg, steps=args.steps, resume=args.resume)
     elif args.mode == "dataset":
-        run_dataset_training(model, tok, args.dataset, steps=args.steps, resume=args.resume)
+        run_dataset_training(model, tok, args.dataset, steps=args.steps, resume=args.resume, eval_every=args.eval_every)
     elif args.mode == "eval":
         run_evaluation(model, tok, args.dataset)
     elif args.mode == "generate":

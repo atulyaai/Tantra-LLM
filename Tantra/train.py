@@ -90,7 +90,7 @@ class NeuroTrainer:
         self.total_tokens += x.numel()
         return loss.item(), accuracy, ppl, grad_norm
 
-    def train_dataset(self, data_stream: Iterable[Tuple[torch.Tensor, torch.Tensor]], max_steps: int = 100, log_every: int = 1) -> list[float]:
+    def train_dataset(self, data_stream: Iterable[Tuple[torch.Tensor, torch.Tensor]], max_steps: int = 100, log_every: int = 1, eval_every: int = 0, eval_callback = None) -> list[float]:
         """Train over an iterable dataset stream (e.g. JSONLDataset)."""
         log.info(f"Starting dataset pre-training run (target steps: {max_steps})...")
         losses = []
@@ -115,6 +115,10 @@ class NeuroTrainer:
                 
                 log.info(f"Step {self.step_count:>4d}/{max_steps} │ Loss: {loss:.4f} │ PPL: {ppl:.1f} │ Acc: {acc:.2f}% │ ∇: {grad_norm:.2f} │ ⚡ {tok_per_sec:.1f} tok/s │ Tokens: {self.total_tokens/1000:.1f}K │ ETA: {eta_str}")
                 
+            if eval_every > 0 and self.step_count % eval_every == 0:
+                if eval_callback:
+                    eval_callback(self.step_count)
+                    
             if self.step_count >= max_steps:
                 break
                 
