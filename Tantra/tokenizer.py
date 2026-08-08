@@ -70,16 +70,16 @@ class ByteBPETokenizer:
         if self._tokenizer is not None and self._tokenizer.get_vocab_size() > 0:
             try:
                 return self._tokenizer.encode(text).ids
-            except Exception:
-                pass
+            except Exception as e:
+                import logging; logging.getLogger("tantra").warning(f"Silenced exception: {e}")
         return list(text.encode("utf-8"))
 
     def decode(self, ids: list[int]) -> str:
         if self._tokenizer is not None and self._tokenizer.get_vocab_size() > 0:
             try:
                 return self._tokenizer.decode(ids)
-            except Exception:
-                pass
+            except Exception as e:
+                import logging; logging.getLogger("tantra").warning(f"Silenced exception: {e}")
         valid_bytes = bytes([i % 256 for i in ids])
         return valid_bytes.decode("utf-8", errors="ignore")
 
@@ -87,8 +87,8 @@ class ByteBPETokenizer:
         if self._tokenizer is not None and self._tokenizer.get_vocab_size() > 0:
             try:
                 return [enc.ids for enc in self._tokenizer.encode_batch(texts)]
-            except Exception:
-                pass
+            except Exception as e:
+                import logging; logging.getLogger("tantra").warning(f"Silenced exception: {e}")
         return [self.encode(t) for t in texts]
 
     def save(self, path: str) -> None:
