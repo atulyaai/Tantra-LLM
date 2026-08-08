@@ -71,7 +71,7 @@ class ByteBPETokenizer:
             try:
                 return self._tokenizer.encode(text).ids
             except Exception as e:
-                import logging; logging.getLogger("tantra").warning(f"Silenced exception: {e}")
+                import logging as _logging; _logging.getLogger("tantra").warning(f"Silenced exception: {e}")
         return list(text.encode("utf-8"))
 
     def decode(self, ids: list[int]) -> str:
@@ -79,7 +79,7 @@ class ByteBPETokenizer:
             try:
                 return self._tokenizer.decode(ids)
             except Exception as e:
-                import logging; logging.getLogger("tantra").warning(f"Silenced exception: {e}")
+                import logging as _logging; _logging.getLogger("tantra").warning(f"Silenced exception: {e}")
         valid_bytes = bytes([i % 256 for i in ids])
         return valid_bytes.decode("utf-8", errors="ignore")
 
@@ -88,7 +88,7 @@ class ByteBPETokenizer:
             try:
                 return [enc.ids for enc in self._tokenizer.encode_batch(texts)]
             except Exception as e:
-                import logging; logging.getLogger("tantra").warning(f"Silenced exception: {e}")
+                import logging as _logging; _logging.getLogger("tantra").warning(f"Silenced exception: {e}")
         return [self.encode(t) for t in texts]
 
     def save(self, path: str) -> None:

@@ -39,7 +39,7 @@ def configure_cpu_performance(num_threads: Optional[int] = None) -> None:
     try:
         torch.set_num_threads(num_threads)
     except Exception as e:
-        import logging; logging.getLogger("tantra").warning(f"Silenced exception: {e}")
+        import logging as _logging; _logging.getLogger("tantra").warning(f"Silenced exception: {e}")
 
     os.environ["OMP_NUM_THREADS"] = str(num_threads)
     os.environ["MKL_NUM_THREADS"] = str(num_threads)
@@ -51,7 +51,7 @@ def configure_cpu_performance(num_threads: Optional[int] = None) -> None:
         try:
             torch.backends.mkldnn.enabled = True
         except Exception as e:
-            import logging; logging.getLogger("tantra").warning(f"Silenced exception: {e}")
+            import logging as _logging; _logging.getLogger("tantra").warning(f"Silenced exception: {e}")
 
     log = logging.getLogger("tantra")
     log.info(f"  Applied CPU Performance Config: PyTorch Threads={num_threads}, OpenMP/MKL={num_threads}")
@@ -166,7 +166,7 @@ class HardwareDetector:
                     backend='mps'
                 ))
         except Exception as e:
-            import logging; logging.getLogger("tantra").warning(f"Silenced exception: {e}")
+            import logging as _logging; _logging.getLogger("tantra").warning(f"Silenced exception: {e}")
         return gpus
         
     def _detect_ram(self) -> Tuple[int, int]:
@@ -183,7 +183,7 @@ class HardwareDetector:
                 free = meminfo.get('MemAvailable:', 4096 * 1024) // 1024
                 return total, free
             except Exception as e:
-                import logging; logging.getLogger("tantra").warning(f"Silenced exception: {e}")
+                import logging as _logging; _logging.getLogger("tantra").warning(f"Silenced exception: {e}")
         try:
             vm = psutil.virtual_memory()
             return vm.total // (1024*1024), vm.available // (1024*1024)
@@ -218,7 +218,7 @@ class HardwareDetector:
                 console.print(table)
                 return
             except Exception as e:
-                import logging; logging.getLogger("tantra").warning(f"Silenced exception: {e}")
+                import logging as _logging; _logging.getLogger("tantra").warning(f"Silenced exception: {e}")
 
         log.info(f"Hardware Profile -> CPU: {profile.cpu.brand} ({profile.cpu.physical_cores}C/{profile.cpu.logical_cores}T) | RAM: {profile.ram_total_mb} MB | GPU: {profile.gpus[0].name if profile.gpus else 'CPU Mode'}")
 
@@ -483,7 +483,7 @@ class AdaptiveScheduler:
             try:
                 self._adjust_for_memory_pressure()
             except Exception as e:
-                import logging; logging.getLogger("tantra").warning(f"Silenced exception: {e}")
+                import logging as _logging; _logging.getLogger("tantra").warning(f"Silenced exception: {e}")
             time.sleep(5)
             
     def _adjust_for_memory_pressure(self) -> None:
@@ -501,13 +501,13 @@ class AdaptiveScheduler:
                 free = meminfo.get('MemAvailable:', 4096 * 1024)
                 percent = ((total - free) / total) * 100.0
             except Exception as e:
-                import logging; logging.getLogger("tantra").warning(f"Silenced exception: {e}")
+                import logging as _logging; _logging.getLogger("tantra").warning(f"Silenced exception: {e}")
         else:
             try:
                 mem = psutil.virtual_memory()
                 percent = mem.percent
             except Exception as e:
-                import logging; logging.getLogger("tantra").warning(f"Silenced exception: {e}")
+                import logging as _logging; _logging.getLogger("tantra").warning(f"Silenced exception: {e}")
         
         if percent > 95.0:
             self.config.batch_size = 1

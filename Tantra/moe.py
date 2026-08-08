@@ -293,19 +293,25 @@ class LazyExpertLoader:
         self._cache: collections.OrderedDict[int, nn.Module] = collections.OrderedDict()
         self._lock = threading.Lock()
 
-    def get_expert(self, expert_id: int) -> nn.Module:
+    def get_expert(self, expert_id: int, device: str = "cpu") -> nn.Module:
         """Get expert from RAM if cached, else load from disk."""
         with self._lock:
             if expert_id in self._cache:
                 # Cache hit: move to end (most recently used)
                 expert = self._cache.pop(expert_id)
                 self._cache[expert_id] = expert
-                return expert
+                return expert.to(device, non_blocking=True) if "cuda" in str(device) else expert.to(device)
 
         # Cache miss: load from disk
-        return self._load_expert(expert_id)
+        return self._load_expert(expert_id, device)
 
-    def _load_expert(self, expert_id: int) -> nn.Module:
+    def _evict_lru_if_needed(self):
+        """Evict the least recently used expert from the cache if we exceed cache size."""
+        while len(self._cache) > self._cache_size:
+            # popitem(last=False) removes the first item inserted (least recently used)
+            self._cache.popitem(last=False)
+
+    def _load_expert(self, expert_id: int, device: str = "cpu") -> nn.Module:
         """Load expert from disk, decompress, instantiate, and cache."""
         meta = self._registry.get(expert_id)
         if not meta:
@@ -327,10 +333,28 @@ class LazyExpertLoader:
         else:
             log.warning(f"DNA file not found for expert {expert_id}, using random init.")
 
+        # Hybrid GPU offload with pinned memory and CUDA streams
+        if "cuda" in str(device) and torch.cuda.is_available():
+            expert_cpu = expert.to("cpu")
+            # Pin memory for faster CPU -> GPU transfer
+            for param in expert_cpu.parameters():
+                if param.data.is_contiguous():
+                    param.data = param.data.pin_memory()
+            
+            stream = torch.cuda.Stream()
+            with torch.cuda.stream(stream):
+                expert_gpu = expert_cpu.to(device, non_blocking=True)
+            torch.cuda.current_stream().wait_stream(stream)
+            final_expert = expert_gpu
+        else:
+            final_expert = expert.to(device)
+
         # 3. Add to cache (thread-safe)
         with self._lock:
-            self._cache[expert_id] = expert
+            self._cache[expert_id] = final_expert
             self._evict_lru_if_needed()
+            
+        return final_expert
 
     def save_expert(self, expert_id: int, expert: nn.Module) -> str:
         """Compress expert state_dict into .dna file on disk."""

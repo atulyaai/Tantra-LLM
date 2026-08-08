@@ -145,8 +145,8 @@ Tantra-LLM supports heterogeneous parallel execution across **CPU + AMD integrat
         └───────────────────────┘                     └───────────────────────┘
 ```
 
-- **Zero Pipeline Stalls**: CPU streams dataset tokenization and fetches 500 `.dna` expert weights asynchronously while the AMD GPU (`torch-directml` DirectX 12) executes attention and backward gradient passes.
-- **Smart Memory Split**: VRAM holds active attention layers, while CPU RAM caches the 500-expert registry, avoiding VRAM out-of-memory crashes.
+- **Zero Pipeline Stalls**: CPU streams dataset tokenization and fetches `.dna` expert weights asynchronously using pinned memory and dedicated CUDA/DirectML streams while the GPU executes attention and backward gradient passes.
+- **Smart MoE Memory Split**: VRAM holds the active backbone and router layers, while massive 500-expert banks are cached in system CPU RAM. When the router selects an expert, it is dynamically offloaded to the GPU and subsequently evicted (LRU Cache), avoiding VRAM out-of-memory crashes while training gigantic architectures.
 
 ---
 
