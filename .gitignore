@@ -20,6 +20,9 @@ htmlcov/
 [Mm]odel/checkpoint_*.dna
 [Mm]odel/converted_*.pt
 [Mm]odel/corpus_sample.txt
+[Mm]odel/Best/*.pt
+[Mm]odel/Checkpoints/*.pt
+[Mm]odel/Latest/*.pt
 
 # Raw training data (too large for GitHub)
 Download/
