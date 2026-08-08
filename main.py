@@ -375,6 +375,9 @@ def run_training(model, vcfg, steps=20, resume=False):
 def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False, eval_every=250, log_every=50, batch_size=1, seq_len=128):
     log.info("== [DATASET PRE-TRAINING MODE] =====================")
     log.info(f"Loading real dataset from: {dataset_path}")
+    if tokenizer.vocab_size != 32000:
+        log.error(f"CRITICAL: Tokenizer vocab_size is {tokenizer.vocab_size}, expected 32000! Aborting training to prevent raw-byte fallback.")
+        raise RuntimeError("Tokenizer is falling back to raw bytes (no valid BPE merges found). Please generate a valid tokenizer.json before training.")
     repair = SelfRepairEngine()
     repair.scan_and_repair(model)
     

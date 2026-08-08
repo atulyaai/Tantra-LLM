@@ -104,8 +104,10 @@ class ByteBPETokenizer:
         try:
             from tokenizers import Tokenizer
             inst._tokenizer = Tokenizer.from_file(path)
-        except Exception:
-            inst._tokenizer = None
+        except Exception as e:
+            import logging
+            logging.getLogger("tantra.tokenizer").error(f"CRITICAL: Failed to load BPE tokenizer from {path}. Fallback to raw bytes is DISABLED for training safety. Error: {e}")
+            raise RuntimeError(f"Failed to load tokenizer from {path}. File is likely an invalid or corrupt BPE JSON. Do not use raw metadata pickles.") from e
         return inst
 
     @property
