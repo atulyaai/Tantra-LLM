@@ -97,8 +97,15 @@ class NeuroTrainer:
     def train_dataset(self, data_stream: Iterable[Tuple[torch.Tensor, torch.Tensor]], max_steps: int = 100, log_every: int = 1, eval_every: int = 0, eval_callback = None) -> list[float]:
         """Train over an iterable dataset stream (e.g. JSONLDataset)."""
         log.info(f"Starting dataset pre-training run (target steps: {max_steps})...")
+        
+        from Tantra.tokenjuice import TokenJuiceEngine
+        juice = TokenJuiceEngine(entropy_threshold=0.3, enrichment_rate=0.1)
+        
         losses = []
         for i, (x, y) in enumerate(data_stream):
+            # TokenJuice: Enrich batch dynamically with synthetic high-signal logic/identity tokens
+            x, y = juice.enrich_batch(x, y)
+            
             if x.dim() == 1:
                 x = x.unsqueeze(0)
             if y.dim() == 1:
@@ -115,7 +122,10 @@ class NeuroTrainer:
             
             if (self.step_count % log_every == 0) or (i == 0) or (self.step_count == max_steps):
                 elapsed = time.perf_counter() - self._start_time
-                tok_per_sec = (x.numel() * self.step_count) / max(elapsed, 1e-6)
+                if elapsed < 1.0:
+                    tok_per_sec = 0.0  # Prevent first-step time glitch
+                else:
+                    tok_per_sec = (x.numel() * (i + 1)) / max(elapsed, 1e-6)
                 
                 # ETA Timer calculation
                 avg_sec_per_step = elapsed / max(self.step_count, 1)
@@ -145,12 +155,15 @@ class NeuroTrainer:
             losses.append(loss)
             if (i + 1) % 5 == 0 or i == 0:
                 elapsed = time.perf_counter() - self._start_time
-                tok_per_sec = (batch_size * seq_len * (i + 1)) / max(elapsed, 1e-6)
+                if elapsed < 1.0:
+                    tok_per_sec = 0.0
+                else:
+                    tok_per_sec = (batch_size * seq_len * (i + 1)) / max(elapsed, 1e-6)
                 log.info(f"Step {self.step_count:>4d}/{steps} | Loss: {loss:.4f} | PPL: {ppl:.1f} | Acc: {acc:.2f}% | GradNorm: {grad_norm:.2f} | Speed: {tok_per_sec:.1f} tok/s [Self-Repair: OK]")
         return losses
 
-    def save_checkpoint(self, path: str, save_optimizer: bool = True, compress_dna: bool = False) -> None:
-        """Save model checkpoint with optional DNA compression and compact storage."""
+    def save_checkpoint(self, path: str, save_optimizer: bool = True, copy_tokenizer: bool = True) -> None:
+        """Save model checkpoint with self-contained tokenizer and max 5 checkpoint history cleanup."""
         ckpt_data = {
             "model_state_dict": {k: v.half() if v.is_floating_point() else v for k, v in self.model.state_dict().items()},
             "step_count": self.step_count,
@@ -161,31 +174,60 @@ class NeuroTrainer:
         if save_optimizer:
             ckpt_data["optimizer_state_dict"] = self.optimizer.state_dict()
 
-        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+        target_dir = os.path.dirname(path) or "."
+        os.makedirs(target_dir, exist_ok=True)
         torch.save(ckpt_data, path)
-        log.info(f"Compact checkpoint saved -> {path}")
+        log.info(f"Checkpoint saved -> {path}")
 
-        if compress_dna:
-            dna_path = path.replace(".pt", ".dna")
-            if not dna_path.endswith(".dna"):
-                dna_path += ".dna"
-            try:
-                from Tantra.codec import MultimodalWeightFormatter, CompressionConfig
-                formatter = MultimodalWeightFormatter(CompressionConfig())
-                tensor_weights = {}
-                for k, v in self.model.state_dict().items():
-                    if isinstance(v, torch.Tensor):
-                        if v.dim() == 1:
-                            tensor_weights[k] = v.unsqueeze(0).float().cpu()
-                        elif v.dim() == 2:
-                            tensor_weights[k] = v.float().cpu()
-                        else:
-                            tensor_weights[k] = v.view(v.size(0), -1).float().cpu()
-                formatter.format_weights(tensor_weights, dna_path)
-                dna_size_mb = os.path.getsize(dna_path) / (1024 * 1024)
-                log.info(f"Compressed DNA weights exported -> {dna_path} ({dna_size_mb:.1f} MB compressed)")
-            except Exception as e:
-                log.warning(f"DNA weight compression skipped: {e}")
+        # Copy tokenizer.pt into target directory if available
+        if copy_tokenizer:
+            dst_tok = os.path.join(target_dir, "tokenizer.pt")
+            candidates = [
+                os.path.join(os.path.dirname(target_dir), "tokenizer.pt"),
+                os.path.join(target_dir, "..", "tokenizer.pt"),
+                os.path.join(os.path.dirname(target_dir), "Model", "tokenizer.pt"),
+            ]
+            src_tok = None
+            for cand in candidates:
+                if os.path.exists(cand):
+                    src_tok = cand
+                    break
+            if src_tok and os.path.abspath(src_tok) != os.path.abspath(dst_tok):
+                import shutil
+                try:
+                    shutil.copy2(src_tok, dst_tok)
+                    log.info(f"Self-contained tokenizer synced -> {dst_tok}")
+                except Exception:
+                    pass
+
+        # Auto-prune Checkpoints folder to keep at most 5 latest step checkpoints side by side
+        if "Checkpoints" in target_dir or "checkpoints" in target_dir:
+            self.prune_checkpoint_history(target_dir, max_keep=5)
+
+    @staticmethod
+    def prune_checkpoint_history(checkpoints_dir: str, max_keep: int = 5) -> None:
+        """Keep only the latest max_keep step checkpoints in checkpoints_dir and remove older ones."""
+        if not os.path.exists(checkpoints_dir):
+            return
+        files = []
+        for fname in os.listdir(checkpoints_dir):
+            if fname.startswith("checkpoint_step_") and fname.endswith(".pt"):
+                fpath = os.path.join(checkpoints_dir, fname)
+                try:
+                    step_num = int(fname.replace("checkpoint_step_", "").replace(".pt", ""))
+                    files.append((step_num, fpath))
+                except ValueError:
+                    files.append((os.path.getmtime(fpath), fpath))
+        
+        if len(files) > max_keep:
+            files.sort(key=lambda x: x[0])  # sort ascending by step/mtime
+            to_remove = files[: len(files) - max_keep]
+            for _, fpath in to_remove:
+                try:
+                    os.remove(fpath)
+                    log.info(f"Pruned older checkpoint -> {fpath}")
+                except Exception as e:
+                    log.warning(f"Could not remove old checkpoint {fpath}: {e}")
 
     def load_checkpoint(self, path: str) -> None:
         """Load model + optimizer state."""

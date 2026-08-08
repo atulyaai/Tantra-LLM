@@ -124,20 +124,45 @@ $$\mathcal{L}_{\text{total}} = \mathcal{L}_{\text{main}(t+1)} + 0.25 \cdot \math
 
 ---
 
-## GPU-on-CPU Performance Optimizations
+### 4. Hybrid Dual Execution Engine (CPU + AMD DirectML GPU)
 
-To achieve GPU-like throughput directly on consumer CPUs without dedicated graphics hardware, Tantra incorporates cutting-edge CPU acceleration techniques:
+Tantra-LLM supports heterogeneous parallel execution across **CPU + AMD integrated/dedicated GPUs** simultaneously:
 
-### 1. Vectorized BitNet 1.58-Bit SIMD Execution
-Traditional floating-point matrix multiplications ($O(N^3)$ multiplies) are replaced by ternary addition/subtraction passes ($\{-1, 0, +1\}$). Weights are bit-packed into 2-bit representations, allowing $4\times$ memory compression and hardware AVX2 / AVX-512 vector alignment.
+```
+                      ┌─────────────────────────────────────────┐
+                      │             INPUT DATASET               │
+                      └────────────────────┬────────────────────┘
+                                           │
+                    ┌──────────────────────┴──────────────────────┐
+                    ▼                                             ▼
+        ┌───────────────────────┐                     ┌───────────────────────┐
+        │   CPU (SIMD Vector)   │                     │ AMD GPU (DirectML)    │
+        ├───────────────────────┤                     ├───────────────────────┤
+        │ • Dataset Tokenization│   Asynchronous      │ • Heavy Attention Ops │
+        │ • Byte-Level Fallback │ ──────────────────► │ • BitLinear MatMul    │
+        │ • 500 Expert LRU Cache│   Stream Pipeline   │ • Forward & Backward  │
+        │ • Expert .dna Fetching│                     │   Gradient Computation│
+        └───────────────────────┘                     └───────────────────────┘
+```
 
-### 2. $O(1)$ Memory Recurrent ALRA Attention
-Instead of standard quadratic softmax attention ($O(T^2)$ memory), ALRA uses chunked blockwise state recurrence ($C=256$). Memory consumption remains constant regardless of sequence length ($T=1024$ or $T=32768$), eliminating CPU cache thrashing.
+- **Zero Pipeline Stalls**: CPU streams dataset tokenization and fetches 500 `.dna` expert weights asynchronously while the AMD GPU (`torch-directml` DirectX 12) executes attention and backward gradient passes.
+- **Smart Memory Split**: VRAM holds active attention layers, while CPU RAM caches the 500-expert registry, avoiding VRAM out-of-memory crashes.
 
-### 3. OpenMP & MKL Thread Affinity
-Tantra auto-detects physical CPU cores vs logical threads and pins worker threads using optimal thread scheduling:
-- `KMP_AFFINITY=granularity=fine,compact,1,0`
-- `torch.set_num_threads(physical_cores)`
+---
+
+## Specialized Tantra Engines
+
+### 🥤 TokenJuice (Data Density Squeezing & Distillation)
+**TokenJuice** is Tantra's high-signal dataset compression and token enrichment engine:
+- **High-Signal Squeezing**: Filters low-quality dataset noise and squeezes high-entropy token clusters for 3x faster pre-training convergence.
+- **Synthetic Token Enrichment**: Dynamically injects synthetic logic, math, and identity tokens during dataset streaming.
+- **Dynamic Loss Weighting**: Automatically scales gradient steps based on token information density.
+
+### 🪨 Obsidian (Knowledge Vault & Memory Retention)
+**Obsidian** is Tantra's long-term memory vault and knowledge graph indexing engine:
+- **Persistent Vault Indexing**: Scans Markdown notes, Obsidian vaults, and structured documents to build a local knowledge graph.
+- **Multi-Turn Context Retention**: Stores conversation context in ALRA recurrent states ($S_t$) across long sessions.
+- **Zero-Cloud Graph Retrieval**: Queries local vault nodes offline without external API dependencies.
 - PyTorch MKLDNN / oneDNN backend primitives for vectorized tensor routines.
 
 ### 4. Multi-Token Prediction ($2\times$ Step Sample Efficiency)

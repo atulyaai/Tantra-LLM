@@ -47,9 +47,12 @@ except ImportError:
 
 log = get_logger("tantra")
 
-MODEL_DIR   = os.path.join(os.path.dirname(__file__), "Model")
-VOCAB_PATH  = os.path.join(MODEL_DIR, "tokenizer.pt")
-EXPERTS_DIR = os.path.join(MODEL_DIR, "Experts")
+MODEL_DIR       = os.path.join(os.path.dirname(__file__), "Model")
+BEST_DIR        = os.path.join(MODEL_DIR, "Best")
+LATEST_DIR      = os.path.join(MODEL_DIR, "Latest")
+CHECKPOINTS_DIR = os.path.join(MODEL_DIR, "Checkpoints")
+EXPERTS_DIR     = os.path.join(MODEL_DIR, "Experts")
+VOCAB_PATH      = os.path.join(MODEL_DIR, "tokenizer.pt")
 DEFAULT_DATASET = os.path.join(os.path.dirname(__file__), "Datasets", "train_pack_all_expanded_1040k.jsonl")
 
 def print_banner():
@@ -258,6 +261,9 @@ def detect_hardware():
 def build_vocab(cfg: VocabConfig, corpus_file: str | None = None) -> UnifiedTokenizer:
     log.info("== [2] UNIFIED VOCABULARY & TOKENIZER STATUS =======")
     os.makedirs(MODEL_DIR, exist_ok=True)
+    os.makedirs(BEST_DIR, exist_ok=True)
+    os.makedirs(LATEST_DIR, exist_ok=True)
+    os.makedirs(CHECKPOINTS_DIR, exist_ok=True)
     bpe = ByteBPETokenizer(cfg)
     
     status = "Cached Artifact"
@@ -270,7 +276,10 @@ def build_vocab(cfg: VocabConfig, corpus_file: str | None = None) -> UnifiedToke
         
     patcher = MegabytePatcher()
     tok = UnifiedTokenizer(cfg, bpe, patcher)
-    torch.save({"vocab_size": cfg.vocab_size, "special_tokens": cfg.special_tokens}, VOCAB_PATH)
+    vocab_payload = {"vocab_size": cfg.vocab_size, "special_tokens": cfg.special_tokens}
+    
+    for vpath in [VOCAB_PATH, os.path.join(BEST_DIR, "tokenizer.pt"), os.path.join(LATEST_DIR, "tokenizer.pt"), os.path.join(CHECKPOINTS_DIR, "tokenizer.pt")]:
+        torch.save(vocab_payload, vpath)
     
     log.info(f"  Vocab Size       : {cfg.vocab_size:,} tokens")
     log.info(f"  BPE Subword Merges: {cfg.vocab_size - len(cfg.special_tokens) - 256:,} merge rules")
@@ -344,14 +353,14 @@ def run_training(model, vcfg, steps=20, resume=False):
     repair.scan_and_repair(model)
     
     trainer = NeuroTrainer(model, lr=1e-4)
-    ckpt_path = os.path.join(MODEL_DIR, "checkpoint_latest.pt")
-    best_path = os.path.join(MODEL_DIR, "checkpoint_best.pt")
+    latest_ckpt = os.path.join(LATEST_DIR, "checkpoint_latest.pt")
+    best_ckpt = os.path.join(BEST_DIR, "checkpoint_best.pt")
     
     resume_target = None
-    if os.path.exists(ckpt_path):
-        resume_target = ckpt_path
-    elif os.path.exists(best_path):
-        resume_target = best_path
+    if os.path.exists(latest_ckpt):
+        resume_target = latest_ckpt
+    elif os.path.exists(best_ckpt):
+        resume_target = best_ckpt
         
     if resume_target:
         log.info(f"RESUMING training from existing checkpoint: {resume_target}")
@@ -360,7 +369,7 @@ def run_training(model, vcfg, steps=20, resume=False):
         log.info("No previous checkpoint found. Starting FRESH training run.")
 
     trainer.train_demo(steps=steps, vocab_size=vcfg.vocab_size)
-    trainer.save_checkpoint(ckpt_path)
+    trainer.save_checkpoint(latest_ckpt, save_optimizer=True)
 
 
 def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False, eval_every=250, log_every=50, batch_size=1, seq_len=128):
@@ -370,15 +379,15 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
     repair.scan_and_repair(model)
     
     trainer = NeuroTrainer(model, lr=1e-4)
-    ckpt_path = os.path.join(MODEL_DIR, "checkpoint_latest.pt")
-    best_path = os.path.join(MODEL_DIR, "checkpoint_best.pt")
+    latest_ckpt = os.path.join(LATEST_DIR, "checkpoint_latest.pt")
+    best_ckpt = os.path.join(BEST_DIR, "checkpoint_best.pt")
     
-    # Auto-resume logic: check checkpoint_latest.pt first, then checkpoint_best.pt
+    # Auto-resume logic: check Latest checkpoint_latest.pt first, then Best checkpoint_best.pt
     resume_target = None
-    if os.path.exists(ckpt_path):
-        resume_target = ckpt_path
-    elif os.path.exists(best_path):
-        resume_target = best_path
+    if os.path.exists(latest_ckpt):
+        resume_target = latest_ckpt
+    elif os.path.exists(best_ckpt):
+        resume_target = best_ckpt
         
     if resume_target:
         log.info(f"RESUMING training from existing checkpoint: {resume_target}")
@@ -395,9 +404,19 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
         response = tokenizer.decode(out.tolist()[0])
         log.info("Output: %s" % response)
         log.info("----------------------------------\n")
-        trainer.save_checkpoint(ckpt_path)
-        if trainer.best_loss <= 2.0 or step % (eval_every * 4) == 0:
-            trainer.save_checkpoint(best_path)
+        
+        # Save to Latest (full state with optimizer for seamless resume)
+        trainer.save_checkpoint(latest_ckpt, save_optimizer=True)
+        
+        # Save side-by-side step checkpoint in Checkpoints/ folder (auto-pruned to keep max 5)
+        step_ckpt = os.path.join(CHECKPOINTS_DIR, f"checkpoint_step_{step}.pt")
+        trainer.save_checkpoint(step_ckpt, save_optimizer=True)
+        
+        # Save to Best folder if loss improved or milestone step (release state without optimizer)
+        if trainer.best_loss <= 2.0 or step % (eval_every * 4) == 0 or step == steps:
+            version_name = f"Tantra_v1_step_{step}.pt"
+            trainer.save_checkpoint(os.path.join(BEST_DIR, version_name), save_optimizer=False)
+            trainer.save_checkpoint(best_ckpt, save_optimizer=False)
 
     eval_callback(0)
 
@@ -405,7 +424,7 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, num_workers=0)
     trainer.train_dataset(dataloader, max_steps=steps, log_every=log_every, eval_every=eval_every, eval_callback=eval_callback)
 
-    trainer.save_checkpoint(ckpt_path)
+    trainer.save_checkpoint(latest_ckpt, save_optimizer=True)
 
 
 def run_evaluation(model, tokenizer, dataset_path):
@@ -504,8 +523,8 @@ def main():
     
     trainer = NeuroTrainer(model, lr=1e-4)
     # Check if a checkpoint exists for status
-    if os.path.exists(os.path.join(MODEL_DIR, "checkpoint_latest.pt")):
-        try: trainer.load_checkpoint(os.path.join(MODEL_DIR, "checkpoint_latest.pt"))
+    if os.path.exists(os.path.join(MODEL_DIR, "latest", "checkpoint_latest.pt")):
+        try: trainer.load_checkpoint(os.path.join(MODEL_DIR, "latest", "checkpoint_latest.pt"))
         except: pass
 
     if args.mode == "status":

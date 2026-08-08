@@ -205,8 +205,12 @@ class NeuroCoreConfig:
 
     @classmethod
     def small(cls) -> "NeuroCoreConfig":
-        """124M param config — for testing / GPT-2 comparison."""
-        cfg = cls(model_name="neurocore-124m")
+        """NeuroCore small config — GPT-2 equivalent architecture (12L, 768 dim, 12H).
+
+        Note: Actual param count is ~178M due to NeuroCore additions (MTP head,
+        DSN, ALRA gate, LatentCoT) on top of GPT-2's 124M baseline architecture.
+        """
+        cfg = cls(model_name="neurocore-178m")
         cfg.block.alra.dim = 768
         cfg.block.alra.num_heads = 12
         cfg.block.alra.head_dim = 64
