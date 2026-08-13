@@ -36,7 +36,7 @@ or layer shape changes it.
 
 ## Profile comparison
 
-`Tantra.cpu_profiles` contains explicit alternatives for controlled tests:
+`Tantra.model` contains explicit CPU-profile builders for controlled tests:
 
 | Profile | Purpose | Status |
 |---|---|---|

@@ -230,7 +230,7 @@ def get_model_and_tokenizer(checkpoint_path: Optional[str] = None):
 
                 is_cpu_profile = str(getattr(cfg, "model_name", "")).startswith("tantra-cpu-")
                 if is_cpu_profile:
-                    from Tantra.cpu_profiles import build_cpu_model
+                    from Tantra.model import build_cpu_model
                     profile = "moe2" if "top1-moe" in cfg.model_name else ("micro10" if "10m" in cfg.model_name else "dense")
                     MODEL = build_cpu_model(profile, attention_kind=cfg.block.alra.attention_kind,
                                             vocab_size=cfg.vocab.vocab_size).to(device)

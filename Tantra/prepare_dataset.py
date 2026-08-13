@@ -34,7 +34,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from Tantra.dataset import format_jsonl_prompt, build_prompt_segments
-from Tantra.tokenjuice import TokenJuiceEngine
+from Tantra.dataset import TokenJuiceEngine
 from Tantra.utils import get_logger
 
 log = get_logger("tantra.prepare_dataset")

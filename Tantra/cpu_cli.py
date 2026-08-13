@@ -13,7 +13,7 @@ import time
 import torch
 
 from Tantra.config import VocabConfig
-from Tantra.cpu_profiles import build_cpu_model
+from Tantra.model import build_cpu_model
 from Tantra.hardware import configure_cpu_performance
 from Tantra.tokenizer import ByteBPETokenizer, MegabytePatcher, UnifiedTokenizer
 

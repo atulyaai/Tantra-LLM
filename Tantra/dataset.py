@@ -15,6 +15,7 @@ silently straddle two unrelated documents/examples.
 from __future__ import annotations
 
 import json
+import math
 import os
 import random
 from typing import Iterator, List, Dict, Any, Optional, Tuple
@@ -28,6 +29,53 @@ log = get_logger(__name__)
 
 IGNORE_INDEX = -100
 EOS_ID = 2  # must match VocabConfig.special_tokens["<eos>"]
+
+
+class TokenJuiceEngine:
+    """Dataset signal filtering, optional synthetic enrichment, and weighting."""
+
+    def __init__(self, entropy_threshold: float = 0.5, enrichment_rate: float = 0.1):
+        self.entropy_threshold, self.enrichment_rate = entropy_threshold, enrichment_rate
+        self.synthetic_pool: List[Tuple[List[int], List[int]]] = []
+
+    def register_synthetic_pair(self, input_ids: List[int], target_ids: List[int]) -> None:
+        if isinstance(input_ids, list) and isinstance(target_ids, list) and all(isinstance(t, int) for t in input_ids + target_ids):
+            self.synthetic_pool.append((input_ids, target_ids))
+
+    def compute_token_entropy(self, token_ids: List[int], vocab_size: int = 32000) -> float:
+        if not token_ids:
+            return 0.0
+        counts: Dict[int, int] = {}
+        for token in token_ids:
+            counts[token] = counts.get(token, 0) + 1
+        entropy = -sum((count / len(token_ids)) * math.log2(count / len(token_ids)) for count in counts.values())
+        return entropy / max(math.log2(vocab_size), 1.0)
+
+    def squeeze_tokens(self, token_ids: List[int], vocab_size: int = 32000) -> List[int]:
+        if len(token_ids) < 4:
+            return token_ids
+        kept = [chunk for index in range(0, len(token_ids), 8) if (chunk := token_ids[index:index + 8]) and (index == 0 or self.compute_token_entropy(chunk, vocab_size) >= self.entropy_threshold)]
+        return [token for chunk in kept for token in chunk] or token_ids
+
+    @staticmethod
+    def _fit_to_length(ids: List[int], length: int) -> List[int]:
+        return ids[:length] + [0] * max(0, length - len(ids))
+
+    def enrich_batch(self, x: torch.Tensor, y: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        if not self.synthetic_pool or random.random() > self.enrichment_rate:
+            return x, y
+        input_ids, target_ids = random.choice(self.synthetic_pool)
+        length = x.shape[-1]
+        x[-1:] = torch.tensor(self._fit_to_length(input_ids, length), dtype=x.dtype, device=x.device).unsqueeze(0)
+        y[-1:] = torch.tensor(self._fit_to_length(target_ids, length), dtype=y.dtype, device=y.device).unsqueeze(0)
+        return x, y
+
+    @staticmethod
+    def compute_dynamic_loss_weights(targets: torch.Tensor, high_priority_ids: List[int]) -> torch.Tensor:
+        weights = torch.ones_like(targets, dtype=torch.float32)
+        if high_priority_ids:
+            weights[torch.isin(targets, torch.tensor(high_priority_ids, device=targets.device))] = 2.5
+        return weights
 
 
 def format_jsonl_prompt(item: Dict[str, Any]) -> str:

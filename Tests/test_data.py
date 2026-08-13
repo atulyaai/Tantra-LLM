@@ -8,7 +8,7 @@ import torch
 
 from Tantra.config import VocabConfig
 from Tantra.tokenizer import ByteBPETokenizer, MegabytePatcher, UnifiedTokenizer, AudioTokenizer, ImageTokenizer
-from Tantra.dataset import TopicMixedDataset, PretokenizedBinDataset, IGNORE_INDEX
+from Tantra.dataset import TopicMixedDataset, PretokenizedBinDataset, IGNORE_INDEX, TokenJuiceEngine
 
 
 class _StubTokenizer:
@@ -109,3 +109,15 @@ def test_image_tokenizer():
     image = torch.rand(1, 3, 64, 64)
     ids = tok.encode(image)
     assert ids.min() >= 0 and ids.max() < cfg.image_codebook_size
+
+
+def test_tokenjuice_entropy_enrichment_and_weights():
+    engine = TokenJuiceEngine(entropy_threshold=0.3, enrichment_rate=1.0)
+    low_entropy = [1] * 8
+    high_entropy = [1, 250, 4829, 991, 12, 592, 1024, 881]
+    assert engine.compute_token_entropy(low_entropy) < engine.compute_token_entropy(high_entropy)
+    engine.register_synthetic_pair([100, 101, 102], [200, 201, 202])
+    x, y = engine.enrich_batch(torch.zeros((2, 8), dtype=torch.long), torch.zeros((2, 8), dtype=torch.long))
+    assert x.shape == y.shape == (2, 8)
+    weights = engine.compute_dynamic_loss_weights(torch.tensor([1, 100, 5, 101]), [100, 101])
+    assert weights.tolist() == [1.0, 2.5, 1.0, 2.5]

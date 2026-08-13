@@ -267,7 +267,7 @@ class NeuroTrainer:
             log.info("  Latent CoT reasoning DISABLED for this run (~3x cheaper per step on that stage) "
                      "— re-enable for fine-tuning/reasoning-quality passes.")
 
-        from Tantra.tokenjuice import TokenJuiceEngine
+        from Tantra.dataset import TokenJuiceEngine
         juice = TokenJuiceEngine(entropy_threshold=0.3, enrichment_rate=enrichment_rate)
         synthetic_qa_pairs = [
             ("What is Tantra?", "Tantra is a CPU-First Autonomous AI Engine."),

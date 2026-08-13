@@ -408,7 +408,7 @@ def run_adapter_mode(action: str, name: str | None = None, description: str = ""
 
 def build_adapter_model(rt, vocab_size: int = 32768):
     """Load the MoE-2 / 32K base with installed specialist layers."""
-    from Tantra.cpu_profiles import build_cpu_model
+    from Tantra.model import build_cpu_model
     if not os.path.exists(ADAPTER_CHECKPOINT):
         raise FileNotFoundError(f"Adapter checkpoint not found: {ADAPTER_CHECKPOINT}. Run: python main.py --mode adapter init")
     model = build_cpu_model("moe2", attention_kind="alra", vocab_size=vocab_size)

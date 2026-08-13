@@ -362,7 +362,7 @@ def build_adapter_checkpoint(base: str, target: str, vocab_size: int = 32768) ->
     if not os.path.isfile(base):
         raise FileNotFoundError(f"Base checkpoint not found: {base}")
 
-    from Tantra.cpu_profiles import build_cpu_model
+    from Tantra.model import build_cpu_model
 
     source = torch.load(base, map_location="cpu", weights_only=False)
     base_state = source.get("model_state_dict", source)

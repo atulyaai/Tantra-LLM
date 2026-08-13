@@ -8,7 +8,7 @@ import torch
 
 from Tantra.config import NeuroCoreConfig
 from Tantra.model import NeuroCoreModel
-from Tantra.cpu_profiles import cpu_dense_config
+from Tantra.model import cpu_dense_config
 from Tantra.adapters import (
     AdapterRegistry, AdapterCategory, RequestRouter,
     install_category_layers,
@@ -151,4 +151,3 @@ def test_growth_controller_decides_grow_and_shrink():
             decision = d
             break
     assert decision == "shrink"
-

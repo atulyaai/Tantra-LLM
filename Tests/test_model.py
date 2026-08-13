@@ -2,9 +2,10 @@
 import pytest
 import torch
 
-from Tantra.config import NeuroCoreConfig, MoEConfig
-from Tantra.model import DynamicScaleNorm, RotaryPositionalEncoding, ALRAAttention, SparseGatedProjection, NeuroCoreBlock, NeuroCoreModel, Top1MoEProjection
-from Tantra.cpu_profiles import cpu_dense_config, cpu_top1_moe_config
+from Tantra.config import NeuroCoreConfig, MoEConfig, VocabConfig
+from Tantra.hardware import HardwareDetector, Profiler, RuntimeConfigBuilder
+from Tantra.model import DynamicScaleNorm, RotaryPositionalEncoding, ALRAAttention, SparseGatedProjection, NeuroCoreBlock, NeuroCoreModel, Top1MoEProjection, cpu_dense_config, cpu_top1_moe_config
+from Tantra.train import NeuroTrainer
 
 
 def test_dsn_output_shape():
@@ -101,3 +102,63 @@ def test_category_layer_routes_then_trains_in_isolation():
     routed_open, _ = model(ids, use_latent_reasoning=False, adapter_name="math")
     assert routed_open.shape == baseline.shape
     assert not torch.allclose(baseline, routed_open)
+
+
+@pytest.fixture
+def micro_config():
+    cfg = NeuroCoreConfig()
+    cfg.block.num_layers = 1
+    cfg.block.alra.dim, cfg.block.alra.num_heads, cfg.block.alra.head_dim = 32, 4, 8
+    cfg.block.sgp.dim = 32
+    cfg.vocab = VocabConfig(vocab_size=1000)
+    cfg.use_mtp, cfg.reasoning_depth = True, 1
+    return cfg
+
+
+def test_mtp_training_and_speculative_generation(micro_config):
+    model = NeuroCoreModel(micro_config)
+    trainer = NeuroTrainer(model, lr=1e-3)
+    x = torch.randint(0, 1000, (2, 16))
+    loss, _, _, _, at_boundary = trainer.train_step(x, x.clone())
+    assert loss >= 0 and at_boundary and trainer.step_count == 1
+    assert model.generate(torch.tensor([[1, 2, 3]]), max_new_tokens=8, use_mtp_speculation=True).shape == (1, 11)
+    assert 1 <= len(list(model.generate_stream(torch.tensor([[1, 2, 3]]), max_new_tokens=4, temperature=0))) <= 4
+
+
+def test_hardware_detection_and_runtime_config():
+    profile = HardwareDetector().detect()
+    assert profile.ram_total_mb > 0 and profile.cpu.physical_cores > 0
+    perf = Profiler(profile).run()
+    runtime = RuntimeConfigBuilder().build(profile, perf)
+    assert perf.fp32_matmul_gflops > 0
+    assert runtime.device in ("cpu", "cuda:0", "mps") and runtime.batch_size >= 1
+
+
+@pytest.fixture
+def micro_config():
+    cfg = NeuroCoreConfig()
+    cfg.block.num_layers = 1
+    cfg.block.alra.dim, cfg.block.alra.num_heads, cfg.block.alra.head_dim = 32, 4, 8
+    cfg.block.sgp.dim = 32
+    cfg.vocab = VocabConfig(vocab_size=1000)
+    cfg.use_mtp, cfg.reasoning_depth = True, 1
+    return cfg
+
+
+def test_mtp_training_and_speculative_generation(micro_config):
+    model = NeuroCoreModel(micro_config)
+    trainer = NeuroTrainer(model, lr=1e-3)
+    x = torch.randint(0, 1000, (2, 16))
+    loss, _, _, _, at_boundary = trainer.train_step(x, x.clone())
+    assert loss >= 0 and at_boundary and trainer.step_count == 1
+    assert model.generate(torch.tensor([[1, 2, 3]]), max_new_tokens=8, use_mtp_speculation=True).shape == (1, 11)
+    assert 1 <= len(list(model.generate_stream(torch.tensor([[1, 2, 3]]), max_new_tokens=4, temperature=0))) <= 4
+
+
+def test_hardware_detection_and_runtime_config():
+    profile = HardwareDetector().detect()
+    assert profile.ram_total_mb > 0 and profile.cpu.physical_cores > 0
+    perf = Profiler(profile).run()
+    runtime = RuntimeConfigBuilder().build(profile, perf)
+    assert perf.fp32_matmul_gflops > 0
+    assert runtime.device in ("cpu", "cuda:0", "mps") and runtime.batch_size >= 1
