@@ -17,11 +17,9 @@ from contextlib import asynccontextmanager
 
 import torch
 
-# Ensure repository root is on sys.path
-# This module lives in ``Tantra/`` while model artefacts and the Web UI live
-# at the repository root.  Resolving from this file's directory made the
-# server look for ``Tantra/Model`` and ``Tantra/webui`` instead.
-REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# The WebUI backend lives in ``webui/``; model artifacts and the Tantra package
+# are at the repository root.
+REPO_ROOT = os.path.dirname(os.path.abspath(__file__))
 if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 
@@ -39,7 +37,7 @@ log = logging.getLogger("TantraServer")
 try:
     from fastapi import FastAPI, HTTPException, Request, BackgroundTasks, Depends
     from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-    from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse
+    from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse, JSONResponse
     from fastapi.middleware.cors import CORSMiddleware
     from fastapi.staticfiles import StaticFiles
     from fastapi.templating import Jinja2Templates
@@ -172,18 +170,14 @@ def get_model_and_tokenizer(checkpoint_path: Optional[str] = None):
         device = torch.device(device_type)
 
         cfg = NeuroCoreConfig.small()
-        cfg.vocab.vocab_size = 65536
+        cfg.vocab.vocab_size = 32768
 
-        # Prefer Latest (most-trained checkpoint with optimizer state) over Best
-        # Best is a weight-only snapshot; Latest has the same loss but more training steps.
+        # The maintained local model is the CPU dense profile. Its single
+        # Latest checkpoint is the only supported server default.
         if checkpoint_path is not None:
             ckpt_path = checkpoint_path
         else:
-            ckpt_path = os.path.join(REPO_ROOT, "Model", "Latest", "checkpoint_latest.pt")
-            if not os.path.exists(ckpt_path):
-                ckpt_path = os.path.join(REPO_ROOT, "Model", "Best", "checkpoint_best.pt")
-            if not os.path.exists(ckpt_path):
-                ckpt_path = os.path.join(REPO_ROOT, "Model", "sample_model.pt")
+            ckpt_path = os.path.join(REPO_ROOT, "Model", "CPU_Dense32K", "Latest", "checkpoint_latest.pt")
 
         if os.path.exists(ckpt_path):
             try:
@@ -234,7 +228,14 @@ def get_model_and_tokenizer(checkpoint_path: Optional[str] = None):
                     log.warning("Checkpoint has no stored 'config'; inferred compatible architecture values "
                                 "from its tensors where possible.")
 
-                MODEL = NeuroCoreModel(cfg, use_mtp=True).to(device)
+                is_cpu_profile = str(getattr(cfg, "model_name", "")).startswith("tantra-cpu-")
+                if is_cpu_profile:
+                    from Tantra.cpu_profiles import build_cpu_model
+                    profile = "moe2" if "top1-moe" in cfg.model_name else ("micro10" if "10m" in cfg.model_name else "dense")
+                    MODEL = build_cpu_model(profile, attention_kind=cfg.block.alra.attention_kind,
+                                            vocab_size=cfg.vocab.vocab_size).to(device)
+                else:
+                    MODEL = NeuroCoreModel(cfg, use_mtp=True).to(device)
                 MODEL.eval()
                 # ``strict=False`` still raises on same-name tensors whose
                 # shapes differ. Load only compatible tensors so an older
@@ -357,12 +358,18 @@ assets_dir = os.path.join(REPO_ROOT, "Assets")
 if os.path.exists(assets_dir):
     app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
 
-# Mount WebUI static assets and templates
-webui_static_dir = os.path.join(REPO_ROOT, "webui", "static")
-if os.path.exists(webui_static_dir):
-    app.mount("/static", StaticFiles(directory=webui_static_dir), name="static")
+# The small WebUI has two flat assets. Explicit routes avoid a broad static
+# mount intercepting API routes.
+@app.get("/app.css", include_in_schema=False)
+async def webui_css():
+    return FileResponse(os.path.join(os.path.dirname(__file__), "app.css"), media_type="text/css")
 
-templates_dir = os.path.join(REPO_ROOT, "webui", "templates")
+
+@app.get("/app.js", include_in_schema=False)
+async def webui_js():
+    return FileResponse(os.path.join(os.path.dirname(__file__), "app.js"), media_type="application/javascript")
+
+templates_dir = os.path.dirname(__file__)
 templates = Jinja2Templates(directory=templates_dir)
 
 
@@ -728,12 +735,10 @@ async def get_datasets():
 
 @app.post("/api/datasets/clean", dependencies=[Depends(require_api_key)])
 async def clean_dataset(request: Request):
-    # Do not claim that a data-cleaning job ran when no dataset was supplied.
-    # The actual offline cleaner is tools/prepare_dataset.py; exposing it as a
-    # synchronous web request would block the server for potentially hours.
+    # Dataset rewriting is intentionally not exposed through the WebUI.
     raise HTTPException(
         status_code=501,
-        detail="Dataset cleaning is available through tools/prepare_dataset.py; no background job API is configured.",
+        detail="Dataset cleaning is not available through the WebUI.",
     )
 
 

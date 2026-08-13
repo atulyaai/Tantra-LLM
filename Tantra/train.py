@@ -515,7 +515,7 @@ class NeuroTrainer:
                 log.info(f"Step {self.step_count:>4d}/{steps} | Loss: {loss:.4f} | PPL: {ppl:.1f} | Acc: {acc:.2f}% | GradNorm: {grad_norm:.2f} | Speed: {tok_per_sec:.1f} tok/s [Self-Repair: OK]")
         return losses
 
-    def save_checkpoint(self, path: str, save_optimizer: bool = True, copy_tokenizer: bool = True) -> None:
+    def save_checkpoint(self, path: str, save_optimizer: bool = True) -> None:
         """Save model checkpoint with self-contained tokenizer and max 5 checkpoint history cleanup."""
         ckpt_data = {
             "model_state_dict": {k: v.half() if v.is_floating_point() else v for k, v in self.model.state_dict().items()},
@@ -555,27 +555,6 @@ class NeuroTrainer:
                 pass
             raise
         log.info(f"Checkpoint saved -> {path}")
-
-        # Copy tokenizer.pt into target directory if available
-        if copy_tokenizer:
-            dst_tok = os.path.join(target_dir, "tokenizer.pt")
-            candidates = [
-                os.path.join(os.path.dirname(target_dir), "tokenizer.pt"),
-                os.path.join(target_dir, "..", "tokenizer.pt"),
-                os.path.join(os.path.dirname(target_dir), "Model", "tokenizer.pt"),
-            ]
-            src_tok = None
-            for cand in candidates:
-                if os.path.exists(cand):
-                    src_tok = cand
-                    break
-            if src_tok and os.path.abspath(src_tok) != os.path.abspath(dst_tok):
-                import shutil
-                try:
-                    shutil.copy2(src_tok, dst_tok)
-                    log.info(f"Self-contained tokenizer synced -> {dst_tok}")
-                except Exception:
-                    pass
 
         # Auto-prune Checkpoints folder to keep at most 2 latest step checkpoints side by side
         if "Checkpoints" in target_dir or "checkpoints" in target_dir:

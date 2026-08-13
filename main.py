@@ -55,7 +55,6 @@ BEST_DIR        = os.path.join(MODEL_DIR, "Best")
 LATEST_DIR      = os.path.join(MODEL_DIR, "Latest")
 CHECKPOINTS_DIR = os.path.join(MODEL_DIR, "Checkpoints")
 EXPERTS_DIR     = os.path.join(MODEL_DIR, "Experts")
-VOCAB_PATH      = os.path.join(MODEL_DIR, "tokenizer.pt")
 _datasets_dir = os.path.join(os.path.dirname(__file__), "Datasets")
 has_topics = any(entry.is_dir() for entry in os.scandir(_datasets_dir)) if os.path.exists(_datasets_dir) else False
 
@@ -277,11 +276,6 @@ def detect_hardware():
     log.info(f"  Compression: {rt.compression_level}")
     log.info(f"  Expert Cache: {rt.expert_cache_size} in RAM | batch: {rt.batch_size}")
     
-    # Proactive Health Watchdog
-    from Tantra.health import HealthWatchdog
-    watchdog = HealthWatchdog(MODEL_DIR)
-    watchdog.audit_storage_and_compress_duplicates(threshold_mb=5000.0)
-    
     sched = AdaptiveScheduler(rt)
     sched.start()
     return rt, sched
@@ -329,11 +323,6 @@ def build_vocab(cfg: VocabConfig, corpus_file: str | None = None) -> UnifiedToke
 
     patcher = MegabytePatcher()
     tok = UnifiedTokenizer(cfg, bpe, patcher)
-    vocab_payload = {"vocab_size": cfg.vocab_size, "special_tokens": cfg.special_tokens, "real_tokenizer": True}
-
-    for vpath in [VOCAB_PATH, os.path.join(BEST_DIR, "tokenizer.pt"), os.path.join(LATEST_DIR, "tokenizer.pt"), os.path.join(CHECKPOINTS_DIR, "tokenizer.pt")]:
-        torch.save(vocab_payload, vpath)
-
     log.info(f"  Vocab Size       : {bpe.vocab_size:,} tokens")
     log.info(f"  BPE Subword Merges: {bpe.vocab_size - len(cfg.special_tokens) - 256:,} merge rules")
     log.info(f"  Special Tokens   : {len(cfg.special_tokens)} (<pad>, <unk>, <s>, </s>, <|user|>, <|assistant|>, <|system|>)")
@@ -374,7 +363,7 @@ ADAPTER_CHECKPOINT = os.path.join(ADAPTER_ROOT, "checkpoint_adapters.pt")
 
 def run_adapter_mode(action: str, name: str | None = None, description: str = "", topics: str | None = None, rank: int = 32, keywords: str | None = None) -> None:
     """Manage routeable adapter categories (add/list/remove/init)."""
-    from tools.init_adapter_checkpoint import build_adapter_checkpoint
+    from Tantra.adapters import build_adapter_checkpoint
     registry = AdapterRegistry()
     registry.seed_defaults()
 
@@ -784,7 +773,7 @@ def serve(model, tokenizer, port=8000, expert_dir=None):
     log.info("== [PRODUCTION WEB SERVER & DASHBOARD MODE] =========")
     log.info(f"  Launching Interactive Web UI & OpenAI REST API on http://localhost:{port}")
     try:
-        from server import start_server
+        from webui.server import start_server
         start_server(host="0.0.0.0", port=port)
     except Exception as e:
         log.error(f"Failed to start Tantra web server: {e}")

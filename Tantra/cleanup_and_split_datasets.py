@@ -1,5 +1,5 @@
 """
-tools/cleanup_and_split_datasets.py — Deduplicate, quality-check, and split JSONL datasets.
+Tantra/cleanup_and_split_datasets.py — Deduplicate, quality-check, and split JSONL datasets.
 
 Scans every *.jsonl under Datasets/, globally deduplicates by content hash
 (keeping the first-seen occurrence), reports per-file quality statistics,
@@ -7,10 +7,10 @@ optionally splits large files into smaller shards, and moves redundant files
 into a `.duplicates/` subfolder for review instead of hard-deleting them.
 
 Usage:
-    python tools/cleanup_and_split_datasets.py                  # dry-run report only
-    python tools/cleanup_and_split_datasets.py --apply         # actually move/split
-    python tools/cleanup_and_split_datasets.py --shard-lines 50000
-    python tools/cleanup_and_split_datasets.py --min-split 500000
+    python Tantra/cleanup_and_split_datasets.py                  # dry-run report only
+    python Tantra/cleanup_and_split_datasets.py --apply         # actually move/split
+    python Tantra/cleanup_and_split_datasets.py --shard-lines 50000
+    python Tantra/cleanup_and_split_datasets.py --min-split 500000
 """
 from __future__ import annotations
 

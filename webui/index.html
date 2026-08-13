@@ -12,7 +12,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.8/purify.min.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/tokyo-night-dark.min.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
-    <link rel="stylesheet" href="/static/css/app.css">
+    <link rel="stylesheet" href="/app.css">
 </head>
 <body>
     <header>
@@ -228,9 +228,7 @@
                 <div style="margin-bottom: 16px;">
                     <label style="font-size: 0.85rem; font-weight: 700; color: var(--text-sub);">Active Model Checkpoint:</label>
                     <select id="ckpt-select" style="width: 100%; margin-top: 6px; padding: 10px; border-radius: 10px; background: var(--bg-card); border: 1px solid var(--border-light); color: #fff; font-family: 'Fira Code', monospace;" onchange="switchCheckpoint(this.value)">
-                        <option value="checkpoint_latest.pt">checkpoint_latest.pt (178.7M Params - Current)</option>
-                        <option value="checkpoint_step_1400.pt">checkpoint_step_1400.pt (Step 1400)</option>
-                        <option value="sample_model.pt">sample_model.pt (Baseline)</option>
+                        <option value="CPU_Dense32K/Latest/checkpoint_latest.pt">CPU Dense 32K (active local checkpoint)</option>
                     </select>
                 </div>
                 <div style="background: var(--bg-card); padding: 14px; border-radius: 12px; border: 1px solid var(--border-light);">
@@ -259,6 +257,6 @@
         </div>
     </div>
 
-    <script src="/static/js/app.js"></script>
+    <script src="/app.js"></script>
 </body>
 </html>

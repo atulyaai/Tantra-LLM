@@ -21,6 +21,7 @@ from __future__ import annotations
 import os
 import re
 import json
+import torch
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
@@ -348,3 +349,45 @@ def install_category_layers(model: NeuroCoreModel, categories: List[AdapterCateg
         params += sum(p.numel() for p in model.category_gates[category.name].parameters())
         installed[category.name] = params
     return installed
+
+
+def build_adapter_checkpoint(base: str, target: str, vocab_size: int = 32768) -> Dict[str, object]:
+    """Create a category-layer checkpoint without modifying its source.
+
+    This is reusable checkpoint-management logic. The command-line wrapper
+    is used by the optional adapter-management CLI.
+    """
+    if os.path.abspath(base) == os.path.abspath(target):
+        raise ValueError("Refusing to overwrite the source checkpoint.")
+    if not os.path.isfile(base):
+        raise FileNotFoundError(f"Base checkpoint not found: {base}")
+
+    from Tantra.cpu_profiles import build_cpu_model
+
+    source = torch.load(base, map_location="cpu", weights_only=False)
+    base_state = source.get("model_state_dict", source)
+    model = build_cpu_model("moe2", attention_kind="alra", vocab_size=vocab_size)
+    model.load_state_dict(base_state, strict=False)
+
+    registry = AdapterRegistry(REGISTRY_PATH)
+    registry.seed_defaults()
+    counts = install_category_layers(model, registry.all())
+    # Shared weights remain authoritative; newly added category gates stay at
+    # their checkpoint/default values.
+    model.load_state_dict(base_state, strict=False)
+    model.sync_category_gates_from_checkpoint(base_state)
+    for name, params in counts.items():
+        registry.update_params(name, params)
+
+    os.makedirs(os.path.dirname(os.path.abspath(target)), exist_ok=True)
+    torch.save({
+        "model_state_dict": model.state_dict(),
+        "step_count": source.get("step_count", 0),
+        "best_loss": source.get("best_loss", float("inf")),
+        "total_tokens": source.get("total_tokens", 0),
+        "total_steps": source.get("total_steps", 0),
+        "num_layers": len(model.layers),
+        "adapter_system": {"mode": "category_layer", "categories": registry.names(),
+                           "base": os.path.abspath(base), "vocab_size": vocab_size},
+    }, target)
+    return {"target": target, "categories": dict(counts), "registry": REGISTRY_PATH}

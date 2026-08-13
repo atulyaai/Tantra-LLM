@@ -116,7 +116,7 @@ def _encode(tokenizer: Any, text: str) -> List[int]:
 class PretokenizedBinDataset(IterableDataset):
     """
     Streaming IterableDataset over a pre-tokenized .bin cache produced by
-    tools/prepare_dataset.py --dump-bin (a {"tokens": IntTensor, "masks":
+    Tantra/prepare_dataset.py --dump-bin (a {"tokens": IntTensor, "masks":
     BoolTensor} file). Skips BPE encode() entirely at train time — the
     whole point of building the cache — by slicing directly out of the
     already-tokenized tensor instead of re-tokenizing JSONL text.
@@ -181,7 +181,7 @@ class PretokenizedBinDataset(IterableDataset):
 
 def find_bin_cache(dataset_path: str) -> Optional[str]:
     """Return the sibling .bin cache path for a JSONL dataset if it exists
-    (tools/prepare_dataset.py --dump-bin writes <name>.bin next to
+    (Tantra/prepare_dataset.py --dump-bin writes <name>.bin next to
     <name>.jsonl), else None."""
     candidate = os.path.splitext(dataset_path)[0] + ".bin"
     return candidate if os.path.exists(candidate) else None

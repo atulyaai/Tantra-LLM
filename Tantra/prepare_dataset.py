@@ -1,5 +1,5 @@
 """
-tools/prepare_dataset.py — Offline dataset preparation for Tantra-LLM.
+Tantra/prepare_dataset.py — Offline dataset preparation for Tantra-LLM.
 
 Moves TokenJuice work out of the training loop and into a one-time pass over
 the data, so `Tantra/train.py` no longer pays random.random()/tokenization
@@ -20,7 +20,7 @@ What this does, once, over the whole dataset:
      (loss masking + doc-boundary EOS insertion already happen there).
 
 Usage:
-    python tools/prepare_dataset.py --input Datasets/my_data.jsonl \
+    python Tantra/prepare_dataset.py --input Datasets/my_data.jsonl \
         --output Datasets/my_data.clean.jsonl --enrich-every 200
 """
 from __future__ import annotations
