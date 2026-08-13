@@ -59,6 +59,11 @@ Run the WebUI with `webui\start_webui.ps1`, then open the printed local URL.
 
 ## Repository layout
 
+The maintained source surface is intentionally compact: `Tantra/` contains the
+LLM system, `Tests/` contains focused test suites, and `webui/` contains the
+local browser interface. Git history, datasets, local checkpoints, assets, and
+Python caches are not application-source complexity.
+
 ```text
 Tantra/       Reusable model, data, training, tokenizer, adapters, and offline data utilities
 webui/        Local FastAPI backend, page, CSS/JS assets, and launchers
