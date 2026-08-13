@@ -482,9 +482,15 @@ class NeuroCoreModel(nn.Module):
         # Unlike residual adapters that touch every block, each category owns
         # ONE transformer layer that runs once past the shared base stack. Only
         # the routed category's layer executes, keeping per-request compute at
-        # base + 1 layer. The layer is cloned from a shared base block at init,
-        # so a fresh category does not perturb the base until it is trained.
+        # base + 1 layer. Each layer's output is gate-interpolated with the base
+        # residual (zero gate = identity), so a fresh category is an exact
+        # pass-through and never perturbs the base until it is trained.
         self.category_layers = nn.ModuleDict()
+        # One scalar residual gate per specialist layer (parameter list mirrors
+        # the per-category stack length). Gates are zero-initialised so a
+        # freshly installed category is a literal identity pass-through: it
+        # does not perturb the base until its dataset actually trains it.
+        self.category_gates = nn.ModuleDict()
         self.active_category: Optional[str] = None
 
     def add_category_layers(self, categories: List[str], depth: int = 1, clone_layer_index: int = -1) -> None:
@@ -493,8 +499,9 @@ class NeuroCoreModel(nn.Module):
         ``depth`` is the initial capacity (1 = one fixed layer). The stack can
         later grow (harder categories) or shrink (idle/over-provisioned) without
         changing any tensor shapes, so checkpoints stay compatible.
-        The cloned weights mean an untrained category behaves like the shared
-        base at that depth — no behaviour shift until its dataset trains it.
+        Each layer carries a zero-initialised residual gate, so an untrained
+        category is an exact identity (output equals the base) until its
+        dataset trains it — see :meth:`forward` for the gate interpolation.
         """
         moe_config = self.config.moe if (self.use_moe or getattr(self.config.moe, "num_experts", 1) > 1) else None
         for category in categories:
@@ -515,6 +522,10 @@ class NeuroCoreModel(nn.Module):
                         layer.load_state_dict(self.layers[clone_layer_index].state_dict())
                 stack.append(layer)
             self.category_layers[category] = stack
+            self.category_gates[category] = nn.ParameterList(
+                [nn.Parameter(torch.zeros((), dtype=torch.get_default_dtype()), requires_grad=True)
+                 for _ in range(len(stack))]
+            )
 
     def grow_category(self, category: str, cap: int) -> bool:
         """Append one more specialist layer to a category (up to ``cap`` total)."""
@@ -530,6 +541,9 @@ class NeuroCoreModel(nn.Module):
             for p in new_layer.parameters():
                 p.data.add_(torch.randn_like(p.data) * 0.001)
         stack.append(new_layer)
+        self.category_gates[category].append(
+            nn.Parameter(torch.zeros((), dtype=torch.get_default_dtype()), requires_grad=True)
+        )
         return True
 
     def shrink_category(self, category: str, floor: int = 1) -> bool:
@@ -540,12 +554,37 @@ class NeuroCoreModel(nn.Module):
         if len(stack) <= floor:
             return False
         stack.pop(len(stack) - 1)
+        gates = list(self.category_gates[category])
+        self.category_gates[category] = nn.ParameterList(gates[:-1])
         return True
 
     def category_depth(self, category: str) -> int:
         if category not in self.category_layers:
             return 0
         return len(self.category_layers[category])
+
+    def sync_category_gates_from_checkpoint(self, state_dict: Dict[str, torch.Tensor]) -> None:
+        """Preserve behaviour of trained categories from older checkpoints.
+
+        Checkpoints written before residual gates existed contain
+        ``category_layers.<name>.*`` but no ``category_gates.<name>.*``.  With
+        gates defaulting to 0 those trained categories would silently become
+        no-ops, so we open the gates (1.0 = full block output, matching the
+        legacy behaviour) for any installed category that has layer weights in
+        the checkpoint but no gate tensors.
+        """
+        import re
+        layer_keys = {re.match(r"category_layers\.([^.]+)\.", k).group(1)
+                      for k in state_dict if re.match(r"category_layers\.([^.]+)\.", k)}
+        gated = {re.match(r"category_gates\.([^.]+)\.", k).group(1)
+                 for k in state_dict if re.match(r"category_gates\.([^.]+)\.", k)}
+        with torch.no_grad():
+            for name in layer_keys - gated:
+                gates = self.category_gates.get(name)
+                if gates is not None:
+                    for gate in gates:
+                        gate.fill_(1.0)
+
 
     def freeze_for_category(self, category: str) -> None:
         """Freeze the shared base and every other category; train one specialist layer only."""
@@ -554,6 +593,8 @@ class NeuroCoreModel(nn.Module):
         for parameter in self.parameters():
             parameter.requires_grad_(False)
         for parameter in self.category_layers[category].parameters():
+            parameter.requires_grad_(True)
+        for parameter in self.category_gates[category]:
             parameter.requires_grad_(True)
         self.active_category = category
 
@@ -643,8 +684,13 @@ class NeuroCoreModel(nn.Module):
                 new_states.append(new_layer_state)
 
         # Dedicated specialist layer(s): the routed category runs its stack of
-        # fixed layers past the shared base stack.  Base behaviour is preserved
-        # at init because each specialist layer is cloned from a base block.
+        # fixed layers past the shared base stack. Each layer's transform is
+        # gated: out = h + gate * (block(h) - h), with the gate zero-initialised,
+        # so an untrained category contributes nothing (identical to base).
+        # Only once a category's dataset trains it does the gate open and the
+        # specialist block's behaviour become visible. This restores the
+        # "untrained category must not perturb the base" guarantee while keeping
+        # the cloned-block architecture (base compute is untouched).
         #
         # IMPORTANT: state=None here used to be hardcoded, so every token
         # generated through a routed category layer ran ALRAAttention's
@@ -658,12 +704,18 @@ class NeuroCoreModel(nn.Module):
         # category is actually routed (base-only generation is unaffected).
         if adapter_name is not None and adapter_name in self.category_layers:
             stack = self.category_layers[adapter_name]
+            gates = self.category_gates[adapter_name] if adapter_name in self.category_gates else None
             base_len = len(self.layers)
             for j, block in enumerate(stack):
                 cat_state = None
                 if states is not None and len(states) > base_len + j:
                     cat_state = states[base_len + j]
-                x, new_cat_state = block(x, mask=mask, state=cat_state)
+                h, new_cat_state = block(x, mask=mask, state=cat_state)
+                if gates is not None and j < len(gates):
+                    gate = gates[j]
+                    x = x + gate * (h - x)
+                else:
+                    x = h
                 if new_states is not None:
                     new_states.append(new_cat_state)
 

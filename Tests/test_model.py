@@ -85,9 +85,19 @@ def test_category_layer_routes_then_trains_in_isolation():
     model.add_category_layers(["math", "science"], depth=1, clone_layer_index=-1)
     routed, _ = model(ids, use_latent_reasoning=False, adapter_name="math")
     assert routed.shape == baseline.shape
-    # A freshly cloned specialist layer adds one base-equivalent transform, so
-    # routing a category is not a no-op, but it must not crash or corrupt shapes.
-    assert not torch.allclose(baseline, routed)
+    # A freshly installed category carries a zero residual gate, so routing it
+    # is an exact identity pass-through: the base output is unchanged until the
+    # category's own dataset opens the gate. This restores the documented
+    # "untrained category does not perturb the base" guarantee.
+    assert torch.allclose(baseline, routed, atol=1e-6)
     model.freeze_for_category("math")
     assert all(p.requires_grad for p in model.category_layers["math"].parameters())
+    assert all(p.requires_grad for p in model.category_gates["math"])
     assert not any(p.requires_grad for p in model.category_layers["science"].parameters())
+    # Opening the gate makes the routed output differ from the base: the
+    # specialist layer's transform now contributes.
+    with torch.no_grad():
+        model.category_gates["math"][0].fill_(1.0)
+    routed_open, _ = model(ids, use_latent_reasoning=False, adapter_name="math")
+    assert routed_open.shape == baseline.shape
+    assert not torch.allclose(baseline, routed_open)

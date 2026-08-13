@@ -627,7 +627,11 @@ class NeuroTrainer:
         for k, v in state_dict.items():
             if k in model_state and v.dtype != model_state[k].dtype:
                 state_dict[k] = v.to(model_state[k].dtype)
-        raw_model.load_state_dict(state_dict)
+        # strict=False tolerates pre-gate checkpoints that lack category_gates.*
+        # (and category_layers installed after a checkpoint was written); gates
+        # for trained legacy categories are opened by the sync call below.
+        raw_model.load_state_dict(state_dict, strict=False)
+        raw_model.sync_category_gates_from_checkpoint(state_dict)
         # Optimizer is optional (only saved when save_optimizer=True)
         if "optimizer_state_dict" in ckpt:
             try:

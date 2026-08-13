@@ -430,6 +430,7 @@ def build_adapter_model(rt, vocab_size: int = 32768):
     model.add_category_layers([c.name for c in registry.all()], clone_layer_index=model.config.adapter.clone_layer_index)
     ckpt = torch.load(ADAPTER_CHECKPOINT, map_location="cpu", weights_only=False)
     model.load_state_dict(ckpt["model_state_dict"], strict=False)
+    model.sync_category_gates_from_checkpoint(ckpt["model_state_dict"])
     model = model.to(rt.device)
     return model
 
