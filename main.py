@@ -368,7 +368,7 @@ def init_experts(moe_cfg, model_cfg, codec):
     return reg, LazyExpertLoader(moe_cfg, model_cfg, reg, codec)
 
 
-ADAPTER_ROOT = os.path.join(MODEL_DIR, "CPUMoE2_32K")
+ADAPTER_ROOT = os.path.join(MODEL_DIR, "MoE2_32K")
 ADAPTER_CHECKPOINT = os.path.join(ADAPTER_ROOT, "checkpoint_adapters.pt")
 
 
@@ -405,7 +405,7 @@ def run_adapter_mode(action: str, name: str | None = None, description: str = ""
 
     if action == "init":
         if not os.path.exists(os.path.join(ADAPTER_ROOT, "checkpoint_init.pt")):
-            raise FileNotFoundError("Base checkpoint Model/CPUMoE2_32K/checkpoint_init.pt not found. Run the profile converter first.")
+            raise FileNotFoundError("Base checkpoint Model/MoE2_32K/checkpoint_init.pt not found. Run the profile converter first.")
         result = build_adapter_checkpoint(
             os.path.join(ADAPTER_ROOT, "checkpoint_init.pt"),
             ADAPTER_CHECKPOINT,
@@ -497,7 +497,7 @@ def run_training(model, vcfg, steps=30, resume=False):
     trainer.save_checkpoint(latest_ckpt, save_optimizer=True)
 
 
-def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False, eval_every=1000, log_every=50, checkpoint_every=500, batch_size=1, seq_len=128, grad_accumulation_steps=1, data_workers=0, use_latent_reasoning=True, use_mtp_loss=True, compile=False, lr=1e-4, warmup_steps=None, topic_weights=None, training_stage="sft", auto_growth=False, growth_patience=1000, growth_min_delta=0.005, max_layers=None, model_dir=None, adapter_name=None):
+def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False, eval_every=1000, log_every=50, checkpoint_every=500, batch_size=1, seq_len=128, grad_accumulation_steps=1, data_workers=0, use_latent_reasoning=True, use_mtp_loss=True, compile=False, lr=1e-4, warmup_steps=None, topic_weights=None, training_stage="sft", auto_growth=False, growth_patience=1000, growth_min_delta=0.005, max_layers=None, model_dir=None, adapter_name=None, archive_checkpoints=True):
     log.info("== [DATASET PRE-TRAINING MODE] =====================")
     if training_stage not in {"pretrain", "sft"}:
         raise ValueError(f"Unknown training stage: {training_stage}")
@@ -629,15 +629,15 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
             # Save to Latest (full state with optimizer for seamless resume)
             trainer.save_checkpoint(latest_ckpt, save_optimizer=True)
             
-            # Save side-by-side step checkpoint in Checkpoints/ folder
-            step_ckpt = os.path.join(checkpoints_dir, f"checkpoint_step_{step}.pt")
-            trainer.save_checkpoint(step_ckpt, save_optimizer=True)
-            
-            # Save to Best folder if EMA loss improved or milestone step
-            if (trainer.ema_loss is not None and trainer.ema_loss <= trainer.best_loss) or step % (eval_every * 4) == 0 or step == steps:
-                version_name = f"Tantra_v1_step_{step}.pt"
-                trainer.save_checkpoint(os.path.join(best_dir, version_name), save_optimizer=False)
-                trainer.save_checkpoint(best_ckpt, save_optimizer=False)
+            if archive_checkpoints:
+                # Optional archive copies; CPU profiles use only Latest by
+                # default to avoid spending disk on repeated optimizer state.
+                step_ckpt = os.path.join(checkpoints_dir, f"checkpoint_step_{step}.pt")
+                trainer.save_checkpoint(step_ckpt, save_optimizer=True)
+                if (trainer.ema_loss is not None and trainer.ema_loss <= trainer.best_loss) or step % (eval_every * 4) == 0 or step == steps:
+                    version_name = f"Tantra_v1_step_{step}.pt"
+                    trainer.save_checkpoint(os.path.join(best_dir, version_name), save_optimizer=False)
+                    trainer.save_checkpoint(best_ckpt, save_optimizer=False)
             
             trainer._last_saved_step = step
 
@@ -898,6 +898,22 @@ def main():
     if len(reg) > 0:
         mcfg.moe.num_experts = len(reg)
     restore_checkpoint_architecture(mcfg, os.path.join(LATEST_DIR, "checkpoint_latest.pt"))
+    # When the latest checkpoint embeds its own architecture config (as the
+    # CPU-profile trainer saves now), rebuild the model from it instead of
+    # NeuroCoreConfig.small(). Otherwise a checkpoint trained as 38.6M causal /
+    # 512-dim loads into the 178M ALRA skeleton and every tensor mismatches,
+    # silently leaving the model at random weights (garbage chat output).
+    _ckpt_path = os.path.join(LATEST_DIR, "checkpoint_latest.pt")
+    if os.path.exists(_ckpt_path) and mcfg is not None:
+        try:
+            _ckpt_cfg = torch.load(_ckpt_path, map_location="cpu", weights_only=False).get("config", None)
+            if _ckpt_cfg is not None:
+                _ckpt_cfg.vocab.vocab_size = vcfg.vocab_size
+                mcfg = _ckpt_cfg
+                log.info("Rebuilt model architecture from checkpoint config "
+                         f"(dim={_ckpt_cfg.block.alra.dim}, layers={_ckpt_cfg.block.num_layers}, vocab={_ckpt_cfg.vocab.vocab_size}).")
+        except Exception as _exc:
+            log.warning(f"Could not read checkpoint config: {_exc}")
     model = init_model(mcfg, rt.device)
 
     # When a category is requested for dataset/chat/generate/serve, load the

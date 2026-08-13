@@ -52,7 +52,8 @@ def main() -> None:
         batch_size=args.batch_size, seq_len=args.seq_len, grad_accumulation_steps=args.grad_accum,
         data_workers=args.data_workers, use_latent_reasoning=False, use_mtp_loss=False,
         training_stage="pretrain", auto_growth=args.auto_growth, growth_patience=args.growth_patience,
-        growth_min_delta=args.growth_min_delta, max_layers=args.max_layers, model_dir=args.model_dir)
+        growth_min_delta=args.growth_min_delta, max_layers=args.max_layers, model_dir=args.model_dir,
+        archive_checkpoints=False)
 
 if __name__ == "__main__":
     main()

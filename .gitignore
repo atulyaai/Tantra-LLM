@@ -24,9 +24,14 @@ htmlcov/
 [Mm]odel/Best/*.pt
 [Mm]odel/Checkpoints/*.pt
 [Mm]odel/Latest/*.pt
-# Any checkpoint subfolder (e.g. Model/CPUMoE2_32K/checkpoint_*.pt)
+# Any checkpoint subfolder (e.g. Model/MoE2_32K/checkpoint_*.pt)
 Model/**/checkpoint_*.pt
 Model/**/checkpoint_*.dna
+Model/**/*.tmp
+
+# Regenerated expert artifacts (built by training runs)
+Model/Experts/*.dna
+Model/Experts/registry.json
 
 # Raw training data (too large for GitHub). Category folders are kept as
 # lightweight prototypes (README.md) on GitHub; the actual *.jsonl stay local.
@@ -37,6 +42,7 @@ Datasets/_duplicates/
 !Model/sample_model.pt
 Model/memory_bank.json
 Model/saved_chats.json
+Model/tokenizer.pt
 *.parquet
 *.h5
 

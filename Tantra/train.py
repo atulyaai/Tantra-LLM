@@ -519,6 +519,7 @@ class NeuroTrainer:
         """Save model checkpoint with self-contained tokenizer and max 5 checkpoint history cleanup."""
         ckpt_data = {
             "model_state_dict": {k: v.half() if v.is_floating_point() else v for k, v in self.model.state_dict().items()},
+            "config": getattr(self.model, "config", None),
             "step_count": self.step_count,
             "best_loss": getattr(self, "best_loss", float('inf')),
             "total_tokens": getattr(self, "total_tokens", 0),
