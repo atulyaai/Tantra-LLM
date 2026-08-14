@@ -1,5 +1,10 @@
 # Tantra-LLM
 
+<div align="center">
+  <img src="Assets/tantra_hero_logo.jpg"
+       alt="Tantra Logo" width="240"/>
+</div>
+
 Tantra-LLM is an experimental, local-first language-model project built with
 PyTorch. The maintained training path is a CPU-first 32K-token dense model;
 it is designed to be understandable, resumable, and usable on a normal
@@ -58,6 +63,11 @@ python -m Tantra.cpu_cli chat --model-dir Model\CPU_Dense32K `
 Run the WebUI with `webui\start_webui.ps1`, then open the printed local URL.
 
 ## Repository layout
+
+<div align="center">
+  <img src="Assets/tantra_architecture.jpg"
+       alt="Tantra architecture" width="640"/>
+</div>
 
 The maintained source surface is intentionally compact: `Tantra/` contains the
 LLM system, `Tests/` contains focused test suites, and `webui/` contains the
