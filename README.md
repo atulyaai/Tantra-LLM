@@ -1,14 +1,22 @@
 # Tantra-LLM
 
 <div align="center">
-  <img src="Assets/tantra_hero_logo.jpg"
-       alt="Tantra Logo" width="240"/>
+  <img src="Assets/tantra_hero_banner_animated.gif"
+       alt="Tantra LLM — Weaving Intelligence" width="100%"/>
 </div>
 
 Tantra-LLM is an experimental, local-first language-model project built with
 PyTorch. The maintained training path is a CPU-first 32K-token dense model;
 it is designed to be understandable, resumable, and usable on a normal
 Windows computer.
+
+<div align="center">
+  <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.10%2B-blue.svg" alt="Python 3.10+"/></a>
+  <a href="https://pytorch.org/"><img src="https://img.shields.io/badge/pytorch-2.2%2B-ee4c2c.svg" alt="PyTorch 2.2+"/></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="MIT License"/></a>
+  <a href="#current-status"><img src="https://img.shields.io/badge/status-operational_prototype-orange.svg" alt="Status: Operational"/></a>
+  <a href="#"><img src="https://img.shields.io/badge/Made_in-India_🇮🇳-FF9933.svg" alt="Made in India"/></a>
+</div>
 
 ## Current status
 
