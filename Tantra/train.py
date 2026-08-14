@@ -373,7 +373,7 @@ class NeuroTrainer:
                         tok_s=tok_per_sec,
                     )
 
-                if at_boundary and ((self.step_count % log_every == 0) or (self.step_count == max_steps)):
+                if at_boundary and ((self.step_count == 1) or (self.step_count % log_every == 0) or (self.step_count == max_steps)):
                     # Use optimizer step count (not raw micro-batch index) so ETA is correct
                     # even when grad_accumulation_steps > 1.
                     session_steps = max(self.step_count - self._session_start_step, 1)
@@ -446,7 +446,7 @@ class NeuroTrainer:
                                 log.info("Auto-growth added %d parameters; optimizer now tracks %d layers.", sum(p.numel() for p in new_params), len(raw_model.layers))
 
                     session_steps = self.step_count - self._session_start_step
-                    if session_steps % log_every == 0 or self.step_count == max_steps:
+                    if session_steps == 1 or session_steps % log_every == 0 or self.step_count == max_steps:
                         first_step = self.step_count - window_optimizer_steps + 1
                         avg_loss = sum(window_losses) / max(len(window_losses), 1)
                         avg_acc = sum(window_accs) / max(len(window_accs), 1)

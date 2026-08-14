@@ -49,7 +49,7 @@ def train(args: argparse.Namespace) -> None:
                             vocab_size=args.vocab_size).to(device)
     run_dataset_training(
         model, tokenizer, args.dataset, steps=args.steps, resume=args.resume,
-        eval_every=args.eval_every, log_every=10,
+        eval_every=args.eval_every, log_every=args.log_every,
         checkpoint_every=args.checkpoint_every, batch_size=args.batch_size,
         seq_len=args.seq_len, grad_accumulation_steps=args.grad_accum,
         data_workers=args.data_workers, use_latent_reasoning=False,
@@ -133,6 +133,8 @@ def main(argv: list[str] | None = None) -> None:
     train_parser.add_argument("--data-workers", type=int, default=2)
     train_parser.add_argument("--checkpoint-every", type=int, default=500)
     train_parser.add_argument("--eval-every", type=int, default=1000)
+    train_parser.add_argument("--log-every", type=int, default=10,
+                              help="Training log interval in steps")
     train_parser.add_argument("--resume", action="store_true")
     train_parser.add_argument("--auto-growth", action="store_true")
     train_parser.add_argument("--growth-patience", type=int, default=2000)
