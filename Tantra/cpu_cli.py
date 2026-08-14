@@ -23,14 +23,30 @@ def _tokenizer(path: str, vocab_size: int) -> UnifiedTokenizer:
     return UnifiedTokenizer(cfg, ByteBPETokenizer.load(path, cfg), MegabytePatcher())
 
 
+def _resolve_device(requested: str) -> str:
+    """Return the device string to build the model on.
+
+    ``cpu`` keeps the historical single-threaded CPU path; ``auto`` (the
+    default on GPU hosts) picks cuda when available, else cpu.  Colab / GPU
+    hosts pass ``--device auto`` and get bf16 autocast for free because
+    Tantra/NeuroTrainer already ties autocast to ``self.device``.
+    """
+    if requested == "auto":
+        return "cuda" if torch.cuda.is_available() else "cpu"
+    return requested
+
+
 def train(args: argparse.Namespace) -> None:
     # Imported lazily: main imports the package modules and this module must not
     # create an import cycle during normal CLI startup.
     from main import run_dataset_training
 
     tokenizer = _tokenizer(args.tokenizer, args.vocab_size)
+    device = _resolve_device(args.device)
+    if device == "cpu":
+        configure_cpu_performance()
     model = build_cpu_model(args.profile, attention_kind=args.attention,
-                            vocab_size=args.vocab_size).to("cpu")
+                            vocab_size=args.vocab_size).to(device)
     run_dataset_training(
         model, tokenizer, args.dataset, steps=args.steps, resume=args.resume,
         eval_every=args.eval_every, log_every=10,
@@ -51,27 +67,30 @@ def chat(args: argparse.Namespace) -> None:
     if not os.path.isfile(checkpoint):
         raise FileNotFoundError(f"CPU checkpoint not found: {checkpoint}")
     tokenizer = _tokenizer(args.tokenizer, args.vocab_size)
+    device = _resolve_device(args.device)
     model = build_cpu_model(args.profile, attention_kind=args.attention,
-                            vocab_size=args.vocab_size).to("cpu")
-    state = torch.load(checkpoint, map_location="cpu", weights_only=False)
+                            vocab_size=args.vocab_size).to(device)
+    state = torch.load(checkpoint, map_location=device, weights_only=False)
     model.load_state_dict(state["model_state_dict"], strict=True)
-    run_interactive_chat(model, tokenizer, "cpu", args.temperature, args.top_p)
+    run_interactive_chat(model, tokenizer, device, args.temperature, args.top_p)
 
 
 def benchmark(args: argparse.Namespace) -> None:
     """Measure comparable CPU profile training throughput."""
-    configure_cpu_performance(args.threads)
+    device = _resolve_device(args.device)
+    if device == "cpu":
+        configure_cpu_performance(args.threads)
     for name, profile, attention in [
         ("micro10-alra", "micro10", "alra"),
         ("dense-alra", "dense", "alra"),
         ("dense-causal", "dense", "causal"),
         ("top1-moe-2", "moe2", "alra"),
     ]:
-        model = build_cpu_model(profile, attention)
+        model = build_cpu_model(profile, attention).to(device)
         model.train()
         vocab_size = model.config.vocab.vocab_size
-        x = torch.randint(0, vocab_size, (args.batch_size, args.seq_len))
-        y = torch.randint(0, vocab_size, (args.batch_size, args.seq_len))
+        x = torch.randint(0, vocab_size, (args.batch_size, args.seq_len), device=device)
+        y = torch.randint(0, vocab_size, (args.batch_size, args.seq_len), device=device)
         optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4)
         criterion = torch.nn.CrossEntropyLoss()
         optimizer.zero_grad(set_to_none=True)
@@ -97,6 +116,7 @@ def _common_profile_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--vocab-size", type=int, default=32768)
     parser.add_argument("--model-dir", default="Model/CPU_Dense32K")
     parser.add_argument("--tokenizer", default="Model/tokenizer.json")
+    parser.add_argument("--device", default="auto", help="cuda/auto/cpu — 'auto' uses CUDA when present")
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -124,11 +144,12 @@ def main(argv: list[str] | None = None) -> None:
     chat_parser.add_argument("--temperature", type=float, default=0.45)
     chat_parser.add_argument("--top-p", type=float, default=0.80)
 
-    benchmark_parser = subcommands.add_parser("benchmark", help="Benchmark CPU profiles while training is stopped")
+    benchmark_parser = subcommands.add_parser("benchmark", help="Benchmark CPU/GPU profile throughput")
     benchmark_parser.add_argument("--batch-size", type=int, default=2)
     benchmark_parser.add_argument("--seq-len", type=int, default=128)
     benchmark_parser.add_argument("--steps", type=int, default=3)
     benchmark_parser.add_argument("--threads", type=int, default=4)
+    benchmark_parser.add_argument("--device", default="auto", help="cuda/auto/cpu")
 
     args = parser.parse_args(argv)
     if args.command == "train":
