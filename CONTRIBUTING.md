@@ -30,7 +30,7 @@ functions first, then keep a thin script wrapper for the CLI command.
 
 ```powershell
 python -m pytest Tests -q
-python -m py_compile main.py Tantra\*.py tools\*.py
+python -m py_compile main.py Tantra\*.py webui\server.py
 ```
 
 For training or performance changes, include:
