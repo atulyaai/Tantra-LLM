@@ -201,7 +201,7 @@ def run_interactive_chat(model, tokenizer, device, temp=0.8, top_p=0.95, router=
             if console:
                 console.print(f"[dim]Thinking...[/dim]")
             with torch.no_grad():
-                out = model.generate(prompt, max_new_tokens=50, temperature=temp, use_mtp_speculation=True)
+                out = model.generate(prompt, max_new_tokens=200, temperature=temp, use_mtp_speculation=False)
             # generate() returns prompt + continuation concatenated; only decode
             # the newly generated tail so the REPL doesn't echo the user's input.
             new_tokens = out[0, prompt.shape[1]:].tolist()

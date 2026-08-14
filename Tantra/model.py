@@ -742,6 +742,7 @@ class NeuroCoreModel(nn.Module):
         use_mtp_speculation: bool = True,
         use_latent_reasoning: bool = True,
         eos_token_id: Optional[int] = 2,
+        min_new_tokens: int = 1,
         adapter_name: Optional[str] = None,
     ) -> Tensor:
         """Generate text using Multi-Token Prediction (MTP) and Latent CoT reasoning.
@@ -813,7 +814,13 @@ class NeuroCoreModel(nn.Module):
             generated_ids.append(next_token)
             for batch_idx in range(B):
                 all_seen_tokens[batch_idx].append(next_token[batch_idx, 0].item())
-            if eos_token_id is not None:
+            # Don't stop on a single EOS token while below the minimum generation
+            # length. An early-stage / lightly-trained model emits </s> (id 2) as
+            # its next-token majority class almost immediately, which used to
+            # truncate every response after 1-2 tokens (the "token count dropped"
+            # bug). Require min_new_tokens before an EOS break is honoured.
+            n_generated = len(generated_ids)
+            if n_generated >= min_new_tokens and eos_token_id is not None:
                 if isinstance(eos_token_id, (list, tuple, set)):
                     if any((next_token == eid).all() for eid in eos_token_id):
                         break
@@ -838,6 +845,7 @@ class NeuroCoreModel(nn.Module):
         repetition_penalty: float = 1.25,
         use_latent_reasoning: bool = True,
         eos_token_id: Optional[int] = 2,
+        min_new_tokens: int = 1,
         adapter_name: Optional[str] = None,
     ):
         """Yield sampled tokens one at a time without buffering a response.
@@ -866,6 +874,7 @@ class NeuroCoreModel(nn.Module):
         all_seen_tokens = [row.tolist() for row in prompt_ids]
         eos_ids = set(eos_token_id) if isinstance(eos_token_id, (list, tuple, set)) else {eos_token_id}
         eos_ids.discard(None)
+        n_yielded = 0
 
         for _ in range(max_new_tokens):
             logits = torch.nan_to_num(next_token_logits.clone(), nan=-1e9, posinf=1e4, neginf=-1e9)
@@ -894,9 +903,13 @@ class NeuroCoreModel(nn.Module):
             # The web endpoint is batch-size one.  Yielding a tensor retains
             # a simple, useful API for callers that need token ids.
             yield next_token[0, 0]
+            n_yielded += 1
             for batch_idx in range(B):
                 all_seen_tokens[batch_idx].append(next_token[batch_idx, 0].item())
-            if eos_ids and all(token.item() in eos_ids for token in next_token):
+            # Honour EOS only after the minimum tail length (see generate() comment
+            # for why an early-stage model emitting </s> id 2 immediately used to
+            # truncate answers to 1-4 tokens).
+            if eos_ids and n_yielded >= min_new_tokens and all(token.item() in eos_ids for token in next_token):
                 return
 
             logits_t, states = self.forward(

@@ -19,7 +19,7 @@ import torch
 
 # The WebUI backend lives in ``webui/``; model artifacts and the Tantra package
 # are at the repository root.
-REPO_ROOT = os.path.dirname(os.path.abspath(__file__))
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 
@@ -225,6 +225,14 @@ def get_model_and_tokenizer(checkpoint_path: Optional[str] = None):
                     if router_key:
                         cfg.moe.num_experts = state[router_key].size(0)
                         log.info(f"Inferred {cfg.moe.num_experts} MoE experts from checkpoint weights.")
+                    # Infer attention kind from tensor layout so a causal-trained
+                    # checkpoint (layers.*.attn.w_q.*) is not forced into the ALRA
+                    # skeleton (layers.*.attn.q_proj.*), which silently drops every
+                    # attention parameter and leaves the model at random init.
+                    if any(k.startswith("layers.0.attn.w_q") for k in state):
+                        cfg.block.alra.attention_kind = "causal"
+                        log.info("Inferred 'causal' attention kind from checkpoint "
+                                 f"tensor layout (layers.*.attn.w_q.*).")
                     log.warning("Checkpoint has no stored 'config'; inferred compatible architecture values "
                                 "from its tensors where possible.")
 
@@ -580,10 +588,13 @@ async def chat_completions(request: Request):
     temperature = min(max(float(body.get("temperature", 0.45)), 0.1), 1.0)
     top_p = min(max(float(body.get("top_p", 0.80)), 0.1), 1.0)
     repetition_penalty = min(max(float(body.get("repetition_penalty", 1.30)), 1.0), 2.0)
-    # Keep local UI replies bounded.  An undertrained local checkpoint often
-    # fails to emit EOS reliably, and the previous 512-token UI request made
-    # a simple greeting turn into an unusably long continuation.
-    max_tokens = min(max(1, int(body.get("max_tokens", 64))), 64)
+    # Keep local UI replies bounded, but the previous hard 64-token cap was
+    # truncating legitimately long answers (and combined with the eager
+    # stop-token list, responses were often 1-4 tokens — the "tokens dropped
+    # from 211 to 187" regression).  Allow up to 2048, default 256, and let
+    # early-EOS honouring require a minimum tail length instead of stopping
+    # on the first </s>.
+    max_tokens = min(max(1, int(body.get("max_tokens", 256))), 2048)
     is_stream = bool(body.get("stream", False))
 
     if not messages:
@@ -629,7 +640,12 @@ async def chat_completions(request: Request):
                     f"out-of-bounds embedding lookup. Tokenizer/model vocab are likely mismatched.")
         input_ids = [min(max(i, 0), vocab_size - 1) for i in input_ids]
     input_tensor = torch.tensor([input_ids], dtype=torch.long, device=model.device)
+    # The dense 32K checkpoint was trained with </s> (id 2) as a common early
+    # token, so stopping on any stop-token id immediately truncated answers to
+    # 1-4 tokens (the "token count dropped" regression).  Only honour stop
+    # tokens once a minimum tail length is reached.
     stop_tokens = [getattr(tokenizer, "eos_id", 2), 2, 3, 5, 6]
+    min_new_tokens = max(1, min(32, max_tokens))
 
     # ── Stop strings (#2) ──────────────────────────────────────────────────
     # Prevent model from generating fake follow-up turns
@@ -647,8 +663,10 @@ async def chat_completions(request: Request):
                 temperature=temperature,
                 top_p=top_p,
                 repetition_penalty=repetition_penalty,
+                use_mtp_speculation=False,
                 use_latent_reasoning=False,
                 eos_token_id=stop_tokens,
+                min_new_tokens=min_new_tokens,
             ):
                 if int(token.item()) in stop_tokens:
                     break
@@ -690,9 +708,10 @@ async def chat_completions(request: Request):
             temperature=temperature,
             top_p=top_p,
             repetition_penalty=repetition_penalty,
-            use_mtp_speculation=True,
+            use_mtp_speculation=False,
             use_latent_reasoning=False,
             eos_token_id=stop_tokens,
+            min_new_tokens=min_new_tokens,
         )
 
     gen_tokens = out_ids[0][len(input_ids):].tolist()
