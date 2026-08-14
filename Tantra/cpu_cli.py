@@ -56,7 +56,7 @@ def train(args: argparse.Namespace) -> None:
         use_mtp_loss=False, training_stage="pretrain",
         auto_growth=args.auto_growth, growth_patience=args.growth_patience,
         growth_min_delta=args.growth_min_delta, max_layers=args.max_layers,
-        model_dir=args.model_dir, archive_checkpoints=False,
+        model_dir=args.model_dir, archive_checkpoints=True,
     )
 
 
