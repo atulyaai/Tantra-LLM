@@ -195,6 +195,42 @@ def run_interactive_chat(model, tokenizer, device, temp=0.8, top_p=0.95, router=
             elif console:
                 console.print("[dim]→ base (no adapter)[/dim]")
 
+            formatted_input = f"<|user|>\n{user_input}\n<|assistant|>\n"
+            tokens = tokenizer.encode(formatted_input)
+            prompt = torch.tensor([tokens], device=device)
+            if console:
+                console.print(f"[dim]Thinking...[/dim]")
+            with torch.no_grad():
+                out = model.generate(prompt, max_new_tokens=200, temperature=temp, use_mtp_speculation=False)
+            # generate() returns prompt + continuation concatenated; only decode
+            # the newly generated tail so the REPL doesn't echo the user's input.
+            new_tokens = out[0, prompt.shape[1]:].tolist()
+            response = tokenizer.decode(new_tokens)
+            if console:
+                console.print(f"[bold yellow]Assistant:[/bold yellow] {response}")
+            else:
+                print(f"Assistant: {response}")
+                
+        except (KeyboardInterrupt, EOFError):
+            break
+        except Exception as e:
+            if console:
+                console.print(f"[red]Error: {str(e)}[/red]")
+            else:
+                print(f"Error: {str(e)}")
+            continue
+                
+            # Request-level routing: pick ONE domain adapter, base as fallback.
+            routed = None
+            if router is not None:
+                if hasattr(model, "category_layers") and model.category_layers:
+                    routed = router.route(user_input)
+                    model.active_category = routed
+            if console and routed is not None:
+                console.print(f"[dim]→ routed to adapter: {routed}[/dim]")
+            elif console:
+                console.print("[dim]→ base (no adapter)[/dim]")
+
             formatted_input = f"<s><|user|>\n{user_input}\n<|assistant|>\n"
             tokens = tokenizer.encode(formatted_input)
             prompt = torch.tensor([tokens], device=device)
