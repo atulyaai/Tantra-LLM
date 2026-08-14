@@ -205,12 +205,11 @@ $$\mathcal{L}_{\text{total}} = \mathcal{L}_{\text{main}(t+1)} + 0.25 \cdot \math
 - **Synthetic Token Enrichment**: Injects synthetic logic, math, and identity tokens during dataset streaming.
 - **Dynamic Loss Weighting**: Scales gradient steps based on token information density.
 
-### 🪨 Obsidian (Knowledge Vault & Memory Retention)
+### 🪨 Obsidian (Knowledge Vault) — *planned*
 
-**Obsidian** is Tantra's long-term memory vault:
-- **Persistent Vault Indexing**: Scans Markdown notes to build a local knowledge graph.
-- **Multi-Turn Context Retention**: Stores conversation context in ALRA recurrent states ($S_t$).
-- **Zero-Cloud Retrieval**: Queries local vault nodes offline.
+A Markdown-vault knowledge-graph engine was prototyped offline but is not part of
+the current maintained training path; it is tracked in [ROADMAP.md](ROADMAP.md)
+as future work rather than a shipped capability.
 
 ### Multi-Token Prediction ($2\times$ Sample Efficiency)
 
