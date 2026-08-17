@@ -611,7 +611,7 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
         prompt_text = "User: What is Tantra?\nAssistant:"
         log.info("Prompt: %s" % prompt_text)
         prompt_ids = torch.tensor([tokenizer.encode(prompt_text)], device=model.embed.weight.device)
-        out = model.generate(prompt_ids, max_new_tokens=32, temperature=0.7, use_mtp_speculation=True)
+        out = model.generate(prompt_ids, max_new_tokens=64, min_new_tokens=20, temperature=0.7, use_mtp_speculation=True)
         # Only decode the newly generated continuation, not the echoed prompt.
         new_tokens = out[0, prompt_ids.shape[1]:].tolist()
         response = tokenizer.decode(new_tokens)

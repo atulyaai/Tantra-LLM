@@ -742,7 +742,7 @@ class NeuroCoreModel(nn.Module):
         use_mtp_speculation: bool = True,
         use_latent_reasoning: bool = True,
         eos_token_id: Optional[int] = 2,
-        min_new_tokens: int = 1,
+        min_new_tokens: int = 10,
         adapter_name: Optional[str] = None,
     ) -> Tensor:
         """Generate text using Multi-Token Prediction (MTP) and Latent CoT reasoning.
@@ -845,7 +845,7 @@ class NeuroCoreModel(nn.Module):
         repetition_penalty: float = 1.25,
         use_latent_reasoning: bool = True,
         eos_token_id: Optional[int] = 2,
-        min_new_tokens: int = 1,
+        min_new_tokens: int = 10,
         adapter_name: Optional[str] = None,
     ):
         """Yield sampled tokens one at a time without buffering a response.
