@@ -589,6 +589,20 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
 
     if resume_target:
         log.info(f"RESUMING training from recovered checkpoint: {resume_target}")
+        if steps <= trainer.step_count:
+            effective_target = trainer.step_count + steps
+            log.info(f"  [Incremental Steps] Specified --steps {steps} <= checkpoint step {trainer.step_count}. "
+                     f"Running +{steps} steps -> new target: {effective_target} steps.")
+            steps = effective_target
+        if training_stage == "sft":
+            log.info(f"  [SFT Stage] Re-initializing optimizer & scheduler for instruction fine-tuning (LR={lr:.2e}, warmup={warmup}).")
+            trainer.lr = lr
+            trainer.optimizer = torch.optim.AdamW(trainer.model.parameters(), lr=lr, betas=(0.9, 0.95), weight_decay=0.1, eps=1e-8)
+            sft_steps = max(steps - trainer.step_count, 100)
+            actual_warmup = max(1, min(warmup, sft_steps // 5))
+            warmup_sched = torch.optim.lr_scheduler.LinearLR(trainer.optimizer, start_factor=0.05, end_factor=1.0, total_iters=actual_warmup)
+            cosine_sched = torch.optim.lr_scheduler.CosineAnnealingLR(trainer.optimizer, T_max=max(sft_steps - actual_warmup, 50), eta_min=1e-6)
+            trainer.scheduler = torch.optim.lr_scheduler.SequentialLR(trainer.optimizer, schedulers=[warmup_sched, cosine_sched], milestones=[actual_warmup])
     else:
         log.info("Starting fresh dataset training run.")
 
