@@ -735,15 +735,16 @@ class NeuroCoreModel(nn.Module):
     def generate(
         self,
         prompt_ids: Tensor,
-        max_new_tokens: int = 64,
-        temperature: float = 0.65,          # was 0.8 — sharper, less rambling
-        top_p: float = 0.90,               # was 0.95 — narrower nucleus
-        repetition_penalty: float = 1.25,  # was 1.15 — stronger anti-repeat
+        max_new_tokens: int = 150,
+        temperature: float = 0.35,          # Lower temp = confident, coherent, non-hallucinating
+        top_p: float = 0.85,               # Narrow nucleus = high quality vocab
+        repetition_penalty: float = 1.25,  # Strong anti-loop
         use_mtp_speculation: bool = True,
         use_latent_reasoning: bool = True,
         eos_token_id: Optional[int] = 2,
-        min_new_tokens: int = 10,
+        min_new_tokens: int = 15,
         adapter_name: Optional[str] = None,
+        banned_token_ids: Optional[List[int]] = None,
     ) -> Tensor:
         """Generate text using Multi-Token Prediction (MTP) and Latent CoT reasoning.
 
@@ -774,8 +775,17 @@ class NeuroCoreModel(nn.Module):
         generated_ids = []
         all_seen_tokens = [row.tolist() for row in prompt_ids]
 
+        if banned_token_ids is None:
+            # Mask known pretrain DNA artifact token IDs
+            banned_token_ids = [28344, 23214, 12932, 13142, 19409]
+
         for _ in range(max_new_tokens):
             next_token_logits = torch.nan_to_num(next_token_logits, nan=-1e9, posinf=1e4, neginf=-1e9)
+
+            if banned_token_ids:
+                for b_id in banned_token_ids:
+                    if 0 <= b_id < next_token_logits.size(-1):
+                        next_token_logits[:, b_id] = -1e9
 
             # Apply repetition penalty to seen tokens
             if repetition_penalty != 1.0:
@@ -839,29 +849,25 @@ class NeuroCoreModel(nn.Module):
     def generate_stream(
         self,
         prompt_ids: Tensor,
-        max_new_tokens: int = 64,
-        temperature: float = 0.65,
-        top_p: float = 0.90,
+        max_new_tokens: int = 150,
+        temperature: float = 0.35,
+        top_p: float = 0.85,
         repetition_penalty: float = 1.25,
         use_latent_reasoning: bool = True,
         eos_token_id: Optional[int] = 2,
-        min_new_tokens: int = 10,
+        min_new_tokens: int = 15,
         adapter_name: Optional[str] = None,
+        banned_token_ids: Optional[List[int]] = None,
     ):
-        """Yield sampled tokens one at a time without buffering a response.
-
-        This shares the sampling behaviour of :meth:`generate` while making
-        it possible for an SSE endpoint to send its first token immediately
-        after prompt prefill completes.
-
-        `adapter_name`: see generate()'s docstring -- pass explicitly rather
-        than mutating self.active_category from an async caller.
-        """
+        """Yield sampled tokens one at a time without buffering a response."""
         self.eval()
         if prompt_ids.numel() == 0 or prompt_ids.size(1) == 0:
             prompt_ids = torch.tensor([[1]], device=prompt_ids.device, dtype=torch.long)
         B, T = prompt_ids.shape
         states = [{} for _ in range(len(self.layers))]
+
+        if banned_token_ids is None:
+            banned_token_ids = [28344, 23214, 12932, 13142, 19409]
 
         for t in range(T):
             logits_t, states = self.forward(
@@ -878,6 +884,10 @@ class NeuroCoreModel(nn.Module):
 
         for _ in range(max_new_tokens):
             logits = torch.nan_to_num(next_token_logits.clone(), nan=-1e9, posinf=1e4, neginf=-1e9)
+            if banned_token_ids:
+                for b_id in banned_token_ids:
+                    if 0 <= b_id < logits.size(-1):
+                        logits[:, b_id] = -1e9
             if repetition_penalty != 1.0:
                 for batch_idx, seen_tokens in enumerate(all_seen_tokens):
                     for tok_id in set(seen_tokens):
