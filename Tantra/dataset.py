@@ -309,74 +309,64 @@ class JSONLDataset(IterableDataset):
         token_buffer: List[int] = []
         mask_buffer: List[bool] = []
 
-        with open(self.jsonl_path, "r", encoding="utf-8", errors="ignore") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                line_idx += 1
-                # Shard lines across DataLoader workers so num_workers > 1
-                # actually covers more data per wall-clock second instead of
-                # every worker re-reading the same file from the start.
-                if num_workers > 1 and (line_idx % num_workers) != worker_id:
-                    continue
-                lines_seen += 1
+        while True:
+            file_had_lines = False
+            with open(self.jsonl_path, "r", encoding="utf-8", errors="ignore") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    file_had_lines = True
+                    line_idx += 1
+                    if num_workers > 1 and (line_idx % num_workers) != worker_id:
+                        continue
+                    lines_seen += 1
 
-                ids, is_target = self._tokenize_item(line)
+                    ids, is_target = self._tokenize_item(line)
 
-                # Warn loudly (once) if most lines are valid JSON we can't
-                # recognize a schema for -- this usually means the dataset
-                # uses field names (e.g. "prompt"/"response") that
-                # build_prompt_segments()/format_jsonl_prompt() don't handle
-                # yet, and the run would otherwise silently train on very
-                # little real data.
-                if lines_seen == 500 and self._unrecognized_json / lines_seen > 0.3:
-                    log.warning(
-                        f"{self._unrecognized_json}/{lines_seen} lines so far are valid JSON with an "
-                        f"unrecognized schema (not 'messages' or 'system'/'user'/'assistant') and are "
-                        f"being SKIPPED, not trained on. Check {self.jsonl_path}'s actual field names "
-                        f"against Tantra/dataset.py:build_prompt_segments()."
-                    )
+                    if lines_seen == 500 and self._unrecognized_json / lines_seen > 0.3:
+                        log.warning(
+                            f"{self._unrecognized_json}/{lines_seen} lines so far are valid JSON with an "
+                            f"unrecognized schema (not 'messages' or 'system'/'user'/'assistant') and are "
+                            f"being SKIPPED, not trained on. Check {self.jsonl_path}'s actual field names "
+                            f"against Tantra/dataset.py:build_prompt_segments()."
+                        )
 
-                if not ids:
-                    continue
+                    if not ids:
+                        continue
 
-                clamped = torch.tensor(ids, dtype=torch.long).clamp_(0, self.vocab_size - 1).tolist()
-                token_buffer.extend(clamped)
-                if self.mask_non_assistant:
-                    mask_buffer.extend(is_target)
-                else:
-                    mask_buffer.extend([True] * len(clamped))
+                    clamped = torch.tensor(ids, dtype=torch.long).clamp_(0, self.vocab_size - 1).tolist()
+                    token_buffer.extend(clamped)
+                    if self.mask_non_assistant:
+                        mask_buffer.extend(is_target)
+                    else:
+                        mask_buffer.extend([True] * len(clamped))
 
-                if self.insert_doc_boundaries:
-                    token_buffer.append(EOS_ID)
-                    mask_buffer.append(True)
+                    if self.insert_doc_boundaries:
+                        token_buffer.append(EOS_ID)
+                        mask_buffer.append(True)
 
-                # Compute effective_max once per outer line (not per inner chunk) to avoid
-                # redundant division on every sample when workers > 1.
-                effective_max = self.max_samples
-                if effective_max and num_workers > 1:
-                    effective_max = max(1, effective_max // num_workers)
+                    effective_max = self.max_samples
+                    if effective_max and num_workers > 1:
+                        effective_max = max(1, effective_max // num_workers)
 
-                while len(token_buffer) >= self.seq_len + 1:
+                    while len(token_buffer) >= self.seq_len + 1:
+                        chunk_ids = token_buffer[: self.seq_len + 1]
+                        chunk_mask = mask_buffer[: self.seq_len + 1]
+                        token_buffer = token_buffer[self.seq_len:]
+                        mask_buffer = mask_buffer[self.seq_len:]
 
-                    chunk_ids = token_buffer[: self.seq_len + 1]
-                    chunk_mask = mask_buffer[: self.seq_len + 1]
-                    token_buffer = token_buffer[self.seq_len:]
-                    mask_buffer = mask_buffer[self.seq_len:]
+                        x = torch.tensor(chunk_ids[:-1], dtype=torch.long)
+                        y = torch.tensor(chunk_ids[1:], dtype=torch.long)
+                        y_is_target = torch.tensor(chunk_mask[1:], dtype=torch.bool)
+                        y = torch.where(y_is_target, y, torch.full_like(y, IGNORE_INDEX))
 
-                    x = torch.tensor(chunk_ids[:-1], dtype=torch.long)
-                    y = torch.tensor(chunk_ids[1:], dtype=torch.long)
-                    # Target at position i predicts token i+1; only supervise
-                    # it if that *next* token belongs to an assistant turn
-                    # (or masking is disabled / this is raw text).
-                    y_is_target = torch.tensor(chunk_mask[1:], dtype=torch.bool)
-                    y = torch.where(y_is_target, y, torch.full_like(y, IGNORE_INDEX))
-
-                    yield x, y
-                    count += 1
-                    if effective_max and count >= effective_max:
-                        return
+                        yield x, y
+                        count += 1
+                        if effective_max and count >= effective_max:
+                            return
+            if not file_had_lines or effective_max is None:
+                break
 
 
 def extract_corpus_sample(jsonl_path: str, output_txt_path: str, max_lines: int = 2000) -> str:
