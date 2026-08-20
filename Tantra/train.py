@@ -159,7 +159,8 @@ class NeuroTrainer:
         # for no speed benefit on most hardware, so it stays off there.
         device_type = self.device.type if self.device.type in ('cuda', 'mps') else 'cpu'
         autocast_enabled = device_type != 'cpu'
-        with torch.autocast(device_type=device_type, dtype=torch.bfloat16, enabled=autocast_enabled):
+        amp_dtype = torch.bfloat16 if (self.device.type == 'cuda' and torch.cuda.is_bf16_supported()) else torch.float16
+        with torch.autocast(device_type=device_type, dtype=amp_dtype, enabled=autocast_enabled):
             out = self.model(x, return_mtp=self.use_mtp_loss, use_latent_reasoning=use_latent_reasoning)
             if isinstance(out[0], tuple):
                 logits_main, logits_mtp = out[0]
