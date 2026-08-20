@@ -873,7 +873,7 @@ def main():
     args = parser.parse_args()
 
     vcfg = VocabConfig()
-    mcfg = NeuroCoreConfig.small()
+    mcfg = NeuroCoreConfig()
     mcfg.use_mtp = args.use_mtp
     moe  = MoEConfig()
     ccfg = CompressionConfig()
