@@ -585,7 +585,7 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
             except Exception as exc:
                 log.warning(f"Skipping unreadable checkpoint {candidate}: {exc}")
         if resume_target is None:
-            raise RuntimeError("--resume was requested, but no readable checkpoint was found. Refusing to silently start from scratch.")
+            log.warning("--resume was requested, but no readable checkpoint was found in Model/. Starting fresh training run from step 1.")
 
     if resume_target:
         log.info(f"RESUMING training from recovered checkpoint: {resume_target}")
