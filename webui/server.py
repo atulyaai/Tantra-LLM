@@ -177,7 +177,12 @@ def get_model_and_tokenizer(checkpoint_path: Optional[str] = None):
         if checkpoint_path is not None:
             ckpt_path = checkpoint_path
         else:
-            ckpt_path = os.path.join(REPO_ROOT, "Model", "CPU_Dense32K", "Latest", "checkpoint_latest.pt")
+            candidates = [
+                os.path.join(REPO_ROOT, "Model", "Latest", "checkpoint_latest.pt"),
+                os.path.join(REPO_ROOT, "Model", "Best", "checkpoint_best.pt"),
+                os.path.join(REPO_ROOT, "Model", "CPU_Dense32K", "Latest", "checkpoint_latest.pt"),
+            ]
+            ckpt_path = next((p for p in candidates if os.path.exists(p)), candidates[0])
 
         if os.path.exists(ckpt_path):
             try:

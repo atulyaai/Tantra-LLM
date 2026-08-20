@@ -114,7 +114,7 @@ def _common_profile_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--profile", choices=["dense", "moe2", "micro10"], default="dense")
     parser.add_argument("--attention", choices=["causal", "alra"], default="causal")
     parser.add_argument("--vocab-size", type=int, default=32768)
-    parser.add_argument("--model-dir", default="Model/CPU_Dense32K")
+    parser.add_argument("--model-dir", default="Model")
     parser.add_argument("--tokenizer", default="Model/tokenizer.json")
     parser.add_argument("--device", default="auto", help="cuda/auto/cpu — 'auto' uses CUDA when present")
 
