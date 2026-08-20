@@ -723,6 +723,11 @@ async def chat_completions(request: Request):
     for stop_str in STOP_STRINGS:
         if stop_str in text_out:
             text_out = text_out.split(stop_str)[0]
+
+    # Execute tool calls if emitted (<tool_call> -> <tool_result>)
+    from Tantra.tool_router import parse_and_execute_tool_calls
+    text_out, _ = parse_and_execute_tool_calls(text_out)
+
     elapsed = time.perf_counter() - start_time
     tok_s = len(gen_tokens) / max(elapsed, 1e-6)
 
