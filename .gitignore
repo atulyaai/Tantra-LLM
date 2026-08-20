@@ -42,6 +42,8 @@ Download/
 Datasets/**/*.jsonl
 Datasets/**/*manifest.json
 Datasets/_duplicates/
+!Datasets/synthetic_textbooks/**
+!Datasets/curated_sft/**
 !Model/sample_model.pt
 Model/memory_bank.json
 Model/saved_chats.json
