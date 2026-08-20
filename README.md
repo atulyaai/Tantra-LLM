@@ -92,28 +92,28 @@ The word comes from two Sanskrit roots:
 How **Tantra 55M (On-Device CPU)** compares across parameters, hardware requirements, reasoning, tool calling, and multimodal capabilities against modern industry baselines:
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│                                           TANTRA 55M vs GLOBAL AI FRONTIER MATRIX                                               │
-├───────────────────────┬────────────┬────────────┬────────────┬────────────┬─────────────┬─────────────┬─────────────┬───────────┤
-│ Metric / Feature      │ Tantra 55M │ Qwen 2.5   │ Gemma 4    │ Llama 3.3  │ DeepSeek R1 │ Claude 3.7  │ GPT-4o      │ Grok 3    │
-│                       │ (Current)  │ 0.5B       │ E2B (2.3B) │ 70B        │ 671B (MoE)  │ Sonnet      │ Omni        │ (Cluster) │
-├───────────────────────┼────────────┼────────────┼────────────┼────────────┼─────────────┼─────────────┼─────────────┼───────────┤
-│ Total Parameters      │ 54.6M      │ 490M       │ 2.3B       │ 70.6B      │ 671B        │ Undisclosed │ Undisclosed │ ~1.5T     │
-│ Active Params / Layer │ 54.6M      │ 490M       │ 2.3B       │ 70.6B      │ 37B (MoE)   │ MoE         │ MoE         │ MoE       │
-│ Layers / Depth        │ 8          │ 24         │ 35         │ 80         │ 61          │ ~64         │ ~64         │ ~80       │
-│ Max Context Window    │ 131K       │ 32K        │ 128K       │ 128K       │ 128K        │ 200K        │ 128K        │ 1,000K    │
-│ Primary Device        │ Local CPU  │ Local CPU  │ Edge GPU   │ Server GPU │ Multi-GPU   │ Cloud API   │ Cloud API   │ Supercomp │
-│ RAM / VRAM Footprint  │ ~208 MB    │ ~1,000 MB  │ ~4,600 MB  │ ~140,000 MB│ ~350,000 MB │ Cloud API   │ Cloud API   │ Cloud API │
-│ CPU Inference Speed   │ 21.7 tok/s │ ~38 tok/s  │ ~12 tok/s  │ <0.5 tok/s │ Infeasible  │ Cloud API   │ Cloud API   │ Cloud API │
-│ Local Operating Cost  │ $0 (Free)  │ $0 (Free)  │ $0 (Free)  │ High GPU   │ Enterprise  │ $$$ / API   │ $$$ / API   │ $$$ / API │
-│ 100% Offline Privacy  │ ✅ 100%    │ ✅ 100%    │ ✅ 100%    │ ✅ 100%    │ ⚠️ Cloud/OnP│ ❌ Cloud    │ ❌ Cloud    │ ❌ Cloud  │
-│ Reasoning (MMLU)      │ Emerging   │ 52.8%      │ 60.0%      │ 86.0%      │ 90.8%       │ 92.4%       │ 88.7%       │ 91.2%     │
-│ Math (GSM8k / AIME)   │ Emerging   │ 38.2%      │ 37.5%      │ 89.0%      │ 97.3%       │ 96.2%       │ 92.0%       │ 95.0%     │
-│ Code (LiveCodeBench)  │ Emerging   │ 41.0%      │ 44.0%      │ 68.0%      │ 65.9%       │ 70.3%       │ 64.0%       │ 69.5%     │
-│ Indic / Hindi Support │ ✅ Native  │ ⚠️ Good    │ ⚠️ Moderate│ ⚠️ Moderate│ ⚠️ Moderate │ ✅ Strong   │ ✅ Strong   │ ⚠️ Good   │
-│ Tool / Function Calls │ 🛠️ In-Dev  │ ✅ Native  │ ✅ Native  │ ✅ Native  │ ✅ Native   │ ✅ Native   │ ✅ Native   │ ✅ Native │
-│ Native Multimodal     │ 👁️ Vision* │ ❌ Text-only│ 👁️ Vision  │ ❌ Text-only│ ❌ Text-only│ 👁️ Vision   │ 👁️👂 Omnimodal 👁️ Vision │
-└───────────────────────┴────────────┴────────────┴────────────┴────────────┴─────────────┴─────────────┴─────────────┴───────────┘
+┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│                                                 TANTRA 55M vs 2026 GLOBAL AI FRONTIER MATRIX                                                     │
+├───────────────────────┬────────────┬────────────┬────────────┬─────────────┬─────────────┬─────────────┬─────────────┬─────────────┬─────────────┤
+│ Metric / Feature      │ Tantra 55M │ Qwen 3     │ Gemma 4    │ DeepSeek V4 │ Claude 5    │ GPT-5.6     │ Grok 5      │ GLM 5.1     │ MiniMax 3   │
+│                       │ (Current)  │ 0.6B       │ 31B A4B    │ (MoE 1T+)   │ Sonnet      │ Omni        │ (Cluster)   │ Ultra       │ (abab 2026) │
+├───────────────────────┼────────────┼────────────┼────────────┼─────────────┼─────────────┼─────────────┼─────────────┼─────────────┼─────────────┤
+│ Total Parameters      │ 54.6M      │ 590M       │ 30.7B      │ 1,200B+     │ Undisclosed │ Undisclosed │ ~2.0T       │ 450B        │ 456B        │
+│ Active Params / Layer │ 54.6M      │ 590M       │ 4.2B (MoE) │ 48B (MoE)   │ MoE         │ MoE         │ MoE         │ 32B (MoE)   │ 36B (MoE)   │
+│ Layers / Depth        │ 8          │ 28         │ 60         │ 72          │ ~80         │ ~80         │ ~96         │ 64          │ 62          │
+│ Max Context Window    │ 131K       │ 64K        │ 256K       │ 256K        │ 1,000K      │ 1,000K      │ 2,000K      │ 256K        │ 1,000K      │
+│ Primary Device        │ Local CPU  │ Local CPU  │ Cloud/GPU  │ Multi-GPU   │ Cloud API   │ Cloud API   │ Supercomp   │ Cloud API   │ Cloud API   │
+│ RAM / VRAM Footprint  │ ~208 MB    │ ~1,200 MB  │ ~62,000 MB │ ~600,000 MB │ Cloud API   │ Cloud API   │ Cloud API   │ Cloud API   │ Cloud API   │
+│ CPU Inference Speed   │ 21.7 tok/s │ ~35 tok/s  │ Infeasible │ Infeasible  │ Cloud API   │ Cloud API   │ Cloud API   │ Cloud API   │ Cloud API   │
+│ Local Operating Cost  │ $0 (Free)  │ $0 (Free)  │ $$$ / GPU  │ Enterprise  │ $$$ / API   │ $$$ / API   │ $$$ / API   │ $$$ / API   │ $$$ / API   │
+│ 100% Offline Privacy  │ ✅ 100%    │ ✅ 100%    │ ⚠️ Cloud   │ ⚠️ Cloud/OnP│ ❌ Cloud    │ ❌ Cloud    │ ❌ Cloud    │ ❌ Cloud    │ ❌ Cloud    │
+│ Reasoning (MMLU Pro)  │ Emerging   │ 56.4%      │ 85.2%      │ 92.5%       │ 94.8%       │ 93.9%       │ 93.1%       │ 88.4%       │ 89.2%       │
+│ Math (AIME 2026)      │ Emerging   │ 41.0%      │ 89.2%      │ 98.1%       │ 97.4%       │ 96.8%       │ 96.0%       │ 90.5%       │ 91.0%       │
+│ Code (LiveCodeBench)  │ Emerging   │ 45.2%      │ 80.0%      │ 78.4%       │ 82.5%       │ 79.1%       │ 77.0%       │ 72.8%       │ 74.0%       │
+│ Indic / Hindi Support │ ✅ Native  │ ⚠️ Good    │ ⚠️ Good    │ ⚠️ Moderate │ ✅ Strong   │ ✅ Strong   │ ⚠️ Good     │ ⚠️ Moderate │ ⚠️ Good     │
+│ Tool / Function Calls │ 🛠️ Native  │ ✅ Native  │ ✅ Native  │ ✅ Native   │ ✅ Native   │ ✅ Native   │ ✅ Native   │ ✅ Native   │ ✅ Native   │
+│ Native Multimodal     │ 👁️ Vision* │ ❌ Text-only│ 👁️ Vision  │ 👁️ Vision   │ 👁️ Vision   │ 👁️👂 Omnimodal 👁️ Vision   │ 👁️ Vision   │ 👁️ Vision   │
+└───────────────────────┴────────────┴────────────┴────────────┴─────────────┴─────────────┴─────────────┴─────────────┴─────────────┴─────────────┘
 * Architecture includes MegabytePatcher & Multimodal cross-attention modules in Tantra/multimodal_weights.py.
 ```
 
@@ -122,9 +122,8 @@ How **Tantra 55M (On-Device CPU)** compares across parameters, hardware requirem
 ```
 RAM Footprint (Lower is Better — Ultra-Low Resource On-Device Deployment):
 Tantra 55M      | █ (208 MB) ⚡ [Runs on Raspberry Pi / Any Windows PC]
-Qwen 2.5 0.5B   | █████ (1,000 MB)
-Gemma 4 E2B     | ██████████████████████ (4,600 MB)
-Llama 3.3 70B   | ██████████████████████████████████████████████████████████ (140,000 MB)
+Qwen 3 0.6B     | ██████ (1,200 MB)
+Gemma 4 31B     | ██████████████████████████████████████████████████████████ (62,000 MB)
 ```
 
 ```mermaid
