@@ -946,16 +946,18 @@ def main():
     # 512-dim loads into the 178M ALRA skeleton and every tensor mismatches,
     # silently leaving the model at random weights (garbage chat output).
     _ckpt_path = latest_ckpt_file
-    if os.path.exists(_ckpt_path) and mcfg is not None:
+    if os.path.exists(_ckpt_path) and os.path.getsize(_ckpt_path) > 10 * 1024 * 1024 and mcfg is not None:
         try:
-            _ckpt_cfg = torch.load(_ckpt_path, map_location="cpu", weights_only=False).get("config", None)
-            if _ckpt_cfg is not None:
-                _ckpt_cfg.vocab.vocab_size = vcfg.vocab_size
-                mcfg = _ckpt_cfg
-                log.info("Rebuilt model architecture from checkpoint config "
-                         f"(dim={_ckpt_cfg.block.alra.dim}, layers={_ckpt_cfg.block.num_layers}, vocab={_ckpt_cfg.vocab.vocab_size}).")
+            _ckpt = torch.load(_ckpt_path, map_location="cpu", weights_only=False)
+            if isinstance(_ckpt, dict):
+                _ckpt_cfg = _ckpt.get("config", None)
+                if _ckpt_cfg is not None:
+                    _ckpt_cfg.vocab.vocab_size = vcfg.vocab_size
+                    mcfg = _ckpt_cfg
+                    log.info("Rebuilt model architecture from checkpoint config "
+                             f"(dim={_ckpt_cfg.block.alra.dim}, layers={_ckpt_cfg.block.num_layers}, vocab={_ckpt_cfg.vocab.vocab_size}).")
         except Exception as _exc:
-            log.warning(f"Could not read checkpoint config: {_exc}")
+            log.warning(f"Could not read checkpoint config: {_exc}; using default architecture.")
     model = init_model(mcfg, rt.device)
 
     # When a category is requested for dataset/chat/generate/serve, load the
@@ -967,15 +969,13 @@ def main():
     trainer = NeuroTrainer(model, lr=1e-4)
     # Check if a checkpoint exists for status — use LATEST_DIR constant (capital L)
     # not the literal "latest" path which never matches on Windows.
-    latest_ckpt_status = os.path.join(LATEST_DIR, "checkpoint_latest.pt")
-    if os.path.exists(latest_ckpt_status):
-        try:
-            trainer.load_checkpoint(latest_ckpt_status)
-        except Exception as e:
-            log.warning(f"Could not load latest checkpoint: {e}")
-
-
     if args.mode == "status":
+        latest_ckpt_status = os.path.join(args.model_dir or MODEL_DIR, "Latest", "checkpoint_latest.pt")
+        if os.path.exists(latest_ckpt_status):
+            try:
+                trainer.load_checkpoint(latest_ckpt_status)
+            except Exception as e:
+                log.warning(f"Could not load latest checkpoint for status: {e}")
         print_status_dashboard(model, trainer, reg, rt)
         sched.stop()
         return
