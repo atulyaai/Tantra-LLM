@@ -863,6 +863,7 @@ def main():
     parser.add_argument("--lr", type=float, default=1e-4, help="Learning rate (default: 1e-4; use 5e-5 or lower for fine-tuning)")
     parser.add_argument("--warmup", type=int, default=None, help="LR warmup steps (default: steps // 10)")
     parser.add_argument("--topic-weights", type=str, default=None, help="JSON dict of topic weights, e.g. '{\"general\":40,\"code\":15}'")
+    parser.add_argument("--model-dir", type=str, default=None, help="Custom root directory for model checkpoints (e.g. Google Drive)")
     parser.add_argument("--adapter-action", default="list", choices=["list", "add", "remove", "init"],
                         help="--mode adapter sub-action")
     parser.add_argument("--adapter", type=str, default=None,
@@ -937,13 +938,14 @@ def main():
     # fail on every router tensor.
     if len(reg) > 0:
         mcfg.moe.num_experts = len(reg)
-    restore_checkpoint_architecture(mcfg, os.path.join(LATEST_DIR, "checkpoint_latest.pt"))
+    latest_ckpt_file = os.path.join(args.model_dir or MODEL_DIR, "Latest", "checkpoint_latest.pt")
+    restore_checkpoint_architecture(mcfg, latest_ckpt_file)
     # When the latest checkpoint embeds its own architecture config (as the
     # CPU-profile trainer saves now), rebuild the model from it instead of
     # NeuroCoreConfig.small(). Otherwise a checkpoint trained as 38.6M causal /
     # 512-dim loads into the 178M ALRA skeleton and every tensor mismatches,
     # silently leaving the model at random weights (garbage chat output).
-    _ckpt_path = os.path.join(LATEST_DIR, "checkpoint_latest.pt")
+    _ckpt_path = latest_ckpt_file
     if os.path.exists(_ckpt_path) and mcfg is not None:
         try:
             _ckpt_cfg = torch.load(_ckpt_path, map_location="cpu", weights_only=False).get("config", None)
@@ -1012,7 +1014,7 @@ def main():
         use_mtp_loss = args.mtp_loss
         if use_mtp_loss is None:
             use_mtp_loss = args.training_stage == "sft"
-        run_dataset_training(model, tok, args.dataset, steps=args.steps, resume=args.resume, eval_every=args.eval_every, log_every=args.log_every, checkpoint_every=args.checkpoint_every, batch_size=args.batch_size, seq_len=args.seq_len, grad_accumulation_steps=args.grad_accum, data_workers=args.data_workers, use_latent_reasoning=use_latent_reasoning, use_mtp_loss=use_mtp_loss, compile=args.compile, lr=args.lr, warmup_steps=args.warmup, topic_weights=topic_weights, training_stage=args.training_stage, auto_growth=args.auto_growth, growth_patience=args.growth_patience, growth_min_delta=args.growth_min_delta, max_layers=args.max_layers, adapter_name=args.adapter, model_dir=(ADAPTER_ROOT if args.adapter is not None else None))
+        run_dataset_training(model, tok, args.dataset, steps=args.steps, resume=args.resume, eval_every=args.eval_every, log_every=args.log_every, checkpoint_every=args.checkpoint_every, batch_size=args.batch_size, seq_len=args.seq_len, grad_accumulation_steps=args.grad_accum, data_workers=args.data_workers, use_latent_reasoning=use_latent_reasoning, use_mtp_loss=use_mtp_loss, compile=args.compile, lr=args.lr, warmup_steps=args.warmup, topic_weights=topic_weights, training_stage=args.training_stage, auto_growth=args.auto_growth, growth_patience=args.growth_patience, growth_min_delta=args.growth_min_delta, max_layers=args.max_layers, adapter_name=args.adapter, model_dir=(ADAPTER_ROOT if args.adapter is not None else args.model_dir))
     elif args.mode == "eval":
         run_evaluation(model, tok, args.dataset)
     elif args.mode == "generate":
