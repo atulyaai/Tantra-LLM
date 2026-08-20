@@ -1,12 +1,27 @@
 {
-  "dataset_name": "Tantra Unified Flat Master Dataset",
-  "version": "2.0-Omni-Flat",
-  "total_unique_samples": 832294,
-  "total_size_mb": 822.88,
-  "format": "ChatML (system, user, assistant)",
-  "deduplicated": true,
-  "files": [
-    "master_train.jsonl",
-    "manifest.json"
+  "dataset_name": "Tantra 4-Stage Chronological Staged Curriculum",
+  "total_samples": 8000,
+  "size_mb": 2.08,
+  "stages": [
+    {
+      "stage": 1,
+      "name": "Conversation & Persona",
+      "samples": 2000
+    },
+    {
+      "stage": 2,
+      "name": "General Knowledge & Science",
+      "samples": 2000
+    },
+    {
+      "stage": 3,
+      "name": "Mathematics & Calculus",
+      "samples": 2000
+    },
+    {
+      "stage": 4,
+      "name": "Coding & Algorithms",
+      "samples": 2000
+    }
   ]
 }
