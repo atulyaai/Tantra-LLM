@@ -151,8 +151,8 @@ class ALRAAttention(nn.Module):
         """
         B, H, T, Dh = Q.shape
         
-        if T <= 256:
-            # Fast vectorized causal path
+        if T <= 2048:
+            # Fast vectorized causal path (O(1) memory graph overhead on GPU/CPU)
             if gates is not None:
                 log_g = torch.log(gates + 1e-8)
                 cum_log_g = torch.cumsum(log_g, dim=-1)
