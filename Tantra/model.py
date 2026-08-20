@@ -798,26 +798,22 @@ class NeuroCoreModel(nn.Module):
                             else:
                                 next_token_logits[batch_idx, tok_id] = val / repetition_penalty
             if temperature > 0:
-                next_token_logits = next_token_logits / temperature
-                sorted_logits, sorted_indices = torch.sort(next_token_logits, descending=True)
+                scaled_logits = next_token_logits / max(temperature, 1e-5)
+                sorted_logits, sorted_indices = torch.sort(scaled_logits, descending=True)
                 cumulative_probs = torch.cumsum(torch.softmax(sorted_logits, dim=-1), dim=-1)
 
                 sorted_indices_to_remove = cumulative_probs > top_p
                 sorted_indices_to_remove[..., 1:] = sorted_indices_to_remove[..., :-1].clone()
-                sorted_indices_to_remove[..., 0] = 0
+                sorted_indices_to_remove[..., 0] = False
 
-                indices_to_remove = sorted_indices_to_remove.scatter(1, sorted_indices, sorted_indices_to_remove)
-                next_token_logits[indices_to_remove] = float('-inf')
+                sorted_logits[sorted_indices_to_remove] = float('-inf')
+                probs = torch.nan_to_num(torch.softmax(sorted_logits, dim=-1), nan=0.0)
 
-                probs = torch.softmax(next_token_logits, dim=-1)
-                probs = torch.nan_to_num(probs, nan=0.0)
-                # Per-row guard: any batch row that collapsed to all-zero probability
-                # mass falls back to picking token 0, without requiring the whole
-                # batch to be degenerate (fixes crash for batch_size > 1).
                 zero_rows = probs.sum(dim=-1) == 0
                 if zero_rows.any():
                     probs[zero_rows, 0] = 1.0
-                next_token = torch.multinomial(probs, num_samples=1)
+                next_sorted_idx = torch.multinomial(probs, num_samples=1)
+                next_token = sorted_indices.gather(1, next_sorted_idx)
             else:
                 next_token = torch.argmax(next_token_logits, dim=-1, keepdim=True)
 
@@ -896,17 +892,19 @@ class NeuroCoreModel(nn.Module):
                             logits[batch_idx, tok_id] = value * repetition_penalty if value < 0 else value / repetition_penalty
 
             if temperature > 0:
-                logits = logits / temperature
-                sorted_logits, sorted_indices = torch.sort(logits, descending=True)
+                scaled_logits = logits / max(temperature, 1e-5)
+                sorted_logits, sorted_indices = torch.sort(scaled_logits, descending=True)
                 remove_sorted = torch.cumsum(torch.softmax(sorted_logits, dim=-1), dim=-1) > top_p
                 remove_sorted[..., 1:] = remove_sorted[..., :-1].clone()
                 remove_sorted[..., 0] = False
-                logits[remove_sorted.scatter(1, sorted_indices, remove_sorted)] = float("-inf")
-                probs = torch.nan_to_num(torch.softmax(logits, dim=-1), nan=0.0)
+
+                sorted_logits[remove_sorted] = float("-inf")
+                probs = torch.nan_to_num(torch.softmax(sorted_logits, dim=-1), nan=0.0)
                 zero_rows = probs.sum(dim=-1) == 0
                 if zero_rows.any():
                     probs[zero_rows, 0] = 1.0
-                next_token = torch.multinomial(probs, num_samples=1)
+                next_sorted_idx = torch.multinomial(probs, num_samples=1)
+                next_token = sorted_indices.gather(1, next_sorted_idx)
             else:
                 next_token = torch.argmax(logits, dim=-1, keepdim=True)
 

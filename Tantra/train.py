@@ -640,6 +640,9 @@ class NeuroTrainer:
         """Best-effort recovery for checkpoints saved before scheduler state
         was tracked: replay .step() step_count times so LR lands close to
         where it should be instead of resetting to the warmup start."""
+        import warnings
         steps = min(self.step_count, self.total_steps)
-        for _ in range(steps):
-            self.scheduler.step()
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", category=UserWarning)
+            for _ in range(steps):
+                self.scheduler.step()
