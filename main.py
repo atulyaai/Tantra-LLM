@@ -621,17 +621,23 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
                 log.warning(f"  torch.compile failed ({e}), continuing uncompiled.")
 
     def eval_callback(step):
-        # This is a qualitative generation sample, formatted with standard chat tokens.
-        log.info("\n--- [ SAMPLE GENERATION @ Step %d ] ---" % step)
-        prompt_text = "<|user|>\nWhat is Tantra?\n<|assistant|>\n"
-        log.info("Prompt: User: What is Tantra?")
-        prompt_ids = torch.tensor([tokenizer.encode(prompt_text)], device=model.embed.weight.device)
-        out = model.generate(prompt_ids, max_new_tokens=64, min_new_tokens=15, temperature=0.7, top_p=0.9, use_mtp_speculation=True)
-        # Only decode the newly generated continuation, not the echoed prompt.
-        new_tokens = out[0, prompt_ids.shape[1]:].tolist()
-        response = tokenizer.decode(new_tokens)
-        log.info("Output: %s" % response)
-        log.info("----------------------------------\n")
+        # Evaluates 4 diverse domain prompts to monitor multi-skill emergence
+        log.info("\n" + "=" * 60)
+        log.info(f"   --- [ MULTI-DOMAIN EVALUATION @ Step {step} ] ---")
+        log.info("=" * 60)
+        test_prompts = [
+            ("General", "<|user|>\nWhat is Tantra LLM?\n<|assistant|>\n"),
+            ("Coding", "<|user|>\nWrite a Python function to reverse a string.\n<|assistant|>\n"),
+            ("Math", "<|user|>\nSolve for x in 2x + 6 = 14.\n<|assistant|>\n"),
+            ("Science", "<|user|>\nState Newton's First Law of Motion.\n<|assistant|>\n")
+        ]
+        for domain, prompt_text in test_prompts:
+            prompt_ids = torch.tensor([tokenizer.encode(prompt_text)], device=model.embed.weight.device)
+            out = model.generate(prompt_ids, max_new_tokens=48, min_new_tokens=10, temperature=0.7, top_p=0.9, use_mtp_speculation=True)
+            new_tokens = out[0, prompt_ids.shape[1]:].tolist()
+            response = tokenizer.decode(new_tokens)
+            log.info(f"[{domain.upper()}] {response.strip()}")
+        log.info("=" * 60 + "\n")
 
         # Bidirectional per-category growth (adapter training only). During a
         # single-category run every token routes to this category, so usage is
