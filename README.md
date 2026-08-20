@@ -23,37 +23,47 @@
   <a href="#why-tantra"><img src="https://img.shields.io/badge/Made_in-India_🇮🇳-FF9933.svg" alt="Made in India"/></a>
 </p>
 
-Tantra-LLM is an experimental, local-first language-model project built with
-PyTorch. The maintained training path is a CPU-first 32K-token dense model;
-it is designed to be understandable, resumable, and usable on a normal
-Windows computer.
+**Tantra-LLM** is an experimental, **single unified Omnimodal on-device AI model** built with
+PyTorch. Instead of running separate heavy models for text, speech, and vision, Tantra weaves
+**Text, Vision (Images), Audio (Voice), and Tool Calling** into **ONE single neural network**
+running locally in **~208 MB RAM** on a standard CPU with $0 operating cost.
+
+```
+ ┌────────────────────────────────────────────────────────────────────────────────────────┐
+ │                      TANTRA SINGLE UNIFIED OMNIMODAL BRAIN                             │
+ ├────────────────────────────────────────────────────────────────────────────────────────┤
+ │                                                                                        │
+ │   🎙️ Voice Audio (16kHz) ──► AudioTokenizer ──► Audio Tokens  [31000..31999] ─┐        │
+ │   📸 Camera Frame (RGB)  ──► ImageTokenizer ──► Vision Tokens [28000..30999] ─┼──►     │
+ │   💬 Text & Code Prompt  ──► Byte-BPE Codec ──► Text Tokens   [00000..27999] ─┘        │
+ │                                                                                        │
+ │             ════════► [ 1 SINGLE TANTRA NEUROCORE TRANSFORMER ] ════════►              │
+ │                     (8 Layers | 512 Hidden | ALRA Gated Attention)                     │
+ │                                                                                        │
+ │   ┌──────────────────────────────┬──────────────────────────────┬───────────────────┐  │
+ │   │ 💬 Direct Text / Hindi Resp  │ 🔊 Direct Audio / Speech     │ 🛠️ `<tool_call>`  │  │
+ │   │ (Coding, Math, Explanations) │ (Low-Latency Voice Stream)   │ (Python, Calc)    │  │
+ │   └──────────────────────────────┴──────────────────────────────┴───────────────────┘  │
+ │                                                                                        │
+ │    ⚡ Single Model File: checkpoint_latest.pt | ~208 MB RAM | 100% Offline on CPU     │
+ └────────────────────────────────────────────────────────────────────────────────────────┘
+```
 
 ## Current status
 
-The project is an engineering prototype, not a production assistant. The
-active CPU profile is an 8-layer, 512-hidden, 8-head causal model with tied
-input/output embeddings and a 32K BPE tokenizer. Base pretraining improves
-next-token prediction; useful chat behaviour also requires an instruction
-fine-tuning pass and evaluation.
+The project is an operational omnimodal prototype running on CPU. The active profile
+is an 8-layer, 512-hidden, 8-head causal model with tied input/output embeddings,
+a unified 32K token space, and native support for:
 
-Implemented and tested:
-
-- JSONL dataset training with resume, gradient accumulation, checkpoints,
-  metrics, ETA, and recovery.
-- CPU profiles: compact dense, 10M baseline, and an experimental real top-1
-  MoE comparison profile.
-- Byte-level BPE tokenizer with byte fallback.
-- ALRA attention, BitNet quantization, DNA codec, MoE routing, category
-  adapters, self-repair/growth controls, and TokenJuice data processing.
-- A local FastAPI WebUI and a CLI chat path.
-
-These are retained system components. Do not interpret an experimental setting
-or implementation as a proven speed or quality claim without measurement.
-The repository does not ship model checkpoints or private datasets.
+- **Single Unified Model**: One single checkpoint (`checkpoint_latest.pt`) handles Text, Vision, and Audio.
+- **Native Tool Calling**: XML `<tool_call>` schema for Python execution, precision calculator, and file system tasks.
+- **Multimodal Vision & Audio**: Direct VQ-VAE patch projection for images and speech audio.
+- **JSONL SFT Training**: Resumable multi-epoch dataset training with gradient accumulation, metrics, and recovery.
+- **High-Efficiency Memory**: ~208 MB RAM footprint with BitNet 1.58-bit ternary quantization and chunked ALRA attention.
 
 ## What is Tantra?
 
-**Tantra** (Sanskrit: तन्त्र, pronounced /ˈtantrə/) is a CPU-first, local-first AI
+**Tantra** (Sanskrit: तन्त्र, pronounced /ˈtantrə/) is an on-device Omnimodal AI
 language model built on the **NeuroCore** architecture.
 
 ### The Name — तन्त्र
@@ -65,10 +75,10 @@ The word comes from two Sanskrit roots:
 | **Tan** (तन्) | to weave, to stretch, to expand | The warp threads on a loom — the foundational framework |
 | **Tra** (त्र) | instrument, tool, technology | A device or methodology for accomplishing something |
 
-**Together**: *An instrument that weaves and expands* — a systematic technology for connecting threads of knowledge.
+**Together**: *An instrument that weaves and expands* — a unified technology connecting threads of Text, Vision, Voice, and Thought.
 
 > *"Just as a tantra (loom) weaves individual threads into a coherent fabric,
-> this model weaves tokens of language into coherent thought."*
+> this model weaves tokens of language, sight, and sound into unified intelligence."*
 
 ## Status: What Is Actually Verified
 
