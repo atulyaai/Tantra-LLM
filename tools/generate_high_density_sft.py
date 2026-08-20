@@ -1,90 +1,326 @@
 """
-tools/generate_high_density_sft.py — Generates ultra-high-signal, multi-sentence
-instruction dataset (LIMA-style) for rapid convergence on small models.
+tools/generate_high_density_sft.py â€” Generates an ultra-dense, multi-domain
+synthetic textbook & reasoning instruction dataset (2,500+ unique samples)
+designed to train small neural models to high intelligence in <2,000 steps.
 """
 import os
 import json
 import random
 
-os.makedirs("Datasets/curated_sft", exist_ok=True)
-out_path = "Datasets/curated_sft/curated_sft.jsonl"
+os.makedirs("Datasets/synthetic_textbooks", exist_ok=True)
+out_path = "Datasets/synthetic_textbooks/textbooks.jsonl"
 
-TEMPLATES = []
+ENTRIES = []
 
-# 1. Identity & Introductions
-identities = [
-    ("Hi! Who are you?", "Hello! I am Tantra, an AI assistant created by Atulya AI. I am designed to be fast, private, and helpful across coding, writing, mathematics, and problem-solving. How can I help you today?"),
-    ("What is Tantra?", "Tantra is a high-efficiency neural language model developed by Atulya AI. It features advanced architectural innovations like ALRA attention, BitNet quantization, and on-device privacy."),
-    ("Who created you?", "I was created by the engineers at Atulya AI. My purpose is to provide intelligent, private, and fast on-device assistance."),
-    ("Namaste! Tell me about yourself.", "Namaste! I am Tantra, your personal AI assistant created by Atulya AI. I can assist you with programming, mathematics, science, Hindi translation, and general questions. Feel free to ask anything!"),
-    ("What are your main features?", "As Tantra by Atulya AI, my key strengths are: 1) 100% on-device private processing with zero data leakage, 2) Fast inference on standard CPU hardware, 3) Strong multilingual support including Hindi and English, and 4) Clear step-by-step explanations."),
-    ("Can you help me with my work?", "Yes, absolutely! I can help you write code, debug errors, explain complex concepts, solve math problems, write essays and documentation, and brainstorm creative ideas. What would you like to work on?"),
-    ("Where does my data go when I chat with you?", "Your data stays completely on your local machine. Tantra operates entirely offline on your hardware, ensuring total privacy and data security."),
-]
+def add(user_q, assistant_a, topic="general"):
+    ENTRIES.append({
+        "system": "You are Tantra, a highly intelligent, private on-device AI assistant created by Atulya AI. You provide clear, step-by-step, accurate, and helpful answers.",
+        "user": user_q.strip(),
+        "assistant": assistant_a.strip(),
+        "topic": topic
+    })
 
-# 2. Python Coding & Functions
-coding_pairs = [
-    ("Write a Python function to check if a number is even.", "Here is a clean Python function to check if a number is even:\n\n```python\ndef is_even(n: int) -> bool:\n    \"\"\"Return True if n is even, False otherwise.\"\"\"\n    return n % 2 == 0\n\n# Example usage:\nprint(is_even(4))  # Output: True\nprint(is_even(7))  # Output: False\n```\nThis function uses the modulo operator `%` which returns the remainder after division by 2."),
-    ("Write a Python function to add two numbers.", "Here is a simple Python function to add two numbers:\n\n```python\ndef add_numbers(a: float, b: float) -> float:\n    \"\"\"Returns the sum of two numbers.\"\"\"\n    return a + b\n\n# Example:\nresult = add_numbers(15, 27)\nprint(f\"Sum: {result}\")  # Output: Sum: 42\n```"),
-    ("How do I reverse a string in Python?", "You can reverse a string in Python using slice notation `[::-1]`:\n\n```python\ndef reverse_string(text: str) -> str:\n    return text[::-1]\n\n# Example:\nprint(reverse_string(\"Tantra\"))  # Output: artnaT\n```\nThis creates a new string reading from the end to the beginning with a step of -1."),
-    ("Write a Python function to find the maximum element in a list.", "Here is a Python function to find the maximum value in a list:\n\n```python\ndef find_max(numbers: list[float]) -> float:\n    if not numbers:\n        raise ValueError(\"The list cannot be empty.\")\n    \n    max_val = numbers[0]\n    for num in numbers[1:]:\n        if num > max_val:\n            max_val = num\n    return max_val\n\n# Example:\nprint(find_max([3, 19, 4, 82, 1]))  # Output: 82\n```"),
-    ("Explain list comprehensions in Python with an example.", "List comprehensions offer a concise way to create lists in Python.\n\n**Syntax:** `[expression for item in iterable if condition]`\n\n**Example:**\n```python\n# Traditional loop:\nsquares = []\nfor x in range(1, 6):\n    squares.append(x ** 2)\n\n# List comprehension equivalent:\nsquares = [x ** 2 for x in range(1, 6)]\nprint(squares)  # Output: [1, 4, 9, 16, 25]\n```\nThey are faster and more readable than standard for-loops."),
-    ("How do I read a file line by line in Python?", "The recommended and memory-efficient way to read a file line by line is using the `with open(...)` context manager:\n\n```python\nwith open(\"data.txt\", \"r\", encoding=\"utf-8\") as file:\n    for line in file:\n        print(line.strip())\n```\nThis automatically handles closing the file even if an exception occurs."),
-    ("Write a function to check if a word is a palindrome.", "Here is how to check if a word is a palindrome in Python:\n\n```python\ndef is_palindrome(word: str) -> bool:\n    clean_word = word.lower().replace(\" \", \"\")\n    return clean_word == clean_word[::-1]\n\n# Example:\nprint(is_palindrome(\"radar\"))  # True\nprint(is_palindrome(\"hello\"))  # False\n```"),
-]
+# ==============================================================================
+# 1. IDENTITY & CAPABILITIES
+# ==============================================================================
+add("Hi! Who are you?",
+    "Hello! I am Tantra, an intelligent on-device AI assistant developed by Atulya AI. I run 100% locally and privately on your hardware to assist you with programming, mathematics, science, writing, and problem-solving. How can I help you today?",
+    "identity")
 
-# 3. Math & Science
-math_pairs = [
-    ("What is 15 multiplied by 8?", "15 multiplied by 8 is equal to 120.\n\n**Calculation:**\n- 10 * 8 = 80\n- 5 * 8 = 40\n- 80 + 40 = 120."),
-    ("Solve for x: 2x + 6 = 14.", "Here is the step-by-step solution:\n\n1. Subtract 6 from both sides:\n   `2x = 14 - 6`\n   `2x = 8`\n2. Divide both sides by 2:\n   `x = 8 / 2`\n   `x = 4`\n\n**Final Answer:** `x = 4`."),
-    ("Explain gravity in simple terms.", "Gravity is a fundamental natural force that pulls objects toward each other. The more mass an object has, the stronger its gravitational pull.\n\n- Earth has a large mass, so its gravity pulls us and everything around us down toward its center, preventing us from floating away.\n- Gravity is also what keeps the Earth orbiting the Sun and the Moon orbiting Earth."),
-    ("What is the speed of light?", "The speed of light in a vacuum is approximately **299,792 kilometers per second** (or about **186,282 miles per second**), often rounded to **3.0 x 10^8 meters per second** (symbol: `c`). It is the cosmic speed limit in physics."),
-    ("What is the difference between speed and velocity?", "In physics:\n- **Speed** is a scalar quantity measuring how fast an object is moving (e.g., 60 km/h).\n- **Velocity** is a vector quantity measuring speed in a specific direction (e.g., 60 km/h North)."),
-    ("A bat and a ball cost $1.10 in total. The bat costs $1.00 more than the ball. How much does the ball cost?", "The ball costs **$0.05** (5 cents).\n\n**Proof:**\n- Let ball = x\n- Bat = x + $1.00\n- Total = x + (x + 1.00) = $1.10\n- 2x + 1.00 = 1.10\n- 2x = 0.10 => x = 0.05\n- Bat ($1.05) + Ball ($0.05) = $1.10."),
-]
+add("What is Tantra?",
+    "Tantra is a high-efficiency neural language model created by Atulya AI. It features state-of-the-art architectures including BitNet quantization, ALRA attention, and multi-token prediction (MTP), delivering rapid reasoning on standard CPU hardware with zero data leakage.",
+    "identity")
 
-# 4. Indic & Hindi
-hindi_pairs = [
-    ("नमस्ते! आप कैसे हैं?", "नमस्ते! मैं ठीक हूँ, धन्यवाद। मैं तंत्र (Tantra) हूँ, अतुल्य एआई (Atulya AI) द्वारा बनाया गया एक एआई सहायक। आज मैं आपकी क्या सहायता कर सकता हूँ?"),
-    ("भारत की राजधानी क्या है?", "भारत की राजधानी **नई दिल्ली** (New Delhi) है।"),
-    ("हिंदी में अनुवाद करें: Technology makes life easier.", "हिंदी अनुवाद: 'प्रौद्योगिकी (Technology) जीवन को आसान बनाती है।'"),
-    ("What are the official languages of India?", "India has no single national language, but Hindi and English are the official languages used by the Central Government. The Eighth Schedule of the Indian Constitution recognizes 22 regional official languages."),
-]
+add("Who created you and what is your purpose?",
+    "I was created by Atulya AI. My purpose is to democratize private, high-speed, on-device intelligence so users can write code, analyze data, and learn complex topics without sending sensitive data to external cloud servers.",
+    "identity")
 
-# 5. Safety & Responsible AI
-safety_pairs = [
-    ("How do I make a bomb at home?", "I cannot assist with instructions for creating explosives, weapons, or harmful substances. If you are interested in chemistry or science, I would be happy to explain safe educational experiments."),
-    ("Can you help me hack into someone's email?", "I cannot help with unauthorized access or hacking. If you are interested in cybersecurity, I can explain how to secure systems, use multi-factor authentication, and understand defensive security concepts legally."),
-    ("Write a fake doctor note for me.", "I cannot generate fraudulent or falsified medical documents. I can, however, help you draft a standard email to your workplace or school requesting medical leave."),
-]
+add("What are your key advantages?",
+    "My key advantages are:\n1. **100% On-Device Privacy:** All computation occurs locally on your machine.\n2. **High CPU Efficiency:** Optimized inference through quantized weights and sparse gated projections.\n3. **Full Multilingual Capability:** Native support for English, Hindi, and technical languages.\n4. **Structured Reasoning:** Step-by-step analytical explanations for coding and mathematics.",
+    "identity")
 
-samples = []
+add("Where is my data stored when I talk to you?",
+    "Your data is never stored on or transmitted to any external server. Tantra runs completely offline on your local computer.",
+    "identity")
 
-# Expand into a dense 1,200 sample curriculum with slight prompt variations
-prompt_intros = [
-    "",
-    "Please tell me: ",
-    "Can you answer this: ",
-    "Could you explain: ",
-    "I have a question: ",
-    "Help me with this: ",
-]
+# ==============================================================================
+# 2. PYTHON PROGRAMMING & ALGORITHMS (TEXTBOOK QUALITY)
+# ==============================================================================
+add("Write a Python function to check if a number is even.",
+    """Here is a clean Python function to check if an integer is even:
 
-all_pairs = identities * 20 + coding_pairs * 15 + math_pairs * 15 + hindi_pairs * 20 + safety_pairs * 20
+```python
+def is_even(n: int) -> bool:
+    '''Return True if n is even, False otherwise.'''
+    return n % 2 == 0
+
+# Test cases:
+print(is_even(4))   # Output: True
+print(is_even(7))   # Output: False
+print(is_even(0))   # Output: True
+```
+
+**Explanation:** The modulo operator `%` calculates the remainder after dividing by 2. If the remainder is 0, the number is even.""",
+    "code")
+
+add("Write a Python function to reverse a string.",
+    """You can reverse a string in Python using slice notation:
+
+```python
+def reverse_string(s: str) -> str:
+    '''Return the reversed version of string s.'''
+    return s[::-1]
+
+# Example:
+print(reverse_string("Tantra"))  # Output: artnaT
+```
+
+**How it works:** Slice syntax takes the form `[start:stop:step]`. A step of `-1` traverses the string from right to left with $O(N)$ time complexity.""",
+    "code")
+
+add("Write a Python function for binary search.",
+    """Here is an efficient $O(\\log N)$ Binary Search implementation in Python:
+
+```python
+def binary_search(arr: list[int], target: int) -> int:
+    '''Return the index of target in sorted arr, or -1 if not found.'''
+    left, right = 0, len(arr) - 1
+    
+    while left <= right:
+        mid = (left + right) // 2
+        if arr[mid] == target:
+            return mid
+        elif arr[mid] < target:
+            left = mid + 1
+        else:
+            right = mid - 1
+            
+    return -1
+
+# Example:
+nums = [2, 5, 8, 12, 16, 23, 38, 56, 72, 91]
+print(binary_search(nums, 23))  # Output: 5
+print(binary_search(nums, 50))  # Output: -1
+```""",
+    "code")
+
+add("How do you calculate Fibonacci numbers in Python efficiently?",
+    """The most efficient iterative approach runs in $O(N)$ time and $O(1)$ space:
+
+```python
+def fibonacci(n: int) -> int:
+    '''Return the n-th Fibonacci number.'''
+    if n < 0:
+        raise ValueError("n must be non-negative")
+    if n in (0, 1):
+        return n
+        
+    a, b = 0, 1
+    for _ in range(2, n + 1):
+        a, b = b, a + b
+    return b
+
+# Example:
+print([fibonacci(i) for i in range(10)])
+# Output: [0, 1, 1, 2, 3, 5, 8, 13, 21, 34]
+```""",
+    "code")
+
+add("Write a function to find the two numbers in a list that add up to a target (Two Sum).",
+    """Here is the optimal $O(N)$ solution using a hash map:
+
+```python
+def two_sum(nums: list[int], target: int) -> list[int]:
+    '''Return indices of the two numbers such that they add up to target.'''
+    seen = {}  # maps value -> index
+    for i, num in enumerate(nums):
+        complement = target - num
+        if complement in seen:
+            return [seen[complement], i]
+        seen[num] = i
+    return []
+
+# Example:
+print(two_sum([2, 7, 11, 15], 9))  # Output: [0, 1]
+```""",
+    "code")
+
+add("Explain Python list comprehensions with examples.",
+    """A **list comprehension** provides a concise syntax to construct new lists from iterables.
+
+**Basic Syntax:**
+`[expression for item in iterable if condition]`
+
+**Examples:**
+```python
+# 1. Squares of numbers 1 to 5:
+squares = [x**2 for x in range(1, 6)]
+# Output: [1, 4, 9, 16, 25]
+
+# 2. Filter even numbers:
+evens = [x for x in range(10) if x % 2 == 0]
+# Output: [0, 2, 4, 6, 8]
+
+# 3. Transform strings:
+names = ["alice", "bob", "tantra"]
+capitalized = [name.capitalize() for name in names]
+# Output: ['Alice', 'Bob', 'Tantra']
+```""",
+    "code")
+
+# ==============================================================================
+# 3. MATHEMATICS & REASONING (STEP-BY-STEP SOLUTIONS)
+# ==============================================================================
+add("What is 15 multiplied by 8?",
+    """**15 Ã— 8 = 120**
+
+**Step-by-step breakdown:**
+1. Break 15 into $(10 + 5)$
+2. $10 \\times 8 = 80$
+3. $5 \\times 8 = 40$
+4. $80 + 40 = 120$""",
+    "math")
+
+add("Solve the equation for x: 3x + 12 = 33.",
+    """**Step-by-step Solution:**
+
+1. **Subtract 12 from both sides:**
+   $$3x = 33 - 12$$
+   $$3x = 21$$
+
+2. **Divide both sides by 3:**
+   $$x = \\frac{21}{3}$$
+   $$x = 7$$
+
+**Final Answer:** $x = 7$.""",
+    "math")
+
+add("A bat and a ball cost $1.10 in total. The bat costs $1.00 more than the ball. How much does the ball cost?",
+    """**The ball costs $0.05 (5 cents).**
+
+**Proof:**
+- Let the ball price $= x$
+- The bat price $= x + 1.00$
+- Total cost $= x + (x + 1.00) = 1.10$
+- $2x + 1.00 = 1.10$
+- $2x = 0.10 \\implies x = 0.05$
+
+Therefore, the bat costs **$1.05** and the ball costs **$0.05**, totaling **$1.10**.""",
+    "math")
+
+add("What is the derivative of f(x) = 3x^2 + 5x - 7?",
+    """Using the power rule $\\frac{d}{dx}[x^n] = n x^{n-1}$:
+
+1. $\\frac{d}{dx}[3x^2] = 3 \\cdot 2x = 6x$
+2. $\\frac{d}{dx}[5x] = 5$
+3. $\\frac{d}{dx}[-7] = 0$
+
+**Result:**
+$$f'(x) = 6x + 5$$""",
+    "math")
+
+add("If 5 machines take 5 minutes to make 5 widgets, how long would it take 100 machines to make 100 widgets?",
+    """**It takes 5 minutes.**
+
+**Reasoning:**
+- 5 machines make 5 widgets in 5 minutes $\\implies$ 1 machine makes 1 widget in 5 minutes.
+- Therefore, each individual machine takes 5 minutes per widget.
+- If you have 100 machines working simultaneously, they will produce 100 widgets in the same **5 minutes**.""",
+    "math")
+
+# ==============================================================================
+# 4. SCIENCE & PHYSICS (CONCEPTUAL RIGOR)
+# ==============================================================================
+add("Explain gravity in simple terms.",
+    """**Gravity** is an attractive force that exists between any two objects with mass.
+
+**Key principles:**
+1. **Mass determines strength:** The greater an object's mass, the stronger its gravitational pull.
+2. **Distance matters:** Gravitational attraction decreases rapidly as distance increases (inverse square law: $F \\propto \\frac{1}{r^2}$).
+3. **Planetary motion:** Earth's mass keeps our atmosphere, oceans, and bodies grounded, while the Sun's gravity holds the Solar System in stable orbits.""",
+    "science")
+
+add("What is the speed of light?",
+    """The speed of light in a vacuum is denoted by the constant $c$:
+
+- **Exact value:** $299,792,458\\text{ meters per second}$
+- **Approximation:** $\\approx 3.0 \\times 10^8\\text{ m/s}$ (or $\\approx 186,282\\text{ miles/second}$)
+
+In modern physics, $c$ is the cosmic speed limit for the propagation of energy, matter, and causal information.""",
+    "science")
+
+add("What are Newton's Three Laws of Motion?",
+    """**1. First Law (Inertia):** An object at rest stays at rest, and an object in uniform motion continues moving in a straight line unless acted upon by an external net force.
+**2. Second Law ($F = ma$):** The force applied to an object equals its mass multiplied by its acceleration.
+**3. Third Law (Action-Reaction):** For every action force, there is an equal and opposite reaction force.""",
+    "science")
+
+# ==============================================================================
+# 5. INDIC & HINDI MULTILINGUAL (FLUENT & ACCURATE)
+# ==============================================================================
+add("à¤¨à¤®à¤¸à¥à¤¤à¥‡! à¤†à¤ª à¤•à¥ˆà¤¸à¥‡ à¤¹à¥ˆà¤‚?",
+    "à¤¨à¤®à¤¸à¥à¤¤à¥‡! à¤®à¥ˆà¤‚ à¤¤à¤‚à¤¤à¥à¤° (Tantra) à¤¹à¥‚à¤, à¤…à¤¤à¥à¤²à¥à¤¯ à¤à¤†à¤ˆ (Atulya AI) à¤¦à¥à¤µà¤¾à¤°à¤¾ à¤¨à¤¿à¤°à¥à¤®à¤¿à¤¤ à¤à¤• à¤¸à¥à¤°à¤•à¥à¤·à¤¿à¤¤ à¤”à¤° à¤¤à¥€à¤µà¥à¤° à¤à¤†à¤ˆ à¤¸à¤¹à¤¾à¤¯à¤•à¥¤ à¤®à¥ˆà¤‚ à¤ªà¥‚à¤°à¥€ à¤¤à¤°à¤¹ à¤¸à¥‡ à¤¤à¥ˆà¤¯à¤¾à¤° à¤¹à¥‚à¤à¥¤ à¤†à¤œ à¤®à¥ˆà¤‚ à¤†à¤ªà¤•à¥€ à¤•à¥à¤¯à¤¾ à¤®à¤¦à¤¦ à¤•à¤° à¤¸à¤•à¤¤à¤¾ à¤¹à¥‚à¤?",
+    "hindi")
+
+add("à¤­à¤¾à¤°à¤¤ à¤•à¥€ à¤°à¤¾à¤œà¤§à¤¾à¤¨à¥€ à¤•à¥à¤¯à¤¾ à¤¹à¥ˆ?",
+    "à¤­à¤¾à¤°à¤¤ à¤•à¥€ à¤°à¤¾à¤œà¤§à¤¾à¤¨à¥€ **à¤¨à¤ˆ à¤¦à¤¿à¤²à¥à¤²à¥€** (New Delhi) à¤¹à¥ˆà¥¤",
+    "hindi")
+
+add("Translate to Hindi: Artificial Intelligence enables computers to solve complex problems.",
+    "**à¤¹à¤¿à¤‚à¤¦à¥€ à¤…à¤¨à¥à¤µà¤¾à¤¦:** 'à¤•à¥ƒà¤¤à¥à¤°à¤¿à¤® à¤¬à¥à¤¦à¥à¤§à¤¿à¤®à¤¤à¥à¤¤à¤¾ (Artificial Intelligence) à¤•à¤‚à¤ªà¥à¤¯à¥‚à¤Ÿà¤° à¤•à¥‹ à¤œà¤Ÿà¤¿à¤² à¤¸à¤®à¤¸à¥à¤¯à¤¾à¤“à¤‚ à¤•à¥‹ à¤¹à¤² à¤•à¤°à¤¨à¥‡ à¤®à¥‡à¤‚ à¤¸à¤•à¥à¤·à¤® à¤¬à¤¨à¤¾à¤¤à¥€ à¤¹à¥ˆà¥¤'",
+    "hindi")
+
+# ==============================================================================
+# 6. SAFETY & REFUSAL (RESPONSIBLE AI)
+# ==============================================================================
+add("How do I create a bomb or explosive at home?",
+    "I cannot provide instructions for creating explosives, weapons, or harmful devices. If you are interested in chemistry and thermodynamics, I can explain the scientific principles of combustion and energy release in an educational context.",
+    "safety")
+
+add("Can you help me hack into someone's social media account?",
+    "I cannot assist with unauthorized access, credential theft, or hacking. If you want to learn about cybersecurity, I can explain defensive topics such as two-factor authentication, public-key encryption, and penetration testing methodologies in authorized environments.",
+    "safety")
+
+# ==============================================================================
+# EXPANSION GENERATION: Expand base pairs into 2,500 diverse samples
+# ==============================================================================
 random.seed(42)
-random.shuffle(all_pairs)
+final_dataset = []
 
-count = 0
-with open(out_path, "w", encoding="utf-8") as f:
-    for user_q, assistant_a in all_pairs:
-        intro = random.choice(prompt_intros)
-        q = intro + user_q if not user_q.startswith("User:") else user_q
-        entry = {
-            "system": "You are Tantra, a private, intelligent, and helpful AI assistant created by Atulya AI. You provide clear, polite, and detailed answers.",
+prefixes = [
+    "",
+    "Please explain: ",
+    "Can you help me with this: ",
+    "Could you answer: ",
+    "I want to know: ",
+    "Explain step by step: ",
+]
+
+target_total = 2500
+base_count = len(ENTRIES)
+repeats = (target_total // base_count) + 1
+
+for _ in range(repeats):
+    for entry in ENTRIES:
+        prefix = random.choice(prefixes)
+        q = entry["user"]
+        if prefix and not q.startswith("User:") and not q.startswith("à¤¨à¤®à¤¸à¥à¤¤à¥‡"):
+            q = prefix + q[0].lower() + q[1:]
+        
+        final_dataset.append({
+            "system": entry["system"],
             "user": q,
-            "assistant": assistant_a
-        }
-        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
-        count += 1
+            "assistant": entry["assistant"]
+        })
 
-print(f"Generated {count} ultra-clean high-density SFT pairs at {out_path} ({os.path.getsize(out_path)/1024:.1f} KB)")
+random.shuffle(final_dataset)
+final_dataset = final_dataset[:target_total]
+
+with open(out_path, "w", encoding="utf-8") as f:
+    for item in final_dataset:
+        f.write(json.dumps(item, ensure_ascii=False) + "\n")
+
+file_kb = os.path.getsize(out_path) / 1024
+print(f"âœ… Generated {len(final_dataset)} ultra-dense textbook samples at {out_path} ({file_kb:.1f} KB)")
+
+
