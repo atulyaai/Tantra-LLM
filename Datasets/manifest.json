@@ -1,27 +1,14 @@
 {
-  "dataset_name": "Tantra 4-Stage Chronological Staged Curriculum",
-  "total_samples": 8000,
-  "size_mb": 2.08,
-  "stages": [
-    {
-      "stage": 1,
-      "name": "Conversation & Persona",
-      "samples": 2000
-    },
-    {
-      "stage": 2,
-      "name": "General Knowledge & Science",
-      "samples": 2000
-    },
-    {
-      "stage": 3,
-      "name": "Mathematics & Calculus",
-      "samples": 2000
-    },
-    {
-      "stage": 4,
-      "name": "Coding & Algorithms",
-      "samples": 2000
-    }
+  "dataset_name": "Tantra 50K Mega Synthetic Curriculum",
+  "total_samples": 50000,
+  "size_mb": 27.31,
+  "format": "ChatML (system, user, assistant)",
+  "domains": [
+    "Algorithms & Python",
+    "Mathematics & Calculus",
+    "Tool Calling (<tool_call>)",
+    "Physics & Natural Science",
+    "Indic / Hindi Technical",
+    "Identity Alignment"
   ]
 }
