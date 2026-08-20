@@ -45,6 +45,7 @@ Datasets/_duplicates/
 !Datasets/synthetic_textbooks/**
 !Datasets/curated_sft/**
 !Datasets/tool_calling/**
+!Datasets/master_curriculum/**
 !Model/sample_model.pt
 Model/memory_bank.json
 Model/saved_chats.json
