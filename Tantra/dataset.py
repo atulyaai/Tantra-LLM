@@ -128,7 +128,10 @@ def build_prompt_segments(item: Dict[str, Any]) -> Optional[List[Tuple[str, bool
                 continue
             tag = f"<|{'system' if role == 'system' else role}|>\n"
             segments.append((tag, False))
-            segments.append((content, role == "assistant"))
+            if role == "assistant":
+                segments.append((content + "\n</s>", True))
+            else:
+                segments.append((content, False))
             segments.append(("\n\n", False))
         return segments if segments else None
 
@@ -149,7 +152,7 @@ def build_prompt_segments(item: Dict[str, Any]) -> Optional[List[Tuple[str, bool
         segments.append(("\n\n", False))
     if assistant:
         segments.append(("<|assistant|>\n", False))
-        segments.append((assistant, True))
+        segments.append((assistant + "\n</s>", True))
         segments.append(("\n\n", False))
     return segments
 
