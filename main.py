@@ -572,16 +572,17 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
             key=os.path.getmtime,
             reverse=True,
         )
-        root_ckpt = os.path.join(checkpoint_root, "checkpoint_latest.pt")
         local_latest = os.path.join(MODEL_DIR, "Latest", "checkpoint_latest.pt")
-        candidates = [latest_ckpt, root_ckpt, local_latest, *step_checkpoints, best_ckpt]
+        local_root = os.path.join(MODEL_DIR, "checkpoint_latest.pt")
+        root_ckpt = os.path.join(checkpoint_root, "checkpoint_latest.pt")
+        candidates = [local_latest, local_root, latest_ckpt, root_ckpt, *step_checkpoints, best_ckpt]
         seen = set()
         for candidate in candidates:
             if candidate in seen or not os.path.isfile(candidate):
                 continue
             seen.add(candidate)
             try:
-                log.info(f"Trying recovery checkpoint: {candidate}")
+                log.info(f"Loading recovery checkpoint: {candidate} ({os.path.getsize(candidate)/1e6:.1f} MB)...")
                 trainer.load_checkpoint(candidate)
                 resume_target = candidate
                 break
@@ -947,16 +948,17 @@ def main():
     if len(reg) > 0:
         mcfg.moe.num_experts = len(reg)
     ckpt_candidates = [
-        os.path.join(args.model_dir or MODEL_DIR, "Latest", "checkpoint_latest.pt"),
-        os.path.join(args.model_dir or MODEL_DIR, "checkpoint_latest.pt"),
         os.path.join(MODEL_DIR, "Latest", "checkpoint_latest.pt"),
         os.path.join(MODEL_DIR, "checkpoint_latest.pt"),
+        os.path.join(args.model_dir or MODEL_DIR, "Latest", "checkpoint_latest.pt"),
+        os.path.join(args.model_dir or MODEL_DIR, "checkpoint_latest.pt"),
     ]
     latest_ckpt_file = next((p for p in ckpt_candidates if os.path.exists(p) and os.path.getsize(p) > 10 * 1024 * 1024), ckpt_candidates[0])
     restore_checkpoint_architecture(mcfg, latest_ckpt_file)
     _ckpt_path = latest_ckpt_file
     if os.path.exists(_ckpt_path) and os.path.getsize(_ckpt_path) > 10 * 1024 * 1024 and mcfg is not None:
         try:
+            log.info(f"Reading model config from checkpoint: {_ckpt_path} ({os.path.getsize(_ckpt_path)/1e6:.1f} MB)...")
             _ckpt = torch.load(_ckpt_path, map_location="cpu", weights_only=False)
             if isinstance(_ckpt, dict):
                 _ckpt_cfg = _ckpt.get("config", None)
