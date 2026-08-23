@@ -668,18 +668,18 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
         # Avoid saving immediately upon resuming (step == trainer.step_count when just loaded)
         # We only save if we have actually progressed.
         if step > 0:
-            # Save to Latest (full state with optimizer for seamless resume)
-            trainer.save_checkpoint(latest_ckpt, save_optimizer=True)
+            # Save to Latest asynchronously (full state with optimizer for seamless resume)
+            trainer.save_checkpoint(latest_ckpt, save_optimizer=True, async_write=True)
             
             if archive_checkpoints:
                 # Optional archive copies; CPU profiles use only Latest by
                 # default to avoid spending disk on repeated optimizer state.
                 step_ckpt = os.path.join(checkpoints_dir, f"checkpoint_step_{step}.pt")
-                trainer.save_checkpoint(step_ckpt, save_optimizer=True)
+                trainer.save_checkpoint(step_ckpt, save_optimizer=True, async_write=True)
                 if (trainer.ema_loss is not None and trainer.ema_loss <= trainer.best_loss) or step % (eval_every * 4) == 0 or step == steps:
                     version_name = f"Tantra_v1_step_{step}.pt"
-                    trainer.save_checkpoint(os.path.join(best_dir, version_name), save_optimizer=False)
-                    trainer.save_checkpoint(best_ckpt, save_optimizer=False)
+                    trainer.save_checkpoint(os.path.join(best_dir, version_name), save_optimizer=False, async_write=True)
+                    trainer.save_checkpoint(best_ckpt, save_optimizer=False, async_write=True)
             
             trainer._last_saved_step = step
 
@@ -689,9 +689,9 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
             # The evaluation callback has just created the same exact latest
             # recovery state. Do not write another multi-gigabyte file.
             return
-        trainer.save_checkpoint(latest_ckpt, save_optimizer=True)
+        trainer.save_checkpoint(latest_ckpt, save_optimizer=True, async_write=True)
         trainer._last_saved_step = step
-        log.info("Recovery checkpoint saved at step %d.", step)
+        log.info("Recovery checkpoint queued at step %d.", step)
 
     # Record the starting step so we don't save it immediately
     trainer._last_saved_step = trainer.step_count

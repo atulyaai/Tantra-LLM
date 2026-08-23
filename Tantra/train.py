@@ -19,6 +19,8 @@ import os
 import math
 import time
 import json
+import copy
+import threading
 import torch
 import torch.nn as nn
 from torch.optim import AdamW
@@ -542,50 +544,58 @@ class NeuroTrainer:
                 log.info(f"Step {self.step_count:>4d}/{steps} | Loss: {loss:.4f} | PPL: {ppl:.1f} | Acc: {acc:.2f}% | GradNorm: {grad_norm:.2f} | Speed: {tok_per_sec:.1f} tok/s [Self-Repair: OK]")
         return losses
 
-    def save_checkpoint(self, path: str, save_optimizer: bool = True) -> None:
-        """Save model checkpoint with self-contained tokenizer and max 5 checkpoint history cleanup."""
+    def save_checkpoint(self, path: str, save_optimizer: bool = True, async_write: bool = False) -> None:
+        """Save model checkpoint with self-contained tokenizer and max 2 checkpoint history cleanup."""
+        # Create an in-memory detached state dict clone to guarantee thread safety
+        model_sd = {k: (v.clone().half() if v.is_floating_point() else v.clone()) for k, v in self.model.state_dict().items()}
+        opt_sd = copy.deepcopy(self.optimizer.state_dict()) if save_optimizer else None
+
         ckpt_data = {
-            "model_state_dict": {k: v.half() if v.is_floating_point() else v for k, v in self.model.state_dict().items()},
+            "model_state_dict": model_sd,
             "config": getattr(self.model, "config", None),
             "step_count": self.step_count,
             "best_loss": getattr(self, "best_loss", float('inf')),
             "total_tokens": getattr(self, "total_tokens", 0),
             "training_hours": (time.perf_counter() - self._start_time) / 3600.0,
-            "scheduler_state_dict": self.scheduler.state_dict(),
+            "scheduler_state_dict": copy.deepcopy(self.scheduler.state_dict()),
             "total_steps": self.total_steps,
             "num_layers": len(getattr(getattr(self.model, "_orig_mod", self.model), "layers", [])),
         }
-        if save_optimizer:
-            ckpt_data["optimizer_state_dict"] = self.optimizer.state_dict()
+        if opt_sd is not None:
+            ckpt_data["optimizer_state_dict"] = opt_sd
 
-        target_dir = os.path.dirname(path) or "."
-        os.makedirs(target_dir, exist_ok=True)
-        # Never write directly over the only resumable checkpoint. A forced
-        # stop or power loss during torch.save otherwise leaves a truncated
-        # zip archive that cannot be resumed. os.replace is atomic on the
-        # same volume: either the previous checkpoint or the complete new one
-        # is available after an interruption.
-        temporary_path = path + ".tmp"
-        try:
-            torch.save(ckpt_data, temporary_path)
-            os.replace(temporary_path, path)
-            meta_path = path + ".meta.json"
-            meta_temp = meta_path + ".tmp"
-            with open(meta_temp, "w", encoding="utf-8") as handle:
-                json.dump({"num_layers": ckpt_data["num_layers"], "step_count": self.step_count}, handle)
-            os.replace(meta_temp, meta_path)
-        except Exception:
+        step_num = self.step_count
+
+        def _disk_writer(data, target_path, step):
+            target_dir = os.path.dirname(target_path) or "."
+            os.makedirs(target_dir, exist_ok=True)
+            temporary_path = target_path + ".tmp"
             try:
-                if os.path.exists(temporary_path):
-                    os.remove(temporary_path)
-            except OSError:
-                pass
-            raise
-        log.info(f"Checkpoint saved -> {path}")
+                torch.save(data, temporary_path)
+                os.replace(temporary_path, target_path)
+                meta_path = target_path + ".meta.json"
+                meta_temp = meta_path + ".tmp"
+                with open(meta_temp, "w", encoding="utf-8") as handle:
+                    json.dump({"num_layers": data["num_layers"], "step_count": step}, handle)
+                os.replace(meta_temp, meta_path)
+            except Exception as ex:
+                try:
+                    if os.path.exists(temporary_path):
+                        os.remove(temporary_path)
+                except OSError:
+                    pass
+                log.warning(f"Failed checkpoint write to {target_path}: {ex}")
+                return
+            log.info(f"Checkpoint saved -> {target_path}")
 
-        # Auto-prune Checkpoints folder to keep at most 2 latest step checkpoints side by side
-        if "Checkpoints" in target_dir or "checkpoints" in target_dir:
-            self.prune_checkpoint_history(target_dir, max_keep=2)
+            if "Checkpoints" in target_dir or "checkpoints" in target_dir:
+                NeuroTrainer.prune_checkpoint_history(target_dir, max_keep=2)
+
+        if async_write:
+            t = threading.Thread(target=_disk_writer, args=(ckpt_data, path, step_num), daemon=True)
+            t.start()
+        else:
+            _disk_writer(ckpt_data, path, step_num)
 
     @staticmethod
     def prune_checkpoint_history(checkpoints_dir: str, max_keep: int = 2) -> None:
