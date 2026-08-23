@@ -339,36 +339,53 @@ class JSONLDataset(IterableDataset):
                         continue
 
                     clamped = torch.tensor(ids, dtype=torch.long).clamp_(0, self.vocab_size - 1).tolist()
-                    token_buffer.extend(clamped)
-                    if self.mask_non_assistant:
-                        mask_buffer.extend(is_target)
-                    else:
-                        mask_buffer.extend([True] * len(clamped))
-
-                    if self.insert_doc_boundaries:
-                        token_buffer.append(EOS_ID)
-                        mask_buffer.append(True)
 
                     effective_max = self.max_samples
                     if effective_max and num_workers > 1:
                         effective_max = max(1, effective_max // num_workers)
 
-                    while len(token_buffer) >= self.seq_len + 1:
-                        chunk_ids = token_buffer[: self.seq_len + 1]
-                        chunk_mask = mask_buffer[: self.seq_len + 1]
-                        token_buffer = token_buffer[self.seq_len:]
-                        mask_buffer = mask_buffer[self.seq_len:]
+                    if self.mask_non_assistant:
+                        # SFT Mode: Yield each individual conversation as an isolated sequence (zero cross-contamination)
+                        if len(clamped) < 2:
+                            continue
+                        pad_len = max(0, (self.seq_len + 1) - len(clamped))
+                        sample_ids = (clamped + [0] * pad_len)[: self.seq_len + 1]
+                        sample_mask = (is_target + [False] * pad_len)[: self.seq_len + 1]
 
-                        x = torch.tensor(chunk_ids[:-1], dtype=torch.long)
-                        y = torch.tensor(chunk_ids[1:], dtype=torch.long)
-                        y_is_target = torch.tensor(chunk_mask[1:], dtype=torch.bool)
+                        x = torch.tensor(sample_ids[:-1], dtype=torch.long)
+                        y = torch.tensor(sample_ids[1:], dtype=torch.long)
+                        y_is_target = torch.tensor(sample_mask[1:], dtype=torch.bool)
                         y = torch.where(y_is_target, y, torch.full_like(y, IGNORE_INDEX))
 
                         yield x, y
                         count += 1
                         if effective_max and count >= effective_max:
                             return
-            if not file_had_lines or effective_max is None:
+                    else:
+                        # Pre-training Mode: Continuous stream packing
+                        token_buffer.extend(clamped)
+                        mask_buffer.extend([True] * len(clamped))
+
+                        if self.insert_doc_boundaries:
+                            token_buffer.append(EOS_ID)
+                            mask_buffer.append(True)
+
+                        while len(token_buffer) >= self.seq_len + 1:
+                            chunk_ids = token_buffer[: self.seq_len + 1]
+                            chunk_mask = mask_buffer[: self.seq_len + 1]
+                            token_buffer = token_buffer[self.seq_len:]
+                            mask_buffer = mask_buffer[self.seq_len:]
+
+                            x = torch.tensor(chunk_ids[:-1], dtype=torch.long)
+                            y = torch.tensor(chunk_ids[1:], dtype=torch.long)
+                            y_is_target = torch.tensor(chunk_mask[1:], dtype=torch.bool)
+                            y = torch.where(y_is_target, y, torch.full_like(y, IGNORE_INDEX))
+
+                            yield x, y
+                            count += 1
+                            if effective_max and count >= effective_max:
+                                return
+            if not file_had_lines:
                 break
 
 
