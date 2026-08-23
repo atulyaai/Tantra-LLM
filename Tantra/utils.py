@@ -25,21 +25,29 @@ import numpy as np
 
 # ── Logging with Rich Fallback ────────────────────────────────────────────────
 
+is_colab = os.path.exists('/content') or os.environ.get('COLAB_GPU') is not None or os.environ.get('COLAB_RELEASE_TAG') is not None
+
 try:
     from rich.console import Console
     from rich.logging import RichHandler
     is_tty = getattr(sys.stdout, "isatty", lambda: False)()
-    if is_tty:
-        _console = Console(force_terminal=True, legacy_windows=False)
+    if is_colab or not is_tty:
+        _HAS_RICH = False
+        _console = None
     else:
-        _console = Console(force_terminal=False, width=120)
-    _HAS_RICH = True
+        _console = Console(force_terminal=True, legacy_windows=False)
+        _HAS_RICH = True
 except ImportError:
     _console = None
     _HAS_RICH = False
 
+class FlushStreamHandler(logging.StreamHandler):
+    def emit(self, record):
+        super().emit(record)
+        self.flush()
+
 def get_logger(name: str) -> logging.Logger:
-    """Get a logger (uses rich if available, standard logging otherwise)."""
+    """Get a logger (uses rich if available, standard unbuffered logging in Colab/containers)."""
     logger = logging.getLogger(name)
     logger.propagate = False
     if not logger.handlers:
@@ -47,8 +55,8 @@ def get_logger(name: str) -> logging.Logger:
             handler = RichHandler(console=_console, rich_tracebacks=True)
             handler.setFormatter(logging.Formatter("%(message)s", datefmt="[%X]"))
         else:
-            handler = logging.StreamHandler()
-            handler.setFormatter(logging.Formatter("[%(asctime)s] [%(name)s] %(levelname)s: %(message)s", datefmt="%H:%M:%S"))
+            handler = FlushStreamHandler(sys.stdout)
+            handler.setFormatter(logging.Formatter("[%(asctime)s] %(levelname)s: %(message)s", datefmt="%H:%M:%S"))
         logger.addHandler(handler)
         logger.setLevel(logging.INFO)
     return logger
