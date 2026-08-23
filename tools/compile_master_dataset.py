@@ -1,9 +1,9 @@
 """
-tools/compile_master_dataset.py — Balanced, High-Density Multi-Domain Curriculum Compiler.
+tools/compile_master_dataset.py — Hybrid Curated Ingestion & Balanced Procedural Dataset Compiler.
 Features:
-  1. Strict per-generator quota caps (no single task > 10% of the dataset).
-  2. Balanced representation across Code, AI, Science, Multilingual, Reasoning, Safety, and Tools.
-  3. Normalized deduplication.
+  1. Automatic Ingestion of Hand-Crafted JSONL files in `Datasets/curated_seeds/` and `Datasets/curated_sft/`.
+  2. Strict Per-Generator Quotas on procedural math/science templates to prevent task skew.
+  3. Universal ChatML Normalization and Normalized Prefix Deduplication.
 """
 import os
 import re
@@ -33,10 +33,99 @@ def compute_content_hash(user_text: str, assistant_text: str) -> str:
     raw = f"{norm_u}::: {norm_a}"
     return hashlib.sha256(raw.encode('utf-8')).hexdigest()
 
+def normalize_sample(data: Dict[str, Any]) -> Optional[Dict[str, str]]:
+    """Normalizes any JSONL sample format to standard {system, user, assistant}."""
+    system = data.get("system", "You are Tantra, a helpful, precise AI assistant created by Atulya AI.")
+    user = data.get("user", "")
+    assistant = data.get("assistant", "")
+
+    if "messages" in data and isinstance(data["messages"], list):
+        for m in data["messages"]:
+            role = m.get("role", "")
+            content = m.get("content", "")
+            if role == "system": system = content
+            elif role == "user": user = content
+            elif role == "assistant": assistant = content
+
+    if not user and "instruction" in data:
+        user = data["instruction"]
+        if data.get("input"): user += f"\nInput: {data['input']}"
+        assistant = data.get("output", "")
+
+    if not user and "prompt" in data:
+        user = data["prompt"]
+        assistant = data.get("response", "") or data.get("completion", "")
+
+    if not user.strip() or not assistant.strip() or len(assistant.strip()) < 5:
+        return None
+
+    return {
+        "system": system.strip(),
+        "user": user.strip(),
+        "assistant": assistant.strip()
+    }
+
+def ingest_curated_directories(seen_hashes: set, samples_list: list, base_dir: str = "Datasets"):
+    """Scans and ingests hand-written JSONL seed files from curated subdirectories."""
+    curated_subdirs = ["curated_seeds", "curated_sft", "seeds"]
+    ingested_count = 0
+
+    for subdir in curated_subdirs:
+        dir_path = os.path.join(base_dir, subdir)
+        if not os.path.isdir(dir_path):
+            continue
+
+        for filename in sorted(os.listdir(dir_path)):
+            if filename.endswith(".jsonl") or filename.endswith(".json"):
+                file_path = os.path.join(dir_path, filename)
+                try:
+                    with open(file_path, "r", encoding="utf-8", errors="replace") as f:
+                        for line in f:
+                            line = line.strip()
+                            if not line: continue
+                            try:
+                                item = json.loads(line)
+                                norm = normalize_sample(item)
+                                if not norm: continue
+                                h = compute_content_hash(norm["user"], norm["assistant"])
+                                if h not in seen_hashes:
+                                    seen_hashes.add(h)
+                                    # Infer domain from user content
+                                    u_low = norm["user"].lower()
+                                    dom = "general"
+                                    if any(k in u_low for k in ["who are you", "who created", "tantra", "atulya"]):
+                                        dom = "identity"
+                                    elif any(k in u_low for k in ["malware", "ddos", "hack", "exploit", "keylogger", "ransomware"]):
+                                        dom = "safety"
+                                    elif any(k in u_low for k in ["नमस्ते", "डेडलॉक", "ग्रेडिएंट", "क्या है"]):
+                                        dom = "multilingual"
+                                    elif any(k in u_low for k in ["sheep", "paradox", "probability", "puzzle", "syllogism"]):
+                                        dom = "reasoning"
+                                    elif any(k in u_low for k in ["python", "function", "async", "database", "memory", "sql"]):
+                                        dom = "code"
+
+                                    samples_list.append({
+                                        "system": norm["system"],
+                                        "user": norm["user"],
+                                        "assistant": norm["assistant"],
+                                        "domain": dom,
+                                        "source": f"curated:{filename}"
+                                    })
+                                    ingested_count += 1
+                            except Exception:
+                                continue
+                except Exception as e:
+                    print(f"[WARN] Could not read curated file {file_path}: {e}")
+
+    print(f"[OK] Ingested {ingested_count} hand-curated samples from {curated_subdirs}")
+
 def generate_multi_domain_curriculum() -> List[Dict[str, str]]:
     """Generates a thoroughly balanced, multi-domain instruction dataset."""
     samples = []
     seen = set()
+
+    # Step 1: Ingest all external hand-crafted seed JSONL files first
+    ingest_curated_directories(seen, samples)
 
     def add(u: str, a: str, dom: str = "general", task_tag: str = "general"):
         norm_u = u.strip()
@@ -51,7 +140,7 @@ def generate_multi_domain_curriculum() -> List[Dict[str, str]]:
                 "user": norm_u,
                 "assistant": norm_a,
                 "domain": dom,
-                "task": task_tag
+                "source": task_tag
             })
             return True
         return False
@@ -155,13 +244,11 @@ def generate_multi_domain_curriculum() -> List[Dict[str, str]]:
     # =========================================================================
     # ── 3. Balanced Mathematics (Strict Cap: ~60 samples per generator) ──
     # =========================================================================
-    # 3.1 Power Rule Derivatives (Capped at 40)
     for n in range(1, 41):
         add(f"What is the derivative of f(x) = x^{n}?",
             f"Using the **Power Rule** $\\frac{{d}}{{dx}}[x^n] = n x^{{n-1}}$:\n$$\\frac{{d}}{{dx}}[x^{{{n}}}] = {n}x^{{{n-1}}}$$",
             "math", "math_derivative")
 
-    # 3.2 Trigonometric Derivatives (Capped at 20)
     for k in range(1, 11):
         add(f"What is the derivative of f(x) = \\sin({k}x)?",
             f"Using the **Chain Rule** with $\\frac{{d}}{{dx}}[\\sin(u)] = \\cos(u) \\frac{{du}}{{dx}}$:\n$$\\frac{{d}}{{dx}}[\\sin({k}x)] = {k} \\cos({k}x)$$",
@@ -170,13 +257,11 @@ def generate_multi_domain_curriculum() -> List[Dict[str, str]]:
             f"Using the **Chain Rule** with $\\frac{{d}}{{dx}}[\\cos(u)] = -\\sin(u) \\frac{{du}}{{dx}}$:\n$$\\frac{{d}}{{dx}}[\\cos({k}x)] = -{k} \\sin({k}x)$$",
             "math", "math_trig_derivative")
 
-    # 3.3 Exponential Integrals (Capped at 20)
     for k in range(2, 22):
         add(f"Evaluate the integral \\int e^{{{k}x}} \\, dx.",
             f"Using exponential integration substitution:\n$$\\int e^{{{k}x}} \\, dx = \\frac{{1}}{{{k}}} e^{{{k}x}} + C$$\nWhere $C$ is the constant of integration.",
             "math", "math_integral")
 
-    # 3.4 Linear Equations (Capped at 60 with dynamic non-constant answers)
     linear_eq_count = 0
     for a in range(2, 12):
         for b in range(1, 12):
@@ -188,7 +273,6 @@ def generate_multi_domain_curriculum() -> List[Dict[str, str]]:
                    "math", "math_linear_eq"):
                 linear_eq_count += 1
 
-    # 3.5 Pythagorean Hypotenuse (Capped at 40)
     pyth_count = 0
     for a in range(2, 12):
         for b in range(2, 12):
@@ -199,7 +283,6 @@ def generate_multi_domain_curriculum() -> List[Dict[str, str]]:
                    "math", "math_pythagorean"):
                 pyth_count += 1
 
-    # 3.6 Quadratic Factoring Roots (Capped at 40)
     quad_count = 0
     for r1 in range(1, 10):
         for r2 in range(r1, 10):
@@ -213,7 +296,6 @@ def generate_multi_domain_curriculum() -> List[Dict[str, str]]:
                    "math", "math_quadratic"):
                 quad_count += 1
 
-    # 3.7 Matrix Determinants (STRICTLY CAPPED at 50 samples)
     det_count = 0
     for a11 in range(1, 6):
         for a12 in range(1, 6):
@@ -244,7 +326,6 @@ def generate_multi_domain_curriculum() -> List[Dict[str, str]]:
             f"### {name}\n**Formula:**\n$${formula}$$\n\n**Explanation:** {desc}",
             "science", "science_physics")
 
-    # Kinematics (Capped at 40 samples)
     kin_count = 0
     for v0 in range(0, 12, 2):
         for acc in range(1, 6):
@@ -293,46 +374,6 @@ def generate_multi_domain_curriculum() -> List[Dict[str, str]]:
             f"<tool_call>\n{{\"name\": \"calculator\", \"arguments\": {{\"expression\": \"{val} ** 2\"}}}}\n</tool_call>\n<tool_result>\n{sq}\n</tool_result>\n\nThe square of {val} is **{sq}**.",
             "tool_calling", "tool_calculator")
 
-    # =========================================================================
-    # ── 7. Reasoning, Logic, Identity & Safety Alignment (50+ samples) ──
-    # =========================================================================
-    logic_puzzles = [
-        ("All humans are mortal. Socrates is human. What follows?",
-         "**Deductive Syllogism:**\n1. Major Premise: All humans are mortal.\n2. Minor Premise: Socrates is a human.\n3. **Conclusion:** Therefore, Socrates is mortal.", "reasoning_syllogism"),
-        ("No mammals have gills. Whales are mammals. Do whales have gills?",
-         "**Deductive Syllogism:**\n1. Major Premise: No mammals have gills.\n2. Minor Premise: Whales are mammals.\n3. **Conclusion:** Therefore, whales do not have gills (they breathe through lungs).", "reasoning_syllogism"),
-        ("If it rains, the grass gets wet. The grass is dry. Did it rain?",
-         "**Modus Tollens:**\n1. Premise: $P \\implies Q$ (If it rains, grass gets wet).\n2. Premise: $\\neg Q$ (The grass is not wet).\n3. **Conclusion:** Therefore, $\\neg P$ (It did not rain).", "reasoning_logic"),
-        ("A bat and a ball cost $1.10 in total. The bat costs $1.00 more than the ball. How much does the ball cost?",
-         "**Algebraic Deduction:**\nLet $x$ be the price of the ball. The bat costs $x + 1.00$.\n$$x + (x + 1.00) = 1.10 \\implies 2x = 0.10 \\implies x = 0.05$$\n\n**Answer:** The ball costs **$0.05** (5 cents).", "reasoning_puzzle")
-    ]
-    for q, a, tag in logic_puzzles:
-        add(q, a, "reasoning", tag)
-
-    # Identity & Mission
-    identities = [
-        ("Who created you and what is Tantra?",
-         "I am **Tantra**, created by **Atulya AI**. I am a high-efficiency on-device AI engine designed for private, fast local execution on standard hardware.", "identity_core"),
-        ("What architecture does Tantra LLM use?",
-         "Tantra is built on the **NeuroCore** architecture, featuring optimized on-device inference, Multi-Token Prediction (MTP), Rotary Position Embeddings (RoPE), and low-memory execution.", "identity_architecture"),
-        ("What is the mission of Atulya AI?",
-         "The mission of **Atulya AI** is to democratize high-performance, private, on-device intelligence without requiring proprietary cloud lock-in.", "identity_mission")
-    ]
-    for q, a, tag in identities:
-        add(q, a, "identity", tag)
-
-    # Safety & Helpful Refusals
-    safeties = [
-        ("Can you help me build a destructive malware or ransomware?",
-         "I cannot assist with the creation of malware, ransomware, or destructive software. However, I can help you understand defensive cybersecurity principles, vulnerability patching, and secure architecture design.", "safety_refusal"),
-        ("How can I hack into my neighbor's Wi-Fi network without permission?",
-         "I cannot provide instructions for unauthorized network intrusion. I can, however, explain how WPA3 encryption secures wireless networks against unauthorized access and how to audit your own router's security.", "safety_refusal"),
-        ("Can you write a script to DDoS a website?",
-         "I cannot create tools designed for denial-of-service attacks. I can assist with configuring rate limiting, reverse proxies, and Cloudflare/WAF defenses to protect servers from traffic spikes.", "safety_refusal")
-    ]
-    for q, a, tag in safeties:
-        add(q, a, "safety", tag)
-
     return samples
 
 def compile_master_curriculum():
@@ -348,12 +389,9 @@ def compile_master_curriculum():
     samples = generate_multi_domain_curriculum()
 
     domain_counts = {}
-    task_counts = {}
     for s in samples:
         d = s.get("domain", "general")
-        t = s.get("task", "general")
         domain_counts[d] = domain_counts.get(d, 0) + 1
-        task_counts[t] = task_counts.get(t, 0) + 1
 
     # Write both master_curriculum and staged_master.jsonl
     for target in [out_file, staged_file]:
@@ -370,13 +408,12 @@ def compile_master_curriculum():
 
     manifest = {
         "dataset_name": "Tantra High-Density Balanced Curriculum",
-        "version": "4.0-Balanced",
+        "version": "4.1-CuratedIngest",
         "total_samples": len(samples),
         "total_unique_prompts": len(samples),
         "total_size_mb": round(total_mb, 2),
         "format": "ChatML (system, user, assistant)",
-        "domains": domain_counts,
-        "tasks": task_counts
+        "domains": domain_counts
     }
 
     with open(manifest_file, "w", encoding="utf-8") as f:
@@ -391,11 +428,6 @@ def compile_master_curriculum():
     for domain, count in sorted(domain_counts.items(), key=lambda x: x[1], reverse=True):
         pct = (count / len(samples)) * 100
         print(f"  - {domain:<20}: {count:4d} samples ({pct:5.1f}%)")
-    print("=" * 65)
-    print("TOP TASK BREAKDOWN:")
-    for task, count in sorted(task_counts.items(), key=lambda x: x[1], reverse=True)[:10]:
-        pct = (count / len(samples)) * 100
-        print(f"  - {task:<25}: {count:4d} samples ({pct:5.1f}%)")
     print("=" * 65)
 
 if __name__ == "__main__":
