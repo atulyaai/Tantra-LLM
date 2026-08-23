@@ -43,6 +43,12 @@ Datasets/*.jsonl
 Datasets/**/*.jsonl
 !Datasets/manifest.json
 !Datasets/staged_master.jsonl
+!Datasets/curated_seeds/*.jsonl
+!Datasets/curated_seeds/**/*.jsonl
+!Datasets/curated_sft/*.jsonl
+!Datasets/curated_sft/**/*.jsonl
+!Datasets/seeds/*.jsonl
+!Datasets/seeds/**/*.jsonl
 !Model/sample_model.pt
 Model/memory_bank.json
 Model/saved_chats.json
