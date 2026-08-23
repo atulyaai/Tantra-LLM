@@ -729,9 +729,15 @@ async def chat_completions(request: Request):
         if stop_str in text_out:
             text_out = text_out.split(stop_str)[0]
 
-    # Execute tool calls if emitted (<tool_call> -> <tool_result>)
+    # Execute tool calls if emitted (<tool_call> -> <tool_result>).
+    # sandbox_enabled=SANDBOX_ENABLED: previously this ran unconditionally on
+    # every non-streaming chat completion regardless of the operator's own
+    # opt-in setting for code execution (the same TANTRA_ENABLE_SANDBOX flag
+    # /api/sandbox/run already requires) -- meaning ordinary chat requests
+    # could trigger unauthenticated code execution / file reads even when
+    # the operator never enabled the sandbox at all.
     from Tantra.tool_router import parse_and_execute_tool_calls
-    text_out, _ = parse_and_execute_tool_calls(text_out)
+    text_out, _ = parse_and_execute_tool_calls(text_out, sandbox_enabled=SANDBOX_ENABLED)
 
     elapsed = time.perf_counter() - start_time
     tok_s = len(gen_tokens) / max(elapsed, 1e-6)
