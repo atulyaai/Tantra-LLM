@@ -147,11 +147,13 @@ def generate_multi_domain_curriculum() -> List[Dict[str, str]]:
             f"Using exponential integration substitution:\n$$\\int e^{{{k}x}} \\, dx = \\frac{{1}}{{{k}}} e^{{{k}x}} + C$$\nWhere $C$ is the constant of integration.",
             "math")
 
-    for a in range(2, 25):
-        for b in range(1, 25):
-            c = a * 6 + b
+    for a in range(2, 16):
+        for b in range(1, 16):
+            # Dynamic target solution x_ans varying across 1 to 17 based on coefficients
+            x_ans = ((a * 3 + b * 7) % 17) + 1
+            c = a * x_ans + b
             add(f"Solve for x in the equation: {a}x + {b} = {c}",
-                f"1. Subtract {b} from both sides:\n$${a}x = {c} - {b} \\implies {a}x = {c-b}$$\n2. Divide both sides by {a}:\n$$x = \\frac{{{c-b}}}{{{a}}} = 6$$\n\n**Solution:** $x = 6$",
+                f"1. Subtract {b} from both sides:\n$${a}x = {c} - {b} \\implies {a}x = {c-b}$$\n2. Divide both sides by {a}:\n$$x = \\frac{{{c-b}}}{{{a}}} = {x_ans}$$\n\n**Solution:** $x = {x_ans}$",
                 "math")
 
     for a in range(1, 15):
@@ -177,14 +179,14 @@ def generate_multi_domain_curriculum() -> List[Dict[str, str]]:
             f"### {name}\n**Formula:**\n$${formula}$$\n\n**Explanation:** {desc}",
             "science")
 
-    for v0 in range(0, 20, 2):
-        for acc in range(1, 10):
-            t = 5
-            v_final = v0 + acc * t
-            dist = v0 * t + 0.5 * acc * (t ** 2)
-            add(f"A car starts at initial velocity {v0} m/s and accelerates at {acc} m/s^2 for {t} seconds. Find final velocity and distance traveled.",
-                f"1. **Final Velocity:** $v = v_0 + at = {v0} + ({acc} \\times {t}) = {v_final}\\text{{ m/s}}$\n2. **Distance Traveled:** $s = v_0 t + \\frac{{1}}{{2}}at^2 = ({v0} \\times {t}) + (0.5 \\times {acc} \\times {t**2}) = {dist}\\text{{ meters}}$\n\n**Results:** $v = {v_final}\\text{{ m/s}}$, $s = {dist}\\text{{ m}}$",
-                "science")
+    for v0 in range(0, 16, 2):
+        for acc in range(1, 8):
+            for t in [2, 3, 5, 8]:
+                v_final = v0 + acc * t
+                dist = v0 * t + 0.5 * acc * (t ** 2)
+                add(f"A car starts at initial velocity {v0} m/s and accelerates at {acc} m/s^2 for {t} seconds. Find final velocity and distance traveled.",
+                    f"1. **Final Velocity:** $v = v_0 + at = {v0} + ({acc} \\times {t}) = {v_final}\\text{{ m/s}}$\n2. **Distance Traveled:** $s = v_0 t + \\frac{{1}}{{2}}at^2 = ({v0} \\times {t}) + (0.5 \\times {acc} \\times {t**2}) = {dist}\\text{{ meters}}$\n\n**Results:** $v = {v_final}\\text{{ m/s}}$, $s = {dist}\\text{{ m}}$",
+                    "science")
 
     # ── 4. Multilingual & Hindi (हिंदी) Technical ──
     hindi_tech = [
