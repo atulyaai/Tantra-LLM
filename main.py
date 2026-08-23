@@ -963,6 +963,7 @@ def main():
             if isinstance(_ckpt, dict):
                 _ckpt_cfg = _ckpt.get("config", None)
                 if _ckpt_cfg is not None:
+                    _ckpt_cfg.vocab.vocab_size = vcfg.vocab_size
                     mcfg = _ckpt_cfg
                     log.info("Rebuilt model architecture from checkpoint config "
                              f"(dim={_ckpt_cfg.block.alra.dim}, layers={_ckpt_cfg.block.num_layers}, vocab={_ckpt_cfg.vocab.vocab_size}).")
