@@ -384,13 +384,7 @@ def init_experts(moe_cfg, model_cfg, codec):
         for i, spec in enumerate(DOMAIN_SPECS):
             reg.register_new(i, spec, 2_000_000_000)
         log.info(f"  Registered {len(reg)} domain experts: {', '.join(DOMAIN_SPECS)}")
-        
-    sample_expert_weight = torch.randn(1024, 1024, dtype=torch.float32)
-    dna_path = os.path.join(EXPERTS_DIR, "expert_0.dna")
-    if not os.path.exists(dna_path):
-        codec.compress(sample_expert_weight, dna_path)
-        log.info(f"  Compressed expert_0 weight tensor -> {dna_path}")
-        
+
     return reg, LazyExpertLoader(moe_cfg, model_cfg, reg, codec)
 
 
