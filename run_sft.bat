@@ -4,6 +4,6 @@ color 0B
 echo ============================================================
 echo        TANTRA NEUROCORE INSTRUCTION FINE-TUNING (SFT)
 echo ============================================================
-cd /d "D:\Atulya Tantra\Tantra-LLM"
-python main.py --mode dataset --dataset Datasets --steps 3000 --resume --lr 2e-5 --grad-accum 4 --seq-len 512 --eval-every 250 --log-every 25 --training-stage sft
+cd /d "%~dp0"
+python main.py --mode dataset --dataset Datasets/staged_master.jsonl --steps 10000 --resume --lr 1e-4 --grad-accum 4 --seq-len 512 --eval-every 500 --checkpoint-every 500 --training-stage sft
 pause

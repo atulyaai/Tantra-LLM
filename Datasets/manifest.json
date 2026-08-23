@@ -1,14 +1,18 @@
 {
-  "dataset_name": "Tantra 50K Mega Synthetic Curriculum",
-  "total_samples": 50000,
-  "size_mb": 27.31,
+  "dataset_name": "Tantra High-Density Multi-Domain Curriculum",
+  "version": "3.0-Deduplicated",
+  "total_samples": 1425,
+  "total_unique_prompts": 1425,
+  "total_size_mb": 0.58,
   "format": "ChatML (system, user, assistant)",
-  "domains": [
-    "Algorithms & Python",
-    "Mathematics & Calculus",
-    "Tool Calling (<tool_call>)",
-    "Physics & Natural Science",
-    "Indic / Hindi Technical",
-    "Identity Alignment"
-  ]
+  "domains": {
+    "code": 173,
+    "math": 1064,
+    "science": 98,
+    "multilingual": 8,
+    "tool_calling": 78,
+    "reasoning": 2,
+    "identity": 1,
+    "safety": 1
+  }
 }
