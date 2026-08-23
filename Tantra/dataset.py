@@ -127,28 +127,40 @@ def format_jsonl_prompt(item: Dict[str, Any]) -> str:
 def build_prompt_segments(item: Dict[str, Any]) -> Optional[List[Tuple[str, bool]]]:
     """Split a chat-formatted item into (text, is_target) segments.
 
-    Returns None if `item` doesn't look like a structured chat record (no
-    `messages` list and no system/user/assistant fields) — callers should
-    fall back to treating the whole line as fully-supervised raw text.
+    Supports:
+      - messages: [{"role": "...", "content": "..."}]
+      - conversations: [{"from": "human/gpt", "value": "..."}]
+      - system / user / assistant
+      - instruction / input / output (Alpaca format)
+      - prompt / response or prompt / completion
     """
     segments: List[Tuple[str, bool]] = []
 
-    messages = item.get("messages")
+    # 1. Standard OpenAI chat messages format
+    messages = item.get("messages") or item.get("conversations")
     if messages and isinstance(messages, list):
         for msg in messages:
-            role = msg.get("role", "").strip()
-            content = msg.get("content", "").strip()
+            role = (msg.get("role") or msg.get("from") or "").strip()
+            content = (msg.get("content") or msg.get("value") or "").strip()
             if not (role and content):
                 continue
-            tag = f"<|{'system' if role == 'system' else role}|>\n"
+            norm_role = "assistant" if role in ("assistant", "gpt", "bot", "model") else ("user" if role in ("user", "human") else "system")
+            tag = f"<|{norm_role}|>\n"
             segments.append((tag, False))
-            segments.append((content, role == "assistant"))
+            segments.append((content, norm_role == "assistant"))
             segments.append(("\n\n", False))
         return segments if segments else None
 
-    system = item.get("system", "").strip() if isinstance(item.get("system", ""), str) else ""
-    user = item.get("user", "").strip() if isinstance(item.get("user", ""), str) else ""
-    assistant = item.get("assistant", "").strip() if isinstance(item.get("assistant", ""), str) else ""
+    # 2. Extract flat system, user, assistant fields (including Alpaca & prompt/response aliases)
+    system = (item.get("system") or item.get("system_prompt") or "").strip()
+    user = (item.get("user") or item.get("prompt") or item.get("query") or "").strip()
+    assistant = (item.get("assistant") or item.get("response") or item.get("completion") or item.get("output") or "").strip()
+
+    # If Alpaca-style instruction (+ optional input):
+    instruction = item.get("instruction", "").strip() if isinstance(item.get("instruction", ""), str) else ""
+    input_text = item.get("input", "").strip() if isinstance(item.get("input", ""), str) else ""
+    if instruction:
+        user = f"{instruction}\n\n{input_text}".strip() if input_text else instruction
 
     if not (system or user or assistant):
         return None

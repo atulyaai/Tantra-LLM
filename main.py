@@ -595,12 +595,11 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
         if training_stage == "sft":
             log.info(f"  [SFT Stage] Re-initializing optimizer & scheduler for instruction fine-tuning (LR={lr:.2e}, warmup={warmup}).")
             trainer.lr = lr
-            trainer.optimizer = torch.optim.AdamW(trainer.model.parameters(), lr=lr, betas=(0.9, 0.95), weight_decay=0.1, eps=1e-8)
+            trainer.optimizer = torch.optim.AdamW(trainer.model.parameters(), lr=lr, betas=(0.9, 0.95), weight_decay=0.01, eps=1e-8)
             sft_steps = max(steps - trainer.step_count, 100)
             actual_warmup = max(1, min(warmup, sft_steps // 5))
-            warmup_sched = torch.optim.lr_scheduler.LinearLR(trainer.optimizer, start_factor=0.05, end_factor=1.0, total_iters=actual_warmup)
-            cosine_sched = torch.optim.lr_scheduler.CosineAnnealingLR(trainer.optimizer, T_max=max(sft_steps - actual_warmup, 50), eta_min=1e-6)
-            trainer.scheduler = torch.optim.lr_scheduler.SequentialLR(trainer.optimizer, schedulers=[warmup_sched, cosine_sched], milestones=[actual_warmup])
+            from Tantra.train import create_lr_scheduler
+            trainer.scheduler = create_lr_scheduler(trainer.optimizer, warmup_steps=actual_warmup, total_steps=sft_steps, min_lr_ratio=0.01)
     else:
         log.info("Starting fresh dataset training run.")
 
@@ -787,8 +786,9 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
         dataset, batch_size=batch_size, num_workers=data_workers,
         persistent_workers=data_workers > 0, prefetch_factor=4 if data_workers > 0 else None,
     )
+    enrichment = 0.0 if training_stage == "sft" else 0.02
     try:
-        trainer.train_dataset(dataloader, max_steps=steps, log_every=log_every, eval_every=eval_every, eval_callback=eval_callback, checkpoint_every=checkpoint_every, checkpoint_callback=checkpoint_callback, tokenizer=tokenizer, use_latent_reasoning=use_latent_reasoning, auto_growth=auto_growth, growth_patience=growth_patience, growth_min_delta=growth_min_delta, max_layers=max_layers)
+        trainer.train_dataset(dataloader, max_steps=steps, log_every=log_every, eval_every=eval_every, eval_callback=eval_callback, checkpoint_every=checkpoint_every, checkpoint_callback=checkpoint_callback, tokenizer=tokenizer, enrichment_rate=enrichment, use_latent_reasoning=use_latent_reasoning, auto_growth=auto_growth, growth_patience=growth_patience, growth_min_delta=growth_min_delta, max_layers=max_layers)
     except KeyboardInterrupt:
         # Ctrl+C happens after an optimizer boundary in many practical runs.
         # Save that completed state before allowing the process to stop.

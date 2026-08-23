@@ -43,6 +43,37 @@ def generate_synthetic_batch(vocab_size: int = 32000, batch_size: int = 2, seq_l
     return x, y
 
 
+def create_lr_scheduler(
+    optimizer: torch.optim.Optimizer,
+    warmup_steps: int,
+    total_steps: int,
+    min_lr_ratio: float = 0.05,
+    start_factor: float = 1e-3,
+) -> torch.optim.lr_scheduler.LambdaLR:
+    """Creates a strictly clamped linear warmup + cosine decay LR schedule.
+
+    CRITICAL FIX (Oscillation Prevention):
+    Standard PyTorch CosineAnnealingLR is periodic (cos(pi * t / T_max)) and oscillates
+    back up to peak LR when training steps exceed T_max (e.g. on resume or long runs).
+    This function clamps progress at 1.0 once current_step >= total_steps, keeping the LR
+    strictly locked at min_lr_ratio * base_lr without oscillation.
+    """
+    total_steps = max(1, int(total_steps))
+    actual_warmup = max(1, min(int(warmup_steps), max(1, total_steps // 10)))
+    decay_steps = max(1, total_steps - actual_warmup)
+
+    def lr_lambda(step: int) -> float:
+        if step < actual_warmup:
+            return max(start_factor, float(step) / float(actual_warmup))
+        if step >= total_steps:
+            return min_lr_ratio
+        progress = float(step - actual_warmup) / float(decay_steps)
+        cosine_decay = 0.5 * (1.0 + math.cos(math.pi * progress))
+        return min_lr_ratio + (1.0 - min_lr_ratio) * cosine_decay
+
+    return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
+
+
 class NeuroTrainer:
     """Minimal, robust trainer for NeuroCore models."""
 
@@ -61,12 +92,11 @@ class NeuroTrainer:
         self.optimizer = AdamW(trainable_parameters, lr=lr, weight_decay=weight_decay)
 
         self.total_steps = total_steps
+        self.warmup_steps = warmup_steps
+        self.lr = lr
 
-        # 1,000 step Linear Warmup followed by Cosine Annealing decay down to 1e-5
-        actual_warmup = min(warmup_steps, max(1, total_steps // 10))
-        warmup_sched = torch.optim.lr_scheduler.LinearLR(self.optimizer, start_factor=1e-3, end_factor=1.0, total_iters=actual_warmup)
-        cosine_sched = torch.optim.lr_scheduler.CosineAnnealingLR(self.optimizer, T_max=max(total_steps - actual_warmup, 100), eta_min=1e-5)
-        self.scheduler = torch.optim.lr_scheduler.SequentialLR(self.optimizer, schedulers=[warmup_sched, cosine_sched], milestones=[actual_warmup])
+        # Non-oscillating clamped linear warmup + cosine decay
+        self.scheduler = create_lr_scheduler(self.optimizer, warmup_steps=warmup_steps, total_steps=total_steps, min_lr_ratio=0.05)
 
         self.criterion = nn.CrossEntropyLoss(ignore_index=IGNORE_INDEX)
         self.step_count = 0
@@ -76,7 +106,6 @@ class NeuroTrainer:
         self._session_tokens = 0   # tokens in THIS training run only (not restored from checkpoint)
         self._start_time = time.perf_counter()
         self._status_history: list[dict] = []
-        self.warmup_steps = warmup_steps
 
         self.grad_accumulation_steps = max(1, grad_accumulation_steps)
         self._micro_step = 0
@@ -96,10 +125,7 @@ class NeuroTrainer:
         if not trainable_parameters:
             raise ValueError("No trainable parameters are enabled after refresh.")
         self.optimizer = AdamW(trainable_parameters, lr=lr, weight_decay=0.01)
-        actual_warmup = min(int(self.warmup_steps), max(1, int(self.total_steps) // 10))
-        warmup_sched = torch.optim.lr_scheduler.LinearLR(self.optimizer, start_factor=1e-3, end_factor=1.0, total_iters=actual_warmup)
-        cosine_sched = torch.optim.lr_scheduler.CosineAnnealingLR(self.optimizer, T_max=max(int(self.total_steps) - actual_warmup, 100), eta_min=1e-5)
-        self.scheduler = torch.optim.lr_scheduler.SequentialLR(self.optimizer, schedulers=[warmup_sched, cosine_sched], milestones=[actual_warmup])
+        self.scheduler = create_lr_scheduler(self.optimizer, warmup_steps=self.warmup_steps, total_steps=self.total_steps, min_lr_ratio=0.05)
 
     def _write_training_status(self, **status: Any) -> None:
         """Publish real training state for the local Web UI and recovery logs."""
@@ -236,7 +262,7 @@ class NeuroTrainer:
         out[keep] = out[keep].clamp(0, vocab_size - 1)
         return out
 
-    def train_dataset(self, data_stream: Iterable[Tuple[torch.Tensor, torch.Tensor]], max_steps: int = 100, log_every: int = 10, eval_every: int = 0, eval_callback = None, checkpoint_every: int = 0, checkpoint_callback = None, tokenizer: Optional[Any] = None, enrichment_rate: float = 0.35, use_latent_reasoning: bool = True, auto_growth: bool = False, growth_patience: int = 1000, growth_min_delta: float = 0.005, max_layers: Optional[int] = None) -> list[float]:
+    def train_dataset(self, data_stream: Iterable[Tuple[torch.Tensor, torch.Tensor]], max_steps: int = 100, log_every: int = 10, eval_every: int = 0, eval_callback = None, checkpoint_every: int = 0, checkpoint_callback = None, tokenizer: Optional[Any] = None, enrichment_rate: float = 0.02, use_latent_reasoning: bool = True, auto_growth: bool = False, growth_patience: int = 1000, growth_min_delta: float = 0.005, max_layers: Optional[int] = None) -> list[float]:
         """Train over an iterable dataset stream (e.g. JSONLDataset).
 
         `tokenizer`: optional UnifiedTokenizer-like object (must expose
@@ -275,7 +301,7 @@ class NeuroTrainer:
             ("Who created Tantra?", "Tantra LLM is created by the Tantra Engineering Team."),
             ("Explain artificial intelligence.", "AI is the simulation of human intelligence by computer systems."),
         ]
-        if tokenizer is not None:
+        if tokenizer is not None and enrichment_rate > 0.0:
             for question, answer in synthetic_qa_pairs:
                 try:
                     q_ids = tokenizer.encode(question)
@@ -285,7 +311,7 @@ class NeuroTrainer:
                 except Exception as e:
                     log.warning(f"Could not tokenize TokenJuice synthetic pair ({question!r}): {e}")
         else:
-            log.debug("No tokenizer passed to train_dataset(); TokenJuice enrichment disabled for this run.")
+            log.debug("TokenJuice enrichment disabled for this run (enrichment_rate <= 0 or no tokenizer).")
 
         losses = []
         try:
@@ -622,6 +648,10 @@ class NeuroTrainer:
         self.step_count = ckpt.get("step_count", 0)
         self.best_loss = ckpt.get("best_loss", float('inf'))
         self.total_tokens = ckpt.get("total_tokens", 0)
+        if "total_steps" in ckpt:
+            self.total_steps = max(int(self.total_steps), int(ckpt["total_steps"]))
+        if "warmup_steps" in ckpt:
+            self.warmup_steps = int(ckpt["warmup_steps"])
 
         if "scheduler_state_dict" in ckpt:
             try:
