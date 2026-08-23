@@ -572,7 +572,9 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
             key=os.path.getmtime,
             reverse=True,
         )
-        candidates = [latest_ckpt, *step_checkpoints, best_ckpt]
+        root_ckpt = os.path.join(checkpoint_root, "checkpoint_latest.pt")
+        local_latest = os.path.join(MODEL_DIR, "Latest", "checkpoint_latest.pt")
+        candidates = [latest_ckpt, root_ckpt, local_latest, *step_checkpoints, best_ckpt]
         seen = set()
         for candidate in candidates:
             if candidate in seen or not os.path.isfile(candidate):
@@ -944,13 +946,14 @@ def main():
     # fail on every router tensor.
     if len(reg) > 0:
         mcfg.moe.num_experts = len(reg)
-    latest_ckpt_file = os.path.join(args.model_dir or MODEL_DIR, "Latest", "checkpoint_latest.pt")
+    ckpt_candidates = [
+        os.path.join(args.model_dir or MODEL_DIR, "Latest", "checkpoint_latest.pt"),
+        os.path.join(args.model_dir or MODEL_DIR, "checkpoint_latest.pt"),
+        os.path.join(MODEL_DIR, "Latest", "checkpoint_latest.pt"),
+        os.path.join(MODEL_DIR, "checkpoint_latest.pt"),
+    ]
+    latest_ckpt_file = next((p for p in ckpt_candidates if os.path.exists(p) and os.path.getsize(p) > 10 * 1024 * 1024), ckpt_candidates[0])
     restore_checkpoint_architecture(mcfg, latest_ckpt_file)
-    # When the latest checkpoint embeds its own architecture config (as the
-    # CPU-profile trainer saves now), rebuild the model from it instead of
-    # NeuroCoreConfig.small(). Otherwise a checkpoint trained as 38.6M causal /
-    # 512-dim loads into the 178M ALRA skeleton and every tensor mismatches,
-    # silently leaving the model at random weights (garbage chat output).
     _ckpt_path = latest_ckpt_file
     if os.path.exists(_ckpt_path) and os.path.getsize(_ckpt_path) > 10 * 1024 * 1024 and mcfg is not None:
         try:
