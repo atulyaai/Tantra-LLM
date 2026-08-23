@@ -149,7 +149,7 @@ async function switchSession(sid) {
     const messagesDiv = document.getElementById('chat-messages');
     messagesDiv.innerHTML = session.messages.map(m => `
         <div class="message-row ${m.role}">
-            <div class="message-avatar">${m.role === 'user' ? 'YOU' : '<img src="/assets/tantra_avatar_ai.jpg" onerror="this.src=\'/assets/tantra_logo.jpg\';">'}</div>
+            <div class="message-avatar">${m.role === 'user' ? 'YOU' : '<img src="/assets/tantra_logo.jpg" alt="AI">'}</div>
             <div class="message-bubble">${window.DOMPurify ? DOMPurify.sanitize(marked.parse(m.content)) : marked.parse(m.content)}</div>
         </div>
     `).join('');
@@ -240,7 +240,7 @@ async function sendMessage() {
     assistantRow.className = 'message-row assistant';
     const msgId = 'reply-' + Date.now();
     assistantRow.innerHTML = `
-        <div class="message-avatar"><img src="/assets/tantra_avatar_ai.jpg" onerror="this.src='/assets/tantra_logo.jpg';"></div>
+        <div class="message-avatar"><img src="/assets/tantra_logo.jpg" alt="AI"></div>
         <div class="message-bubble" id="${msgId}">⚡ <i>Thinking...</i></div>
     `;
     messagesDiv.appendChild(assistantRow);
