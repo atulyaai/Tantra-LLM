@@ -626,14 +626,14 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
         log.info(f"   --- [ MULTI-DOMAIN EVALUATION @ Step {step} ] ---")
         log.info("=" * 60)
         test_prompts = [
-            ("General", "<|user|>\nWhat is Tantra LLM?\n<|assistant|>\n"),
-            ("Coding", "<|user|>\nWrite a Python function to reverse a string.\n<|assistant|>\n"),
-            ("Math", "<|user|>\nSolve for x in 2x + 6 = 14.\n<|assistant|>\n"),
-            ("Science", "<|user|>\nState Newton's First Law of Motion.\n<|assistant|>\n")
+            ("General", "<|user|>\nWhat is Tantra LLM?\n\n<|assistant|>\n"),
+            ("Coding", "<|user|>\nWrite a Python function to reverse a string.\n\n<|assistant|>\n"),
+            ("Math", "<|user|>\nSolve for x in 2x + 6 = 14.\n\n<|assistant|>\n"),
+            ("Science", "<|user|>\nState Newton's First Law of Motion.\n\n<|assistant|>\n")
         ]
         for domain, prompt_text in test_prompts:
             prompt_ids = torch.tensor([tokenizer.encode(prompt_text)], device=model.embed.weight.device)
-            out = model.generate(prompt_ids, max_new_tokens=48, min_new_tokens=10, temperature=0.7, top_p=0.9, use_mtp_speculation=True)
+            out = model.generate(prompt_ids, max_new_tokens=64, min_new_tokens=1, temperature=0.25, top_p=0.85)
             new_tokens = out[0, prompt_ids.shape[1]:].tolist()
             response = tokenizer.decode(new_tokens)
             log.info(f"[{domain.upper()}] {response.strip()}")
@@ -958,7 +958,6 @@ def main():
             if isinstance(_ckpt, dict):
                 _ckpt_cfg = _ckpt.get("config", None)
                 if _ckpt_cfg is not None:
-                    _ckpt_cfg.vocab.vocab_size = vcfg.vocab_size
                     mcfg = _ckpt_cfg
                     log.info("Rebuilt model architecture from checkpoint config "
                              f"(dim={_ckpt_cfg.block.alra.dim}, layers={_ckpt_cfg.block.num_layers}, vocab={_ckpt_cfg.vocab.vocab_size}).")

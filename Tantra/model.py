@@ -69,10 +69,10 @@ class RotaryPositionalEncoding:
         x2 = x[..., x.shape[-1] // 2 :]
         return torch.cat((-x2, x1), dim=-1)
 
-    def apply(self, q: Tensor, k: Tensor, seq_len: int) -> Tuple[Tensor, Tensor]:
-        cos, sin = self.get_cos_sin(seq_len, q.device)
-        cos = cos.unsqueeze(0).unsqueeze(0)
-        sin = sin.unsqueeze(0).unsqueeze(0)
+    def apply(self, q: Tensor, k: Tensor, seq_len: int, offset: int = 0) -> Tuple[Tensor, Tensor]:
+        cos, sin = self.get_cos_sin(offset + seq_len, q.device)
+        cos = cos[offset : offset + seq_len].unsqueeze(0).unsqueeze(0)
+        sin = sin[offset : offset + seq_len].unsqueeze(0).unsqueeze(0)
 
         q_rotated = (q * cos) + (self._rotate_half(q) * sin)
         k_rotated = (k * cos) + (self._rotate_half(k) * sin)
@@ -122,23 +122,26 @@ class ALRAAttention(nn.Module):
         K = self.w_k(x).view(B, T, self.num_heads, self.head_dim).transpose(1, 2)
         V = self.w_v(x).view(B, T, self.num_heads, self.head_dim).transpose(1, 2)
         
-        Q, K = self.rope.apply(Q, K, T)
-        
+        past_len = state.get("step", 0) if state is not None else 0
+        Q, K = self.rope.apply(Q, K, T, offset=past_len)
+
         Q = self._apply_kernel(Q)
         K = self._apply_kernel(K)
-        
+
         gates = None
         if self.use_forget_gate:
             gates = torch.sigmoid(self.w_gate(x)).transpose(1, 2)
-            
+
         if state is not None or T == 1:
             if state is None:
                 state = {}
             out, new_state = self._sequential_forward(Q, K, V, gates, state)
+            if new_state is not None:
+                new_state["step"] = past_len + T
         else:
             out = self._parallel_forward(Q, K, V, gates)
             new_state = None
-            
+
         out = out.transpose(1, 2).reshape(B, T, self.dim)
         out = self.w_o(out)
         return out, new_state
@@ -259,9 +262,33 @@ class CausalSelfAttention(nn.Module):
         q = self.w_q(x).view(batch, tokens, self.num_heads, self.head_dim).transpose(1, 2)
         k = self.w_k(x).view(batch, tokens, self.num_heads, self.head_dim).transpose(1, 2)
         v = self.w_v(x).view(batch, tokens, self.num_heads, self.head_dim).transpose(1, 2)
-        q, k = self.rope.apply(q, k, tokens)
-        out = F.scaled_dot_product_attention(q, k, v, attn_mask=None, dropout_p=0.0, is_causal=True)
-        return self.w_o(out.transpose(1, 2).reshape(batch, tokens, self.dim)), None
+
+        past_len = 0
+        if state is not None and "k" in state and state["k"] is not None:
+            past_len = state["k"].shape[2]
+
+        q, k = self.rope.apply(q, k, tokens, offset=past_len)
+
+        if state is not None:
+            if "k" in state and state["k"] is not None:
+                k = torch.cat([state["k"], k], dim=2)
+                v = torch.cat([state["v"], v], dim=2)
+            state["k"] = k
+            state["v"] = v
+
+        if past_len == 0:
+            is_causal = (tokens > 1)
+            out = F.scaled_dot_product_attention(q, k, v, attn_mask=mask, dropout_p=0.0, is_causal=is_causal)
+        else:
+            if tokens == 1:
+                out = F.scaled_dot_product_attention(q, k, v, attn_mask=None, dropout_p=0.0, is_causal=False)
+            else:
+                q_len = tokens
+                kv_len = k.shape[2]
+                causal_mask = torch.tril(torch.ones(q_len, kv_len, device=q.device, dtype=torch.bool), diagonal=kv_len - q_len)
+                out = F.scaled_dot_product_attention(q, k, v, attn_mask=causal_mask, dropout_p=0.0)
+
+        return self.w_o(out.transpose(1, 2).reshape(batch, tokens, self.dim)), state
 
 
 # ── SparseGatedProjection ──
@@ -742,7 +769,7 @@ class NeuroCoreModel(nn.Module):
         use_mtp_speculation: bool = True,
         use_latent_reasoning: bool = True,
         eos_token_id: Optional[int] = 2,
-        min_new_tokens: int = 15,
+        min_new_tokens: int = 1,
         adapter_name: Optional[str] = None,
         banned_token_ids: Optional[List[int]] = None,
     ) -> Tensor:
@@ -851,7 +878,7 @@ class NeuroCoreModel(nn.Module):
         repetition_penalty: float = 1.25,
         use_latent_reasoning: bool = True,
         eos_token_id: Optional[int] = 2,
-        min_new_tokens: int = 15,
+        min_new_tokens: int = 1,
         adapter_name: Optional[str] = None,
         banned_token_ids: Optional[List[int]] = None,
     ):

@@ -10,8 +10,8 @@ import os
 
 @dataclass
 class VocabConfig:
-    vocab_size: int = 32000
-    byte_bpe_vocab: int = 32000
+    vocab_size: int = 32768
+    byte_bpe_vocab: int = 32768
     audio_codebook_size: int = 8192
     image_codebook_size: int = 8192
     video_codebook_size: int = 8192

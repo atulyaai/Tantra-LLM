@@ -42,7 +42,7 @@ class TokenJuiceEngine:
         if isinstance(input_ids, list) and isinstance(target_ids, list) and all(isinstance(t, int) for t in input_ids + target_ids):
             self.synthetic_pool.append((input_ids, target_ids))
 
-    def compute_token_entropy(self, token_ids: List[int], vocab_size: int = 32000) -> float:
+    def compute_token_entropy(self, token_ids: List[int], vocab_size: int = 32768) -> float:
         if not token_ids:
             return 0.0
         counts: Dict[int, int] = {}
@@ -51,7 +51,7 @@ class TokenJuiceEngine:
         entropy = -sum((count / len(token_ids)) * math.log2(count / len(token_ids)) for count in counts.values())
         return entropy / max(math.log2(vocab_size), 1.0)
 
-    def squeeze_tokens(self, token_ids: List[int], vocab_size: int = 32000) -> List[int]:
+    def squeeze_tokens(self, token_ids: List[int], vocab_size: int = 32768) -> List[int]:
         if len(token_ids) < 4:
             return token_ids
         kept = [chunk for index in range(0, len(token_ids), 8) if (chunk := token_ids[index:index + 8]) and (index == 0 or self.compute_token_entropy(chunk, vocab_size) >= self.entropy_threshold)]
@@ -65,9 +65,23 @@ class TokenJuiceEngine:
         if not self.synthetic_pool or random.random() > self.enrichment_rate:
             return x, y
         input_ids, target_ids = random.choice(self.synthetic_pool)
+        full_ids = input_ids + target_ids
         length = x.shape[-1]
-        x[-1:] = torch.tensor(self._fit_to_length(input_ids, length), dtype=x.dtype, device=x.device).unsqueeze(0)
-        y[-1:] = torch.tensor(self._fit_to_length(target_ids, length), dtype=y.dtype, device=y.device).unsqueeze(0)
+        pad_len = max(0, length + 1 - len(full_ids))
+        sample_ids = (full_ids + [0] * pad_len)[: length + 1]
+
+        prompt_len = len(input_ids)
+        ans_len = len(target_ids)
+        target_mask = [False] * prompt_len + [True] * ans_len + [False] * pad_len
+        target_mask = target_mask[: length + 1]
+
+        x_syn = torch.tensor(sample_ids[:-1], dtype=x.dtype, device=x.device)
+        y_syn = torch.tensor(sample_ids[1:], dtype=y.dtype, device=y.device)
+        y_mask = torch.tensor(target_mask[1:], dtype=torch.bool, device=y.device)
+        y_syn = torch.where(y_mask, y_syn, torch.full_like(y_syn, IGNORE_INDEX))
+
+        x[-1:] = x_syn.unsqueeze(0)
+        y[-1:] = y_syn.unsqueeze(0)
         return x, y
 
     @staticmethod
@@ -128,10 +142,7 @@ def build_prompt_segments(item: Dict[str, Any]) -> Optional[List[Tuple[str, bool
                 continue
             tag = f"<|{'system' if role == 'system' else role}|>\n"
             segments.append((tag, False))
-            if role == "assistant":
-                segments.append((content + "\n</s>", True))
-            else:
-                segments.append((content, False))
+            segments.append((content, role == "assistant"))
             segments.append(("\n\n", False))
         return segments if segments else None
 
@@ -152,7 +163,7 @@ def build_prompt_segments(item: Dict[str, Any]) -> Optional[List[Tuple[str, bool
         segments.append(("\n\n", False))
     if assistant:
         segments.append(("<|assistant|>\n", False))
-        segments.append((assistant + "\n</s>", True))
+        segments.append((assistant, True))
         segments.append(("\n\n", False))
     return segments
 
@@ -252,7 +263,7 @@ class JSONLDataset(IterableDataset):
         self.tokenizer = tokenizer
         self.seq_len = max(1, seq_len)
         self.max_samples = max_samples
-        self.vocab_size = getattr(tokenizer, "vocab_size", 32000)
+        self.vocab_size = getattr(tokenizer, "vocab_size", 32768)
         self.mask_non_assistant = mask_non_assistant
         self.insert_doc_boundaries = insert_doc_boundaries
         self._unrecognized_json = 0
@@ -295,6 +306,10 @@ class JSONLDataset(IterableDataset):
             seg_ids = _encode(self.tokenizer, text)
             ids.extend(seg_ids)
             is_target.extend([target] * len(seg_ids))
+            if target:
+                # Supervised assistant reply ends — append and supervise the real <eos> token
+                ids.append(EOS_ID)
+                is_target.append(True)
         return ids, is_target
 
     def __iter__(self) -> Iterator[Tuple[torch.Tensor, torch.Tensor]]:
