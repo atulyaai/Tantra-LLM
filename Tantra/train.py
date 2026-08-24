@@ -576,6 +576,14 @@ class NeuroTrainer:
                                 })
                                 log.info("Auto-growth added %d parameters; optimizer now tracks %d layers.", sum(p.numel() for p in new_params), len(raw_model.layers))
 
+                    if 45 <= self.step_count <= 55 and tokenizer is not None:
+                        try:
+                            sample_tokens = [t for t in x[0].cpu().tolist() if t > 0]
+                            decoded = tokenizer.decode(sample_tokens)
+                            log.info(f"[BATCH-DECODE step={self.step_count:>2d}] {decoded[:140]!r}")
+                        except Exception:
+                            pass
+
                     session_steps = self.step_count - self._session_start_step
                     if session_steps == 1 or session_steps % log_every == 0 or self.step_count == max_steps:
                         first_step = self.step_count - window_optimizer_steps + 1
