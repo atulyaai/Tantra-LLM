@@ -1,5 +1,6 @@
 """
-Tests/test_optimizers.py — Tests for AdamW and native Lion optimizer.
+Tests/test_optimizers.py — Comprehensive tests for AdamW, native Lion optimizer,
+mathematical update correctness, and memory state verification.
 """
 import torch
 import pytest
@@ -12,7 +13,7 @@ def test_build_optimizers():
     opt_adamw = build_optimizer("adamw", p, lr=1e-4, weight_decay=0.01)
     assert opt_adamw is not None
 
-    opt_lion = build_optimizer("lion", p, lr=5e-5, weight_decay=0.05)
+    opt_lion = build_optimizer("lion", p, lr=3e-5, weight_decay=0.05)
     assert isinstance(opt_lion, (Lion, torch.optim.Optimizer))
 
     opt_adam = build_optimizer("adam", p, lr=1e-4, weight_decay=0.01)
@@ -22,9 +23,61 @@ def test_build_optimizers():
     assert isinstance(opt_sgd, torch.optim.SGD)
 
 
+def test_lion_math_correctness_and_buffer_isolation():
+    """Verify exact numerical formulation of Lion (Chen et al. 2023)."""
+    p = torch.nn.Parameter(torch.tensor([1.0, -2.0], dtype=torch.float32))
+    opt = Lion([p], lr=0.1, betas=(0.9, 0.99), weight_decay=0.0)
+    
+    # Step 1: grad = [0.5, -0.5]
+    p.grad = torch.tensor([0.5, -0.5], dtype=torch.float32)
+    opt.step()
+    
+    # Expected update:
+    # m_0 = 0
+    # update = sign(0.9 * 0 + 0.1 * [0.5, -0.5]) = sign([0.05, -0.05]) = [1.0, -1.0]
+    # p_1 = [1.0, -2.0] - 0.1 * [1.0, -1.0] = [0.9, -1.9]
+    # m_1 = 0.99 * 0 + 0.01 * [0.5, -0.5] = [0.005, -0.005]
+    assert torch.allclose(p.data, torch.tensor([0.9, -1.9], dtype=torch.float32), atol=1e-6)
+    assert torch.allclose(opt.state[p]["exp_avg"], torch.tensor([0.005, -0.005], dtype=torch.float32), atol=1e-6)
+
+    # Step 2: verify momentum accumulation with non-zero buffer
+    p.grad = torch.tensor([0.1, -0.1], dtype=torch.float32)
+    opt.step()
+    # update = sign(0.9 * [0.005, -0.005] + 0.1 * [0.1, -0.1]) = sign([0.0145, -0.0145]) = [1.0, -1.0]
+    # p_2 = [0.9, -1.9] - 0.1 * [1.0, -1.0] = [0.8, -1.8]
+    # m_2 = 0.99 * [0.005, -0.005] + 0.01 * [0.1, -0.1] = [0.00595, -0.00595]
+    assert torch.allclose(p.data, torch.tensor([0.8, -1.8], dtype=torch.float32), atol=1e-6)
+    assert torch.allclose(opt.state[p]["exp_avg"], torch.tensor([0.00595, -0.00595], dtype=torch.float32), atol=1e-6)
+
+
+def test_lion_memory_footprint_vs_adamw():
+    """Verify Lion uses exactly 1 state buffer while AdamW uses 2."""
+    p_lion = torch.nn.Parameter(torch.randn(100, 100))
+    p_adamw = torch.nn.Parameter(torch.randn(100, 100))
+
+    opt_lion = Lion([p_lion], lr=1e-4)
+    opt_adamw = torch.optim.AdamW([p_adamw], lr=1e-4)
+
+    # Perform 1 step
+    p_lion.grad = torch.randn_like(p_lion)
+    p_adamw.grad = torch.randn_like(p_adamw)
+
+    opt_lion.step()
+    opt_adamw.step()
+
+    # Lion must have exactly 1 momentum tensor
+    assert len(opt_lion.state[p_lion]) == 1
+    assert "exp_avg" in opt_lion.state[p_lion]
+
+    # AdamW has 2 buffers (exp_avg, exp_avg_sq) + step
+    assert len(opt_adamw.state[p_adamw]) >= 2
+    assert "exp_avg" in opt_adamw.state[p_adamw]
+    assert "exp_avg_sq" in opt_adamw.state[p_adamw]
+
+
 def test_lion_step_execution():
     model = build_cpu_model("micro10", attention_kind="causal")
-    trainer = NeuroTrainer(model, lr=5e-5, weight_decay=0.05, optimizer_name="lion", total_steps=5)
+    trainer = NeuroTrainer(model, lr=3e-5, weight_decay=0.05, optimizer_name="lion", total_steps=5)
     
     x = torch.randint(0, 32768, (1, 16))
     y = torch.randint(0, 32768, (1, 16))
