@@ -1,8 +1,7 @@
 """
-tools/benchmark_optimizers.py — Rigorous Optimizer Comparison Benchmark.
-Evaluates AdamW vs. Lion across higher learning rates (up to 2.0e-4) to bracket
-the empirical peak, and runs 5-seed statistical verification over 50-100 steps
-on the official 38.6M CPU profile.
+tools/benchmark_optimizers.py — Fair & Symmetric Optimizer Peak Bracketing.
+Sweeps both AdamW and Lion across their full operational LR spectra to bracket
+their empirical optima, and compares Best-AdamW vs Best-Lion across 5 independent seeds.
 """
 import os
 import sys
@@ -31,7 +30,7 @@ def run_optimizer_trial(
     opt_name: str,
     lr: float,
     weight_decay: float,
-    steps: int = 50,
+    steps: int = 40,
     batch_size: int = 2,
     seq_len: int = 128,
     seed: int = 42,
@@ -77,48 +76,54 @@ def run_optimizer_trial(
     }
 
 
-def run_benchmark(steps: int = 50, batch_size: int = 2, seq_len: int = 128, multi_seed: bool = True):
-    print("=" * 78)
-    print("      TANTRA OPTIMIZER BENCHMARK: HIGH-LR PEAK BRACKETING & 5-SEED TEST")
+def run_benchmark(steps: int = 40, batch_size: int = 2, seq_len: int = 128, multi_seed: bool = True):
+    print("=" * 80)
+    print("      TANTRA OPTIMIZER BENCHMARK: FAIR BEST-VS-BEST COMPARISON")
     print(f"      Official 38.6M CPU Profile | Device: CPU ({torch.get_num_threads()} threads)")
     print(f"      Horizon: {steps} steps | Batch: {batch_size} | Context: {seq_len} tokens")
-    print("=" * 78)
+    print("=" * 80)
 
-    # 1. High Learning Rate Exploration to bracket the peak
-    high_lr_experiments = [
-        ("adamw", 1.0e-4, 0.01),
-        ("lion",  8.0e-5, 0.05),
-        ("lion",  1.0e-4, 0.05),
-        ("lion",  1.2e-4, 0.05),
-        ("lion",  1.5e-4, 0.05),
-        ("lion",  2.0e-4, 0.05),
-    ]
+    # 1. Symmetric Full-Spectrum Sweeps (Seed 42)
+    adamw_lrs = [5.0e-5, 1.0e-4, 2.0e-4, 3.0e-4, 5.0e-4, 8.0e-4]
+    lion_lrs  = [1.0e-4, 1.5e-4, 2.0e-4, 2.5e-4, 3.0e-4, 4.0e-4]
 
-    print("\n[PART 1/2] High-LR Peak Bracketing Sweep (Seed 42, 50 Steps):")
-    results = []
-    for opt_name, lr, wd in high_lr_experiments:
-        print(f"▶ Running {opt_name.upper():<5} (LR={lr:.1e}, WD={wd})...", end="", flush=True)
-        res = run_optimizer_trial(opt_name, lr, wd, steps=steps, batch_size=batch_size, seq_len=seq_len, seed=42)
-        results.append(res)
-        print(f" -> {res['tok_s']:5.1f} tok/s | Loss: {res['initial_loss']:.4f} -> {res['final_loss']:.4f} ({res['wall_time']:.1f}s)")
+    print("\n[PART 1/3] Sweeping AdamW Across Learning Rates (Seed 42):")
+    adamw_results = []
+    for lr in adamw_lrs:
+        print(f"▶ ADAMW (LR={lr:.1e}, WD=0.01)...", end="", flush=True)
+        res = run_optimizer_trial("adamw", lr, weight_decay=0.01, steps=steps, batch_size=batch_size, seq_len=seq_len, seed=42)
+        adamw_results.append(res)
+        print(f" -> Loss: {res['initial_loss']:.4f} -> {res['final_loss']:.4f} | {res['tok_s']:5.1f} tok/s ({res['wall_time']:.1f}s)")
 
-    print("\n" + "-" * 78)
+    print("\n[PART 2/3] Sweeping Lion Across Learning Rates (Seed 42):")
+    lion_results = []
+    for lr in lion_lrs:
+        print(f"▶ LION  (LR={lr:.1e}, WD=0.05)...", end="", flush=True)
+        res = run_optimizer_trial("lion", lr, weight_decay=0.05, steps=steps, batch_size=batch_size, seq_len=seq_len, seed=42)
+        lion_results.append(res)
+        print(f" -> Loss: {res['initial_loss']:.4f} -> {res['final_loss']:.4f} | {res['tok_s']:5.1f} tok/s ({res['wall_time']:.1f}s)")
+
+    print("\n" + "-" * 80)
     print(f"{'Optimizer':<10} | {'LR':<8} | {'WD':<6} | {'Speed (tok/s)':<14} | {'Initial Loss':<12} | {'Final Loss':<11} | {'Time (s)'}")
-    print("-" * 78)
-    for r in results:
+    print("-" * 80)
+    for r in adamw_results + lion_results:
         print(f"{r['opt_name'].upper():<10} | {r['lr']:<8.1e} | {r['weight_decay']:<6.2f} | {r['tok_s']:<14.1f} | {r['initial_loss']:<12.4f} | {r['final_loss']:<11.4f} | {r['wall_time']:<7.2f}")
-    print("-" * 78)
+    print("-" * 80)
 
-    # 2. 5-Seed Statistical Verification across Top Contenders
+    # 2. Identify Best Points
+    best_adamw = min(adamw_results, key=lambda x: x["final_loss"])
+    best_lion = min(lion_results, key=lambda x: x["final_loss"])
+    print(f"\nEmpirical Optimums Found:")
+    print(f"  • Best AdamW: LR = {best_adamw['lr']:.1e} (Loss = {best_adamw['final_loss']:.4f})")
+    print(f"  • Best Lion : LR = {best_lion['lr']:.1e} (Loss = {best_lion['final_loss']:.4f})")
+
+    # 3. 5-Seed Statistical Verification: Best AdamW vs Best Lion
     if multi_seed:
-        # Pick best Lion LR from part 1
-        lion_results = [r for r in results if r["opt_name"] == "lion"]
-        best_lion_lr = min(lion_results, key=lambda x: x["final_loss"])["lr"]
-        print(f"\n[PART 2/2] 5-Seed Statistical Evaluation (AdamW @ 1e-4 vs Lion @ {best_lion_lr:.1e}):")
+        print(f"\n[PART 3/3] 5-Seed Statistical Verification (Best AdamW @ {best_adamw['lr']:.1e} vs Best Lion @ {best_lion['lr']:.1e}):")
         
         configs_to_test = [
-            ("adamw", 1.0e-4, 0.01),
-            ("lion",  best_lion_lr, 0.05),
+            ("adamw", best_adamw["lr"], 0.01),
+            ("lion",  best_lion["lr"],  0.05),
         ]
         seeds = [42, 100, 2026, 777, 999]
 
@@ -146,14 +151,14 @@ def run_benchmark(steps: int = 50, batch_size: int = 2, seq_len: int = 128, mult
                 "time": f"{mean_time:.2f} ± {std_time:.2f} s"
             })
 
-        print("\n" + "=" * 78)
-        print("         5-SEED STATISTICAL SUMMARY (Mean ± Std, SE = σ/√5)")
-        print("=" * 78)
-        print(f"{'Configuration':<20} | {'Mean Loss ± Std':<18} | {'Std Error':<10} | {'Throughput (tok/s)':<20} | {'Wall Time'}")
-        print("-" * 78)
+        print("\n" + "=" * 80)
+        print("         5-SEED STATISTICAL SUMMARY (BEST vs. BEST, SE = σ/√5)")
+        print("=" * 80)
+        print(f"{'Configuration':<22} | {'Mean Loss ± Std':<18} | {'Std Error':<10} | {'Throughput (tok/s)':<20} | {'Wall Time'}")
+        print("-" * 80)
         for stat in summary_stats:
-            print(f"{stat['config']:<20} | {stat['loss_mean_std']:<18} | {stat['loss_se']:<10} | {stat['speed']:<20} | {stat['time']}")
-        print("=" * 78)
+            print(f"{stat['config']:<22} | {stat['loss_mean_std']:<18} | {stat['loss_se']:<10} | {stat['speed']:<20} | {stat['time']}")
+        print("=" * 80)
 
 
 if __name__ == "__main__":

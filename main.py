@@ -877,7 +877,11 @@ def main():
     parser.add_argument("--adapter-desc", type=str, default="", help="Description when adding a category")
     parser.add_argument("--adapter-topics", type=str, default=None, help="Comma list of Datasets/<topic> folders for a new category")
     parser.add_argument("--adapter-keywords", type=str, default=None, help="Comma list of routing keywords for a new category")
+    parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
     args = parser.parse_args()
+
+    from Tantra.utils import set_seed
+    set_seed(args.seed)
 
     vcfg = VocabConfig()
     mcfg = NeuroCoreConfig()
