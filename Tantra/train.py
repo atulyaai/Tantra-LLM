@@ -76,26 +76,103 @@ def create_lr_scheduler(
     return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
 
 
+class Lion(torch.optim.Optimizer):
+    """
+    Lion (EvoLved Sign Momentum) optimizer.
+    Memory-efficient on CPU: uses only 1 momentum buffer (half the memory of AdamW's 2 buffers).
+    References:
+        Chen et al., "Symbolic Discovery of Optimization Algorithms", 2023.
+    """
+    def __init__(self, params, lr: float = 1e-4, betas: Tuple[float, float] = (0.9, 0.99), weight_decay: float = 0.0):
+        if not 0.0 <= lr:
+            raise ValueError(f"Invalid learning rate: {lr}")
+        if not 0.0 <= betas[0] < 1.0 or not 0.0 <= betas[1] < 1.0:
+            raise ValueError(f"Invalid beta parameters: {betas}")
+        defaults = dict(lr=lr, betas=betas, weight_decay=weight_decay)
+        super().__init__(params, defaults)
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        loss = None
+        if closure is not None:
+            with torch.enable_grad():
+                loss = closure()
+
+        for group in self.param_groups:
+            lr = group["lr"]
+            beta1, beta2 = group["betas"]
+            weight_decay = group["weight_decay"]
+
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                grad = p.grad
+                if grad.is_sparse:
+                    raise RuntimeError("Lion does not support sparse gradients")
+
+                state = self.state[p]
+                if len(state) == 0:
+                    state["exp_avg"] = torch.zeros_like(p, memory_format=torch.preserve_format)
+
+                exp_avg = state["exp_avg"]
+
+                # Perform decoupled weight decay
+                if weight_decay != 0:
+                    p.data.mul_(1.0 - lr * weight_decay)
+
+                # Weight update: update = sign(beta1 * exp_avg + (1 - beta1) * grad)
+                update = exp_avg.mul(beta1).add_(grad, alpha=1.0 - beta1).sign_()
+                p.data.add_(update, alpha=-lr)
+
+                # Decay momentum: exp_avg = beta2 * exp_avg + (1 - beta2) * grad
+                exp_avg.mul_(beta2).add_(grad, alpha=1.0 - beta2)
+
+        return loss
+
+
+def build_optimizer(
+    optimizer_name: str,
+    parameters: Any,
+    lr: float,
+    weight_decay: float
+) -> torch.optim.Optimizer:
+    name = (optimizer_name or "adamw").lower().strip()
+    if name == "lion":
+        try:
+            from lion_pytorch import Lion as ExternalLion
+            return ExternalLion(parameters, lr=lr, weight_decay=weight_decay)
+        except ImportError:
+            return Lion(parameters, lr=lr, weight_decay=weight_decay)
+    elif name == "adam":
+        return torch.optim.Adam(parameters, lr=lr, weight_decay=weight_decay)
+    elif name == "sgd":
+        return torch.optim.SGD(parameters, lr=lr, weight_decay=weight_decay, momentum=0.9)
+    return AdamW(parameters, lr=lr, weight_decay=weight_decay)
+
+
 class NeuroTrainer:
     """Minimal, robust trainer for NeuroCore models."""
 
     def __init__(self, model: nn.Module, lr: float = 3e-4, weight_decay: float = 0.01,
+                 optimizer_name: str = "adamw",
                  total_steps: int = 100000, warmup_steps: int = 1000,
                  grad_accumulation_steps: int = 1, use_latent_reasoning: bool = True,
                  use_mtp_loss: bool = True):
         self.model = model
+        self.optimizer_name = optimizer_name.lower().strip()
         self.use_latent_reasoning = use_latent_reasoning
         self.use_mtp_loss = use_mtp_loss
         self.device = next(model.parameters()).device if list(model.parameters()) else torch.device("cpu")
-        log.info(f"  NeuroTrainer initialized on device: {self.device} (type={self.device.type})")
+        log.info(f"  NeuroTrainer initialized on device: {self.device} (type={self.device.type}) | Optimizer: {self.optimizer_name}")
         trainable_parameters = [p for p in model.parameters() if p.requires_grad]
         if not trainable_parameters:
             raise ValueError("No trainable parameters are enabled.")
-        self.optimizer = AdamW(trainable_parameters, lr=lr, weight_decay=weight_decay)
+        self.optimizer = build_optimizer(self.optimizer_name, trainable_parameters, lr=lr, weight_decay=weight_decay)
 
         self.total_steps = total_steps
         self.warmup_steps = warmup_steps
         self.lr = lr
+        self.weight_decay = weight_decay
 
         # Non-oscillating clamped linear warmup + cosine decay
         self.scheduler = create_lr_scheduler(self.optimizer, warmup_steps=warmup_steps, total_steps=total_steps, min_lr_ratio=0.05)
@@ -126,7 +203,7 @@ class NeuroTrainer:
         trainable_parameters = [p for p in self.model.parameters() if p.requires_grad]
         if not trainable_parameters:
             raise ValueError("No trainable parameters are enabled after refresh.")
-        self.optimizer = AdamW(trainable_parameters, lr=lr, weight_decay=0.01)
+        self.optimizer = build_optimizer(self.optimizer_name, trainable_parameters, lr=lr, weight_decay=self.weight_decay)
         self.scheduler = create_lr_scheduler(self.optimizer, warmup_steps=self.warmup_steps, total_steps=self.total_steps, min_lr_ratio=0.05)
 
     def _write_training_status(self, **status: Any) -> None:

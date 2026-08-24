@@ -517,7 +517,7 @@ def run_training(model, vcfg, steps=30, resume=False):
     trainer.save_checkpoint(latest_ckpt, save_optimizer=True)
 
 
-def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False, eval_every=1000, log_every=50, checkpoint_every=500, batch_size=1, seq_len=128, grad_accumulation_steps=1, data_workers=0, use_latent_reasoning=True, use_mtp_loss=True, compile=False, lr=1e-4, warmup_steps=None, topic_weights=None, training_stage="sft", auto_growth=False, growth_patience=1000, growth_min_delta=0.005, max_layers=None, model_dir=None, adapter_name=None, archive_checkpoints=True):
+def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False, eval_every=1000, log_every=50, checkpoint_every=500, batch_size=1, seq_len=128, grad_accumulation_steps=1, data_workers=0, use_latent_reasoning=True, use_mtp_loss=True, compile=False, lr=1e-4, weight_decay=0.01, optimizer="adamw", warmup_steps=None, topic_weights=None, training_stage="sft", auto_growth=False, growth_patience=1000, growth_min_delta=0.005, max_layers=None, model_dir=None, adapter_name=None, archive_checkpoints=True):
     log.info("== [DATASET PRE-TRAINING MODE] =====================")
     if training_stage not in {"pretrain", "sft"}:
         raise ValueError(f"Unknown training stage: {training_stage}")
@@ -543,8 +543,8 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
         auto_growth = False  # handled per-category below, not on the frozen base
 
     warmup = warmup_steps if warmup_steps is not None else max(50, steps // 10)
-    log.info(f"Learning rate: {lr:.2e}  |  Warmup steps: {warmup}")
-    trainer = NeuroTrainer(model, lr=lr, total_steps=steps, warmup_steps=warmup, grad_accumulation_steps=grad_accumulation_steps, use_latent_reasoning=use_latent_reasoning, use_mtp_loss=use_mtp_loss)
+    log.info(f"Optimizer: {optimizer.upper()}  |  Learning rate: {lr:.2e}  |  Warmup steps: {warmup}")
+    trainer = NeuroTrainer(model, lr=lr, weight_decay=weight_decay, optimizer_name=optimizer, total_steps=steps, warmup_steps=warmup, grad_accumulation_steps=grad_accumulation_steps, use_latent_reasoning=use_latent_reasoning, use_mtp_loss=use_mtp_loss)
 
     checkpoint_root = os.path.abspath(model_dir or MODEL_DIR)
     latest_dir = os.path.join(checkpoint_root, "Latest")
@@ -862,8 +862,9 @@ def main():
     parser.add_argument("--growth-min-delta", type=float, default=0.005, help="Minimum EMA-loss improvement required to avoid auto-growth")
     parser.add_argument("--max-layers", type=int, default=None, help="Hard maximum depth when --auto-growth is enabled")
     parser.add_argument("--compile", action="store_true", help="Compile model with torch.compile(backend='inductor') for CPU/GPU kernel fusion")
-    parser.add_argument("--device", type=str, default="auto", help="Target device (auto, cuda, cpu, mps)")
-    parser.add_argument("--lr", type=float, default=1e-4, help="Learning rate (default: 1e-4; use 5e-5 or lower for fine-tuning)")
+    parser.add_argument("--optimizer", type=str, choices=["adamw", "adam", "lion", "sgd"], default="adamw", help="Optimizer choice (default: adamw)")
+    parser.add_argument("--lr", type=float, default=None, help="Learning rate (default: 1e-4 for AdamW, 5e-5 for Lion)")
+    parser.add_argument("--weight-decay", type=float, default=None, help="Weight decay (default: 0.01 for AdamW, 0.05 for Lion)")
     parser.add_argument("--warmup", type=int, default=None, help="LR warmup steps (default: steps // 10)")
     parser.add_argument("--topic-weights", type=str, default=None, help="JSON dict of topic weights, e.g. '{\"general\":40,\"code\":15}'")
     parser.add_argument("--model-dir", type=str, default=None, help="Custom root directory for model checkpoints (e.g. Google Drive)")
@@ -1019,7 +1020,20 @@ def main():
         use_mtp_loss = args.mtp_loss
         if use_mtp_loss is None:
             use_mtp_loss = args.training_stage == "sft"
-        run_dataset_training(model, tok, args.dataset, steps=args.steps, resume=args.resume, eval_every=args.eval_every, log_every=args.log_every, checkpoint_every=args.checkpoint_every, batch_size=args.batch_size, seq_len=args.seq_len, grad_accumulation_steps=args.grad_accum, data_workers=args.data_workers, use_latent_reasoning=use_latent_reasoning, use_mtp_loss=use_mtp_loss, compile=args.compile, lr=args.lr, warmup_steps=args.warmup, topic_weights=topic_weights, training_stage=args.training_stage, auto_growth=args.auto_growth, growth_patience=args.growth_patience, growth_min_delta=args.growth_min_delta, max_layers=args.max_layers, adapter_name=args.adapter, model_dir=(ADAPTER_ROOT if args.adapter is not None else args.model_dir))
+
+        # Optimizer-specific hyperparameter defaults
+        resolved_optimizer = (args.optimizer or "adamw").lower().strip()
+        if args.lr is not None:
+            resolved_lr = args.lr
+        else:
+            resolved_lr = 5e-5 if resolved_optimizer == "lion" else 1e-4
+
+        if args.weight_decay is not None:
+            resolved_wd = args.weight_decay
+        else:
+            resolved_wd = 0.05 if resolved_optimizer == "lion" else 0.01
+
+        run_dataset_training(model, tok, args.dataset, steps=args.steps, resume=args.resume, eval_every=args.eval_every, log_every=args.log_every, checkpoint_every=args.checkpoint_every, batch_size=args.batch_size, seq_len=args.seq_len, grad_accumulation_steps=args.grad_accum, data_workers=args.data_workers, use_latent_reasoning=use_latent_reasoning, use_mtp_loss=use_mtp_loss, compile=args.compile, lr=resolved_lr, weight_decay=resolved_wd, optimizer=resolved_optimizer, warmup_steps=args.warmup, topic_weights=topic_weights, training_stage=args.training_stage, auto_growth=args.auto_growth, growth_patience=args.growth_patience, growth_min_delta=args.growth_min_delta, max_layers=args.max_layers, adapter_name=args.adapter, model_dir=(ADAPTER_ROOT if args.adapter is not None else args.model_dir))
     elif args.mode == "eval":
         run_evaluation(model, tok, args.dataset)
     elif args.mode == "generate":
