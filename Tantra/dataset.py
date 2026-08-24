@@ -287,6 +287,10 @@ class JSONLDataset(IterableDataset):
         (True) or masked out of the loss (False). Raw / non-chat lines are
         fully supervised, matching the original (pre-masking) behavior.
         """
+        # English-Only Filter: Skip lines containing Devanagari script (U+0900-U+097F)
+        if any("\u0900" <= char <= "\u097f" for char in raw_line):
+            return [], []
+
         try:
             item = json.loads(raw_line)
             parsed_ok = True
