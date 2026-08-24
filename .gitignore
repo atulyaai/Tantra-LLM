@@ -73,5 +73,7 @@ tmp_*.json
 .vscode/
 .idea/
 *.swp
+*.jpg
 .DS_Store
 Thumbs.db
+
