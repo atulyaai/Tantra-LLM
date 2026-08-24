@@ -238,6 +238,11 @@ class NeuroTrainer:
             use_latent_reasoning = self.use_latent_reasoning
         self.model.train()
 
+        # Step-level timing instrumentation (first 50 optimizer steps only)
+        _profile = (self.step_count < 50)
+        if _profile:
+            _t0 = time.perf_counter()
+
         if self._micro_step % self.grad_accumulation_steps == 0:
             self.optimizer.zero_grad(set_to_none=True)
 
@@ -258,6 +263,9 @@ class NeuroTrainer:
             # trains the model to predict "token 0" there. _safe_targets()
             # below already clamps real ids into range while preserving
             # -100, so no separate clamp is needed here.
+
+        if _profile:
+            _t_data = time.perf_counter()
 
         # Autocast only helps on accelerators with native low-precision
         # matmul paths. On plain CPU it adds per-op cast/dispatch overhead
@@ -289,6 +297,9 @@ class NeuroTrainer:
                 mtp_loss = self.criterion(logits_mtp_flat, y_mtp_flat)
                 loss = loss + 0.25 * mtp_loss
 
+        if _profile:
+            _t_fwd = time.perf_counter()
+
         if torch.isnan(loss) or torch.isinf(loss):
             self._micro_step += 1
             return 0.0, 0.0, 0.0, 0.0, False
@@ -309,6 +320,9 @@ class NeuroTrainer:
         (loss / self.grad_accumulation_steps).backward()
         self._micro_step += 1
 
+        if _profile:
+            _t_bwd = time.perf_counter()
+
         at_boundary = (self._micro_step % self.grad_accumulation_steps == 0)
         if at_boundary:
             grad_norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0).item()
@@ -317,6 +331,17 @@ class NeuroTrainer:
             self.step_count += 1
         else:
             grad_norm = 0.0
+
+        if _profile and at_boundary:
+            _t_opt = time.perf_counter()
+            log.info(
+                f"[STEP-TIMING] step={self.step_count:>3d} | "
+                f"data={(_t_data - _t0)*1000:.1f}ms | "
+                f"fwd={(_t_fwd - _t_data)*1000:.1f}ms | "
+                f"bwd={(_t_bwd - _t_fwd)*1000:.1f}ms | "
+                f"opt={(_t_opt - _t_bwd)*1000:.1f}ms | "
+                f"total={(_t_opt - _t0)*1000:.1f}ms"
+            )
 
         self.total_tokens += x.numel()
         self._session_tokens += x.numel()

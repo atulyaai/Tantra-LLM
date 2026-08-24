@@ -30,7 +30,7 @@ from Tantra.config import NeuroCoreConfig, VocabConfig, MoEConfig, CompressionCo
 from Tantra.utils import get_logger
 from Tantra.hardware import HardwareDetector, Profiler, RuntimeConfigBuilder, AdaptiveScheduler
 from Tantra.tokenizer import ByteBPETokenizer, MegabytePatcher, UnifiedTokenizer
-from Tantra.model import NeuroCoreModel
+from Tantra.model import NeuroCoreModel, cpu_dense_config, build_cpu_model
 from Tantra.moe import ExpertRegistry, LazyExpertLoader
 from Tantra.codec import DNACodec, CompressionBenchmark
 from Tantra.train import NeuroTrainer
@@ -847,6 +847,7 @@ def main():
     parser.add_argument("--temperature", type=float, default=0.8, help="Sampling temperature")
     parser.add_argument("--top-p", type=float, default=0.95, help="Top-p nucleus sampling")
     parser.add_argument("--port", type=int, default=8000, help="Server port (serve mode)")
+    parser.add_argument("--device", type=str, default="auto", help="Compute device: auto, cpu, cuda, mps")
     parser.add_argument("--resume", action="store_true", help="Resume from latest checkpoint if available")
     parser.add_argument("--fresh", action="store_true", help="Start fresh on official 38.6M architecture without reading previous checkpoints")
     parser.add_argument("--eval-every", type=int, default=1000, help="Run a qualitative generation sample and archive checkpoint every N steps")
