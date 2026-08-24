@@ -130,11 +130,13 @@ def run_benchmark(steps: int = 15, batch_size: int = 2, seq_len: int = 128, seq_
         loader = [(inputs[i:i+batch_size], targets[i:i+batch_size]) for i in range(0, len(inputs), batch_size)]
     else:
         # Load real stream
-        from Tantra.dataset import TopicMixedDataset
-        from Tantra.tokenizer import BPETokenizer
-        tok = BPETokenizer.from_file("Model/tokenizer.json")
-        ds = TopicMixedDataset(dataset_file, tokenizer=tok, seq_len=seq_len, max_samples=steps*batch_size*2)
-        loader = DataLoader(ds, batch_size=batch_size, shuffle=False)
+        from Tantra.dataset import JSONLDataset
+        from Tantra.tokenizer import ByteBPETokenizer, MegabytePatcher, UnifiedTokenizer
+        from Tantra.config import VocabConfig
+        bpe = ByteBPETokenizer.load("Model/tokenizer.json", VocabConfig())
+        tok = UnifiedTokenizer(VocabConfig(), bpe, MegabytePatcher())
+        ds = JSONLDataset(dataset_file, tokenizer=tok, seq_len=seq_len)
+        loader = DataLoader(ds, batch_size=batch_size)
 
     print("  Running Dense Baseline...")
     dense_trainer = NeuroTrainer(dense_model, lr=1e-4, total_steps=steps)
