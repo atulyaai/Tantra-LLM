@@ -629,7 +629,7 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
         ]
         for domain, prompt_text in test_prompts:
             prompt_ids = torch.tensor([tokenizer.encode(prompt_text)], device=model.embed.weight.device)
-            out = model.generate(prompt_ids, max_new_tokens=64, min_new_tokens=1, temperature=0.25, top_p=0.85)
+            out = model.generate(prompt_ids, max_new_tokens=64, min_new_tokens=1, temperature=0.7, top_p=0.9, repetition_penalty=1.2)
             new_tokens = out[0, prompt_ids.shape[1]:].tolist()
             response = tokenizer.decode(new_tokens)
             log.info(f"[{domain.upper()}] {response.strip()}")

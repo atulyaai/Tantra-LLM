@@ -100,10 +100,11 @@ class SelfRepairEngine:
                 # Reset corrupted entries with small normal noise
                 param.data[nans_mask] = torch.randn_like(param.data[nans_mask]) * 0.01
 
-            # 2. Repair Exploded Weights
-            norms = torch.norm(param.data, p=2)
-            if not torch.isnan(norms) and not torch.isinf(norms) and norms > max_norm:
-                param.data.mul_(max_norm / (norms + 1e-6))
+            # 2. Repair Exploded Weights (scaled by sqrt(numel) for proper element RMS threshold)
+            # Default threshold: max per-element RMS of 5.0 (well above normal weight initialization ~0.02)
+            elem_rms = torch.sqrt(torch.mean(param.data ** 2))
+            if not torch.isnan(elem_rms) and not torch.isinf(elem_rms) and elem_rms > 5.0:
+                param.data.mul_(5.0 / (elem_rms + 1e-6))
                 repaired_explosions += 1
 
             # 3. Repair Dead Neurons (zero weights in linear layers)
