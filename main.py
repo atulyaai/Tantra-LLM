@@ -848,6 +848,7 @@ def main():
     parser.add_argument("--top-p", type=float, default=0.95, help="Top-p nucleus sampling")
     parser.add_argument("--port", type=int, default=8000, help="Server port (serve mode)")
     parser.add_argument("--resume", action="store_true", help="Resume from latest checkpoint if available")
+    parser.add_argument("--fresh", action="store_true", help="Start fresh on official 38.6M architecture without reading previous checkpoints")
     parser.add_argument("--eval-every", type=int, default=1000, help="Run a qualitative generation sample and archive checkpoint every N steps")
     parser.add_argument("--log-every", type=int, default=10, help="Print a rolling training summary every N optimizer steps")
     parser.add_argument("--checkpoint-every", type=int, default=500, help="Save a resumable recovery checkpoint every N optimizer steps (0 disables; default 500 minimizes I/O overhead)")
@@ -942,29 +943,34 @@ def main():
     # fail on every router tensor.
     if len(reg) > 0:
         mcfg.moe.num_experts = len(reg)
-    ckpt_candidates = [
-        os.path.join(MODEL_DIR, "Latest", "checkpoint_latest.pt"),
-        os.path.join(MODEL_DIR, "checkpoint_latest.pt"),
-        os.path.join(args.model_dir or MODEL_DIR, "Latest", "checkpoint_latest.pt"),
-        os.path.join(args.model_dir or MODEL_DIR, "checkpoint_latest.pt"),
-    ]
-    latest_ckpt_file = next((p for p in ckpt_candidates if os.path.exists(p) and os.path.getsize(p) > 10 * 1024 * 1024), ckpt_candidates[0])
-    restore_checkpoint_architecture(mcfg, latest_ckpt_file)
-    _ckpt_path = latest_ckpt_file
-    if os.path.exists(_ckpt_path) and os.path.getsize(_ckpt_path) > 10 * 1024 * 1024 and mcfg is not None:
-        try:
-            log.info(f"Reading model config from checkpoint: {_ckpt_path} ({os.path.getsize(_ckpt_path)/1e6:.1f} MB)...")
-            _ckpt = torch.load(_ckpt_path, map_location="cpu", weights_only=False)
-            if isinstance(_ckpt, dict):
-                _ckpt_cfg = _ckpt.get("config", None)
-                if _ckpt_cfg is not None:
-                    _ckpt_cfg.vocab.vocab_size = vcfg.vocab_size
-                    mcfg = _ckpt_cfg
-                    log.info("Rebuilt model architecture from checkpoint config "
-                             f"(dim={_ckpt_cfg.block.alra.dim}, layers={_ckpt_cfg.block.num_layers}, vocab={_ckpt_cfg.vocab.vocab_size}).")
-        except Exception as _exc:
-            log.warning(f"Could not read checkpoint config: {_exc}; using default architecture.")
-    model = init_model(mcfg, rt.device)
+    if getattr(args, "fresh", False):
+        mcfg = cpu_dense_config(vocab_size=vcfg.vocab_size, attention_kind="causal")
+        model = build_cpu_model("dense", attention_kind="causal", vocab_size=vcfg.vocab_size)
+        log.info(f"Initialized fresh official 38.6M CPU profile model ({model.num_parameters:,} parameters).")
+    else:
+        ckpt_candidates = [
+            os.path.join(MODEL_DIR, "Latest", "checkpoint_latest.pt"),
+            os.path.join(MODEL_DIR, "checkpoint_latest.pt"),
+            os.path.join(args.model_dir or MODEL_DIR, "Latest", "checkpoint_latest.pt"),
+            os.path.join(args.model_dir or MODEL_DIR, "checkpoint_latest.pt"),
+        ]
+        latest_ckpt_file = next((p for p in ckpt_candidates if os.path.exists(p) and os.path.getsize(p) > 10 * 1024 * 1024), ckpt_candidates[0])
+        restore_checkpoint_architecture(mcfg, latest_ckpt_file)
+        _ckpt_path = latest_ckpt_file
+        if os.path.exists(_ckpt_path) and os.path.getsize(_ckpt_path) > 10 * 1024 * 1024 and mcfg is not None:
+            try:
+                log.info(f"Reading model config from checkpoint: {_ckpt_path} ({os.path.getsize(_ckpt_path)/1e6:.1f} MB)...")
+                _ckpt = torch.load(_ckpt_path, map_location="cpu", weights_only=False)
+                if isinstance(_ckpt, dict):
+                    _ckpt_cfg = _ckpt.get("config", None)
+                    if _ckpt_cfg is not None:
+                        _ckpt_cfg.vocab.vocab_size = vcfg.vocab_size
+                        mcfg = _ckpt_cfg
+                        log.info("Rebuilt model architecture from checkpoint config "
+                                 f"(dim={_ckpt_cfg.block.alra.dim}, layers={_ckpt_cfg.block.num_layers}, vocab={_ckpt_cfg.vocab.vocab_size}).")
+            except Exception as _exc:
+                log.warning(f"Could not read checkpoint config: {_exc}; using default architecture.")
+        model = init_model(mcfg, rt.device)
 
     # When a category is requested for dataset/chat/generate/serve, load the
     # MoE-2 / 32K adapter checkpoint (shared base + specialist layers) instead
