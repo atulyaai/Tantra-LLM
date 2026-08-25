@@ -686,25 +686,26 @@ class NeuroTrainer:
                             if t_words:
                                 match_score = len(t_words & m_words) / len(t_words) * 100.0
 
-                        header = f"Step {self.step_count:,}/{max_steps:,} ({pct:.1f}%)"
-                        metrics_line1 = f"Loss: {avg_loss:.4f} {loss_arrow} │ Top-1 Acc: {avg_acc:.1f}% │ Top-5 Acc: {avg_top5_acc:.1f}% {acc_arrow} │ PPL: {avg_ppl:.1f}"
-                        metrics_line2 = f"Params: {total_params/1e6:.1f}M │ LR: {current_lr:.2e} │ Speed: {tok_per_sec:.1f} tok/s │ ETA: {rolling_eta}"
+                        header = f"🚀 [Step {self.step_count:,}/{max_steps:,} ({pct:.1f}%)]"
+                        metrics_line1 = f"📉 Loss: {avg_loss:.4f} {loss_arrow} │ 🎯 Top-1: {avg_acc:.1f}% │ 🌟 Top-5: {avg_top5_acc:.1f}% {acc_arrow} │ 🔮 PPL: {avg_ppl:.1f}"
+                        metrics_line2 = f"🧠 Params: {total_params/1e6:.1f}M │ ⚡ Speed: {tok_per_sec:.1f} tok/s │ 🎚️ LR: {current_lr:.2e} │ ⏱️ ETA: {rolling_eta}"
                         
                         if progress:
                             progress.stop()
 
-                        log.info(f"┌── [{header}] ────────────────────────────────────────────────────────")
+                        log.info(f"┌── {header} " + "─" * (65 - len(header)))
                         log.info(f"│ 📊 {metrics_line1}")
                         log.info(f"│ ⚙️  {metrics_line2}")
                         if user_snippet:
-                            log.info(f"│ ❓ [User Prompt]  : {user_snippet}")
+                            log.info(f"│ ❓ [Question ] : {user_snippet}")
                         if asst_snippet:
-                            log.info(f"│ 💡 [Target Answer]: {asst_snippet}")
+                            log.info(f"│ 💡 [Expected ] : {asst_snippet}")
                         if model_snippet:
-                            log.info(f"│ 🤖 [Model Output] : {model_snippet}")
+                            log.info(f"│ 🤖 [Predicted] : {model_snippet}")
                         if match_score > 0:
-                            log.info(f"│ 🎯 [Match Score]  : {match_score:.1f}% (Key concept alignment)")
-                        log.info(f"└── Tokens: {self._session_tokens/1000:.1f}K processed ──────────────────────────────────────────")
+                            log.info(f"│ 🎯 [Alignment] : {match_score:.1f}% (Key concept overlap)")
+                        log.info(f"└── 📦 Streamed: {self._session_tokens/1000:.1f}K tokens processed " + "─" * 30)
+
 
 
 

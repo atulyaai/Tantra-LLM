@@ -633,7 +633,7 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
 
     def eval_callback(step):
         # Evaluates 4 diverse domain prompts to monitor multi-skill emergence
-        log.info(f"┌── [ MULTI-DOMAIN EVALUATION @ Step {step:,} ] " + "─" * 38)
+        log.info(f"┌── 🌐 [ MULTI-DOMAIN & ZERO-SHOT WORLD BENCHMARK @ Step {step:,} ] " + "─" * 20)
         test_prompts = [
             ("General", "💬", "<|user|>\nWhat is Tantra LLM?\n\n<|assistant|>\n"),
             ("Coding",  "💻", "<|user|>\nWrite a Python function to reverse a string.\n\n<|assistant|>\n"),
@@ -652,10 +652,11 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
             from Tantra.world_eval import evaluate_zero_shot_world_knowledge
             world_res = evaluate_zero_shot_world_knowledge(model, tokenizer)
             if world_res:
-                log.info(f"│ 🌍 [World MMLU]: {world_res['world_mmlu_accuracy']:.1f}% Zero-Shot Accuracy ({world_res['correct_samples']}/{world_res['total_samples']} questions correct)")
+                log.info(f"│ 🌍 [World MMLU]: 🏆 {world_res['world_mmlu_accuracy']:.1f}% Zero-Shot Accuracy ({world_res['correct_samples']}/{world_res['total_samples']} correct)")
         except Exception:
             pass
         log.info("└" + "─" * 80)
+
 
 
 
