@@ -43,7 +43,9 @@ Datasets/*.jsonl
 Datasets/**/*.jsonl
 !Datasets/manifest.json
 !Datasets/staged_master.jsonl
+!Datasets/master_train.jsonl
 !Datasets/curated_seeds/*.jsonl
+
 !Datasets/curated_seeds/**/*.jsonl
 !Datasets/curated_sft/*.jsonl
 !Datasets/curated_sft/**/*.jsonl
