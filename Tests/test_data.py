@@ -180,4 +180,33 @@ def test_jsonl_dataset_validation_split():
         assert train_items.isdisjoint(val_items)
 
 
+def test_neurotrainer_evaluate_validation():
+    """evaluate_validation must return val_loss, val_acc, and val_ppl without crashing."""
+    from Tantra.model import build_cpu_model
+    from Tantra.train import NeuroTrainer
+    from torch.utils.data import DataLoader
+
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "test_eval_val.jsonl")
+        with open(path, "w", encoding="utf-8") as f:
+            for i in range(20):
+                f.write(json.dumps({"user": f"eval question {i}", "assistant": f"eval answer {i}"}) + "\n")
+
+        tok = _StubTokenizer()
+        ds_val = JSONLDataset(path, tok, seq_len=64, max_samples=20, split="val", val_ratio=0.5, shuffle=False)
+        val_loader = DataLoader(ds_val, batch_size=2)
+
+        model = build_cpu_model("micro10", attention_kind="causal")
+        trainer = NeuroTrainer(model, lr=1e-4, total_steps=10)
+
+        metrics = trainer.evaluate_validation(val_loader, max_val_batches=5)
+        assert isinstance(metrics, dict)
+        assert "val_loss" in metrics
+        assert "val_acc" in metrics
+        assert "val_ppl" in metrics
+        assert metrics["val_loss"] > 0
+
+
+
+
 

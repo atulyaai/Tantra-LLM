@@ -25,8 +25,10 @@ import threading
 import torch
 
 import torch.nn as nn
+import torch.nn.functional as F
 from torch.optim import AdamW
 from typing import Any, Iterable, Optional, Tuple
+
 
 from Tantra.utils import get_logger
 from Tantra.evolution import AutoGrowthController, SelfRepairEngine
@@ -355,19 +357,26 @@ class NeuroTrainer:
                 vx = vx.to(self.device)
                 vy = vy.to(self.device)
                 outputs = raw_model(vx)
-                logits = outputs[0] if isinstance(outputs, (tuple, list)) else outputs
+                if isinstance(outputs, (tuple, list)):
+                    first = outputs[0]
+                    logits = first[0] if isinstance(first, (tuple, list)) else first
+                else:
+                    logits = outputs
 
                 valid_mask = vy != IGNORE_INDEX
                 if not valid_mask.any():
                     continue
 
-                loss = F.cross_entropy(logits.view(-1, logits.size(-1)), vy.view(-1), ignore_index=IGNORE_INDEX)
+                logits_flat = torch.clamp(logits.reshape(-1, logits.size(-1)), -50.0, 50.0)
+                y_flat = self._safe_targets(vy.reshape(-1), logits.size(-1))
+                loss = F.cross_entropy(logits_flat, y_flat, ignore_index=IGNORE_INDEX)
                 val_losses.append(loss.item())
 
                 preds = logits.argmax(dim=-1)
                 correct = (preds == vy) & valid_mask
                 acc = correct.sum().float() / valid_mask.sum().float() * 100.0
                 val_accs.append(acc.item())
+
 
                 ppl = math.exp(min(loss.item(), 20.0))
                 val_ppls.append(ppl)
