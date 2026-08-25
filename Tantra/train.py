@@ -20,8 +20,10 @@ import math
 import time
 import json
 import copy
+import shutil
 import threading
 import torch
+
 import torch.nn as nn
 from torch.optim import AdamW
 from typing import Any, Iterable, Optional, Tuple
@@ -757,7 +759,19 @@ class NeuroTrainer:
                 with open(meta_temp, "w", encoding="utf-8") as handle:
                     json.dump({"num_layers": data["num_layers"], "step_count": step}, handle)
                 os.replace(meta_temp, meta_path)
+                # Save/copy updated tokenizer.json into checkpoint target_dir and root model_dir
+                for cand in [os.path.join("Model", "tokenizer.json"), "tokenizer.json", os.path.join(target_dir, "..", "tokenizer.json")]:
+                    if os.path.exists(cand):
+                        try:
+                            shutil.copy2(cand, os.path.join(target_dir, "tokenizer.json"))
+                            root_d = os.path.dirname(target_dir)
+                            if root_d and os.path.isdir(root_d):
+                                shutil.copy2(cand, os.path.join(root_d, "tokenizer.json"))
+                            break
+                        except Exception:
+                            pass
             except Exception as ex:
+
                 try:
                     if os.path.exists(temporary_path):
                         os.remove(temporary_path)
