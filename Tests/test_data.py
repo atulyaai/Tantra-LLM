@@ -8,7 +8,8 @@ import torch
 
 from Tantra.config import VocabConfig
 from Tantra.tokenizer import ByteBPETokenizer, MegabytePatcher, UnifiedTokenizer, AudioTokenizer, ImageTokenizer
-from Tantra.dataset import TopicMixedDataset, PretokenizedBinDataset, IGNORE_INDEX, TokenJuiceEngine
+from Tantra.dataset import TopicMixedDataset, PretokenizedBinDataset, JSONLDataset, IGNORE_INDEX, TokenJuiceEngine
+
 
 
 class _StubTokenizer:
@@ -121,3 +122,42 @@ def test_tokenjuice_entropy_enrichment_and_weights():
     assert x.shape == y.shape == (2, 8)
     weights = engine.compute_dynamic_loss_weights(torch.tensor([1, 100, 5, 101]), [100, 101])
     assert weights.tolist() == [1.0, 2.5, 1.0, 2.5]
+
+
+def test_jsonl_dataset_shuffling():
+    """JSONLDataset with shuffle=True must randomize the order of lines streamed."""
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "test_shuffle.jsonl")
+        _write_chat_jsonl(path, 100, prefix="item")
+        
+        # Non-shuffled dataset
+        ds_noshuffle = JSONLDataset(path, _StubTokenizer(), seq_len=128, max_samples=100, shuffle=False)
+        items_noshuffle = [x.tolist() for x, _ in ds_noshuffle]
+        
+        # Shuffled dataset
+        ds_shuffle = JSONLDataset(path, _StubTokenizer(), seq_len=128, max_samples=100, shuffle=True, shuffle_buf_size=50, seed=42)
+        items_shuffle = [x.tolist() for x, _ in ds_shuffle]
+        
+        assert len(items_noshuffle) == 100
+        assert len(items_shuffle) == 100
+        # Line order must differ when shuffle=True
+        assert items_noshuffle != items_shuffle
+
+
+def test_jsonl_dataset_epoch_reshuffling():
+    """JSONLDataset must yield different line permutations on epoch 1 vs epoch 2 when iterating past EOF."""
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "test_epoch.jsonl")
+        _write_chat_jsonl(path, 30, prefix="ep")
+        
+        ds = JSONLDataset(path, _StubTokenizer(), seq_len=128, max_samples=60, shuffle=True, shuffle_buf_size=20, seed=123)
+        all_samples = [x.tolist() for x, _ in ds]
+        
+        assert len(all_samples) == 60
+        epoch_1 = all_samples[:30]
+        epoch_2 = all_samples[30:]
+        
+        # Epoch 1 and Epoch 2 must be different line permutations
+        assert epoch_1 != epoch_2
+
+

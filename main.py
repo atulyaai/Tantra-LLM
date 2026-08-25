@@ -65,9 +65,14 @@ else:
     _default_cand = os.path.join(_datasets_dir, "train_pack_all_expanded_1040k.jsonl")
     if not os.path.exists(_default_cand):
         _found = glob.glob(os.path.join(_datasets_dir, "*.jsonl"))
-        DEFAULT_DATASET = _found[0] if _found else os.path.join(_datasets_dir, "tantra_master_identity_safety.jsonl")
+        if _found:
+            _found.sort(key=lambda p: os.path.getsize(p) if os.path.exists(p) else 0, reverse=True)
+            DEFAULT_DATASET = _found[0]
+        else:
+            DEFAULT_DATASET = os.path.join(_datasets_dir, "tantra_master_identity_safety.jsonl")
     else:
         DEFAULT_DATASET = _default_cand
+
 
 def print_banner():
     is_tty = getattr(sys.stdout, "isatty", lambda: False)()
@@ -524,6 +529,16 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
     mask_non_assistant = training_stage == "sft"
     stage_label = "full-token pretraining" if not mask_non_assistant else "assistant-only instruction tuning"
     log.info(f"Loading real dataset from: {dataset_path} ({stage_label})")
+    if os.path.isfile(dataset_path):
+        try:
+            with open(dataset_path, "r", encoding="utf-8", errors="ignore") as _f:
+                _line_count = sum(1 for _ in _f)
+            log.info(f"Dataset '{os.path.basename(dataset_path)}' loaded with {_line_count:,} items.")
+            if _line_count < 1000:
+                log.warning(f"[STUB DATASET WARNING] '{os.path.basename(dataset_path)}' contains only {_line_count} lines! Small dataset runs loop every {max(1, _line_count // 8)} steps. Ensure full corpus is used for production training.")
+        except Exception:
+            pass
+
     if tokenizer.bpe.vocab_size == 0 or tokenizer.bpe._tokenizer is None or tokenizer.bpe._tokenizer.get_vocab_size() == 0:
         log.error(f"CRITICAL: BPE Tokenizer is untrained (vocab_size 0)! Aborting training to prevent raw-byte fallback.")
         raise RuntimeError("Tokenizer is falling back to raw bytes (no valid BPE merges found). Please generate a valid tokenizer.json before training.")

@@ -272,7 +272,8 @@ class JSONLDataset(IterableDataset):
 
     def __init__(self, jsonl_path: str, tokenizer: Any, seq_len: int = 128,
                  max_samples: Optional[int] = None, mask_non_assistant: bool = True,
-                 insert_doc_boundaries: bool = True):
+                 insert_doc_boundaries: bool = True, shuffle: bool = True,
+                 shuffle_buf_size: int = 2000, seed: int = 42):
         super().__init__()
         self.jsonl_path = jsonl_path
         self.tokenizer = tokenizer
@@ -281,6 +282,9 @@ class JSONLDataset(IterableDataset):
         self.vocab_size = getattr(tokenizer, "vocab_size", 32768)
         self.mask_non_assistant = mask_non_assistant
         self.insert_doc_boundaries = insert_doc_boundaries
+        self.shuffle = shuffle
+        self.shuffle_buf_size = max(1, shuffle_buf_size)
+        self.seed = seed
         self._unrecognized_json = 0
 
     def _tokenize_item(self, raw_line: str) -> Tuple[List[int], List[bool]]:
@@ -345,82 +349,114 @@ class JSONLDataset(IterableDataset):
         line_idx = -1
         token_buffer: List[int] = []
         mask_buffer: List[bool] = []
+        epoch = 0
+
+        def _process_line(raw_line: str) -> List[Tuple[torch.Tensor, torch.Tensor]]:
+            nonlocal lines_seen, line_idx, token_buffer, mask_buffer
+            line_idx += 1
+            if num_workers > 1 and (line_idx % num_workers) != worker_id:
+                return []
+            lines_seen += 1
+
+            ids, is_target = self._tokenize_item(raw_line)
+
+            if lines_seen == 500 and self._unrecognized_json / lines_seen > 0.3:
+                log.warning(
+                    f"{self._unrecognized_json}/{lines_seen} lines so far are valid JSON with an "
+                    f"unrecognized schema (not 'messages' or 'system'/'user'/'assistant') and are "
+                    f"being SKIPPED, not trained on. Check {self.jsonl_path}'s actual field names "
+                    f"against Tantra/dataset.py:build_prompt_segments()."
+                )
+
+            if not ids:
+                return []
+
+            clamped = torch.tensor(ids, dtype=torch.long).clamp_(0, self.vocab_size - 1).tolist()
+            samples = []
+
+            if self.mask_non_assistant:
+                if len(clamped) >= 2:
+                    pad_len = max(0, (self.seq_len + 1) - len(clamped))
+                    sample_ids = (clamped + [0] * pad_len)[: self.seq_len + 1]
+                    sample_mask = (is_target + [False] * pad_len)[: self.seq_len + 1]
+
+                    x = torch.tensor(sample_ids[:-1], dtype=torch.long)
+                    y = torch.tensor(sample_ids[1:], dtype=torch.long)
+                    y_is_target = torch.tensor(sample_mask[1:], dtype=torch.bool)
+                    y = torch.where(y_is_target, y, torch.full_like(y, IGNORE_INDEX))
+                    samples.append((x, y))
+            else:
+                token_buffer.extend(clamped)
+                mask_buffer.extend([True] * len(clamped))
+                if self.insert_doc_boundaries:
+                    token_buffer.append(EOS_ID)
+                    mask_buffer.append(True)
+
+                while len(token_buffer) >= self.seq_len + 1:
+                    chunk_ids = token_buffer[: self.seq_len + 1]
+                    chunk_mask = mask_buffer[: self.seq_len + 1]
+                    token_buffer = token_buffer[self.seq_len:]
+                    mask_buffer = mask_buffer[self.seq_len:]
+
+                    x = torch.tensor(chunk_ids[:-1], dtype=torch.long)
+                    y = torch.tensor(chunk_ids[1:], dtype=torch.long)
+                    y_is_target = torch.tensor(chunk_mask[1:], dtype=torch.bool)
+                    y = torch.where(y_is_target, y, torch.full_like(y, IGNORE_INDEX))
+                    samples.append((x, y))
+
+            return samples
 
         while True:
             file_had_lines = False
+            rng = random.Random(self.seed + epoch)
+            shuffle_buffer: List[str] = []
+
             with open(self.jsonl_path, "r", encoding="utf-8", errors="ignore") as f:
                 for line in f:
                     line = line.strip()
                     if not line:
                         continue
                     file_had_lines = True
-                    line_idx += 1
-                    if num_workers > 1 and (line_idx % num_workers) != worker_id:
-                        continue
-                    lines_seen += 1
 
-                    ids, is_target = self._tokenize_item(line)
-
-                    if lines_seen == 500 and self._unrecognized_json / lines_seen > 0.3:
-                        log.warning(
-                            f"{self._unrecognized_json}/{lines_seen} lines so far are valid JSON with an "
-                            f"unrecognized schema (not 'messages' or 'system'/'user'/'assistant') and are "
-                            f"being SKIPPED, not trained on. Check {self.jsonl_path}'s actual field names "
-                            f"against Tantra/dataset.py:build_prompt_segments()."
-                        )
-
-                    if not ids:
-                        continue
-
-                    clamped = torch.tensor(ids, dtype=torch.long).clamp_(0, self.vocab_size - 1).tolist()
-
-                    effective_max = self.max_samples
-                    if effective_max and num_workers > 1:
-                        effective_max = max(1, effective_max // num_workers)
-
-                    if self.mask_non_assistant:
-                        # SFT Mode: Yield each individual conversation as an isolated sequence (zero cross-contamination)
-                        if len(clamped) < 2:
-                            continue
-                        pad_len = max(0, (self.seq_len + 1) - len(clamped))
-                        sample_ids = (clamped + [0] * pad_len)[: self.seq_len + 1]
-                        sample_mask = (is_target + [False] * pad_len)[: self.seq_len + 1]
-
-                        x = torch.tensor(sample_ids[:-1], dtype=torch.long)
-                        y = torch.tensor(sample_ids[1:], dtype=torch.long)
-                        y_is_target = torch.tensor(sample_mask[1:], dtype=torch.bool)
-                        y = torch.where(y_is_target, y, torch.full_like(y, IGNORE_INDEX))
-
-                        yield x, y
-                        count += 1
-                        if effective_max and count >= effective_max:
-                            return
+                    if self.shuffle and self.shuffle_buf_size > 1:
+                        shuffle_buffer.append(line)
+                        if len(shuffle_buffer) >= self.shuffle_buf_size:
+                            idx = rng.randrange(len(shuffle_buffer))
+                            popped = shuffle_buffer.pop(idx)
+                            for x, y in _process_line(popped):
+                                yield x, y
+                                count += 1
+                                effective_max = self.max_samples
+                                if effective_max and num_workers > 1:
+                                    effective_max = max(1, effective_max // num_workers)
+                                if effective_max and count >= effective_max:
+                                    return
                     else:
-                        # Pre-training Mode: Continuous stream packing
-                        token_buffer.extend(clamped)
-                        mask_buffer.extend([True] * len(clamped))
-
-                        if self.insert_doc_boundaries:
-                            token_buffer.append(EOS_ID)
-                            mask_buffer.append(True)
-
-                        while len(token_buffer) >= self.seq_len + 1:
-                            chunk_ids = token_buffer[: self.seq_len + 1]
-                            chunk_mask = mask_buffer[: self.seq_len + 1]
-                            token_buffer = token_buffer[self.seq_len:]
-                            mask_buffer = mask_buffer[self.seq_len:]
-
-                            x = torch.tensor(chunk_ids[:-1], dtype=torch.long)
-                            y = torch.tensor(chunk_ids[1:], dtype=torch.long)
-                            y_is_target = torch.tensor(chunk_mask[1:], dtype=torch.bool)
-                            y = torch.where(y_is_target, y, torch.full_like(y, IGNORE_INDEX))
-
+                        for x, y in _process_line(line):
                             yield x, y
                             count += 1
+                            effective_max = self.max_samples
+                            if effective_max and num_workers > 1:
+                                effective_max = max(1, effective_max // num_workers)
                             if effective_max and count >= effective_max:
                                 return
+
+            if self.shuffle and shuffle_buffer:
+                rng.shuffle(shuffle_buffer)
+                for line in shuffle_buffer:
+                    for x, y in _process_line(line):
+                        yield x, y
+                        count += 1
+                        effective_max = self.max_samples
+                        if effective_max and num_workers > 1:
+                            effective_max = max(1, effective_max // num_workers)
+                        if effective_max and count >= effective_max:
+                            return
+                shuffle_buffer.clear()
+
             if not file_had_lines:
                 break
+            epoch += 1
 
 
 def extract_corpus_sample(jsonl_path: str, output_txt_path: str, max_lines: int = 2000) -> str:
