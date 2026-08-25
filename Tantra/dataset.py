@@ -403,9 +403,10 @@ class JSONLDataset(IterableDataset):
                         chunk_ids = clamped[start_idx:end_idx]
                         chunk_mask = is_target[start_idx:end_idx]
 
-                        # Ensure chunk has supervised tokens or is the initial prompt
-                        if not any(chunk_mask) and start_idx > 0:
-                            break
+                        # Skip chunks that have no supervised assistant tokens (e.g. pure prompt prefix)
+                        if not any(chunk_mask):
+                            continue
+
 
                         pad_len = max(0, (self.seq_len + 1) - len(chunk_ids))
                         sample_ids = (chunk_ids + [0] * pad_len)[: self.seq_len + 1]

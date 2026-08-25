@@ -274,7 +274,14 @@ class NeuroTrainer:
             logits_flat = torch.clamp(logits_main.reshape(-1, logits_main.size(-1)), -50.0, 50.0)
             y_flat = self._safe_targets(y.reshape(-1), logits_main.size(-1))
 
+            supervised_mask = (y_flat != IGNORE_INDEX)
+            if not supervised_mask.any():
+                # Micro-batch contains only prompt/pad tokens and no assistant targets
+                self._micro_step += 1
+                return 0.0, 0.0, 0.0, 0.0, False
+
             loss = self.criterion(logits_flat, y_flat)
+
 
             if hasattr(self.model, "get_aux_loss"):
                 loss = loss + self.model.get_aux_loss()
