@@ -340,9 +340,10 @@ class NeuroTrainer:
 
     def evaluate_validation(self, val_loader: Iterable[Tuple[torch.Tensor, torch.Tensor]], max_val_batches: int = 20) -> dict:
         """Evaluate model on held-out validation data stream."""
-        if not val_loader:
+        if val_loader is None:
             return {}
         raw_model = getattr(self.model, "_orig_mod", self.model)
+
         raw_model.eval()
         val_losses = []
         val_accs = []
@@ -655,7 +656,7 @@ class NeuroTrainer:
 
                 if at_boundary and eval_every > 0 and (self.step_count % eval_every == 0) and (self.step_count != self._last_eval_step):
                     self._last_eval_step = self.step_count
-                    if val_loader:
+                    if val_loader is not None:
                         val_res = self.evaluate_validation(val_loader)
                         if val_res:
                             v_loss = val_res["val_loss"]
@@ -672,7 +673,7 @@ class NeuroTrainer:
                                     f"The model is memorizing training examples!"
                                 )
 
-                    if eval_callback:
+                    if eval_callback is not None:
                         if progress:
                             progress.stop()
                         eval_callback(self.step_count)
@@ -684,7 +685,7 @@ class NeuroTrainer:
                 # resumable state.  Full sampled/archival checkpoints remain on
                 # the much less frequent evaluation schedule.
                 if at_boundary and checkpoint_every > 0 and (self.step_count % checkpoint_every == 0):
-                    if checkpoint_callback:
+                    if checkpoint_callback is not None:
                         checkpoint_callback(self.step_count)
 
                 if self.step_count >= max_steps:

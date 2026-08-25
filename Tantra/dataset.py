@@ -302,8 +302,11 @@ class JSONLDataset(IterableDataset):
         self.split = split.lower().strip()
         self._unrecognized_json = 0
 
+    def __bool__(self) -> bool:
+        return True
 
     def _tokenize_item(self, raw_line: str) -> Tuple[List[int], List[bool]]:
+
         """Return (token_ids, is_target) for one JSONL line.
 
         is_target[i] tells the caller whether token i should be supervised
