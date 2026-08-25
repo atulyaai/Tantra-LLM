@@ -793,17 +793,19 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
             dataset = PretokenizedBinDataset(bin_cache, seq_len=seq_len,
                                              max_samples=max_samples,
                                              mask_non_assistant=mask_non_assistant)
-        else:
-            dataset = JSONLDataset(dataset_path, tokenizer, seq_len=seq_len,
-                                  max_samples=max_samples, mask_non_assistant=mask_non_assistant)
-    
+    val_loader = None
+    if os.path.isfile(dataset_path):
+        val_dataset = JSONLDataset(dataset_path, tokenizer, seq_len=seq_len, max_samples=100, mask_non_assistant=mask_non_assistant, split="val", val_ratio=0.05)
+        val_loader = torch.utils.data.DataLoader(val_dataset, batch_size=batch_size, num_workers=0)
+
     dataloader = torch.utils.data.DataLoader(
         dataset, batch_size=batch_size, num_workers=data_workers,
         persistent_workers=data_workers > 0, prefetch_factor=4 if data_workers > 0 else None,
     )
     enrichment = 0.0 if training_stage == "sft" else 0.02
     try:
-        trainer.train_dataset(dataloader, max_steps=steps, log_every=log_every, eval_every=eval_every, eval_callback=eval_callback, checkpoint_every=checkpoint_every, checkpoint_callback=checkpoint_callback, tokenizer=tokenizer, enrichment_rate=enrichment, use_latent_reasoning=use_latent_reasoning, auto_growth=auto_growth, growth_patience=growth_patience, growth_min_delta=growth_min_delta, max_layers=max_layers)
+        trainer.train_dataset(dataloader, max_steps=steps, log_every=log_every, eval_every=eval_every, eval_callback=eval_callback, checkpoint_every=checkpoint_every, checkpoint_callback=checkpoint_callback, tokenizer=tokenizer, enrichment_rate=enrichment, use_latent_reasoning=use_latent_reasoning, auto_growth=auto_growth, growth_patience=growth_patience, growth_min_delta=growth_min_delta, max_layers=max_layers, val_loader=val_loader)
+
     except KeyboardInterrupt:
         # Ctrl+C happens after an optimizer boundary in many practical runs.
         # Save that completed state before allowing the process to stop.

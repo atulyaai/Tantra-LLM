@@ -156,8 +156,28 @@ def test_jsonl_dataset_epoch_reshuffling():
         assert len(all_samples) == 60
         epoch_1 = all_samples[:30]
         epoch_2 = all_samples[30:]
-        
         # Epoch 1 and Epoch 2 must be different line permutations
         assert epoch_1 != epoch_2
+
+
+
+def test_jsonl_dataset_validation_split():
+
+    """Train and validation splits must be disjoint and contain zero line overlap."""
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "test_split.jsonl")
+        _write_chat_jsonl(path, 100, prefix="item")
+
+        ds_train = JSONLDataset(path, _StubTokenizer(), seq_len=128, max_samples=100, split="train", val_ratio=0.1, shuffle=False)
+        ds_val = JSONLDataset(path, _StubTokenizer(), seq_len=128, max_samples=100, split="val", val_ratio=0.1, shuffle=False)
+
+        train_items = set(tuple(x.tolist()) for x, _ in ds_train)
+        val_items = set(tuple(x.tolist()) for x, _ in ds_val)
+
+        assert len(train_items) > 0
+        assert len(val_items) > 0
+        # Zero line overlap between train and val
+        assert train_items.isdisjoint(val_items)
+
 
 

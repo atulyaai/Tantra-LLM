@@ -366,7 +366,58 @@ class NeuroTrainer:
         out[keep] = out[keep].clamp(0, vocab_size - 1)
         return out
 
-    def train_dataset(self, data_stream: Iterable[Tuple[torch.Tensor, torch.Tensor]], max_steps: int = 100, log_every: int = 10, eval_every: int = 0, eval_callback = None, checkpoint_every: int = 0, checkpoint_callback = None, tokenizer: Optional[Any] = None, enrichment_rate: float = 0.02, use_latent_reasoning: bool = True, auto_growth: bool = False, growth_patience: int = 1000, growth_min_delta: float = 0.005, max_layers: Optional[int] = None) -> list[float]:
+    def evaluate_validation(self, val_loader: Iterable[Tuple[torch.Tensor, torch.Tensor]], max_val_batches: int = 20) -> dict:
+        """Evaluate model on held-out validation data stream."""
+        if not val_loader:
+            return {}
+        raw_model = getattr(self.model, "_orig_mod", self.model)
+        raw_model.eval()
+        val_losses = []
+        val_accs = []
+        val_ppls = []
+
+        with torch.no_grad():
+            batch_count = 0
+            for vx, vy in val_loader:
+                vx = vx.to(self.device)
+                vy = vy.to(self.device)
+                outputs = raw_model(vx)
+                logits = outputs[0] if isinstance(outputs, (tuple, list)) else outputs
+
+                valid_mask = vy != IGNORE_INDEX
+                if not valid_mask.any():
+                    continue
+
+                loss = F.cross_entropy(logits.view(-1, logits.size(-1)), vy.view(-1), ignore_index=IGNORE_INDEX)
+                val_losses.append(loss.item())
+
+                preds = logits.argmax(dim=-1)
+                correct = (preds == vy) & valid_mask
+                acc = correct.sum().float() / valid_mask.sum().float() * 100.0
+                val_accs.append(acc.item())
+
+                ppl = math.exp(min(loss.item(), 20.0))
+                val_ppls.append(ppl)
+
+                batch_count += 1
+                if batch_count >= max_val_batches:
+                    break
+
+        raw_model.train()
+        if not val_losses:
+            return {}
+
+        avg_val_loss = sum(val_losses) / len(val_losses)
+        avg_val_acc = sum(val_accs) / len(val_accs)
+        avg_val_ppl = sum(val_ppls) / len(val_ppls)
+        return {
+            "val_loss": avg_val_loss,
+            "val_acc": avg_val_acc,
+            "val_ppl": avg_val_ppl,
+        }
+
+    def train_dataset(self, data_stream: Iterable[Tuple[torch.Tensor, torch.Tensor]], max_steps: int = 100, log_every: int = 10, eval_every: int = 0, eval_callback = None, checkpoint_every: int = 0, checkpoint_callback = None, tokenizer: Optional[Any] = None, enrichment_rate: float = 0.02, use_latent_reasoning: bool = True, auto_growth: bool = False, growth_patience: int = 1000, growth_min_delta: float = 0.005, max_layers: Optional[int] = None, val_loader: Optional[Iterable[Tuple[torch.Tensor, torch.Tensor]]] = None) -> list[float]:
+
         """Train over an iterable dataset stream (e.g. JSONLDataset).
 
         `tokenizer`: optional UnifiedTokenizer-like object (must expose
@@ -605,12 +656,30 @@ class NeuroTrainer:
 
                 if at_boundary and eval_every > 0 and (self.step_count % eval_every == 0) and (self.step_count != self._last_eval_step):
                     self._last_eval_step = self.step_count
+                    if val_loader:
+                        val_res = self.evaluate_validation(val_loader)
+                        if val_res:
+                            v_loss = val_res["val_loss"]
+                            v_acc = val_res["val_acc"]
+                            v_ppl = val_res["val_ppl"]
+                            log.info(
+                                f"   [VAL EVAL @ Step {self.step_count}] "
+                                f"Val Loss: {v_loss:.4f} | Val PPL: {v_ppl:.1f} | Val Acc: {v_acc:.2f}%"
+                            )
+                            if (avg_acc - v_acc > 30.0) or (avg_loss > 0 and (v_loss / avg_loss) > 2.5 and avg_acc > 80.0):
+                                log.warning(
+                                    f"   ⚠️ [OVERFITTING DETECTED @ Step {self.step_count}] Training Accuracy ({avg_acc:.1f}%) "
+                                    f"is significantly higher than Held-Out Validation Accuracy ({v_acc:.1f}%). "
+                                    f"The model is memorizing training examples!"
+                                )
+
                     if eval_callback:
                         if progress:
                             progress.stop()
                         eval_callback(self.step_count)
                         if progress and self.step_count < max_steps:
                             progress.start()
+
 
                 # Lightweight recovery checkpoint: this writes only the latest
                 # resumable state.  Full sampled/archival checkpoints remain on

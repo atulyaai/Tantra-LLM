@@ -14,11 +14,13 @@ silently straddle two unrelated documents/examples.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import os
 import random
 from typing import Iterator, List, Dict, Any, Optional, Tuple
+
 
 import torch
 from torch.utils.data import IterableDataset, DataLoader
@@ -264,7 +266,17 @@ def find_bin_cache(dataset_path: str) -> Optional[str]:
     return candidate if os.path.exists(candidate) else None
 
 
+def is_val_line(raw_line: str, val_ratio: float = 0.05) -> bool:
+
+    """Return True if raw_line falls into the held-out validation split based on content hash."""
+    if val_ratio <= 0:
+        return False
+    h = int(hashlib.md5(raw_line.encode("utf-8", errors="ignore")).hexdigest()[:8], 16)
+    return (h % 100) < int(val_ratio * 100)
+
+
 class JSONLDataset(IterableDataset):
+
     """
     Streaming IterableDataset for JSONL files.
     Reads large dataset files line-by-line without loading entire files into RAM.
@@ -273,7 +285,8 @@ class JSONLDataset(IterableDataset):
     def __init__(self, jsonl_path: str, tokenizer: Any, seq_len: int = 128,
                  max_samples: Optional[int] = None, mask_non_assistant: bool = True,
                  insert_doc_boundaries: bool = True, shuffle: bool = True,
-                 shuffle_buf_size: int = 2000, seed: int = 42):
+                 shuffle_buf_size: int = 2000, seed: int = 42,
+                 val_ratio: float = 0.05, split: str = "train"):
         super().__init__()
         self.jsonl_path = jsonl_path
         self.tokenizer = tokenizer
@@ -282,10 +295,13 @@ class JSONLDataset(IterableDataset):
         self.vocab_size = getattr(tokenizer, "vocab_size", 32768)
         self.mask_non_assistant = mask_non_assistant
         self.insert_doc_boundaries = insert_doc_boundaries
-        self.shuffle = shuffle
+        self.shuffle = shuffle if split == "train" else False
         self.shuffle_buf_size = max(1, shuffle_buf_size)
         self.seed = seed
+        self.val_ratio = max(0.0, min(0.5, val_ratio))
+        self.split = split.lower().strip()
         self._unrecognized_json = 0
+
 
     def _tokenize_item(self, raw_line: str) -> Tuple[List[int], List[bool]]:
         """Return (token_ids, is_target) for one JSONL line.
@@ -417,8 +433,15 @@ class JSONLDataset(IterableDataset):
                     if not line:
                         continue
                     file_had_lines = True
+                    if self.val_ratio > 0:
+                        is_val = is_val_line(line, self.val_ratio)
+                        if self.split == "val" and not is_val:
+                            continue
+                        elif self.split == "train" and is_val:
+                            continue
 
                     if self.shuffle and self.shuffle_buf_size > 1:
+
                         shuffle_buffer.append(line)
                         if len(shuffle_buffer) >= self.shuffle_buf_size:
                             idx = rng.randrange(len(shuffle_buffer))
