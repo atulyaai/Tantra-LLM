@@ -793,10 +793,15 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
             dataset = PretokenizedBinDataset(bin_cache, seq_len=seq_len,
                                              max_samples=max_samples,
                                              mask_non_assistant=mask_non_assistant)
+        else:
+            dataset = JSONLDataset(dataset_path, tokenizer, seq_len=seq_len,
+                                  max_samples=max_samples, mask_non_assistant=mask_non_assistant)
+
     val_loader = None
     if os.path.isfile(dataset_path):
         val_dataset = JSONLDataset(dataset_path, tokenizer, seq_len=seq_len, max_samples=100, mask_non_assistant=mask_non_assistant, split="val", val_ratio=0.05)
         val_loader = torch.utils.data.DataLoader(val_dataset, batch_size=batch_size, num_workers=0)
+
 
     dataloader = torch.utils.data.DataLoader(
         dataset, batch_size=batch_size, num_workers=data_workers,
