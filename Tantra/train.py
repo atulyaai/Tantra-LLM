@@ -486,29 +486,8 @@ class NeuroTrainer:
             log.debug("TokenJuice enrichment disabled for this run (enrichment_rate <= 0 or no tokenizer).")
 
         losses = []
-        try:
-            from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn, MofNCompleteColumn
-            has_rich = True
-        except ImportError:
-            has_rich = False
+        progress = None
 
-        if has_rich:
-            progress = Progress(
-                SpinnerColumn(),
-                TextColumn("[bold cyan]Dataset Training[/bold cyan]"),
-                BarColumn(bar_width=30),
-                TaskProgressColumn(),
-                MofNCompleteColumn(),
-                TextColumn("[green]Loss: {task.fields[loss]:.4f}[/green]"),
-                TextColumn("[yellow]Acc: {task.fields[acc]:.1f}%[/yellow]"),
-                TextColumn("[blue]PPL: {task.fields[ppl]:.1f}[/blue]"),
-                TextColumn("[dim]ETA: {task.fields[eta]}[/dim]"),
-                TextColumn("[magenta]⚡ {task.fields[tok_s]:.1f} tok/s[/magenta]"),
-            )
-            task_id = progress.add_task("Train", total=max_steps, completed=self.step_count, loss=0.0, acc=0.0, ppl=0.0, tok_s=0.0, eta="estimating")
-            progress.start()
-        else:
-            progress = None
 
         self._write_training_status(
             status="running", step=self.step_count, target_steps=max_steps,
@@ -838,7 +817,8 @@ class NeuroTrainer:
                     pass
                 log.warning(f"Failed checkpoint write to {target_path}: {ex}")
                 return
-            log.info(f"Checkpoint saved -> {target_path}")
+            step_info = f"Step {step_num:,}" if step_num is not None else "Latest"
+            log.info(f"💾 [CHECKPOINT SAVED] {step_info} | Target: {os.path.basename(target_path)} | Best Loss: {self.best_loss:.4f}")
 
             if "Checkpoints" in target_dir or "checkpoints" in target_dir:
                 NeuroTrainer.prune_checkpoint_history(target_dir, max_keep=2)
@@ -870,9 +850,10 @@ class NeuroTrainer:
             for _, fpath in to_remove:
                 try:
                     os.remove(fpath)
-                    log.info(f"Pruned older checkpoint -> {fpath}")
+                    log.info(f"🧹 [PRUNED OLD CHECKPOINT] {os.path.basename(fpath)}")
                 except Exception as e:
                     log.warning(f"Could not remove old checkpoint {fpath}: {e}")
+
 
     def load_checkpoint(self, path: str) -> None:
         """Load model + optimizer + scheduler state."""

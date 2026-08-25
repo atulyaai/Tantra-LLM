@@ -633,22 +633,21 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
 
     def eval_callback(step):
         # Evaluates 4 diverse domain prompts to monitor multi-skill emergence
-        log.info("\n" + "=" * 60)
-        log.info(f"   --- [ MULTI-DOMAIN EVALUATION @ Step {step} ] ---")
-        log.info("=" * 60)
+        log.info(f"┌── [ MULTI-DOMAIN EVALUATION @ Step {step:,} ] " + "─" * 38)
         test_prompts = [
-            ("General", "<|user|>\nWhat is Tantra LLM?\n\n<|assistant|>\n"),
-            ("Coding", "<|user|>\nWrite a Python function to reverse a string.\n\n<|assistant|>\n"),
-            ("Math", "<|user|>\nSolve for x in 2x + 6 = 14.\n\n<|assistant|>\n"),
-            ("Science", "<|user|>\nState Newton's First Law of Motion.\n\n<|assistant|>\n")
+            ("General", "💬", "<|user|>\nWhat is Tantra LLM?\n\n<|assistant|>\n"),
+            ("Coding",  "💻", "<|user|>\nWrite a Python function to reverse a string.\n\n<|assistant|>\n"),
+            ("Math",    "🔢", "<|user|>\nSolve for x in 2x + 6 = 14.\n\n<|assistant|>\n"),
+            ("Science", "🔬", "<|user|>\nState Newton's First Law of Motion.\n\n<|assistant|>\n")
         ]
-        for domain, prompt_text in test_prompts:
+        for domain, icon, prompt_text in test_prompts:
             prompt_ids = torch.tensor([tokenizer.encode(prompt_text)], device=model.embed.weight.device)
-            out = model.generate(prompt_ids, max_new_tokens=64, min_new_tokens=1, temperature=0.7, top_p=0.9, repetition_penalty=1.2)
+            out = model.generate(prompt_ids, max_new_tokens=48, min_new_tokens=1, temperature=0.7, top_p=0.9, repetition_penalty=1.2)
             new_tokens = out[0, prompt_ids.shape[1]:].tolist()
-            response = tokenizer.decode(new_tokens)
-            log.info(f"[{domain.upper()}] {response.strip()}")
-        log.info("=" * 60 + "\n")
+            response = tokenizer.decode(new_tokens).strip().replace("\n", " ")
+            log.info(f"│ {icon} [{domain:7s}]: {response[:90]}")
+        log.info("└" + "─" * 80)
+
 
         # Bidirectional per-category growth (adapter training only). During a
         # single-category run every token routes to this category, so usage is
