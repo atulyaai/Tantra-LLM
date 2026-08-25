@@ -646,7 +646,17 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
             new_tokens = out[0, prompt_ids.shape[1]:].tolist()
             response = tokenizer.decode(new_tokens).strip().replace("\n", " ")
             log.info(f"│ {icon} [{domain:7s}]: {response[:90]}")
+        
+        # Zero-Shot World Knowledge MMLU Benchmark Evaluation
+        try:
+            from Tantra.world_eval import evaluate_zero_shot_world_knowledge
+            world_res = evaluate_zero_shot_world_knowledge(model, tokenizer)
+            if world_res:
+                log.info(f"│ 🌍 [World MMLU]: {world_res['world_mmlu_accuracy']:.1f}% Zero-Shot Accuracy ({world_res['correct_samples']}/{world_res['total_samples']} questions correct)")
+        except Exception:
+            pass
         log.info("└" + "─" * 80)
+
 
 
         # Bidirectional per-category growth (adapter training only). During a

@@ -653,29 +653,38 @@ class NeuroTrainer:
                         model_snippet = ""
                         if tokenizer is not None:
                             try:
+                                # 1. Extract Full User Prompt from x[0]
                                 sample_toks = [t for t in x[0].cpu().tolist() if t > 0]
                                 decoded_text = tokenizer.decode(sample_toks)
-                                
-                                # Strip System Prompt if present
                                 if "<|user|>" in decoded_text:
-                                    after_user = decoded_text.split("<|user|>", 1)[1]
-                                    if "<|assistant|>" in after_user:
-                                        u_part, a_part = after_user.split("<|assistant|>", 1)
-                                        user_snippet = u_part.replace("</s>", "").strip()[:85]
-                                        asst_snippet = a_part.replace("</s>", "").strip()[:95]
+                                    u_raw = decoded_text.split("<|user|>", 1)[1]
+                                    if "<|assistant|>" in u_raw:
+                                        user_snippet = u_raw.split("<|assistant|>", 1)[0].replace("</s>", "").replace("\n", " ").strip()[:140]
                                     else:
-                                        user_snippet = after_user.replace("</s>", "").strip()[:85]
+                                        user_snippet = u_raw.replace("</s>", "").replace("\n", " ").strip()[:140]
                                 else:
-                                    # Fallback: remove standard system prompt text
-                                    clean_d = decoded_text.replace("You are Tantra, a helpful, precise, and polite AI assistant created by Atulya AI. Answer clearly, accurately, and step-by-step.", "").strip()
-                                    user_snippet = clean_d[:85]
-                                
-                                # Decode what the model actually predicted on this batch
+                                    clean_d = decoded_text.replace("You are Tantra, a helpful, precise, and polite AI assistant created by Atulya AI. Answer clearly, accurately, and step-by-step.", "")
+                                    user_snippet = clean_d.replace("</s>", "").replace("\n", " ").strip()[:140]
+
+                                # 2. Extract Full Target Answer directly from supervised y[0] targets
+                                target_toks = [t for t in y[0].cpu().tolist() if t != IGNORE_INDEX and t > 0]
+                                if target_toks:
+                                    asst_snippet = tokenizer.decode(target_toks).replace("</s>", "").replace("\n", " ").strip()[:150]
+
+                                # 3. Extract Model Output predicted on this batch
                                 pred_ids = getattr(self, "last_pred_tokens", None)
                                 if pred_ids:
-                                    model_snippet = tokenizer.decode(pred_ids).replace("\n", " ").strip()[:95]
+                                    model_snippet = tokenizer.decode(pred_ids).replace("</s>", "").replace("\n", " ").strip()[:150]
                             except Exception:
                                 pass
+
+
+                        match_score = 0.0
+                        if asst_snippet and model_snippet:
+                            t_words = {w for w in asst_snippet.lower().split() if len(w) > 2}
+                            m_words = {w for w in model_snippet.lower().split() if len(w) > 2}
+                            if t_words:
+                                match_score = len(t_words & m_words) / len(t_words) * 100.0
 
                         header = f"Step {self.step_count:,}/{max_steps:,} ({pct:.1f}%)"
                         metrics_line1 = f"Loss: {avg_loss:.4f} {loss_arrow} │ Top-1 Acc: {avg_acc:.1f}% │ Top-5 Acc: {avg_top5_acc:.1f}% {acc_arrow} │ PPL: {avg_ppl:.1f}"
@@ -693,7 +702,10 @@ class NeuroTrainer:
                             log.info(f"│ 💡 [Target Answer]: {asst_snippet}")
                         if model_snippet:
                             log.info(f"│ 🤖 [Model Output] : {model_snippet}")
+                        if match_score > 0:
+                            log.info(f"│ 🎯 [Match Score]  : {match_score:.1f}% (Key concept alignment)")
                         log.info(f"└── Tokens: {self._session_tokens/1000:.1f}K processed ──────────────────────────────────────────")
+
 
 
                         if progress and self.step_count < max_steps:
