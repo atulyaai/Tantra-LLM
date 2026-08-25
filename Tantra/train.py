@@ -312,6 +312,7 @@ class NeuroTrainer:
 
                 # Fast Top-5 Candidate Pool Accuracy (compute only on supervised tokens)
                 if supervised.any():
+                    self.last_pred_tokens = preds[supervised].tolist()[:40]
                     sub_logits = logits_flat[supervised]
                     sub_y = y_flat[supervised]
                     k_val = min(5, sub_logits.size(-1))
@@ -319,10 +320,12 @@ class NeuroTrainer:
                     correct_top5 = (top5_indices == sub_y.unsqueeze(-1)).any(dim=-1)
                     self.last_top5_acc = (correct_top5.float().sum() / total).item() * 100.0
                 else:
+                    self.last_pred_tokens = []
                     self.last_top5_acc = 0.0
             else:
                 accuracy = None
                 self.last_top5_acc = None
+
             ppl = math.exp(min(loss.item(), 20.0))
 
         (loss / self.grad_accumulation_steps).backward()
@@ -644,6 +647,7 @@ class NeuroTrainer:
 
                         user_snippet = ""
                         asst_snippet = ""
+                        model_snippet = ""
                         if tokenizer is not None:
                             try:
                                 sample_toks = [t for t in x[0].cpu().tolist() if t > 0]
@@ -662,6 +666,11 @@ class NeuroTrainer:
                                     # Fallback: remove standard system prompt text
                                     clean_d = decoded_text.replace("You are Tantra, a helpful, precise, and polite AI assistant created by Atulya AI. Answer clearly, accurately, and step-by-step.", "").strip()
                                     user_snippet = clean_d[:85]
+                                
+                                # Decode what the model actually predicted on this batch
+                                pred_ids = getattr(self, "last_pred_tokens", None)
+                                if pred_ids:
+                                    model_snippet = tokenizer.decode(pred_ids).replace("\n", " ").strip()[:95]
                             except Exception:
                                 pass
 
@@ -679,7 +688,10 @@ class NeuroTrainer:
                             log.info(f"│ ❓ [User Prompt]  : {user_snippet}")
                         if asst_snippet:
                             log.info(f"│ 💡 [Target Answer]: {asst_snippet}")
+                        if model_snippet:
+                            log.info(f"│ 🤖 [Model Output] : {model_snippet}")
                         log.info(f"└── Tokens: {self._session_tokens/1000:.1f}K processed ──────────────────────────────────────────")
+
 
                         if progress and self.step_count < max_steps:
                             progress.start()
