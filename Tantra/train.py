@@ -167,8 +167,16 @@ class NeuroTrainer:
         self.use_latent_reasoning = use_latent_reasoning
         self.use_mtp_loss = use_mtp_loss
         self.device = next(model.parameters()).device if list(model.parameters()) else torch.device("cpu")
-        log.info(f"  NeuroTrainer initialized on device: {self.device} (type={self.device.type}) | Optimizer: {self.optimizer_name}")
+        if self.device.type == "cpu":
+            num_threads = min(8, max(4, (os.cpu_count() or 4)))
+            try:
+                torch.set_num_threads(num_threads)
+                torch.set_flush_denormal(True)
+            except Exception:
+                pass
+        log.info(f"  NeuroTrainer initialized on device: {self.device} (type={self.device.type}, threads={torch.get_num_threads() if self.device.type == 'cpu' else 1}) | Optimizer: {self.optimizer_name}")
         trainable_parameters = [p for p in model.parameters() if p.requires_grad]
+
         if not trainable_parameters:
             raise ValueError("No trainable parameters are enabled.")
         self.optimizer = build_optimizer(self.optimizer_name, trainable_parameters, lr=lr, weight_decay=weight_decay)
@@ -228,10 +236,8 @@ class NeuroTrainer:
         except Exception as exc:
             log.debug(f"Could not publish training status: {exc}")
 
-    def train_step(self, x: torch.Tensor, y: torch.Tensor, use_latent_reasoning: Optional[bool] = None) -> Tuple[float, Optional[float], float, float, bool]:
-        """One micro-batch. Optimizer/scheduler only advance every
-        `grad_accumulation_steps` calls; returned metrics always describe
-        this micro-batch's own loss/accuracy/grad-norm.
+    def train_step(self, x: torch.Tensor, y: torch.Tensor, use_latent_reasoning: Optional[bool] = None) -> tuple[float, Optional[float], float, float, bool]:
+        """Execute one training step (micro-batch or full step).
 
         `use_latent_reasoning`: per-call override. Defaults to None, which
         falls back to self.use_latent_reasoning (set at construction) —
@@ -245,8 +251,6 @@ class NeuroTrainer:
         if self._micro_step % self.grad_accumulation_steps == 0:
             self.optimizer.zero_grad(set_to_none=True)
 
-        # Accuracy is reporting-only.  With accumulation, calculate it only
-        # on the micro-batch that finishes an optimizer update.
         will_step = ((self._micro_step + 1) % self.grad_accumulation_steps == 0)
 
         x, y = x.to(self.device), y.to(self.device)
@@ -255,9 +259,6 @@ class NeuroTrainer:
             vsize = raw_m.embed.weight.size(0)
             x = torch.clamp(x, 0, vsize - 1)
 
-        # Autocast only helps on accelerators with native low-precision
-        # matmul paths. On plain CPU it adds per-op cast/dispatch overhead
-        # for no speed benefit on most hardware, so it stays off there.
         device_type = self.device.type if self.device.type in ('cuda', 'mps') else 'cpu'
 
         autocast_enabled = device_type != 'cpu'
@@ -270,7 +271,6 @@ class NeuroTrainer:
                 logits_main = out[0]
                 logits_mtp = None
 
-            # Numerically stable logits clamping with contiguous reshape
             logits_flat = torch.clamp(logits_main.reshape(-1, logits_main.size(-1)), -50.0, 50.0)
             y_flat = self._safe_targets(y.reshape(-1), logits_main.size(-1))
 
@@ -284,14 +284,15 @@ class NeuroTrainer:
                 logits_mtp_flat = torch.clamp(logits_mtp[:, :-1, :].reshape(-1, logits_mtp.size(-1)), -50.0, 50.0)
                 y_mtp_flat = self._safe_targets(y[:, 1:].reshape(-1), logits_mtp.size(-1))
                 mtp_loss = self.criterion(logits_mtp_flat, y_mtp_flat)
-                loss = loss + 0.25 * mtp_loss
+                loss = loss + 0.3 * mtp_loss
 
-        if torch.isnan(loss) or torch.isinf(loss):
+        if math.isnan(loss.item()) or math.isinf(loss.item()):
+            log.error("NaN or Inf detected in loss! Skipping batch update to prevent weight corruption.")
+            self.optimizer.zero_grad(set_to_none=True)
             self._micro_step += 1
             return 0.0, 0.0, 0.0, 0.0, False
 
-        # Argmax scans the full vocabulary and is expensive on CPU. It does
-        # not alter gradients, so skip it for intermediate micro-batches.
+        # Compute accuracy reporting metrics
         with torch.no_grad():
             if will_step:
                 supervised = y_flat != IGNORE_INDEX
@@ -302,11 +303,16 @@ class NeuroTrainer:
                 correct = ((preds == y_flat) & supervised).float().sum()
                 accuracy: Optional[float] = (correct / total).item() * 100.0
 
-                # Top-5 Candidate Pool Accuracy (Standard LLM Benchmark)
-                k_val = min(5, logits_flat.size(-1))
-                _, top5_indices = torch.topk(logits_flat, k=k_val, dim=-1)
-                correct_top5 = (top5_indices == y_flat.unsqueeze(-1)).any(dim=-1) & supervised
-                self.last_top5_acc = (correct_top5.float().sum() / total).item() * 100.0
+                # Fast Top-5 Candidate Pool Accuracy (compute only on supervised tokens)
+                if supervised.any():
+                    sub_logits = logits_flat[supervised]
+                    sub_y = y_flat[supervised]
+                    k_val = min(5, sub_logits.size(-1))
+                    _, top5_indices = torch.topk(sub_logits, k=k_val, dim=-1)
+                    correct_top5 = (top5_indices == sub_y.unsqueeze(-1)).any(dim=-1)
+                    self.last_top5_acc = (correct_top5.float().sum() / total).item() * 100.0
+                else:
+                    self.last_top5_acc = 0.0
             else:
                 accuracy = None
                 self.last_top5_acc = None
