@@ -295,12 +295,21 @@ class NeuroTrainer:
         with torch.no_grad():
             if will_step:
                 supervised = y_flat != IGNORE_INDEX
-                preds = logits_flat.argmax(dim=-1)
                 total = supervised.sum().clamp(min=1)
+
+                # Top-1 Next-Token Accuracy
+                preds = logits_flat.argmax(dim=-1)
                 correct = ((preds == y_flat) & supervised).float().sum()
                 accuracy: Optional[float] = (correct / total).item() * 100.0
+
+                # Top-5 Candidate Pool Accuracy (Standard LLM Benchmark)
+                k_val = min(5, logits_flat.size(-1))
+                _, top5_indices = torch.topk(logits_flat, k=k_val, dim=-1)
+                correct_top5 = (top5_indices == y_flat.unsqueeze(-1)).any(dim=-1) & supervised
+                self.last_top5_acc = (correct_top5.float().sum() / total).item() * 100.0
             else:
                 accuracy = None
+                self.last_top5_acc = None
             ppl = math.exp(min(loss.item(), 20.0))
 
         (loss / self.grad_accumulation_steps).backward()
@@ -349,6 +358,7 @@ class NeuroTrainer:
         raw_model.eval()
         val_losses = []
         val_accs = []
+        val_top5_accs = []
         val_ppls = []
 
         with torch.no_grad():
@@ -372,10 +382,19 @@ class NeuroTrainer:
                 loss = F.cross_entropy(logits_flat, y_flat, ignore_index=IGNORE_INDEX)
                 val_losses.append(loss.item())
 
+                # Top-1 Accuracy
                 preds = logits.argmax(dim=-1)
                 correct = (preds == vy) & valid_mask
                 acc = correct.sum().float() / valid_mask.sum().float() * 100.0
                 val_accs.append(acc.item())
+
+                # Top-5 Accuracy
+                k_val = min(5, logits_flat.size(-1))
+                _, top5_indices = torch.topk(logits_flat, k=k_val, dim=-1)
+                correct_top5 = (top5_indices == y_flat.unsqueeze(-1)).any(dim=-1) & (y_flat != IGNORE_INDEX)
+                top5_acc = correct_top5.float().sum() / (y_flat != IGNORE_INDEX).sum().float().clamp(min=1) * 100.0
+                val_top5_accs.append(top5_acc.item())
+
 
 
                 ppl = math.exp(min(loss.item(), 20.0))
@@ -391,12 +410,15 @@ class NeuroTrainer:
 
         avg_val_loss = sum(val_losses) / len(val_losses)
         avg_val_acc = sum(val_accs) / len(val_accs)
+        avg_val_top5_acc = sum(val_top5_accs) / len(val_top5_accs) if val_top5_accs else 0.0
         avg_val_ppl = sum(val_ppls) / len(val_ppls)
         return {
             "val_loss": avg_val_loss,
             "val_acc": avg_val_acc,
+            "val_top5_acc": avg_val_top5_acc,
             "val_ppl": avg_val_ppl,
         }
+
 
     def train_dataset(self, data_stream: Iterable[Tuple[torch.Tensor, torch.Tensor]], max_steps: int = 100, log_every: int = 10, eval_every: int = 0, eval_callback = None, checkpoint_every: int = 0, checkpoint_callback = None, tokenizer: Optional[Any] = None, enrichment_rate: float = 0.02, use_latent_reasoning: bool = True, auto_growth: bool = False, growth_patience: int = 1000, growth_min_delta: float = 0.005, max_layers: Optional[int] = None, val_loader: Optional[Iterable[Tuple[torch.Tensor, torch.Tensor]]] = None) -> list[float]:
 
@@ -485,6 +507,7 @@ class NeuroTrainer:
         self._last_eval_step = getattr(self, "_last_eval_step", -1)
         window_losses: list[float] = []
         window_accs: list[float] = []
+        window_top5_accs: list[float] = []
         last_accuracy = 0.0
         window_ppls: list[float] = []
         window_grad_norms: list[float] = []
@@ -508,7 +531,10 @@ class NeuroTrainer:
                 if acc is not None:
                     last_accuracy = acc
                     window_accs.append(acc)
+                if getattr(self, "last_top5_acc", None) is not None:
+                    window_top5_accs.append(self.last_top5_acc)
                 window_ppls.append(ppl)
+
 
                 # Dynamic Self-Repair — rate-limited to at most once every 500 optimizer steps
                 # to avoid scanning all parameters on every high-loss micro-batch at training start.
@@ -614,11 +640,15 @@ class NeuroTrainer:
                         first_step = self.step_count - window_optimizer_steps + 1
                         avg_loss = sum(window_losses) / max(len(window_losses), 1)
                         avg_acc = sum(window_accs) / max(len(window_accs), 1)
+                        avg_top5_acc = sum(window_top5_accs) / max(len(window_top5_accs), 1) if window_top5_accs else 0.0
                         avg_ppl = sum(window_ppls) / max(len(window_ppls), 1)
                         avg_grad = sum(window_grad_norms) / max(len(window_grad_norms), 1)
                         pct = (self.step_count / max(max_steps, 1)) * 100.0
                         loss_arrow = "🔻" if (self.best_loss is None or avg_loss <= self.best_loss) else "🔸"
-                        acc_arrow = "📈" if avg_acc > 0 else ""
+                        acc_arrow = "📈" if avg_top5_acc > 0 else ""
+
+                        current_lr = self.optimizer.param_groups[0]["lr"] if self.optimizer.param_groups else 0.0
+                        total_params = sum(p.numel() for p in self.model.parameters())
 
                         user_snippet = ""
                         asst_snippet = ""
@@ -644,24 +674,24 @@ class NeuroTrainer:
                                 pass
 
                         header = f"Step {self.step_count:,}/{max_steps:,} ({pct:.1f}%)"
-                        metrics = f"Loss: {avg_loss:.4f} {loss_arrow} │ Acc: {avg_acc:.1f}% {acc_arrow} │ Speed: {tok_per_sec:.1f} tok/s │ ETA: {rolling_eta}"
+                        metrics_line1 = f"Loss: {avg_loss:.4f} {loss_arrow} │ Top-1 Acc: {avg_acc:.1f}% │ Top-5 Acc: {avg_top5_acc:.1f}% {acc_arrow} │ PPL: {avg_ppl:.1f}"
+                        metrics_line2 = f"Params: {total_params/1e6:.1f}M │ LR: {current_lr:.2e} │ Speed: {tok_per_sec:.1f} tok/s │ ETA: {rolling_eta}"
                         
                         log.info(f"┌── [{header}] ────────────────────────────────────────────────────────")
-                        log.info(f"│ 📊 {metrics}")
+                        log.info(f"│ 📊 {metrics_line1}")
+                        log.info(f"│ ⚙️  {metrics_line2}")
                         if user_snippet:
                             log.info(f"│ ❓ [User Prompt]  : {user_snippet}")
                         if asst_snippet:
                             log.info(f"│ 💡 [Target Answer]: {asst_snippet}")
                         log.info(f"└── Tokens: {self._session_tokens/1000:.1f}K processed ──────────────────────────────────────────")
 
-
                         window_losses.clear()
                         window_accs.clear()
+                        window_top5_accs.clear()
                         window_ppls.clear()
                         window_grad_norms.clear()
                         window_optimizer_steps = 0
-
-
 
                 if at_boundary and eval_every > 0 and (self.step_count % eval_every == 0) and (self.step_count != self._last_eval_step):
                     self._last_eval_step = self.step_count
@@ -670,10 +700,11 @@ class NeuroTrainer:
                         if val_res:
                             v_loss = val_res["val_loss"]
                             v_acc = val_res["val_acc"]
+                            v_top5 = val_res.get("val_top5_acc", 0.0)
                             v_ppl = val_res["val_ppl"]
                             log.info(
                                 f"   [VAL EVAL @ Step {self.step_count}] "
-                                f"Val Loss: {v_loss:.4f} | Val PPL: {v_ppl:.1f} | Val Acc: {v_acc:.2f}%"
+                                f"Val Loss: {v_loss:.4f} │ Val Top-1: {v_acc:.2f}% │ Val Top-5: {v_top5:.2f}% │ Val PPL: {v_ppl:.1f}"
                             )
                             if (avg_acc - v_acc > 30.0) or (avg_loss > 0 and (v_loss / avg_loss) > 2.5 and avg_acc > 80.0):
                                 log.warning(
@@ -681,6 +712,7 @@ class NeuroTrainer:
                                     f"is significantly higher than Held-Out Validation Accuracy ({v_acc:.1f}%). "
                                     f"The model is memorizing training examples!"
                                 )
+
 
                     if eval_callback is not None:
                         if progress:
