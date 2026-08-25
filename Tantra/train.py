@@ -240,11 +240,6 @@ class NeuroTrainer:
             use_latent_reasoning = self.use_latent_reasoning
         self.model.train()
 
-        # Step-level timing instrumentation (first 50 optimizer steps only)
-        _profile = (self.step_count < 50)
-        if _profile:
-            _t0 = time.perf_counter()
-
         if self._micro_step % self.grad_accumulation_steps == 0:
             self.optimizer.zero_grad(set_to_none=True)
 
@@ -257,22 +252,12 @@ class NeuroTrainer:
         if hasattr(raw_m, "embed") and hasattr(raw_m.embed, "weight"):
             vsize = raw_m.embed.weight.size(0)
             x = torch.clamp(x, 0, vsize - 1)
-            # IMPORTANT: do NOT blanket-clamp y the same way. y carries
-            # IGNORE_INDEX (-100) for masked/context positions (see
-            # Tantra/dataset.py's assistant-only loss masking), and
-            # torch.clamp(y, 0, vsize-1) silently turns every -100 into
-            # class 0 -- i.e. it un-masks every context token and actively
-            # trains the model to predict "token 0" there. _safe_targets()
-            # below already clamps real ids into range while preserving
-            # -100, so no separate clamp is needed here.
-
-        if _profile:
-            _t_data = time.perf_counter()
 
         # Autocast only helps on accelerators with native low-precision
         # matmul paths. On plain CPU it adds per-op cast/dispatch overhead
         # for no speed benefit on most hardware, so it stays off there.
         device_type = self.device.type if self.device.type in ('cuda', 'mps') else 'cpu'
+
         autocast_enabled = device_type != 'cpu'
         amp_dtype = torch.bfloat16 if (self.device.type == 'cuda' and torch.cuda.is_bf16_supported()) else torch.float16
         with torch.autocast(device_type=device_type, dtype=amp_dtype, enabled=autocast_enabled):
@@ -299,9 +284,6 @@ class NeuroTrainer:
                 mtp_loss = self.criterion(logits_mtp_flat, y_mtp_flat)
                 loss = loss + 0.25 * mtp_loss
 
-        if _profile:
-            _t_fwd = time.perf_counter()
-
         if torch.isnan(loss) or torch.isinf(loss):
             self._micro_step += 1
             return 0.0, 0.0, 0.0, 0.0, False
@@ -320,10 +302,8 @@ class NeuroTrainer:
             ppl = math.exp(min(loss.item(), 20.0))
 
         (loss / self.grad_accumulation_steps).backward()
-        self._micro_step += 1
 
-        if _profile:
-            _t_bwd = time.perf_counter()
+        self._micro_step += 1
 
         at_boundary = (self._micro_step % self.grad_accumulation_steps == 0)
         if at_boundary:
@@ -334,17 +314,6 @@ class NeuroTrainer:
         else:
             grad_norm = 0.0
 
-        if _profile and at_boundary:
-            _t_opt = time.perf_counter()
-            log.info(
-                f"[STEP-TIMING] step={self.step_count:>3d} | "
-                f"data={(_t_data - _t0)*1000:.1f}ms | "
-                f"fwd={(_t_fwd - _t_data)*1000:.1f}ms | "
-                f"bwd={(_t_bwd - _t_fwd)*1000:.1f}ms | "
-                f"opt={(_t_opt - _t_bwd)*1000:.1f}ms | "
-                f"total={(_t_opt - _t0)*1000:.1f}ms"
-            )
-
         self.total_tokens += x.numel()
         self._session_tokens += x.numel()
         loss_val = loss.item()
@@ -353,6 +322,7 @@ class NeuroTrainer:
         else:
             self.ema_loss = 0.95 * self.ema_loss + 0.05 * loss_val
         if self.ema_loss < self.best_loss:
+
             self.best_loss = self.ema_loss
         return loss_val, accuracy, ppl, grad_norm, at_boundary
 
@@ -636,29 +606,43 @@ class NeuroTrainer:
                         avg_acc = sum(window_accs) / max(len(window_accs), 1)
                         avg_ppl = sum(window_ppls) / max(len(window_ppls), 1)
                         avg_grad = sum(window_grad_norms) / max(len(window_grad_norms), 1)
-                        log.info(
-                            f"Steps {first_step}-{self.step_count}/{max_steps} | "
-                            f"Avg Loss: {avg_loss:.4f} | Avg PPL: {avg_ppl:.1f} | "
-                            f"Avg Acc: {avg_acc:.2f}% | Avg Grad: {avg_grad:.2f} | "
-                            f"Speed: {tok_per_sec:.1f} tok/s | Session Tokens: {self._session_tokens/1000:.1f}K | ETA: {rolling_eta}"
-                        )
+                        pct = (self.step_count / max(max_steps, 1)) * 100.0
+                        loss_arrow = "🔻" if (self.best_loss is None or avg_loss <= self.best_loss) else "🔸"
+                        acc_arrow = "📈" if avg_acc > 0 else ""
+
+                        user_snippet = ""
+                        asst_snippet = ""
                         if tokenizer is not None:
                             try:
                                 sample_toks = [t for t in x[0].cpu().tolist() if t > 0]
                                 decoded_text = tokenizer.decode(sample_toks)
-                                cleaned_text = decoded_text.replace("<|system|>", "[System: ").replace("<|user|>", "[User: ").replace("<|assistant|>", "[Assistant: ").replace("</s>", "]")
-                                lines = [l.strip() for l in cleaned_text.splitlines() if l.strip()]
-                                preview = " | ".join(lines[-2:]) if len(lines) >= 2 else (lines[0] if lines else "")
-                                if preview:
-                                    log.info(f"   📖 Ingesting: {preview[:120]}...")
+                                if "<|user|>" in decoded_text:
+                                    parts = decoded_text.split("<|user|>")[1].split("<|assistant|>")
+                                    user_snippet = parts[0].replace("</s>", "").strip()[:85]
+                                    if len(parts) > 1:
+                                        asst_snippet = parts[1].replace("</s>", "").strip()[:95]
+                                else:
+                                    user_snippet = decoded_text.strip()[:85]
                             except Exception:
                                 pass
+
+                        header = f"Step {self.step_count:,}/{max_steps:,} ({pct:.1f}%)"
+                        metrics = f"Loss: {avg_loss:.4f} {loss_arrow} │ Acc: {avg_acc:.1f}% {acc_arrow} │ Speed: {tok_per_sec:.1f} tok/s │ ETA: {rolling_eta}"
+                        
+                        log.info(f"┌── [{header}] ────────────────────────────────────────────────────────")
+                        log.info(f"│ 📊 {metrics}")
+                        if user_snippet:
+                            log.info(f"│ ❓ [User]: {user_snippet}")
+                        if asst_snippet:
+                            log.info(f"│ 💡 [Target]: {asst_snippet}")
+                        log.info(f"└── Tokens: {self._session_tokens/1000:.1f}K processed ──────────────────────────────────────────")
 
                         window_losses.clear()
                         window_accs.clear()
                         window_ppls.clear()
                         window_grad_norms.clear()
                         window_optimizer_steps = 0
+
 
 
                 if at_boundary and eval_every > 0 and (self.step_count % eval_every == 0) and (self.step_count != self._last_eval_step):
