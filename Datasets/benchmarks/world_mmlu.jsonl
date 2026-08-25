@@ -1,0 +1,8 @@
+{"subject": "Science", "question": "What gas do plants primarily absorb from the atmosphere for photosynthesis?", "options": {"A": "Oxygen", "B": "Carbon Dioxide", "C": "Nitrogen", "D": "Hydrogen"}, "answer": "B"}
+{"subject": "Physics", "question": "What is the SI unit of electric force / potential difference?", "options": {"A": "Watt", "B": "Joule", "C": "Volt", "D": "Ampere"}, "answer": "C"}
+{"subject": "Geography", "question": "What is the capital city of France?", "options": {"A": "Berlin", "B": "Madrid", "C": "Rome", "D": "Paris"}, "answer": "D"}
+{"subject": "Computer Science", "question": "What is the average time complexity of searching an element in a balanced Binary Search Tree?", "options": {"A": "O(1)", "B": "O(n)", "C": "O(log n)", "D": "O(n^2)"}, "answer": "C"}
+{"subject": "Mathematics", "question": "What is the square root of 144?", "options": {"A": "10", "B": "12", "C": "14", "D": "16"}, "answer": "B"}
+{"subject": "History", "question": "Who was the first President of the United States?", "options": {"A": "Thomas Jefferson", "B": "Abraham Lincoln", "C": "George Washington", "D": "John Adams"}, "answer": "C"}
+{"subject": "Biology", "question": "Which organelle is known as the powerhouse of the cell?", "options": {"A": "Nucleus", "B": "Ribosome", "C": "Mitochondria", "D": "Golgi apparatus"}, "answer": "C"}
+{"subject": "General Logic", "question": "If all cats are mammals and all mammals are animals, then all cats are:", "options": {"A": "Reptiles", "B": "Animals", "C": "Birds", "D": "Fish"}, "answer": "B"}
