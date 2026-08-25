@@ -690,6 +690,9 @@ class NeuroTrainer:
                         metrics_line1 = f"Loss: {avg_loss:.4f} {loss_arrow} │ Top-1 Acc: {avg_acc:.1f}% │ Top-5 Acc: {avg_top5_acc:.1f}% {acc_arrow} │ PPL: {avg_ppl:.1f}"
                         metrics_line2 = f"Params: {total_params/1e6:.1f}M │ LR: {current_lr:.2e} │ Speed: {tok_per_sec:.1f} tok/s │ ETA: {rolling_eta}"
                         
+                        if progress:
+                            progress.stop()
+
                         log.info(f"┌── [{header}] ────────────────────────────────────────────────────────")
                         log.info(f"│ 📊 {metrics_line1}")
                         log.info(f"│ ⚙️  {metrics_line2}")
@@ -699,12 +702,16 @@ class NeuroTrainer:
                             log.info(f"│ 💡 [Target Answer]: {asst_snippet}")
                         log.info(f"└── Tokens: {self._session_tokens/1000:.1f}K processed ──────────────────────────────────────────")
 
+                        if progress and self.step_count < max_steps:
+                            progress.start()
+
                         window_losses.clear()
                         window_accs.clear()
                         window_top5_accs.clear()
                         window_ppls.clear()
                         window_grad_norms.clear()
                         window_optimizer_steps = 0
+
 
                 if at_boundary and eval_every > 0 and (self.step_count % eval_every == 0) and (self.step_count != self._last_eval_step):
                     self._last_eval_step = self.step_count
