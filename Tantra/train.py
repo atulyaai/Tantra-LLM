@@ -635,15 +635,17 @@ class NeuroTrainer:
 
                     session_steps = self.step_count - self._session_start_step
                     is_card_step = (session_steps == 1 or session_steps % log_every == 0 or self.step_count == max_steps)
+                    ticker_interval = max(5, log_every // 4)
 
-                    # Live step ticker for instant real-time progress feedback
-                    if not is_card_step:
+                    # Live step ticker paced smoothly every 5-10 steps
+                    if not is_card_step and (session_steps % ticker_interval == 0):
                         loss_color_arrow = "🔻" if (self.best_loss is None or loss <= self.best_loss) else "🔸"
                         acc_str = f"🎯 {last_accuracy:.1f}%" if last_accuracy is not None else ""
                         log.info(f"   ⚡ [Step {self.step_count:,}/{max_steps:,}] 📉 Loss: {loss:.4f} {loss_color_arrow} │ {acc_str} │ 🔮 PPL: {ppl:.1f} │ ⚡ {tok_per_sec:.1f} tok/s │ ⏱️ ETA: {rolling_eta}")
 
                     if is_card_step:
                         first_step = self.step_count - window_optimizer_steps + 1
+
 
                         avg_loss = sum(window_losses) / max(len(window_losses), 1)
                         avg_acc = sum(window_accs) / max(len(window_accs), 1)
