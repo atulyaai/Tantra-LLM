@@ -190,25 +190,47 @@ def download_and_compile(output_dir: str = "Datasets", target_file: str = "Datas
             all_samples.append(norm)
             domain_counts["multilingual"] = domain_counts.get("multilingual", 0) + 1
 
-    # 4. Write unified master dataset
+    # 4. Write domain-specific staged dataset files & unified master dataset
     print("\n" + "=" * 65)
-    print(f"Writing {len(all_samples):,} total high-quality samples to {target_file}...")
+    domain_files = {
+        "general": os.path.join(output_dir, "conversation.jsonl"),
+        "curated_seeds": os.path.join(output_dir, "conversation.jsonl"),
+        "math": os.path.join(output_dir, "math.jsonl"),
+        "code": os.path.join(output_dir, "code.jsonl"),
+        "multilingual": os.path.join(output_dir, "multilingual.jsonl"),
+    }
 
-    with open(target_file, "w", encoding="utf-8") as out_f:
-        for s in all_samples:
-            out_f.write(json.dumps(s, ensure_ascii=False) + "\n")
+    # Open domain file handles
+    file_handles = {}
+    for d, path in domain_files.items():
+        if path not in file_handles:
+            file_handles[path] = open(path, "w", encoding="utf-8")
+
+    master_handle = open(target_file, "w", encoding="utf-8")
+
+    for s in all_samples:
+        line_str = json.dumps(s, ensure_ascii=False) + "\n"
+        master_handle.write(line_str)
+        # Determine domain for this sample
+        dom = s.get("domain", "general")
+        target_path = domain_files.get(dom, os.path.join(output_dir, "conversation.jsonl"))
+        file_handles[target_path].write(line_str)
+
+    master_handle.close()
+    for h in file_handles.values():
+        h.close()
 
     file_size_mb = os.path.getsize(target_file) / (1024 * 1024)
     print("=" * 65)
-    print(f"[SUCCESS] COMPILED MASTER DATASET: {target_file}")
-    print(f"   Total Unique Samples : {len(all_samples):,}")
-    print(f"   Total File Size      : {file_size_mb:.2f} MB")
-    print("   Domain Distribution:")
-    for dom, cnt in sorted(domain_counts.items(), key=lambda x: x[1], reverse=True):
-        pct = (cnt / len(all_samples)) * 100
-        print(f"     - {dom:<16}: {cnt:,} samples ({pct:.1f}%)")
+    print(f"[SUCCESS] STAGED CURRICULUM DATASETS CREATED:")
+    print(f"   1. Stage 1 (Conversation & Chat) : Datasets/conversation.jsonl ({domain_counts.get('general', 0) + domain_counts.get('curated_seeds', 0):,} samples)")
+    print(f"   2. Stage 2 (Math & Logic)        : Datasets/math.jsonl ({domain_counts.get('math', 0):,} samples)")
+    print(f"   3. Stage 3 (Coding & Algorithms) : Datasets/code.jsonl ({domain_counts.get('code', 0):,} samples)")
+    print(f"   4. Stage 4 (Multilingual Indic)  : Datasets/multilingual.jsonl ({domain_counts.get('multilingual', 0):,} samples)")
+    print(f"   5. Full Master Combined Corpus   : {target_file} ({len(all_samples):,} samples, {file_size_mb:.2f} MB)")
     print("=" * 65)
 
 
 if __name__ == "__main__":
     download_and_compile()
+
