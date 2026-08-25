@@ -616,13 +616,20 @@ class NeuroTrainer:
                             try:
                                 sample_toks = [t for t in x[0].cpu().tolist() if t > 0]
                                 decoded_text = tokenizer.decode(sample_toks)
+                                
+                                # Strip System Prompt if present
                                 if "<|user|>" in decoded_text:
-                                    parts = decoded_text.split("<|user|>")[1].split("<|assistant|>")
-                                    user_snippet = parts[0].replace("</s>", "").strip()[:85]
-                                    if len(parts) > 1:
-                                        asst_snippet = parts[1].replace("</s>", "").strip()[:95]
+                                    after_user = decoded_text.split("<|user|>", 1)[1]
+                                    if "<|assistant|>" in after_user:
+                                        u_part, a_part = after_user.split("<|assistant|>", 1)
+                                        user_snippet = u_part.replace("</s>", "").strip()[:85]
+                                        asst_snippet = a_part.replace("</s>", "").strip()[:95]
+                                    else:
+                                        user_snippet = after_user.replace("</s>", "").strip()[:85]
                                 else:
-                                    user_snippet = decoded_text.strip()[:85]
+                                    # Fallback: remove standard system prompt text
+                                    clean_d = decoded_text.replace("You are Tantra, a helpful, precise, and polite AI assistant created by Atulya AI. Answer clearly, accurately, and step-by-step.", "").strip()
+                                    user_snippet = clean_d[:85]
                             except Exception:
                                 pass
 
@@ -632,10 +639,11 @@ class NeuroTrainer:
                         log.info(f"┌── [{header}] ────────────────────────────────────────────────────────")
                         log.info(f"│ 📊 {metrics}")
                         if user_snippet:
-                            log.info(f"│ ❓ [User]: {user_snippet}")
+                            log.info(f"│ ❓ [User Prompt]  : {user_snippet}")
                         if asst_snippet:
-                            log.info(f"│ 💡 [Target]: {asst_snippet}")
+                            log.info(f"│ 💡 [Target Answer]: {asst_snippet}")
                         log.info(f"└── Tokens: {self._session_tokens/1000:.1f}K processed ──────────────────────────────────────────")
+
 
                         window_losses.clear()
                         window_accs.clear()
