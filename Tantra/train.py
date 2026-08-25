@@ -579,8 +579,8 @@ class NeuroTrainer:
                     else:
                         eta_str = f"{h:02d}:{m:02d}:{s:02d}"
 
-                    if not progress:
-                        log.info(f"Step {self.step_count:>4d}/{max_steps} │ Loss: {loss:.4f} │ PPL: {ppl:.1f} │ Acc: {last_accuracy:.2f}% │ ∇: {grad_norm:.2f} │ ⚡ {tok_per_sec:.1f} tok/s │ Tokens: {self.total_tokens/1000:.1f}K │ ETA: {eta_str}")
+                    pass
+
 
                 # Emit a compact, rolling optimizer-step summary even while
                 # Rich owns the progress bar.  This makes long CPU runs
