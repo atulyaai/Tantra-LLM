@@ -395,15 +395,31 @@ class JSONLDataset(IterableDataset):
 
             if self.mask_non_assistant:
                 if len(clamped) >= 2:
-                    pad_len = max(0, (self.seq_len + 1) - len(clamped))
-                    sample_ids = (clamped + [0] * pad_len)[: self.seq_len + 1]
-                    sample_mask = (is_target + [False] * pad_len)[: self.seq_len + 1]
+                    # Multi-chunk sliding window: guarantees 100% of the assistant answer is supervised
+                    # across ANY sequence length (32, 64, 96, 128, 256, 512, 1024, etc.)
+                    stride = max(1, self.seq_len // 2) if len(clamped) > self.seq_len + 1 else self.seq_len
+                    for start_idx in range(0, len(clamped), stride):
+                        end_idx = start_idx + self.seq_len + 1
+                        chunk_ids = clamped[start_idx:end_idx]
+                        chunk_mask = is_target[start_idx:end_idx]
 
-                    x = torch.tensor(sample_ids[:-1], dtype=torch.long)
-                    y = torch.tensor(sample_ids[1:], dtype=torch.long)
-                    y_is_target = torch.tensor(sample_mask[1:], dtype=torch.bool)
-                    y = torch.where(y_is_target, y, torch.full_like(y, IGNORE_INDEX))
-                    samples.append((x, y))
+                        # Ensure chunk has supervised tokens or is the initial prompt
+                        if not any(chunk_mask) and start_idx > 0:
+                            break
+
+                        pad_len = max(0, (self.seq_len + 1) - len(chunk_ids))
+                        sample_ids = (chunk_ids + [0] * pad_len)[: self.seq_len + 1]
+                        sample_mask = (chunk_mask + [False] * pad_len)[: self.seq_len + 1]
+
+                        x = torch.tensor(sample_ids[:-1], dtype=torch.long)
+                        y = torch.tensor(sample_ids[1:], dtype=torch.long)
+                        y_is_target = torch.tensor(sample_mask[1:], dtype=torch.bool)
+                        y = torch.where(y_is_target, y, torch.full_like(y, IGNORE_INDEX))
+                        samples.append((x, y))
+
+                        if end_idx >= len(clamped):
+                            break
+
             else:
                 token_buffer.extend(clamped)
                 mask_buffer.extend([True] * len(clamped))
