@@ -335,11 +335,14 @@ class NeuroTrainer:
         at_boundary = (self._micro_step % self.grad_accumulation_steps == 0)
         if at_boundary:
             grad_norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0).item()
+            if grad_norm > 6.0:
+                SelfRepairEngine().sanitize_optimizer_momentum(self.optimizer, grad_norm, threshold=6.0)
             self.optimizer.step()
             self.scheduler.step()
             self.step_count += 1
         else:
             grad_norm = 0.0
+
 
         self.total_tokens += x.numel()
         self._session_tokens += x.numel()
