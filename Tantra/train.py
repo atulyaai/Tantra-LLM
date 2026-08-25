@@ -634,8 +634,17 @@ class NeuroTrainer:
                                 log.info("Auto-growth added %d parameters; optimizer now tracks %d layers.", sum(p.numel() for p in new_params), len(raw_model.layers))
 
                     session_steps = self.step_count - self._session_start_step
-                    if session_steps == 1 or session_steps % log_every == 0 or self.step_count == max_steps:
+                    is_card_step = (session_steps == 1 or session_steps % log_every == 0 or self.step_count == max_steps)
+
+                    # Live step ticker for instant real-time progress feedback
+                    if not is_card_step:
+                        loss_color_arrow = "🔻" if (self.best_loss is None or loss <= self.best_loss) else "🔸"
+                        acc_str = f"🎯 {last_accuracy:.1f}%" if last_accuracy is not None else ""
+                        log.info(f"   ⚡ [Step {self.step_count:,}/{max_steps:,}] 📉 Loss: {loss:.4f} {loss_color_arrow} │ {acc_str} │ 🔮 PPL: {ppl:.1f} │ ⚡ {tok_per_sec:.1f} tok/s │ ⏱️ ETA: {rolling_eta}")
+
+                    if is_card_step:
                         first_step = self.step_count - window_optimizer_steps + 1
+
                         avg_loss = sum(window_losses) / max(len(window_losses), 1)
                         avg_acc = sum(window_accs) / max(len(window_accs), 1)
                         avg_top5_acc = sum(window_top5_accs) / max(len(window_top5_accs), 1) if window_top5_accs else 0.0
