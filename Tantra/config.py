@@ -39,9 +39,9 @@ class VocabConfig:
 @dataclass
 class ALRAConfig:
     """Adaptive Linear Resonance Attention config."""
-    dim: int = 4096
-    num_heads: int = 32
-    head_dim: int = 128         # dim // num_heads
+    dim: int = 512
+    num_heads: int = 8
+    head_dim: int = 64          # dim // num_heads
     kernel_type: str = "elu1"   # "elu1" | "relu" | "learned"
     dropout: float = 0.0
     use_forget_gate: bool = True
@@ -51,7 +51,7 @@ class ALRAConfig:
 @dataclass
 class SGPConfig:
     """Sparse Gated Projection (FFN replacement) config."""
-    dim: int = 4096
+    dim: int = 512
     expansion: int = 4          # hidden = dim * expansion
     sparsity: float = 0.10      # fraction of neurons active (brain-like)
     activation: str = "gelu"    # "gelu" | "silu" | "relu"
@@ -62,17 +62,18 @@ class SGPConfig:
 class NeuroCoreBlockConfig:
     alra: ALRAConfig = field(default_factory=ALRAConfig)
     sgp: SGPConfig = field(default_factory=SGPConfig)
-    num_layers: int = 32
+    num_layers: int = 8
     pre_norm: bool = True        # pre-normalization (more stable)
 
 
 @dataclass
 class MoEConfig:
-    num_experts: int = 500
+    num_experts: int = 10
     top_k: int = 1               # Top-1 routing = most brain-like
-    router_dim: int = 2048       # Router network hidden dim
-    router_layers: int = 4
+    router_dim: int = 512        # Router network hidden dim
+    router_layers: int = 2
     load_balance_coeff: float = 0.01  # Weight of load balancing loss
+
     expert_cache_size: int = 8   # LRU cache: experts kept in RAM
     expert_dir: str = "Experts"  # Directory containing .dna expert files
     real_top1: bool = False       # True only for the explicit real-MoE profile

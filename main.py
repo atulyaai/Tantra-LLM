@@ -898,7 +898,9 @@ def main():
                         help="Category to train (dataset mode) or force for chat/generate. None routes per-request.")
     parser.add_argument("--adapter-desc", type=str, default="", help="Description when adding a category")
     parser.add_argument("--adapter-topics", type=str, default=None, help="Comma list of Datasets/<topic> folders for a new category")
-    parser.add_argument("--adapter-keywords", type=str, default=None, help="Comma list of routing keywords for a new category")
+    parser.add_argument("--dim", type=int, default=512, help="Embedding dimension (default: 512)")
+    parser.add_argument("--layers", type=int, default=8, help="Number of NeuroCore layers (default: 8)")
+    parser.add_argument("--heads", type=int, default=8, help="Number of attention heads (default: 8)")
     parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
     args = parser.parse_args()
 
@@ -907,7 +909,13 @@ def main():
 
     vcfg = VocabConfig()
     mcfg = NeuroCoreConfig()
+    mcfg.block.alra.dim = args.dim
+    mcfg.block.sgp.dim = args.dim
+    mcfg.block.num_layers = args.layers
+    mcfg.block.alra.num_heads = args.heads
+    mcfg.block.alra.head_dim = max(1, args.dim // args.heads)
     mcfg.use_mtp = args.use_mtp
+
     moe  = MoEConfig()
     ccfg = CompressionConfig()
 
