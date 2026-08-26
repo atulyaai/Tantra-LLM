@@ -768,6 +768,52 @@ async def get_datasets():
     return DATASETS_REGISTRY
 
 
+DOCS_DIR = os.path.join(REPO_ROOT, "Datasets", "documents")
+os.makedirs(DOCS_DIR, exist_ok=True)
+
+
+@app.get("/api/documents")
+async def list_documents():
+    """Returns list of ingested local documents for RAG retrieval."""
+    docs = []
+    if os.path.exists(DOCS_DIR):
+        for fname in os.listdir(DOCS_DIR):
+            fpath = os.path.join(DOCS_DIR, fname)
+            if os.path.isfile(fpath):
+                docs.append({
+                    "filename": fname,
+                    "size_kb": round(os.path.getsize(fpath) / 1024, 2),
+                    "updated_at": os.path.getmtime(fpath)
+                })
+    return {"documents": docs, "total": len(docs)}
+
+
+@app.post("/api/documents/upload")
+async def upload_document(request: Request):
+    """Uploads/saves text or markdown document into the local knowledge base."""
+    body = await request.json()
+    filename = body.get("filename", "note.txt")
+    content = body.get("content", "")
+    safe_name = os.path.basename(filename)
+    if not safe_name.endswith((".txt", ".md", ".json")):
+        safe_name += ".txt"
+    dest = os.path.join(DOCS_DIR, safe_name)
+    with open(dest, "w", encoding="utf-8") as f:
+        f.write(content)
+    return {"status": "success", "filename": safe_name, "bytes_written": len(content.encode("utf-8"))}
+
+
+@app.post("/api/documents/query")
+async def query_documents(request: Request):
+    """Queries local document knowledge base for relevant passages."""
+    from Tantra.tool_router import retrieve_local_documents
+    body = await request.json()
+    q = body.get("query", "")
+    top_k = body.get("top_k", 3)
+    res = retrieve_local_documents(q, doc_dir=DOCS_DIR, top_k=top_k)
+    return {"query": q, "result": res}
+
+
 @app.post("/api/datasets/clean", dependencies=[Depends(require_api_key)])
 async def clean_dataset(request: Request):
     # Dataset rewriting is intentionally not exposed through the WebUI.

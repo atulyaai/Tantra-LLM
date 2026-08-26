@@ -25,3 +25,21 @@ def test_parse_and_execute():
     assert did_exec is True
     assert "<tool_result>" in updated
     assert "5000" in updated
+
+
+def test_web_search_and_doc_retriever(tmp_path):
+    from Tantra.tool_router import search_web, retrieve_local_documents
+
+    # 1. Web search safe execution
+    res_web = search_web("Quantum computing")
+    assert isinstance(res_web, str)
+    assert len(res_web) > 0
+
+    # 2. Document retrieval from temporary directory
+    doc_file = tmp_path / "architecture_notes.md"
+    doc_file.write_text("Tantra is a local AI model with BitNet 1.58-bit ternary quantization.", encoding="utf-8")
+
+    res_doc = retrieve_local_documents("BitNet quantization", doc_dir=str(tmp_path))
+    assert "architecture_notes.md" in res_doc
+    assert "BitNet" in res_doc
+

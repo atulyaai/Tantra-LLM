@@ -28,6 +28,7 @@ htmlcov/
 Model/**/checkpoint_*.pt
 Model/**/checkpoint_*.dna
 Model/**/*.tmp
+[Mm]odel/Export/
 
 # Generated checkpoint sidecar metadata (written by save_checkpoint)
 Model/**/*.pt.meta.json

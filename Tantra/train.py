@@ -301,8 +301,7 @@ class NeuroTrainer:
                 self._micro_step += 1
                 return 0.0, 0.0, 0.0, 0.0, False
 
-            loss = self.criterion(logits_flat, y_flat)
-
+            loss = self.criterion(logits_flat.float(), y_flat)
 
             if hasattr(self.model, "get_aux_loss"):
                 loss = loss + self.model.get_aux_loss()
@@ -311,7 +310,7 @@ class NeuroTrainer:
             if logits_mtp is not None and y.size(1) > 1:
                 logits_mtp_flat = torch.clamp(logits_mtp[:, :-1, :].reshape(-1, logits_mtp.size(-1)), -50.0, 50.0)
                 y_mtp_flat = self._safe_targets(y[:, 1:].reshape(-1), logits_mtp.size(-1))
-                mtp_loss = self.criterion(logits_mtp_flat, y_mtp_flat)
+                mtp_loss = self.criterion(logits_mtp_flat.float(), y_mtp_flat)
                 loss = loss + 0.3 * mtp_loss
 
         if math.isnan(loss.item()) or math.isinf(loss.item()):

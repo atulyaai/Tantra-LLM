@@ -113,6 +113,79 @@ def read_local_file(filepath: str, repo_root: Optional[str] = None) -> str:
     except Exception as e:
         return f"Error reading file: {e}"
 
+def search_web(query: str, max_results: int = 3) -> str:
+    """Searches Wikipedia/web knowledge base safely with timeout and returns summary snippets."""
+    import urllib.request
+    import urllib.parse
+    import html
+
+    query = query.strip()
+    if not query:
+        return "Error: Empty search query provided."
+
+    try:
+        encoded_query = urllib.parse.quote(query)
+        url = f"https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch={encoded_query}&utf8=&format=json&srlimit={max_results}"
+        req = urllib.request.Request(url, headers={"User-Agent": "Tantra-LLM/1.0 (Local-AI-Research; contact@atulya.ai)"})
+        with urllib.request.urlopen(req, timeout=4.0) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+
+        search_results = data.get("query", {}).get("search", [])
+        if not search_results:
+            return f"No direct search results found for query: {query!r}"
+
+        snippets = []
+        for i, item in enumerate(search_results, 1):
+            title = item.get("title", "")
+            raw_snippet = item.get("snippet", "")
+            clean_snippet = html.unescape(re.sub(r"<.*?>", "", raw_snippet))
+            snippets.append(f"{i}. **{title}**: {clean_snippet}")
+
+        return "\n".join(snippets)
+    except Exception as e:
+        return f"Web search offline or unavailable ({e}). Using internal knowledge bank."
+
+
+def retrieve_local_documents(query: str, doc_dir: Optional[str] = None, top_k: int = 3) -> str:
+    """Performs local BM25/keyword retrieval over documents in Datasets/documents/."""
+    if doc_dir is None:
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        doc_dir = os.path.join(repo_root, "Datasets", "documents")
+
+    if not os.path.exists(doc_dir):
+        return f"Local document repository '{doc_dir}' is empty or does not exist."
+
+    query_terms = set(re.findall(r"\w+", query.lower()))
+    if not query_terms:
+        return "Error: Empty query terms."
+
+    scores = []
+    for root, _, files in os.walk(doc_dir):
+        for fname in files:
+            if fname.endswith((".txt", ".md", ".json", ".jsonl")):
+                fpath = os.path.join(root, fname)
+                try:
+                    with open(fpath, "r", encoding="utf-8", errors="ignore") as f:
+                        text = f.read(16384)
+                    text_lower = text.lower()
+                    match_count = sum(text_lower.count(term) for term in query_terms)
+                    if match_count > 0:
+                        snippet = text[:400].replace("\n", " ").strip()
+                        scores.append((match_count, fname, snippet))
+                except Exception:
+                    continue
+
+    if not scores:
+        return f"No local documents matched query: {query!r}"
+
+    scores.sort(key=lambda x: x[0], reverse=True)
+    top_matches = scores[:top_k]
+    res_lines = [f"Found {len(top_matches)} relevant local document(s):"]
+    for count, fname, snippet in top_matches:
+        res_lines.append(f"- **{fname}** (matches: {count}): \"{snippet}...\"")
+    return "\n".join(res_lines)
+
+
 def execute_tool_call(tool_name: str, arguments: Dict[str, Any], sandbox_enabled: Optional[bool] = None) -> str:
     """Dispatches and executes a tool call.
 
@@ -138,8 +211,15 @@ def execute_tool_call(tool_name: str, arguments: Dict[str, Any], sandbox_enabled
                     "Set TANTRA_ENABLE_SANDBOX=1 to enable file access tools.")
         path = arguments.get("filepath", "")
         return read_local_file(path)
+    elif tool_name in ("web_search", "search_web", "wikipedia"):
+        q = arguments.get("query", "")
+        return search_web(q)
+    elif tool_name in ("doc_retriever", "document_search", "rag_retriever"):
+        q = arguments.get("query", "")
+        return retrieve_local_documents(q)
     else:
         return f"Unknown tool: {tool_name}"
+
 
 def parse_and_execute_tool_calls(text: str, sandbox_enabled: Optional[bool] = None) -> Tuple[str, bool]:
     """
@@ -163,3 +243,4 @@ def parse_and_execute_tool_calls(text: str, sandbox_enabled: Optional[bool] = No
     except Exception as e:
         err_res = f"\n<tool_result>\nError parsing tool call: {e}\n</tool_result>"
         return text + err_res, True
+

@@ -124,8 +124,19 @@
                 </div>
 
                 <div class="chat-input-box">
-                    <textarea class="prompt-input" id="prompt-input" placeholder="How can I help you today?"></textarea>
-                    <button class="send-btn" id="send-btn" onclick="sendMessage()">Send ⚡</button>
+                    <div style="display:flex; gap:12px; margin-bottom:8px; align-items:center;">
+                        <label style="font-size:0.78rem; color:var(--cyan); display:flex; align-items:center; gap:5px; cursor:pointer; font-weight:600;">
+                            <input type="checkbox" id="toggle-web-search"> 🌐 Web Search
+                        </label>
+                        <label style="font-size:0.78rem; color:var(--emerald); display:flex; align-items:center; gap:5px; cursor:pointer; font-weight:600;">
+                            <input type="checkbox" id="toggle-doc-rag"> 📄 Local Docs (RAG)
+                        </label>
+                        <button type="button" id="btn-mic" class="btn-action btn-secondary" style="padding:3px 10px; font-size:0.75rem; margin-left:auto;" onclick="toggleVoiceInput()">🎙️ Voice Mic</button>
+                    </div>
+                    <div style="display:flex; gap:8px; width:100%;">
+                        <textarea class="prompt-input" id="prompt-input" placeholder="How can I help you today? Ask a question, paste code, or request research..."></textarea>
+                        <button class="send-btn" id="send-btn" onclick="sendMessage()">Send ⚡</button>
+                    </div>
                 </div>
             </div>
         </div>

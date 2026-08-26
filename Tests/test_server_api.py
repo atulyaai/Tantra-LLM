@@ -149,3 +149,27 @@ def test_admin_security_and_disabled_sandbox():
     assert sandbox.status_code == 403
     traversal = client.post("/api/checkpoints", json={"checkpoint": "../../etc/passwd"}, headers=headers)
     assert traversal.status_code == 404
+
+
+def test_documents_rag_crud():
+    """Test document upload, listing, and RAG querying."""
+    # 1. List
+    resp_list = client.get("/api/documents")
+    assert resp_list.status_code == 200
+    assert "documents" in resp_list.json()
+
+    # 2. Upload
+    doc_payload = {
+        "filename": "test_rag_doc.txt",
+        "content": "Tantra NeuroCore features 1.58-bit BitNet quantization and ALRA attention."
+    }
+    resp_upload = client.post("/api/documents/upload", json=doc_payload)
+    assert resp_upload.status_code == 200
+    assert resp_upload.json()["status"] == "success"
+
+    # 3. Query
+    resp_query = client.post("/api/documents/query", json={"query": "BitNet quantization", "top_k": 2})
+    assert resp_query.status_code == 200
+    assert "result" in resp_query.json()
+    assert "test_rag_doc.txt" in resp_query.json()["result"]
+

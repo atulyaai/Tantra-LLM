@@ -221,6 +221,30 @@ async function autoSaveAndTitle(promptText, fullResponse) {
     } catch(e) {}
 }
 
+function toggleVoiceInput() {
+    if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+        alert("Speech recognition is not supported in this browser. Please use Chrome, Edge, or Safari.");
+        return;
+    }
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const recognition = new SpeechRecognition();
+    recognition.lang = 'en-US';
+    recognition.interimResults = false;
+    const micBtn = document.getElementById('btn-mic');
+    if (micBtn) micBtn.innerText = '🔴 Listening...';
+    
+    recognition.onresult = (event) => {
+        const transcript = event.results[0][0].transcript;
+        const input = document.getElementById('prompt-input');
+        if (input) input.value = (input.value ? input.value + ' ' : '') + transcript;
+        if (micBtn) micBtn.innerText = '🎙️ Voice Mic';
+    };
+    recognition.onerror = () => { if (micBtn) micBtn.innerText = '🎙️ Voice Mic'; };
+    recognition.onend = () => { if (micBtn) micBtn.innerText = '🎙️ Voice Mic'; };
+    recognition.start();
+}
+window.toggleVoiceInput = toggleVoiceInput;
+
 async function sendMessage() {
     const input = document.getElementById('prompt-input');
     const prompt = input.value.trim();
@@ -249,12 +273,31 @@ async function sendMessage() {
     const temp = parseFloat(document.getElementById('inp-temp').value);
     const top_p = parseFloat(document.getElementById('inp-topp').value);
 
+    // Check if Web Search or Document RAG are toggled
+    const webSearchEnabled = document.getElementById('toggle-web-search')?.checked;
+    const docRagEnabled = document.getElementById('toggle-doc-rag')?.checked;
+    let finalPrompt = prompt;
+
+    if (docRagEnabled) {
+        try {
+            const ragRes = await fetch('/api/documents/query', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ query: prompt, top_k: 2 })
+            });
+            const ragData = await ragRes.json();
+            if (ragData.result && !ragData.result.includes('No local documents')) {
+                finalPrompt = `[Retrieved Context]:\n${ragData.result}\n\n[User Question]:\n${prompt}`;
+            }
+        } catch (e) { console.warn('RAG Query skipped:', e); }
+    }
+
     try {
         const res = await fetch('/v1/chat/completions', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                messages: [{ role: 'user', content: prompt }],
+                messages: [{ role: 'user', content: finalPrompt }],
                 temperature: temp, top_p: top_p, max_tokens: 64, stream: true
             })
         });
