@@ -707,7 +707,7 @@ class NeuroTrainer:
                                 log.info("Auto-growth added %d parameters; optimizer now tracks %d layers.", sum(p.numel() for p in new_params), len(raw_model.layers))
 
                     is_card_step = (session_steps == 1 or session_steps % log_every == 0 or self.step_count == max_steps)
-                    ticker_interval = max(5, log_every // 4)
+                    ticker_interval = max(10, log_every // 2)
 
                     # Live step ticker with cumulative tokens and actual elapsed time
                     if not is_card_step and (session_steps % ticker_interval == 0):
