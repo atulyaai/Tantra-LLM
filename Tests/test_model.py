@@ -178,3 +178,22 @@ def test_variable_seq_len_checkpoint_transfer(micro_config, tmp_path):
     loss3, acc3, ppl3, grad_norm3, _ = trainer2.train_step(x512, x512.clone())
     assert loss3 > 0 and not torch.isnan(torch.tensor(loss3))
 
+
+def test_best_val_loss_preservation_on_resume(micro_config, tmp_path):
+    model1 = NeuroCoreModel(micro_config)
+    trainer1 = NeuroTrainer(model1, lr=1e-3)
+    trainer1.best_val_loss = 5.25
+    trainer1.best_loss = 5.25
+
+    ckpt_path = str(tmp_path / "test_best_resume.pt")
+    trainer1.save_checkpoint(ckpt_path)
+
+    # Resume into fresh trainer
+    model2 = NeuroCoreModel(micro_config)
+    trainer2 = NeuroTrainer(model2, lr=1e-3)
+    trainer2.load_checkpoint(ckpt_path)
+
+    assert trainer2.best_val_loss == 5.25
+    assert trainer2.best_loss == 5.25
+
+

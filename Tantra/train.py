@@ -453,18 +453,22 @@ class NeuroTrainer:
         avg_val_top5_acc = sum(val_top5_accs) / len(val_top5_accs) if val_top5_accs else 0.0
         avg_val_ppl = sum(val_ppls) / len(val_ppls)
 
-        if not hasattr(self, "best_val_loss"):
+        is_new_best = False
+        if not hasattr(self, "best_val_loss") or self.best_val_loss is None:
             self.best_val_loss = float('inf')
         if avg_val_loss < self.best_val_loss:
             self.best_val_loss = avg_val_loss
             self.best_loss = avg_val_loss  # Align best_loss strictly to true generalization performance
+            is_new_best = True
 
         return {
             "val_loss": avg_val_loss,
             "val_acc": avg_val_acc,
             "val_top5_acc": avg_val_top5_acc,
             "val_ppl": avg_val_ppl,
+            "is_new_best": is_new_best,
         }
+
 
 
 
@@ -1007,12 +1011,33 @@ class NeuroTrainer:
         self.step_count = ckpt.get("step_count", 0)
         self.best_loss = ckpt.get("best_loss", float('inf'))
         self.best_val_loss = ckpt.get("best_val_loss", float('inf'))
+
+        # Fallback: if loading older checkpoint without best_val_loss, check Model/Best/checkpoint_best.pt
+        if math.isinf(self.best_val_loss):
+            parent_dir = os.path.dirname(os.path.abspath(path))
+            candidates = [
+                os.path.join(parent_dir, "..", "Best", "checkpoint_best.pt"),
+                os.path.join("Model", "Best", "checkpoint_best.pt"),
+            ]
+            for cand in candidates:
+                if os.path.exists(cand):
+                    try:
+                        best_meta = torch.load(cand, map_location="cpu", weights_only=False)
+                        cand_val = best_meta.get("best_val_loss", best_meta.get("best_loss", float('inf')))
+                        if cand_val is not None and not math.isinf(cand_val) and cand_val > 4.0:
+                            self.best_val_loss = float(cand_val)
+                            self.best_loss = self.best_val_loss
+                            break
+                    except Exception:
+                        pass
+
         self.total_tokens = ckpt.get("total_tokens", 0)
         if not self.total_tokens and self.step_count > 0:
             # Estimate for older checkpoints that didn't record total_tokens
             self.total_tokens = self.step_count * max(1, self.grad_accumulation_steps) * 128
 
         self.total_training_seconds = float(ckpt.get("total_training_seconds", ckpt.get("wall_clock_elapsed_sec", ckpt.get("training_hours", 0.0) * 3600.0)))
+
 
         if "total_steps" in ckpt:
             self.total_steps = max(int(self.total_steps), int(ckpt["total_steps"]))

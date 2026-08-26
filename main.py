@@ -701,14 +701,14 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
                 # default to avoid spending disk on repeated optimizer state.
                 step_ckpt = os.path.join(checkpoints_dir, f"checkpoint_step_{step}.pt")
                 trainer.save_checkpoint(step_ckpt, save_optimizer=True, async_write=True)
-                is_new_best = (
-                    (getattr(trainer, "best_val_loss", float('inf')) < float('inf') and trainer.best_val_loss == trainer.best_loss) or
-                    (getattr(trainer, "best_val_loss", float('inf')) == float('inf') and trainer.ema_loss is not None and trainer.ema_loss <= trainer.best_loss)
-                )
-                if is_new_best or step % (eval_every * 4) == 0 or step == steps:
+                if is_new_best:
+                    trainer.save_checkpoint(best_ckpt, save_optimizer=False, async_write=True)
+                    log.info(f"🏆 [NEW BEST CHECKPOINT] Val Loss: {trainer.best_val_loss:.4f} -> {os.path.basename(best_ckpt)}")
+
+                if step % (eval_every * 4) == 0 or step == steps:
                     version_name = f"Tantra_v1_step_{step}.pt"
                     trainer.save_checkpoint(os.path.join(best_dir, version_name), save_optimizer=False, async_write=True)
-                    trainer.save_checkpoint(best_ckpt, save_optimizer=False, async_write=True)
+
 
             
             trainer._last_saved_step = step
