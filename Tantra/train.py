@@ -942,6 +942,8 @@ class NeuroTrainer:
 
             if "Checkpoints" in target_dir or "checkpoints" in target_dir:
                 NeuroTrainer.prune_checkpoint_history(target_dir, max_keep=2)
+            elif "Best" in target_dir or "best" in target_dir:
+                NeuroTrainer.prune_checkpoint_history(target_dir, max_keep=4)
 
         if async_write:
             t = threading.Thread(target=_disk_writer, args=(ckpt_data, path, step_num), daemon=True)
@@ -950,16 +952,20 @@ class NeuroTrainer:
             _disk_writer(ckpt_data, path, step_num)
 
     @staticmethod
-    def prune_checkpoint_history(checkpoints_dir: str, max_keep: int = 2) -> None:
-        """Keep only the latest max_keep step checkpoints in checkpoints_dir and remove older ones."""
+    def prune_checkpoint_history(checkpoints_dir: str, max_keep: int = 4) -> None:
+        """Keep only the latest max_keep checkpoints in checkpoints_dir and remove older ones with metadata."""
         if not os.path.exists(checkpoints_dir):
             return
         files = []
         for fname in os.listdir(checkpoints_dir):
-            if fname.startswith("checkpoint_step_") and fname.endswith(".pt"):
+            # Never prune the primary golden best or live resume pointer
+            if fname in ("checkpoint_best.pt", "checkpoint_latest.pt", "tokenizer.json"):
+                continue
+            if fname.endswith(".pt"):
                 fpath = os.path.join(checkpoints_dir, fname)
                 try:
-                    step_num = int(fname.replace("checkpoint_step_", "").replace(".pt", ""))
+                    num_str = "".join(c for c in fname if c.isdigit())
+                    step_num = int(num_str) if num_str else int(os.path.getmtime(fpath))
                     files.append((step_num, fpath))
                 except ValueError:
                     files.append((os.path.getmtime(fpath), fpath))
@@ -973,6 +979,14 @@ class NeuroTrainer:
                     log.info(f"🧹 [PRUNED OLD CHECKPOINT] {os.path.basename(fpath)}")
                 except Exception as e:
                     log.warning(f"Could not remove old checkpoint {fpath}: {e}")
+                # Also prune accompanying .meta.json if present
+                meta_path = fpath + ".meta.json"
+                if os.path.exists(meta_path):
+                    try:
+                        os.remove(meta_path)
+                    except Exception:
+                        pass
+
 
 
     def load_checkpoint(self, path: str) -> None:
