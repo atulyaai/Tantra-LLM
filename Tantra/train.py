@@ -1061,7 +1061,7 @@ class NeuroTrainer:
         """Load model + optimizer + scheduler state."""
         ckpt = torch.load(path, map_location=self.device, weights_only=False)
         state_dict = ckpt["model_state_dict"]
-        raw_model = getattr(self.model, "_orig_mod", self.model)
+        raw_model = getattr(self.model, "module", getattr(self.model, "_orig_mod", self.model))
         model_state = raw_model.state_dict()
 
         # Auto-align vocabulary shape mismatches (e.g. checkpoint saved at 32000, model configured for 65536)
@@ -1083,7 +1083,8 @@ class NeuroTrainer:
         # (and category_layers installed after a checkpoint was written); gates
         # for trained legacy categories are opened by the sync call below.
         raw_model.load_state_dict(state_dict, strict=False)
-        raw_model.sync_category_gates_from_checkpoint(state_dict)
+        if hasattr(raw_model, "sync_category_gates_from_checkpoint"):
+            raw_model.sync_category_gates_from_checkpoint(state_dict)
         # Optimizer is optional (only saved when save_optimizer=True)
         if "optimizer_state_dict" in ckpt:
             try:

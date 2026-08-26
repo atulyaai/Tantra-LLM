@@ -32,7 +32,7 @@ def evaluate_zero_shot_world_knowledge(model: torch.nn.Module, tokenizer: Any, b
     if not questions:
         return {}
 
-    raw_m = getattr(model, "_orig_mod", model)
+    raw_m = getattr(model, "module", getattr(model, "_orig_mod", model))
     device = next(raw_m.parameters()).device
     was_training = raw_m.training
     raw_m.eval()
