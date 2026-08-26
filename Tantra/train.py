@@ -331,15 +331,17 @@ class NeuroTrainer:
                 correct = ((preds == y_flat) & supervised).float().sum()
                 accuracy: Optional[float] = (correct / total).item() * 100.0
 
-                # Fast Top-5 Candidate Pool Accuracy (compute only on supervised tokens)
+                # Fast Top-5 Candidate Pool Accuracy (sample up to 256 tokens to prevent VRAM spikes)
                 if supervised.any():
-                    self.last_pred_tokens = preds[supervised].tolist()[:40]
-                    sub_logits = logits_flat[supervised]
-                    sub_y = y_flat[supervised]
+                    sup_indices = torch.nonzero(supervised, as_tuple=True)[0]
+                    self.last_pred_tokens = preds[sup_indices[:40]].tolist()
+                    sample_indices = sup_indices[:256]
+                    sub_logits = logits_flat[sample_indices]
+                    sub_y = y_flat[sample_indices]
                     k_val = min(5, sub_logits.size(-1))
                     _, top5_indices = torch.topk(sub_logits, k=k_val, dim=-1)
                     correct_top5 = (top5_indices == sub_y.unsqueeze(-1)).any(dim=-1)
-                    self.last_top5_acc = (correct_top5.float().sum() / total).item() * 100.0
+                    self.last_top5_acc = (correct_top5.float().sum() / max(1, sample_indices.numel())).item() * 100.0
                 else:
                     self.last_pred_tokens = []
                     self.last_top5_acc = 0.0
