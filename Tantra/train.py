@@ -205,6 +205,7 @@ class NeuroTrainer:
         self.scheduler = create_lr_scheduler(self.optimizer, warmup_steps=warmup_steps, total_steps=total_steps, min_lr_ratio=0.05)
 
         self.criterion = nn.CrossEntropyLoss(ignore_index=IGNORE_INDEX)
+        self.scaler = torch.amp.GradScaler('cuda', enabled=(self.device.type == 'cuda'))
         self.step_count = 0
         self.best_loss = float('inf')
         self.best_val_loss = float('inf')
@@ -348,16 +349,25 @@ class NeuroTrainer:
 
             ppl = math.exp(min(loss.item(), 20.0))
 
-        (loss / self.grad_accumulation_steps).backward()
+        if self.scaler.is_enabled():
+            self.scaler.scale(loss / self.grad_accumulation_steps).backward()
+        else:
+            (loss / self.grad_accumulation_steps).backward()
 
         self._micro_step += 1
 
         at_boundary = (self._micro_step % self.grad_accumulation_steps == 0)
         if at_boundary:
+            if self.scaler.is_enabled():
+                self.scaler.unscale_(self.optimizer)
             grad_norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0).item()
             if grad_norm > 6.0:
                 SelfRepairEngine().sanitize_optimizer_momentum(self.optimizer, grad_norm, threshold=6.0)
-            self.optimizer.step()
+            if self.scaler.is_enabled():
+                self.scaler.step(self.optimizer)
+                self.scaler.update()
+            else:
+                self.optimizer.step()
             self.scheduler.step()
             self.step_count += 1
         else:
