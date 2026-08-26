@@ -44,25 +44,23 @@ class RotaryPositionalEncoding:
         self.head_dim = head_dim
         self.base = base
         self.max_seq_len = max_seq_len
-        self._cos_cached = None
-        self._sin_cached = None
+        self._cache: Dict[Tuple[str, torch.dtype], Tuple[Tensor, Tensor]] = {}
 
-    def _build_cache(self, seq_len: int, device: torch.device):
+    def get_cos_sin(self, seq_len: int, device: torch.device, dtype: torch.dtype) -> Tuple[Tensor, Tensor]:
         seq_len = max(1, seq_len)
-        inv_freq = 1.0 / (self.base ** (torch.arange(0, self.head_dim, 2, device=device, dtype=torch.float32) / self.head_dim))
-        t = torch.arange(seq_len, device=device, dtype=torch.float32)
-        freqs = torch.outer(t, inv_freq)
-        emb = torch.cat((freqs, freqs), dim=-1)
-        self._cos_cached = emb.cos()
-        self._sin_cached = emb.sin()
-
-    def get_cos_sin(self, seq_len: int, device: torch.device) -> Tuple[Tensor, Tensor]:
-        seq_len = max(1, seq_len)
-        if self._cos_cached is None or seq_len > self._cos_cached.shape[0] or self._cos_cached.device != device:
+        key = (str(device), dtype)
+        cached = self._cache.get(key)
+        if cached is None or seq_len > cached[0].shape[0]:
             build_len = max(seq_len, 2048)
-            self._build_cache(build_len, device)
-        return self._cos_cached[:seq_len], self._sin_cached[:seq_len]
-
+            inv_freq = 1.0 / (self.base ** (torch.arange(0, self.head_dim, 2, device=device, dtype=torch.float32) / self.head_dim))
+            t = torch.arange(build_len, device=device, dtype=torch.float32)
+            freqs = torch.outer(t, inv_freq)
+            emb = torch.cat((freqs, freqs), dim=-1)
+            cos_c = emb.cos().to(dtype)
+            sin_c = emb.sin().to(dtype)
+            self._cache[key] = (cos_c, sin_c)
+            return cos_c[:seq_len], sin_c[:seq_len]
+        return cached[0][:seq_len], cached[1][:seq_len]
 
     def _rotate_half(self, x: Tensor) -> Tensor:
         x1 = x[..., : x.shape[-1] // 2]
@@ -70,7 +68,7 @@ class RotaryPositionalEncoding:
         return torch.cat((-x2, x1), dim=-1)
 
     def apply(self, q: Tensor, k: Tensor, seq_len: int, offset: int = 0) -> Tuple[Tensor, Tensor]:
-        cos, sin = self.get_cos_sin(offset + seq_len, q.device)
+        cos, sin = self.get_cos_sin(offset + seq_len, q.device, q.dtype)
         cos = cos[offset : offset + seq_len].unsqueeze(0).unsqueeze(0)
         sin = sin[offset : offset + seq_len].unsqueeze(0).unsqueeze(0)
 
