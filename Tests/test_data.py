@@ -207,6 +207,31 @@ def test_neurotrainer_evaluate_validation():
         assert metrics["val_loss"] > 0
 
 
+def test_continuous_sequence_packing():
+    """Continuous sequence packing must pack multiple documents with zero padding tokens."""
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "packed_test.jsonl")
+        with open(path, "w", encoding="utf-8") as f:
+            for i in range(10):
+                f.write(json.dumps({
+                    "user": f"Prompt {i}",
+                    "assistant": f"Reply {i}"
+                }) + "\n")
+
+        tok = _StubTokenizer()
+        ds_packed = JSONLDataset(path, tok, seq_len=32, max_samples=10, pack_sequences=True, mask_non_assistant=True)
+        samples = [s for s in ds_packed]
+        assert len(samples) > 0
+        for x, y in samples:
+            assert x.shape == (32,)
+            assert y.shape == (32,)
+            # Verify that supervised assistant tokens exist in the packed chunk
+            assert (y != IGNORE_INDEX).any()
+            # Verify x has no zero padding tokens at the tail
+            assert not (x[-4:] == 0).all()
+
+
+
 
 
 

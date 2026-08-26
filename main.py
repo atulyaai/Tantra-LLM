@@ -147,49 +147,58 @@ def print_expert_panel(expert_reg):
         for e_id, e_info in expert_reg.experts.items():
             print(f"Expert {e_id}: {e_info}")
 
-def run_interactive_chat(model, tokenizer, device, temp=0.8, top_p=0.95, router=None):
+def run_interactive_chat(model, tokenizer, device, temp=0.7, top_p=0.9, router=None, use_mtp=False):
+    model.eval()
     if console:
-        console.print("[bold green]Tantra Interactive REPL[/bold green] (Type /help for commands, /quit to exit)")
+        console.print("[bold green]╭───────────────────────────────────────────────────╮[/bold green]")
+        console.print("[bold green]│  तन्त्र  TANTRA LLM Interactive Terminal Playground │[/bold green]")
+        console.print("[bold green]╰───────────────────────────────────────────────────╯[/bold green]")
+        console.print("[dim]Commands: /temp <float>, /mtp <on|off>, /clear, /stats, /help, /quit[/dim]\n")
     else:
-        print("Tantra Interactive REPL (Type /help for commands, /quit to exit)")
-        
+        print("== TANTRA LLM Interactive Terminal Playground ==")
+        print("Commands: /temp <float>, /mtp <on|off>, /clear, /stats, /help, /quit\n")
+
     while True:
         try:
             if console:
-                prompt_text = "[bold cyan]तन्त्र >[/bold cyan] "
-                user_input = console.input(prompt_text)
+                user_input = console.input("[bold cyan]You >[/bold cyan] ")
             else:
-                user_input = input("तन्त्र > ")
-                
+                user_input = input("You > ")
+
             if not user_input.strip():
                 continue
-                
+
             if user_input.startswith("/"):
-                cmd = user_input.split()[0].lower()
-                if cmd == "/quit":
+                parts = user_input.strip().split()
+                cmd = parts[0].lower()
+                if cmd in ("/quit", "/exit"):
                     break
                 elif cmd == "/help":
-                    msg = "Commands: /help, /status, /experts, /settings, /quit"
-                    if console: console.print(msg)
+                    msg = "Commands: /temp <float> (adjust creativity), /mtp <on|off> (speculative speedup), /stats (show parameters), /clear, /quit"
+                    if console: console.print(f"[dim]{msg}[/dim]")
                     else: print(msg)
-                elif cmd == "/settings":
-                    parts = user_input.split()
-                    if len(parts) >= 3:
-                        temp = float(parts[1])
-                        top_p = float(parts[2])
-                    msg = f"Settings: temp={temp}, top_p={top_p}"
-                    if console: console.print(msg)
-                    else: print(msg)
-                elif cmd == "/status":
-                    msg = "Run main.py --mode status for full dashboard."
-                    if console: console.print(msg)
-                    else: print(msg)
-                elif cmd == "/experts":
-                    msg = "Run main.py --mode experts for full panel."
-                    if console: console.print(msg)
-                    else: print(msg)
+                elif cmd == "/temp":
+                    if len(parts) >= 2:
+                        try:
+                            temp = max(0.0, min(2.0, float(parts[1])))
+                            if console: console.print(f"[green]Temperature set to {temp:.2f}[/green]")
+                            else: print(f"Temperature set to {temp:.2f}")
+                        except ValueError:
+                            if console: console.print("[red]Invalid temperature value[/red]")
+                elif cmd == "/mtp":
+                    if len(parts) >= 2:
+                        use_mtp = parts[1].lower() in ("on", "true", "1", "yes")
+                        if console: console.print(f"[green]MTP speculative acceleration: {'ON' if use_mtp else 'OFF'}[/green]")
+                        else: print(f"MTP speculative acceleration: {'ON' if use_mtp else 'OFF'}")
+                elif cmd == "/clear":
+                    if os.name == "nt": os.system("cls")
+                    else: os.system("clear")
+                elif cmd == "/stats":
+                    total_p = sum(p.numel() for p in model.parameters())
+                    if console: console.print(f"[magenta]Model: {total_p/1e6:.1f}M params | Device: {device} | Temp: {temp} | MTP: {use_mtp}[/magenta]")
+                    else: print(f"Model: {total_p/1e6:.1f}M params | Device: {device} | Temp: {temp} | MTP: {use_mtp}")
                 continue
-                
+
             # Request-level routing: pick ONE domain adapter, base as fallback.
             routed = None
             if router is not None:
@@ -198,25 +207,35 @@ def run_interactive_chat(model, tokenizer, device, temp=0.8, top_p=0.95, router=
                     model.active_category = routed
             if console and routed is not None:
                 console.print(f"[dim]→ routed to adapter: {routed}[/dim]")
-            elif console:
-                console.print("[dim]→ base (no adapter)[/dim]")
 
             formatted_input = f"<|user|>\n{user_input}\n<|assistant|>\n"
             tokens = tokenizer.encode(formatted_input)
             prompt = torch.tensor([tokens], device=device)
+
             if console:
-                console.print(f"[dim]Thinking...[/dim]")
-            with torch.no_grad():
-                out = model.generate(prompt, max_new_tokens=200, temperature=temp, use_mtp_speculation=False)
-            # generate() returns prompt + continuation concatenated; only decode
-            # the newly generated tail so the REPL doesn't echo the user's input.
-            new_tokens = out[0, prompt.shape[1]:].tolist()
-            response = tokenizer.decode(new_tokens)
-            if console:
-                console.print(f"[bold yellow]Assistant:[/bold yellow] {response}")
+                console.print("[bold yellow]Tantra >[/bold yellow] ", end="")
             else:
-                print(f"Assistant: {response}")
-                
+                print("Tantra > ", end="", flush=True)
+
+            t0 = time.perf_counter()
+            generated_tokens = []
+            with torch.no_grad():
+                for token_id in model.generate_stream(prompt, max_new_tokens=256, temperature=temp, top_p=top_p, use_mtp_speculation=use_mtp):
+                    generated_tokens.append(token_id)
+                    piece = tokenizer.decode([token_id])
+                    if console:
+                        console.print(piece, end="")
+                    else:
+                        print(piece, end="", flush=True)
+
+            elapsed = max(time.perf_counter() - t0, 1e-4)
+            tok_speed = len(generated_tokens) / elapsed
+
+            if console:
+                console.print(f"\n[dim]({len(generated_tokens)} tokens, {tok_speed:.1f} tok/s)[/dim]\n")
+            else:
+                print(f"\n({len(generated_tokens)} tokens, {tok_speed:.1f} tok/s)\n")
+
         except (KeyboardInterrupt, EOFError):
             break
         except Exception as e:
@@ -225,36 +244,7 @@ def run_interactive_chat(model, tokenizer, device, temp=0.8, top_p=0.95, router=
             else:
                 print(f"Error: {str(e)}")
             continue
-                
-            # Request-level routing: pick ONE domain adapter, base as fallback.
-            routed = None
-            if router is not None:
-                if hasattr(model, "category_layers") and model.category_layers:
-                    routed = router.route(user_input)
-                    model.active_category = routed
-            if console and routed is not None:
-                console.print(f"[dim]→ routed to adapter: {routed}[/dim]")
-            elif console:
-                console.print("[dim]→ base (no adapter)[/dim]")
 
-            formatted_input = f"<s><|user|>\n{user_input}\n<|assistant|>\n"
-            tokens = tokenizer.encode(formatted_input)
-            prompt = torch.tensor([tokens], device=device)
-            if console:
-                console.print(f"[dim]Thinking...[/dim]")
-            with torch.no_grad():
-                out = model.generate(prompt, max_new_tokens=200, temperature=temp, use_mtp_speculation=False)
-            # generate() returns prompt + continuation concatenated; only decode
-            # the newly generated tail so the REPL doesn't echo the user's input.
-            new_tokens = out[0, prompt.shape[1]:].tolist()
-            response = tokenizer.decode(new_tokens)
-            if console:
-                console.print(f"[bold yellow]Assistant:[/bold yellow] {response}")
-            else:
-                print(f"Assistant: {response}")
-                
-        except (KeyboardInterrupt, EOFError):
-            break
 
 def detect_hardware():
     log.info("== [1] HARDWARE AUTO-DETECTION & PROACTIVE HEALTH ==")
@@ -522,7 +512,8 @@ def run_training(model, vcfg, steps=30, resume=False):
     trainer.save_checkpoint(latest_ckpt, save_optimizer=True)
 
 
-def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False, eval_every=1000, log_every=50, checkpoint_every=500, batch_size=1, seq_len=128, grad_accumulation_steps=1, data_workers=0, use_latent_reasoning=True, use_mtp_loss=True, compile=False, lr=1e-4, weight_decay=0.01, optimizer="adamw", warmup_steps=None, topic_weights=None, training_stage="sft", auto_growth=False, growth_patience=1000, growth_min_delta=0.005, max_layers=None, model_dir=None, adapter_name=None, archive_checkpoints=True):
+def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False, eval_every=1000, log_every=50, checkpoint_every=500, batch_size=1, seq_len=128, grad_accumulation_steps=1, data_workers=0, use_latent_reasoning=True, use_mtp_loss=True, compile=False, lr=1e-4, weight_decay=0.01, optimizer="adamw", warmup_steps=None, topic_weights=None, training_stage="sft", auto_growth=False, growth_patience=1000, growth_min_delta=0.005, max_layers=None, model_dir=None, adapter_name=None, archive_checkpoints=True, pack_sequences=True):
+
     log.info("== [DATASET PRE-TRAINING MODE] =====================")
     if training_stage not in {"pretrain", "sft"}:
         raise ValueError(f"Unknown training stage: {training_stage}")
@@ -797,10 +788,10 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
             fallback = glob.glob(os.path.join(dataset_path, "*.jsonl"))
             if fallback:
                 dataset = JSONLDataset(fallback[0], tokenizer, seq_len=seq_len,
-                                      max_samples=max_samples, mask_non_assistant=mask_non_assistant)
+                                      max_samples=max_samples, mask_non_assistant=mask_non_assistant, pack_sequences=pack_sequences)
             else:
                 dataset = JSONLDataset(dataset_path, tokenizer, seq_len=seq_len,
-                                      max_samples=max_samples, mask_non_assistant=mask_non_assistant)
+                                      max_samples=max_samples, mask_non_assistant=mask_non_assistant, pack_sequences=pack_sequences)
     else:
         bin_cache = find_bin_cache(dataset_path)
         if bin_cache:
@@ -810,12 +801,13 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
                                              mask_non_assistant=mask_non_assistant)
         else:
             dataset = JSONLDataset(dataset_path, tokenizer, seq_len=seq_len,
-                                  max_samples=max_samples, mask_non_assistant=mask_non_assistant)
+                                  max_samples=max_samples, mask_non_assistant=mask_non_assistant, pack_sequences=pack_sequences)
 
     val_loader = None
     if os.path.isfile(dataset_path):
-        val_dataset = JSONLDataset(dataset_path, tokenizer, seq_len=seq_len, max_samples=100, mask_non_assistant=mask_non_assistant, split="val", val_ratio=0.05)
+        val_dataset = JSONLDataset(dataset_path, tokenizer, seq_len=seq_len, max_samples=100, mask_non_assistant=mask_non_assistant, split="val", val_ratio=0.05, pack_sequences=pack_sequences)
         val_loader = torch.utils.data.DataLoader(val_dataset, batch_size=batch_size, num_workers=0)
+
 
 
     dataloader = torch.utils.data.DataLoader(
@@ -877,12 +869,14 @@ def main():
     parser.add_argument("--mode", default="full",
                         choices=["full", "probe", "vocab", "train", "dataset", "eval", "compress", "generate", "serve", "status", "experts", "chat", "adapter"],
                         help="Execution mode")
+    parser.add_argument("--checkpoint", type=str, default=None, help="Path to custom .pt model checkpoint to load (for chat, eval, serve)")
+    parser.add_argument("--pack-sequences", action=argparse.BooleanOptionalAction, default=True, help="Enable continuous document sequence packing (0% padding waste)")
     parser.add_argument("--dataset", type=str, default=DEFAULT_DATASET, help="JSONL dataset path")
     parser.add_argument("--steps", type=int, default=30, help="Training steps")
     parser.add_argument("--seq-len", type=int, default=128, help="Context sequence length window")
     parser.add_argument("--use-mtp", action=argparse.BooleanOptionalAction, default=True, help="Enable/disable Multi-Token Prediction (MTP)")
-    parser.add_argument("--temperature", type=float, default=0.8, help="Sampling temperature")
-    parser.add_argument("--top-p", type=float, default=0.95, help="Top-p nucleus sampling")
+    parser.add_argument("--temperature", type=float, default=0.7, help="Sampling temperature")
+    parser.add_argument("--top-p", type=float, default=0.9, help="Top-p nucleus sampling")
     parser.add_argument("--port", type=int, default=8000, help="Server port (serve mode)")
     parser.add_argument("--device", type=str, default="auto", help="Compute device: auto, cpu, cuda, mps")
     parser.add_argument("--resume", action="store_true", help="Resume from latest checkpoint if available")
@@ -893,6 +887,7 @@ def main():
     parser.add_argument("--batch-size", type=int, default=1, help="Batch size for training")
     parser.add_argument("--grad-accum", type=int, default=1, help="Gradient accumulation steps (larger effective batch without more RAM; 1 = off)")
     parser.add_argument("--data-workers", type=int, default=0, help="Parallel data-loading/tokenization workers (overlaps tokenization with training compute; 0 = synchronous/main-thread, as before)")
+
     parser.add_argument("--training-stage", choices=["pretrain", "sft"], default="sft", help="pretrain uses full-token loss; sft supervises assistant replies only")
     parser.add_argument("--latent-reasoning", action=argparse.BooleanOptionalAction, default=None, help="Enable/disable latent reasoning. Defaults off for pretraining and on for SFT.")
     parser.add_argument("--mtp-loss", action=argparse.BooleanOptionalAction, default=None, help="Train the MTP auxiliary head. Defaults off for pretraining and on for SFT.")
@@ -1048,6 +1043,23 @@ def main():
         return
         
     if args.mode == "chat":
+        # Load custom checkpoint if passed or automatically load Best / Latest
+        ckpt_to_load = args.checkpoint
+        if ckpt_to_load is None:
+            for cand in [
+                os.path.join(MODEL_DIR, "Best", "checkpoint_best.pt"),
+                os.path.join(MODEL_DIR, "Latest", "checkpoint_latest.pt"),
+            ]:
+                if os.path.exists(cand):
+                    ckpt_to_load = cand
+                    break
+        if ckpt_to_load and os.path.exists(ckpt_to_load):
+            try:
+                trainer.load_checkpoint(ckpt_to_load)
+                log.info(f"Loaded checkpoint for chat: {ckpt_to_load}")
+            except Exception as e:
+                log.warning(f"Could not load checkpoint {ckpt_to_load}: {e}")
+
         if args.adapter is not None:
             if args.adapter not in model.category_layers:
                 log.warning(f"Category '{args.adapter}' not in adapter checkpoint; ignoring --adapter.")
@@ -1056,9 +1068,10 @@ def main():
         else:
             router = RequestRouter(AdapterRegistry())
             router._model = model  # allow per-request routing to set active category
-            run_interactive_chat(model, tok, rt.device, args.temperature, args.top_p, router=router)
+            run_interactive_chat(model, tok, rt.device, args.temperature, args.top_p, router=router, use_mtp=args.use_mtp)
         sched.stop()
         return
+
 
     if args.mode == "train":
         run_training(model, vcfg, steps=args.steps, resume=args.resume)
@@ -1089,7 +1102,8 @@ def main():
         else:
             resolved_wd = 0.05 if resolved_optimizer == "lion" else 0.01
 
-        run_dataset_training(model, tok, args.dataset, steps=args.steps, resume=args.resume, eval_every=args.eval_every, log_every=args.log_every, checkpoint_every=args.checkpoint_every, batch_size=args.batch_size, seq_len=args.seq_len, grad_accumulation_steps=args.grad_accum, data_workers=args.data_workers, use_latent_reasoning=use_latent_reasoning, use_mtp_loss=use_mtp_loss, compile=args.compile, lr=resolved_lr, weight_decay=resolved_wd, optimizer=resolved_optimizer, warmup_steps=args.warmup, topic_weights=topic_weights, training_stage=args.training_stage, auto_growth=args.auto_growth, growth_patience=args.growth_patience, growth_min_delta=args.growth_min_delta, max_layers=args.max_layers, adapter_name=args.adapter, model_dir=(ADAPTER_ROOT if args.adapter is not None else args.model_dir))
+        run_dataset_training(model, tok, args.dataset, steps=args.steps, resume=args.resume, eval_every=args.eval_every, log_every=args.log_every, checkpoint_every=args.checkpoint_every, batch_size=args.batch_size, seq_len=args.seq_len, grad_accumulation_steps=args.grad_accum, data_workers=args.data_workers, use_latent_reasoning=use_latent_reasoning, use_mtp_loss=use_mtp_loss, compile=args.compile, lr=resolved_lr, weight_decay=resolved_wd, optimizer=resolved_optimizer, warmup_steps=args.warmup, topic_weights=topic_weights, training_stage=args.training_stage, auto_growth=args.auto_growth, growth_patience=args.growth_patience, growth_min_delta=args.growth_min_delta, max_layers=args.max_layers, adapter_name=args.adapter, model_dir=(ADAPTER_ROOT if args.adapter is not None else args.model_dir), pack_sequences=args.pack_sequences)
+
     elif args.mode == "eval":
         run_evaluation(model, tok, args.dataset)
     elif args.mode == "generate":

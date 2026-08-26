@@ -286,7 +286,8 @@ class JSONLDataset(IterableDataset):
                  max_samples: Optional[int] = None, mask_non_assistant: bool = True,
                  insert_doc_boundaries: bool = True, shuffle: bool = True,
                  shuffle_buf_size: int = 2000, seed: int = 42,
-                 val_ratio: float = 0.05, split: str = "train"):
+                 val_ratio: float = 0.05, split: str = "train",
+                 pack_sequences: bool = True):
         super().__init__()
         self.jsonl_path = jsonl_path
         self.tokenizer = tokenizer
@@ -300,7 +301,9 @@ class JSONLDataset(IterableDataset):
         self.seed = seed
         self.val_ratio = max(0.0, min(0.5, val_ratio))
         self.split = split.lower().strip()
+        self.pack_sequences = pack_sequences
         self._unrecognized_json = 0
+
 
     def __bool__(self) -> bool:
         return True
@@ -393,10 +396,32 @@ class JSONLDataset(IterableDataset):
             clamped = torch.tensor(ids, dtype=torch.long).clamp_(0, self.vocab_size - 1).tolist()
             samples = []
 
-            if self.mask_non_assistant:
+            if self.pack_sequences:
+                token_buffer.extend(clamped)
+                mask_buffer.extend(is_target if self.mask_non_assistant else [True] * len(clamped))
+                if self.insert_doc_boundaries:
+                    token_buffer.append(EOS_ID)
+                    mask_buffer.append(True)
+
+                while len(token_buffer) >= self.seq_len + 1:
+                    chunk_ids = token_buffer[: self.seq_len + 1]
+                    chunk_mask = mask_buffer[: self.seq_len + 1]
+                    token_buffer = token_buffer[self.seq_len:]
+                    mask_buffer = mask_buffer[self.seq_len:]
+
+                    # Only emit chunks that have at least one supervised target token
+                    if self.mask_non_assistant and not any(chunk_mask[1:]):
+                        continue
+
+                    x = torch.tensor(chunk_ids[:-1], dtype=torch.long)
+                    y = torch.tensor(chunk_ids[1:], dtype=torch.long)
+                    y_is_target = torch.tensor(chunk_mask[1:], dtype=torch.bool)
+                    y = torch.where(y_is_target, y, torch.full_like(y, IGNORE_INDEX))
+                    samples.append((x, y))
+
+            elif self.mask_non_assistant:
                 if len(clamped) >= 2:
                     # Multi-chunk sliding window: guarantees 100% of the assistant answer is supervised
-                    # across ANY sequence length (32, 64, 96, 128, 256, 512, 1024, etc.)
                     stride = max(1, self.seq_len // 2) if len(clamped) > self.seq_len + 1 else self.seq_len
                     for start_idx in range(0, len(clamped), stride):
                         end_idx = start_idx + self.seq_len + 1
@@ -406,7 +431,6 @@ class JSONLDataset(IterableDataset):
                         # Skip chunks that have no supervised assistant tokens (e.g. pure prompt prefix)
                         if not any(chunk_mask):
                             continue
-
 
                         pad_len = max(0, (self.seq_len + 1) - len(chunk_ids))
                         sample_ids = (chunk_ids + [0] * pad_len)[: self.seq_len + 1]
@@ -439,6 +463,7 @@ class JSONLDataset(IterableDataset):
                     y_is_target = torch.tensor(chunk_mask[1:], dtype=torch.bool)
                     y = torch.where(y_is_target, y, torch.full_like(y, IGNORE_INDEX))
                     samples.append((x, y))
+
 
             return samples
 
