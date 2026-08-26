@@ -917,17 +917,9 @@ class NeuroTrainer:
                 os.replace(meta_temp, meta_path)
 
 
-                # Save/copy updated tokenizer.json into checkpoint target_dir and root model_dir
-                for cand in [os.path.join("Model", "tokenizer.json"), "tokenizer.json", os.path.join(target_dir, "..", "tokenizer.json")]:
-                    if os.path.exists(cand):
-                        try:
-                            shutil.copy2(cand, os.path.join(target_dir, "tokenizer.json"))
-                            root_d = os.path.dirname(target_dir)
-                            if root_d and os.path.isdir(root_d):
-                                shutil.copy2(cand, os.path.join(root_d, "tokenizer.json"))
-                            break
-                        except Exception:
-                            pass
+                # Save/export complete tokenizer, vocab.json, merges.txt, and tokenizer_config.json
+                NeuroTrainer.export_tokenizer_and_vocab(target_dir)
+
             except Exception as ex:
 
                 try:
@@ -986,6 +978,70 @@ class NeuroTrainer:
                         os.remove(meta_path)
                     except Exception:
                         pass
+
+    @staticmethod
+    def export_tokenizer_and_vocab(target_dir: str) -> None:
+        """Export tokenizer.json, vocab.json, merges.txt, special_tokens_map.json,
+        and tokenizer_config.json into target_dir and root Model/ directory."""
+        os.makedirs(target_dir, exist_ok=True)
+        source_tok = None
+        for cand in [os.path.join("Model", "tokenizer.json"), "tokenizer.json", os.path.join(target_dir, "..", "tokenizer.json")]:
+            if os.path.exists(cand):
+                source_tok = cand
+                break
+        if not source_tok:
+            return
+
+        try:
+            dest_tok = os.path.join(target_dir, "tokenizer.json")
+            if os.path.abspath(source_tok) != os.path.abspath(dest_tok):
+                shutil.copy2(source_tok, dest_tok)
+
+            with open(source_tok, "r", encoding="utf-8") as f:
+                tok_data = json.load(f)
+
+            model_block = tok_data.get("model", {})
+            vocab = model_block.get("vocab", {})
+            if vocab:
+                with open(os.path.join(target_dir, "vocab.json"), "w", encoding="utf-8") as vf:
+                    json.dump(vocab, vf, indent=2)
+
+            merges = model_block.get("merges", [])
+            if merges:
+                formatted_merges = [" ".join(m) if isinstance(m, list) else str(m) for m in merges]
+                with open(os.path.join(target_dir, "merges.txt"), "w", encoding="utf-8") as mf:
+                    mf.write("#version: 0.2\n" + "\n".join(formatted_merges))
+
+            special_tokens = {
+                "bos_token": "<s>",
+                "eos_token": "<eos>",
+                "unk_token": "<unk>",
+                "pad_token": "<pad>"
+            }
+            with open(os.path.join(target_dir, "special_tokens_map.json"), "w", encoding="utf-8") as sf:
+                json.dump(special_tokens, sf, indent=2)
+
+            tok_config = {
+                "tokenizer_class": "ByteBPETokenizer",
+                "vocab_size": len(vocab) if vocab else 32768,
+                "model_max_length": 2048,
+                "bos_token": "<s>",
+                "eos_token": "<eos>",
+                "unk_token": "<unk>",
+                "pad_token": "<pad>"
+            }
+            with open(os.path.join(target_dir, "tokenizer_config.json"), "w", encoding="utf-8") as cf:
+                json.dump(tok_config, cf, indent=2)
+
+            root_model = "Model"
+            if os.path.exists(root_model) and os.path.abspath(target_dir) != os.path.abspath(root_model):
+                for fname in ["vocab.json", "merges.txt", "special_tokens_map.json", "tokenizer_config.json"]:
+                    src = os.path.join(target_dir, fname)
+                    if os.path.exists(src):
+                        shutil.copy2(src, os.path.join(root_model, fname))
+        except Exception as e:
+            log.debug(f"Could not export full tokenizer/vocab files to {target_dir}: {e}")
+
 
 
 
