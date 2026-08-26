@@ -81,6 +81,9 @@ tmp_*.json
 .idea/
 *.swp
 *.jpg
+*.zip
+*.tar.gz
 .DS_Store
 Thumbs.db
+
 
