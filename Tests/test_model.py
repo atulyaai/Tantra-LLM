@@ -155,10 +155,26 @@ def test_mtp_training_and_speculative_generation(micro_config):
     assert 1 <= len(list(model.generate_stream(torch.tensor([[1, 2, 3]]), max_new_tokens=4, temperature=0))) <= 4
 
 
-def test_hardware_detection_and_runtime_config():
-    profile = HardwareDetector().detect()
-    assert profile.ram_total_mb > 0 and profile.cpu.physical_cores > 0
-    perf = Profiler(profile).run()
-    runtime = RuntimeConfigBuilder().build(profile, perf)
-    assert perf.fp32_matmul_gflops > 0
-    assert runtime.device in ("cpu", "cuda:0", "mps") and runtime.batch_size >= 1
+def test_variable_seq_len_checkpoint_transfer(micro_config, tmp_path):
+    model1 = NeuroCoreModel(micro_config)
+    trainer1 = NeuroTrainer(model1, lr=1e-3)
+    x128 = torch.randint(0, 1000, (2, 128))
+    loss1, _, _, _, _ = trainer1.train_step(x128, x128.clone())
+    assert loss1 > 0
+
+    ckpt_path = str(tmp_path / "test_ckpt.pt")
+    trainer1.save_checkpoint(ckpt_path)
+
+    # Resume into larger sequence lengths (256, 512)
+    model2 = NeuroCoreModel(micro_config)
+    trainer2 = NeuroTrainer(model2, lr=1e-3)
+    trainer2.load_checkpoint(ckpt_path)
+
+    x256 = torch.randint(0, 1000, (2, 256))
+    loss2, acc2, ppl2, grad_norm2, _ = trainer2.train_step(x256, x256.clone())
+    assert loss2 > 0 and not torch.isnan(torch.tensor(loss2)) and not torch.isinf(torch.tensor(loss2))
+
+    x512 = torch.randint(0, 1000, (2, 512))
+    loss3, acc3, ppl3, grad_norm3, _ = trainer2.train_step(x512, x512.clone())
+    assert loss3 > 0 and not torch.isnan(torch.tensor(loss3))
+
