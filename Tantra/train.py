@@ -38,6 +38,21 @@ log = get_logger(__name__)
 IGNORE_INDEX = -100
 
 
+def format_time_duration(seconds: float) -> str:
+    """Format duration into clean human-readable string (e.g. 1d 04h 12m, 2h 15m 30s, or 45s)."""
+    sec = int(max(0, seconds))
+    d, remainder = divmod(sec, 86400)
+    h, remainder = divmod(remainder, 3600)
+    m, s = divmod(remainder, 60)
+    if d > 0:
+        return f"{d}d {h:02d}h {m:02d}m"
+    elif h > 0:
+        return f"{h}h {m:02d}m {s:02d}s"
+    else:
+        return f"{m}m {s:02d}s" if m > 0 else f"{s}s"
+
+
+
 def generate_synthetic_batch(vocab_size: int = 32000, batch_size: int = 2, seq_len: int = 64) -> tuple[torch.Tensor, torch.Tensor]:
     """Generate synthetic token sequences and auto-regressive targets."""
     vocab_size = max(2, vocab_size)
@@ -604,29 +619,54 @@ class NeuroTrainer:
                     recent_step_seconds.append(now - last_optimizer_time)
                     recent_step_seconds = recent_step_seconds[-10:]
                     last_optimizer_time = now
+                    session_elapsed_sec = max(0.0, time.perf_counter() - self._start_time)
+                    session_steps = max(self.step_count - self._session_start_step, 1)
+                    actual_avg_step_sec = session_elapsed_sec / session_steps
+
                     rolling_eta = "estimating"
+                    rolling_step_sec = actual_avg_step_sec
+                    rolling_eta_seconds = None
+                    total_projected_sec = None
+                    drift_str = ""
+
                     if len(recent_step_seconds) >= 3:
                         remaining_steps = max(max_steps - self.step_count, 0)
-                        eta_sec = int(remaining_steps * (sum(recent_step_seconds) / len(recent_step_seconds)))
-                        days, remainder = divmod(eta_sec, 86400)
-                        hours, remainder = divmod(remainder, 3600)
-                        minutes, seconds = divmod(remainder, 60)
-                        rolling_eta = f"{days}d {hours:02d}:{minutes:02d}:{seconds:02d}" if days else f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+                        rolling_step_sec = sum(recent_step_seconds) / len(recent_step_seconds)
+                        rolling_eta_seconds = int(remaining_steps * rolling_step_sec)
+                        rolling_eta = format_time_duration(rolling_eta_seconds)
+                        total_projected_sec = int(session_elapsed_sec + rolling_eta_seconds)
+
+                        if getattr(self, "_initial_projected_total_sec", None) is None and len(recent_step_seconds) >= 5:
+                            self._initial_projected_total_sec = total_projected_sec
+
+                        if getattr(self, "_initial_projected_total_sec", None) is not None:
+                            drift_sec = total_projected_sec - self._initial_projected_total_sec
+                            drift_sign = "+" if drift_sec >= 0 else "-"
+                            drift_str = f" ({drift_sign}{format_time_duration(abs(drift_sec))} vs initial)"
 
                     if progress:
                         progress.update(task_id, eta=rolling_eta)
 
-                    rolling_eta_seconds = None
-                    if len(recent_step_seconds) >= 3:
-                        rolling_eta_seconds = int(max(max_steps - self.step_count, 0) * (
-                            sum(recent_step_seconds) / len(recent_step_seconds)
-                        ))
+                    elapsed_str = format_time_duration(session_elapsed_sec)
+                    total_est_str = format_time_duration(total_projected_sec) if total_projected_sec else "estimating"
+
                     self._write_training_status(
                         status="running", step=self.step_count, target_steps=max_steps,
                         loss=loss, ema_loss=self.ema_loss, accuracy=last_accuracy, ppl=ppl,
                         grad_norm=grad_norm, tok_s=tok_per_sec,
                         session_tokens=self._session_tokens, eta=rolling_eta,
                         eta_seconds=rolling_eta_seconds,
+                        time_telemetry={
+                            "elapsed_seconds": int(session_elapsed_sec),
+                            "elapsed_formatted": elapsed_str,
+                            "actual_avg_sec_per_step": round(actual_avg_step_sec, 2),
+                            "rolling_sec_per_step": round(rolling_step_sec, 2),
+                            "eta_seconds": rolling_eta_seconds,
+                            "eta_formatted": rolling_eta,
+                            "total_estimated_seconds": total_projected_sec,
+                            "total_estimated_formatted": total_est_str,
+                            "initial_estimated_seconds": getattr(self, "_initial_projected_total_sec", None),
+                        }
                     )
 
                     if growth_controller is not None:
@@ -635,8 +675,6 @@ class NeuroTrainer:
                         if growth_controller.observe(float(self.ema_loss), raw_model):
                             new_params = [param for param in raw_model.parameters() if id(param) not in before]
                             if new_params:
-                                # Existing parameters retain their Adam state;
-                                # only the new layer starts with fresh state.
                                 base_group = self.optimizer.param_groups[0]
                                 self.optimizer.add_param_group({
                                     "params": new_params,
@@ -645,19 +683,17 @@ class NeuroTrainer:
                                 })
                                 log.info("Auto-growth added %d parameters; optimizer now tracks %d layers.", sum(p.numel() for p in new_params), len(raw_model.layers))
 
-                    session_steps = self.step_count - self._session_start_step
                     is_card_step = (session_steps == 1 or session_steps % log_every == 0 or self.step_count == max_steps)
                     ticker_interval = max(5, log_every // 4)
 
-                    # Live step ticker paced smoothly every 5-10 steps
+                    # Live step ticker with actual elapsed time and step speed
                     if not is_card_step and (session_steps % ticker_interval == 0):
                         loss_color_arrow = "🔻" if (self.best_loss is None or loss <= self.best_loss) else "🔸"
                         acc_str = f"🎯 {last_accuracy:.1f}%" if last_accuracy is not None else ""
-                        log.info(f"   ⚡ [Step {self.step_count:,}/{max_steps:,}] 📉 Loss: {loss:.4f} {loss_color_arrow} │ {acc_str} │ 🔮 PPL: {ppl:.1f} │ ⚡ {tok_per_sec:.1f} tok/s │ ⏱️ ETA: {rolling_eta}")
+                        log.info(f"   ⚡ [Step {self.step_count:,}/{max_steps:,}] 📉 Loss: {loss:.4f} {loss_color_arrow} │ {acc_str} │ ⏳ {elapsed_str} ({actual_avg_step_sec:.1f}s/step) │ ⏱️ ETA: {rolling_eta}")
 
                     if is_card_step:
                         first_step = self.step_count - window_optimizer_steps + 1
-
 
                         avg_loss = sum(window_losses) / max(len(window_losses), 1)
                         avg_acc = sum(window_accs) / max(len(window_accs), 1)
@@ -676,7 +712,6 @@ class NeuroTrainer:
                         model_snippet = ""
                         if tokenizer is not None:
                             try:
-                                # 1. Extract Full User Prompt from x[0]
                                 sample_toks = [t for t in x[0].cpu().tolist() if t > 0]
                                 decoded_text = tokenizer.decode(sample_toks)
                                 if "<|user|>" in decoded_text:
@@ -689,18 +724,15 @@ class NeuroTrainer:
                                     clean_d = decoded_text.replace("You are Tantra, a helpful, precise, and polite AI assistant created by Atulya AI. Answer clearly, accurately, and step-by-step.", "")
                                     user_snippet = clean_d.replace("</s>", "").replace("\n", " ").strip()[:140]
 
-                                # 2. Extract Full Target Answer directly from supervised y[0] targets
                                 target_toks = [t for t in y[0].cpu().tolist() if t != IGNORE_INDEX and t > 0]
                                 if target_toks:
                                     asst_snippet = tokenizer.decode(target_toks).replace("</s>", "").replace("\n", " ").strip()[:150]
 
-                                # 3. Extract Model Output predicted on this batch
                                 pred_ids = getattr(self, "last_pred_tokens", None)
                                 if pred_ids:
                                     model_snippet = tokenizer.decode(pred_ids).replace("</s>", "").replace("\n", " ").strip()[:150]
                             except Exception:
                                 pass
-
 
                         match_score = 0.0
                         if asst_snippet and model_snippet:
@@ -711,14 +743,16 @@ class NeuroTrainer:
 
                         header = f"🚀 [Step {self.step_count:,}/{max_steps:,} ({pct:.1f}%)]"
                         metrics_line1 = f"📉 Loss: {avg_loss:.4f} {loss_arrow} │ 🎯 Top-1: {avg_acc:.1f}% │ 🌟 Top-5: {avg_top5_acc:.1f}% {acc_arrow} │ 🔮 PPL: {avg_ppl:.1f}"
-                        metrics_line2 = f"🧠 Params: {total_params/1e6:.1f}M │ ⚡ Speed: {tok_per_sec:.1f} tok/s │ 🎚️ LR: {current_lr:.2e} │ ⏱️ ETA: {rolling_eta}"
-                        
+                        metrics_line2 = f"🧠 Params: {total_params/1e6:.1f}M │ ⚡ Speed: {tok_per_sec:.1f} tok/s ({actual_avg_step_sec:.1f}s/step) │ 🎚️ LR: {current_lr:.2e}"
+                        metrics_line3 = f"⏳ Elapsed: {elapsed_str} │ 🔮 ETA: {rolling_eta} │ 🏁 Total Est: {total_est_str}{drift_str}"
+
                         if progress:
                             progress.stop()
 
                         log.info(f"┌── {header} " + "─" * (65 - len(header)))
                         log.info(f"│ 📊 {metrics_line1}")
                         log.info(f"│ ⚙️  {metrics_line2}")
+                        log.info(f"│ ⏱️  {metrics_line3}")
                         if user_snippet:
                             log.info(f"│ ❓ [Question ] : {user_snippet}")
                         if asst_snippet:
@@ -728,6 +762,7 @@ class NeuroTrainer:
                         if match_score > 0:
                             log.info(f"│ 🎯 [Alignment] : {match_score:.1f}% (Key concept overlap)")
                         log.info(f"└── 📦 Streamed: {self._session_tokens/1000:.1f}K tokens processed " + "─" * 30)
+
 
 
 
@@ -825,8 +860,11 @@ class NeuroTrainer:
             "config": getattr(self.model, "config", None),
             "step_count": self.step_count,
             "best_loss": getattr(self, "best_loss", float('inf')),
+            "best_val_loss": getattr(self, "best_val_loss", float('inf')),
             "total_tokens": getattr(self, "total_tokens", 0),
             "training_hours": (time.perf_counter() - self._start_time) / 3600.0,
+            "wall_clock_elapsed_sec": time.perf_counter() - self._start_time,
+            "actual_avg_step_sec": (time.perf_counter() - self._start_time) / max(self.step_count - getattr(self, "_session_start_step", 0), 1),
             "scheduler_state_dict": copy.deepcopy(self.scheduler.state_dict()),
             "total_steps": self.total_steps,
             "num_layers": len(getattr(getattr(self.model, "_orig_mod", self.model), "layers", [])),
@@ -846,8 +884,14 @@ class NeuroTrainer:
                 meta_path = target_path + ".meta.json"
                 meta_temp = meta_path + ".tmp"
                 with open(meta_temp, "w", encoding="utf-8") as handle:
-                    json.dump({"num_layers": data["num_layers"], "step_count": step}, handle)
+                    json.dump({
+                        "num_layers": data["num_layers"],
+                        "step_count": step,
+                        "elapsed_seconds": round(data.get("wall_clock_elapsed_sec", 0.0), 2),
+                        "actual_avg_step_sec": round(data.get("actual_avg_step_sec", 0.0), 2),
+                    }, handle, indent=2)
                 os.replace(meta_temp, meta_path)
+
                 # Save/copy updated tokenizer.json into checkpoint target_dir and root model_dir
                 for cand in [os.path.join("Model", "tokenizer.json"), "tokenizer.json", os.path.join(target_dir, "..", "tokenizer.json")]:
                     if os.path.exists(cand):
