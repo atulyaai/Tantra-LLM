@@ -211,9 +211,11 @@ class NeuroTrainer:
         self.ema_loss = None
 
         self.total_tokens = 0
-        self._session_tokens = 0   # tokens in THIS training run only (not restored from checkpoint)
+        self._session_tokens = 0   # tokens in THIS training run only
+        self.total_training_seconds = 0.0  # cumulative wall-clock seconds across all sessions
         self._start_time = time.perf_counter()
         self._status_history: list[dict] = []
+
 
         self.grad_accumulation_steps = max(1, grad_accumulation_steps)
         self._micro_step = 0
@@ -647,6 +649,7 @@ class NeuroTrainer:
                     if progress:
                         progress.update(task_id, eta=rolling_eta)
 
+                    cum_train_sec = float(getattr(self, "total_training_seconds", 0.0)) + session_elapsed_sec
                     elapsed_str = format_time_duration(session_elapsed_sec)
                     total_est_str = format_time_duration(total_projected_sec) if total_projected_sec else "estimating"
 
@@ -654,11 +657,16 @@ class NeuroTrainer:
                         status="running", step=self.step_count, target_steps=max_steps,
                         loss=loss, ema_loss=self.ema_loss, accuracy=last_accuracy, ppl=ppl,
                         grad_norm=grad_norm, tok_s=tok_per_sec,
-                        session_tokens=self._session_tokens, eta=rolling_eta,
+                        session_tokens=self._session_tokens,
+                        total_tokens=self.total_tokens,
+                        total_tokens_millions=round(self.total_tokens / 1e6, 3),
+                        eta=rolling_eta,
                         eta_seconds=rolling_eta_seconds,
                         time_telemetry={
-                            "elapsed_seconds": int(session_elapsed_sec),
-                            "elapsed_formatted": elapsed_str,
+                            "session_elapsed_seconds": int(session_elapsed_sec),
+                            "session_elapsed_formatted": elapsed_str,
+                            "cumulative_training_seconds": int(cum_train_sec),
+                            "cumulative_training_formatted": format_time_duration(cum_train_sec),
                             "actual_avg_sec_per_step": round(actual_avg_step_sec, 2),
                             "rolling_sec_per_step": round(rolling_step_sec, 2),
                             "eta_seconds": rolling_eta_seconds,
@@ -686,11 +694,11 @@ class NeuroTrainer:
                     is_card_step = (session_steps == 1 or session_steps % log_every == 0 or self.step_count == max_steps)
                     ticker_interval = max(5, log_every // 4)
 
-                    # Live step ticker with actual elapsed time and step speed
+                    # Live step ticker with cumulative tokens and actual elapsed time
                     if not is_card_step and (session_steps % ticker_interval == 0):
                         loss_color_arrow = "🔻" if (self.best_loss is None or loss <= self.best_loss) else "🔸"
                         acc_str = f"🎯 {last_accuracy:.1f}%" if last_accuracy is not None else ""
-                        log.info(f"   ⚡ [Step {self.step_count:,}/{max_steps:,}] 📉 Loss: {loss:.4f} {loss_color_arrow} │ {acc_str} │ ⏳ {elapsed_str} ({actual_avg_step_sec:.1f}s/step) │ ⏱️ ETA: {rolling_eta}")
+                        log.info(f"   ⚡ [Step {self.step_count:,}/{max_steps:,}] 📉 Loss: {loss:.4f} {loss_color_arrow} │ {acc_str} │ 📦 {self.total_tokens/1e6:.2f}M tok │ ⏳ {elapsed_str} ({actual_avg_step_sec:.1f}s/step) │ ⏱️ ETA: {rolling_eta}")
 
                     if is_card_step:
                         first_step = self.step_count - window_optimizer_steps + 1
@@ -744,7 +752,7 @@ class NeuroTrainer:
                         header = f"🚀 [Step {self.step_count:,}/{max_steps:,} ({pct:.1f}%)]"
                         metrics_line1 = f"📉 Loss: {avg_loss:.4f} {loss_arrow} │ 🎯 Top-1: {avg_acc:.1f}% │ 🌟 Top-5: {avg_top5_acc:.1f}% {acc_arrow} │ 🔮 PPL: {avg_ppl:.1f}"
                         metrics_line2 = f"🧠 Params: {total_params/1e6:.1f}M │ ⚡ Speed: {tok_per_sec:.1f} tok/s ({actual_avg_step_sec:.1f}s/step) │ 🎚️ LR: {current_lr:.2e}"
-                        metrics_line3 = f"⏳ Elapsed: {elapsed_str} │ 🔮 ETA: {rolling_eta} │ 🏁 Total Est: {total_est_str}{drift_str}"
+                        metrics_line3 = f"⏳ Session: {elapsed_str} │ 🌐 Lifetime: {format_time_duration(cum_train_sec)} │ 🔮 ETA: {rolling_eta} │ 🏁 Total: {total_est_str}{drift_str}"
 
                         if progress:
                             progress.stop()
@@ -761,7 +769,8 @@ class NeuroTrainer:
                             log.info(f"│ 🤖 [Predicted] : {model_snippet}")
                         if match_score > 0:
                             log.info(f"│ 🎯 [Alignment] : {match_score:.1f}% (Key concept overlap)")
-                        log.info(f"└── 📦 Streamed: {self._session_tokens/1000:.1f}K tokens processed " + "─" * 30)
+                        log.info(f"└── 📦 Streamed: {self._session_tokens/1000:.1f}K session tokens │ 🌐 Cumulative: {self.total_tokens/1e6:.2f}M tokens " + "─" * 15)
+
 
 
 
@@ -855,6 +864,11 @@ class NeuroTrainer:
         model_sd = {k: (v.clone().half() if v.is_floating_point() else v.clone()) for k, v in self.model.state_dict().items()}
         opt_sd = copy.deepcopy(self.optimizer.state_dict()) if save_optimizer else None
 
+        session_elapsed_sec = max(0.0, time.perf_counter() - self._start_time)
+        session_steps = max(self.step_count - getattr(self, "_session_start_step", 0), 1)
+        actual_avg_step_sec = session_elapsed_sec / session_steps
+        accumulated_total_seconds = float(getattr(self, "total_training_seconds", 0.0)) + session_elapsed_sec
+
         ckpt_data = {
             "model_state_dict": model_sd,
             "config": getattr(self.model, "config", None),
@@ -862,9 +876,11 @@ class NeuroTrainer:
             "best_loss": getattr(self, "best_loss", float('inf')),
             "best_val_loss": getattr(self, "best_val_loss", float('inf')),
             "total_tokens": getattr(self, "total_tokens", 0),
-            "training_hours": (time.perf_counter() - self._start_time) / 3600.0,
-            "wall_clock_elapsed_sec": time.perf_counter() - self._start_time,
-            "actual_avg_step_sec": (time.perf_counter() - self._start_time) / max(self.step_count - getattr(self, "_session_start_step", 0), 1),
+            "session_tokens": getattr(self, "_session_tokens", 0),
+            "total_training_seconds": accumulated_total_seconds,
+            "training_hours": accumulated_total_seconds / 3600.0,
+            "session_elapsed_sec": session_elapsed_sec,
+            "actual_avg_step_sec": actual_avg_step_sec,
             "scheduler_state_dict": copy.deepcopy(self.scheduler.state_dict()),
             "total_steps": self.total_steps,
             "num_layers": len(getattr(getattr(self.model, "_orig_mod", self.model), "layers", [])),
@@ -887,10 +903,15 @@ class NeuroTrainer:
                     json.dump({
                         "num_layers": data["num_layers"],
                         "step_count": step,
-                        "elapsed_seconds": round(data.get("wall_clock_elapsed_sec", 0.0), 2),
+                        "total_tokens": data["total_tokens"],
+                        "total_tokens_millions": round(data["total_tokens"] / 1e6, 3),
+                        "total_training_seconds": round(data["total_training_seconds"], 2),
+                        "total_training_time": format_time_duration(data["total_training_seconds"]),
+                        "session_elapsed_seconds": round(data.get("session_elapsed_sec", 0.0), 2),
                         "actual_avg_step_sec": round(data.get("actual_avg_step_sec", 0.0), 2),
                     }, handle, indent=2)
                 os.replace(meta_temp, meta_path)
+
 
                 # Save/copy updated tokenizer.json into checkpoint target_dir and root model_dir
                 for cand in [os.path.join("Model", "tokenizer.json"), "tokenizer.json", os.path.join(target_dir, "..", "tokenizer.json")]:
@@ -985,7 +1006,14 @@ class NeuroTrainer:
                 log.warning("Could not restore optimizer state — using fresh optimizer.")
         self.step_count = ckpt.get("step_count", 0)
         self.best_loss = ckpt.get("best_loss", float('inf'))
+        self.best_val_loss = ckpt.get("best_val_loss", float('inf'))
         self.total_tokens = ckpt.get("total_tokens", 0)
+        if not self.total_tokens and self.step_count > 0:
+            # Estimate for older checkpoints that didn't record total_tokens
+            self.total_tokens = self.step_count * max(1, self.grad_accumulation_steps) * 128
+
+        self.total_training_seconds = float(ckpt.get("total_training_seconds", ckpt.get("wall_clock_elapsed_sec", ckpt.get("training_hours", 0.0) * 3600.0)))
+
         if "total_steps" in ckpt:
             self.total_steps = max(int(self.total_steps), int(ckpt["total_steps"]))
         if "warmup_steps" in ckpt:
@@ -1003,7 +1031,9 @@ class NeuroTrainer:
                         "fast-forwarding scheduler by step_count so LR doesn't reset to warmup start.")
             self._fast_forward_scheduler()
 
-        log.info(f"Checkpoint loaded <- {path} (step {self.step_count}, best_loss={self.best_loss:.4f})")
+        hist_time_str = format_time_duration(self.total_training_seconds) if self.total_training_seconds > 0 else "0s"
+        log.info(f"Checkpoint loaded <- {path} (step {self.step_count:,}, tokens: {self.total_tokens/1e6:.2f}M, trained: {hist_time_str}, best_loss={self.best_loss:.4f})")
+
 
     def _fast_forward_scheduler(self) -> None:
         """Best-effort recovery for checkpoints saved before scheduler state
