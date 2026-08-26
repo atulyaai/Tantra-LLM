@@ -598,15 +598,22 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
             log.info(f"  [Incremental Steps] Specified --steps {steps} <= checkpoint step {trainer.step_count}. "
                      f"Running +{steps} steps -> new target: {effective_target} steps.")
             steps = effective_target
-        if training_stage == "sft":
-            log.info(f"  [SFT Stage] Re-initializing optimizer & scheduler for instruction fine-tuning (LR={lr:.2e}, warmup={warmup}).")
+        prev_stage = getattr(trainer, "training_stage", None)
+        if training_stage == "sft" and prev_stage != "sft" and prev_stage is not None:
+            log.info(f"  [SFT Stage Transition] Transitioning from {prev_stage} -> sft. Re-initializing optimizer & scheduler (LR={lr:.2e}, warmup={warmup}).")
             trainer.lr = lr
             trainer.optimizer = torch.optim.AdamW(trainer.model.parameters(), lr=lr, betas=(0.9, 0.95), weight_decay=0.01, eps=1e-8)
             sft_steps = max(steps - trainer.step_count, 100)
             actual_warmup = max(1, min(warmup, sft_steps // 5))
             from Tantra.train import create_lr_scheduler
             trainer.scheduler = create_lr_scheduler(trainer.optimizer, warmup_steps=actual_warmup, total_steps=sft_steps, min_lr_ratio=0.01)
+            trainer.training_stage = "sft"
+        else:
+            stage_name = training_stage or prev_stage or "pretrain"
+            trainer.training_stage = stage_name
+            log.info(f"  [{stage_name.upper()} Stage Resume] Preserved AdamW optimizer momentum buffers and LR scheduler position across resume boundary.")
     else:
+        trainer.training_stage = training_stage or "pretrain"
         log.info("Starting fresh dataset training run.")
 
     if compile:

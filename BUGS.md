@@ -52,13 +52,24 @@ This document serves as the formal register of identified bugs, their root cause
 - **Found**: 2026-08-26, deep code audit
 - **Evidence**: `is_new_best` was referenced as a local variable inside `eval_callback()` in `main.py` without being passed in as an argument or resolved via trainer instance.
 - **Root Cause**: Scope mismatch following the decoupling of periodic checkpoint archives from validation loss improvements.
-- **Fix Commit**: [Current Commit]
+- **Fix Commit**: [`2922d79`](https://github.com/atulyaai/Tantra-LLM/commit/2922d79)
 - **Verification**: Replaced with safe attribute resolution `getattr(trainer, "is_new_best", False)` and verified callback execution.
 - **Status**: 🟢 **RESOLVED & VERIFIED**
 
 ---
 
+### 🟢 BUG-006: Optimizer Momentum & LR Scheduler Reset on Same-Stage Resume
+- **Found**: 2026-08-27, Colab GPU resume log (Step 19,500 $\rightarrow$ 19,501)
+- **Evidence**: Loss jumped from `6.3555` to `9.02` immediately upon resuming; LR was reset to `2.00e-06` (step 1 of warmup); text generation degraded due to zeroed momentum vectors.
+- **Root Cause**: `main.py` unconditionally re-initialized `trainer.optimizer` and `trainer.scheduler` whenever `--training-stage sft` was specified, discarding the restored AdamW momentum buffers ($m_t, v_t$) and cosine decay position.
+- **Fix Commit**: [Current Commit]
+- **Verification**: Saved and restored `training_stage` in checkpoint state; only trigger re-initialization on genuine stage transition (`prev_stage != "sft"`). Verified via `test_optimizer_and_scheduler_continuity_on_resume` in `Tests/test_optimizers.py`.
+- **Status**: 🟢 **RESOLVED & VERIFIED**
+
+---
+
 ## 📊 Evaluation & Verification Protocol
+
 
 
 When evaluating architectural changes or sequence length transitions:

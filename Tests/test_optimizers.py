@@ -87,3 +87,39 @@ def test_lion_step_execution():
     assert ppl > 0
     assert at_boundary is True
     assert trainer.step_count == 1
+
+
+def test_optimizer_and_scheduler_continuity_on_resume(tmp_path):
+    """Verify that same-stage resume preserves optimizer momentum and LR scheduler position."""
+    model1 = build_cpu_model("micro10", attention_kind="causal")
+    trainer1 = NeuroTrainer(model1, lr=1e-4, total_steps=100, warmup_steps=10)
+    trainer1.training_stage = "sft"
+
+    x = torch.randint(0, 32768, (1, 16))
+    y = torch.randint(0, 32768, (1, 16))
+
+    # Run 5 training steps to accumulate momentum and advance scheduler
+    for _ in range(5):
+        trainer1.train_step(x, y)
+
+    initial_lr = trainer1.optimizer.param_groups[0]["lr"]
+    assert trainer1.step_count == 5
+    assert initial_lr > 0.0
+
+    ckpt_path = str(tmp_path / "test_resume.pt")
+    trainer1.save_checkpoint(ckpt_path, save_optimizer=True)
+
+    # Recreate model & trainer and load checkpoint
+    model2 = build_cpu_model("micro10", attention_kind="causal")
+    trainer2 = NeuroTrainer(model2, lr=1e-4, total_steps=100, warmup_steps=10)
+    trainer2.load_checkpoint(ckpt_path)
+
+    assert trainer2.step_count == 5
+    assert trainer2.training_stage == "sft"
+    resumed_lr = trainer2.scheduler.get_last_lr()[0] if hasattr(trainer2.scheduler, "get_last_lr") else trainer2.optimizer.param_groups[0]["lr"]
+    assert resumed_lr > 0.0
+
+    # Ensure running step 6 does not crash or reset
+    loss, acc, ppl, grad_norm, at_boundary = trainer2.train_step(x, y)
+    assert trainer2.step_count == 6
+

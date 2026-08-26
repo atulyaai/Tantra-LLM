@@ -888,6 +888,7 @@ class NeuroTrainer:
             "actual_avg_step_sec": actual_avg_step_sec,
             "scheduler_state_dict": copy.deepcopy(self.scheduler.state_dict()),
             "total_steps": self.total_steps,
+            "training_stage": getattr(self, "training_stage", "pretrain"),
             "num_layers": len(getattr(getattr(self.model, "_orig_mod", self.model), "layers", [])),
         }
         if opt_sd is not None:
@@ -1108,6 +1109,7 @@ class NeuroTrainer:
             self.total_tokens = self.step_count * max(1, self.grad_accumulation_steps) * 128
 
         self.total_training_seconds = float(ckpt.get("total_training_seconds", ckpt.get("wall_clock_elapsed_sec", ckpt.get("training_hours", 0.0) * 3600.0)))
+        self.training_stage = ckpt.get("training_stage", None)
 
 
         if "total_steps" in ckpt:
