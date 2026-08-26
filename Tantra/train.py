@@ -272,7 +272,8 @@ class NeuroTrainer:
 
         will_step = ((self._micro_step + 1) % self.grad_accumulation_steps == 0)
 
-        x, y = x.to(self.device), y.to(self.device)
+        x = x.to(self.device, non_blocking=True)
+        y = y.to(self.device, non_blocking=True)
         raw_m = getattr(self.model, "_orig_mod", self.model)
         if hasattr(raw_m, "embed") and hasattr(raw_m.embed, "weight"):
             vsize = raw_m.embed.weight.size(0)

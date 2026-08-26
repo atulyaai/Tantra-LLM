@@ -814,6 +814,7 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
 
     dataloader = torch.utils.data.DataLoader(
         dataset, batch_size=batch_size, num_workers=data_workers,
+        pin_memory=torch.cuda.is_available(),
         persistent_workers=data_workers > 0, prefetch_factor=4 if data_workers > 0 else None,
     )
     enrichment = 0.0 if training_stage == "sft" else 0.02
