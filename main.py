@@ -1024,8 +1024,10 @@ def main():
                         log.info("Rebuilt model architecture from checkpoint config "
                                  f"(dim={_ckpt_cfg.block.alra.dim}, layers={_ckpt_cfg.block.num_layers}, vocab={_ckpt_cfg.vocab.vocab_size}).")
             except Exception as _exc:
-                log.warning(f"Could not read checkpoint config: {_exc}; using default architecture.")
         model = init_model(mcfg, rt.device)
+        if torch.cuda.is_available() and torch.cuda.device_count() > 1 and rt.device.type == "cuda" and args.mode in ("train", "dataset"):
+            log.info(f"  [Multi-GPU DataParallel] Enabling {torch.cuda.device_count()}x GPUs for parallel batch execution.")
+            model = torch.nn.DataParallel(model)
 
     # When a category is requested for dataset/chat/generate/serve, load the
     # MoE-2 / 32K adapter checkpoint (shared base + specialist layers) instead

@@ -275,7 +275,7 @@ class NeuroTrainer:
 
         x = x.to(self.device, non_blocking=True)
         y = y.to(self.device, non_blocking=True)
-        raw_m = getattr(self.model, "_orig_mod", self.model)
+        raw_m = getattr(self.model, "module", getattr(self.model, "_orig_mod", self.model))
         if hasattr(raw_m, "embed") and hasattr(raw_m.embed, "weight"):
             vsize = raw_m.embed.weight.size(0)
             x = torch.clamp(x, 0, vsize - 1)
@@ -875,8 +875,8 @@ class NeuroTrainer:
 
     def save_checkpoint(self, path: str, save_optimizer: bool = True, async_write: bool = False) -> None:
         """Save model checkpoint with self-contained tokenizer and max 2 checkpoint history cleanup."""
-        # Create an in-memory detached state dict clone to guarantee thread safety
-        model_sd = {k: (v.clone().half() if v.is_floating_point() else v.clone()) for k, v in self.model.state_dict().items()}
+        raw_model = getattr(self.model, "module", getattr(self.model, "_orig_mod", self.model))
+        model_sd = {k: (v.clone().half() if v.is_floating_point() else v.clone()) for k, v in raw_model.state_dict().items()}
         opt_sd = copy.deepcopy(self.optimizer.state_dict()) if save_optimizer else None
 
         session_elapsed_sec = max(0.0, time.perf_counter() - self._start_time)
