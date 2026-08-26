@@ -192,7 +192,9 @@ class NeuroTrainer:
         self.criterion = nn.CrossEntropyLoss(ignore_index=IGNORE_INDEX)
         self.step_count = 0
         self.best_loss = float('inf')
+        self.best_val_loss = float('inf')
         self.ema_loss = None
+
         self.total_tokens = 0
         self._session_tokens = 0   # tokens in THIS training run only (not restored from checkpoint)
         self._start_time = time.perf_counter()
@@ -351,9 +353,11 @@ class NeuroTrainer:
             self.ema_loss = loss_val
         else:
             self.ema_loss = 0.95 * self.ema_loss + 0.05 * loss_val
-        if self.ema_loss < self.best_loss:
+        # Only use training EMA loss as best_loss if held-out validation is not available
+        if math.isinf(self.best_val_loss):
+            if self.ema_loss < self.best_loss:
+                self.best_loss = self.ema_loss
 
-            self.best_loss = self.ema_loss
         return loss_val, accuracy, ppl, grad_norm, at_boundary
 
     @staticmethod
@@ -431,12 +435,20 @@ class NeuroTrainer:
         avg_val_acc = sum(val_accs) / len(val_accs)
         avg_val_top5_acc = sum(val_top5_accs) / len(val_top5_accs) if val_top5_accs else 0.0
         avg_val_ppl = sum(val_ppls) / len(val_ppls)
+
+        if not hasattr(self, "best_val_loss"):
+            self.best_val_loss = float('inf')
+        if avg_val_loss < self.best_val_loss:
+            self.best_val_loss = avg_val_loss
+            self.best_loss = avg_val_loss  # Align best_loss strictly to true generalization performance
+
         return {
             "val_loss": avg_val_loss,
             "val_acc": avg_val_acc,
             "val_top5_acc": avg_val_top5_acc,
             "val_ppl": avg_val_ppl,
         }
+
 
 
     def train_dataset(self, data_stream: Iterable[Tuple[torch.Tensor, torch.Tensor]], max_steps: int = 100, log_every: int = 10, eval_every: int = 0, eval_callback = None, checkpoint_every: int = 0, checkpoint_callback = None, tokenizer: Optional[Any] = None, enrichment_rate: float = 0.02, use_latent_reasoning: bool = True, auto_growth: bool = False, growth_patience: int = 1000, growth_min_delta: float = 0.005, max_layers: Optional[int] = None, val_loader: Optional[Iterable[Tuple[torch.Tensor, torch.Tensor]]] = None) -> list[float]:
