@@ -1,19 +1,9 @@
 {
-  "dataset_name": "Tantra High-Density Balanced Curriculum",
-  "version": "4.1-CuratedIngest",
-  "total_samples": 453,
-  "total_unique_prompts": 453,
-  "total_size_mb": 0.2,
-  "format": "ChatML (system, user, assistant)",
-  "domains": {
-    "identity": 4,
-    "general": 17,
-    "safety": 5,
-    "reasoning": 2,
-    "code": 31,
-    "multilingual": 15,
-    "science": 56,
-    "math": 270,
-    "tool_calling": 53
-  }
+  "dataset_name": "Tantra SFT Real Conversational Corpus",
+  "version": "5.0-Cleaned",
+  "total_samples": 47397,
+  "total_size_mb": 36.63,
+  "format": "ChatML (<|user|>, <|assistant|>)",
+  "primary_file": "Datasets/conversation.jsonl",
+  "benchmark_file": "Datasets/benchmarks/world_mmlu.jsonl"
 }
