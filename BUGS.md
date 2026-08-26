@@ -42,15 +42,24 @@ This document serves as the formal register of identified bugs, their root cause
 - **Root Cause**:
   1. `main.py` had an archive condition `if is_new_best or step % (eval_every * 4) == 0:` that erroneously overwrote `best_ckpt` periodically regardless of validation loss improvement.
   2. Legacy checkpoints without explicit `best_val_loss` initialized `self.best_val_loss = float('inf')`, making any first validation evaluation count as a "new best".
-- **Fix Commit**: [Pending Commit]
-  1. Decoupled `checkpoint_best.pt` strictly to `is_new_best == True`.
-  2. Enhanced `load_checkpoint` to restore `best_val_loss` from checkpoint metadata or fallback to existing `Model/Best/checkpoint_best.pt`.
+- **Fix Commit**: [`7e2aac2`](https://github.com/atulyaai/Tantra-LLM/commit/7e2aac2)
 - **Verification**: Tested `load_checkpoint` fallback and verified `checkpoint_best.pt` is only touched when `val_loss < historical_best`.
 - **Status**: 🟢 **RESOLVED & VERIFIED**
 
 ---
 
+### 🟢 BUG-005: Unbound `is_new_best` NameError in `main.py` `eval_callback`
+- **Found**: 2026-08-26, deep code audit
+- **Evidence**: `is_new_best` was referenced as a local variable inside `eval_callback()` in `main.py` without being passed in as an argument or resolved via trainer instance.
+- **Root Cause**: Scope mismatch following the decoupling of periodic checkpoint archives from validation loss improvements.
+- **Fix Commit**: [Current Commit]
+- **Verification**: Replaced with safe attribute resolution `getattr(trainer, "is_new_best", False)` and verified callback execution.
+- **Status**: 🟢 **RESOLVED & VERIFIED**
+
+---
+
 ## 📊 Evaluation & Verification Protocol
+
 
 When evaluating architectural changes or sequence length transitions:
 1. **Tokens as Ground Truth**: Metrics must be plotted against **Cumulative Tokens Processed**, not raw step count.
