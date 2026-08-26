@@ -320,15 +320,14 @@ class SparseGatedProjection(nn.Module):
         
         if self.training:
             mask_float = mask.to(x.dtype)
-            self._last_active_ratio = mask_float.mean().item()
             mask_st = mask_float.detach() - gates.detach() + gates
             up = self.act(self.w_up(x))
             hidden = up * mask_st
         else:
             mask_float = mask.to(x.dtype)
-            self._last_active_ratio = mask_float.mean().item()
             up = self.act(self.w_up(x))
             hidden = up * mask_float
+
             
         return self.w_down(hidden)
 
