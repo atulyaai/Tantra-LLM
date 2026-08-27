@@ -30,6 +30,16 @@ DATASET_SOURCES = {
         "url": "https://raw.githubusercontent.com/openai/grade-school-math/master/grade_school_math/data/train.jsonl",
         "domain": "math",
         "format": "gsm8k"
+    },
+    "alpaca_cleaned": {
+        "url": "https://raw.githubusercontent.com/gururise/AlpacaDataCleaned/main/alpaca_data_cleaned.json",
+        "domain": "general_instruct",
+        "format": "alpaca"
+    },
+    "dolly_15k": {
+        "url": "https://huggingface.co/datasets/databricks/databricks-dolly-15k/raw/main/databricks-dolly-15k.jsonl",
+        "domain": "reasoning_qa",
+        "format": "dolly"
     }
 }
 
@@ -63,6 +73,17 @@ def convert_alpaca_item(item: Dict[str, Any]) -> Optional[Dict[str, str]]:
         return None
     user_text = f"{inst}\n\n{inp}".strip() if inp else inst
     return {"system": "", "user": user_text, "assistant": out}
+
+
+def convert_dolly_item(item: Dict[str, Any]) -> Optional[Dict[str, str]]:
+    """Convert Databricks Dolly 15K item to standard Tantra format."""
+    inst = item.get("instruction", "").strip()
+    ctx = item.get("context", "").strip()
+    resp = item.get("response", "").strip()
+    if not inst or not resp:
+        return None
+    user_text = f"{inst}\n\nContext:\n{ctx}".strip() if ctx else inst
+    return {"system": "", "user": user_text, "assistant": resp}
 
 
 def convert_gsm8k_item(item: Dict[str, Any]) -> Optional[Dict[str, str]]:
@@ -168,6 +189,56 @@ def build_master_corpus(
                     log.info(f"  ✓ Math domain merged: {gsm_count:,} items from GSM8K.")
                 except Exception as e:
                     log.warning(f"Could not parse GSM8K: {e}")
+
+        # General Instruction Tuning: Alpaca Cleaned (52K)
+        alpaca_file = os.path.join(tmp_dir, "alpaca_data_cleaned.json")
+        if not os.path.exists(alpaca_file):
+            download_file(DATASET_SOURCES["alpaca_cleaned"]["url"], alpaca_file)
+
+        if os.path.exists(alpaca_file):
+            try:
+                with open(alpaca_file, "r", encoding="utf-8") as f:
+                    alpaca_data = json.load(f)
+                alpaca_count = 0
+                for raw_item in alpaca_data:
+                    conv = convert_alpaca_item(raw_item)
+                    if conv:
+                        line_str = json.dumps(conv, ensure_ascii=False)
+                        h = hash(line_str)
+                        if h not in seen_hashes:
+                            seen_hashes.add(h)
+                            out_f.write(line_str + "\n")
+                            total_written += 1
+                            alpaca_count += 1
+                log.info(f"  ✓ General Instruction domain merged: {alpaca_count:,} items from Alpaca-Cleaned.")
+            except Exception as e:
+                log.warning(f"Could not parse Alpaca-Cleaned: {e}")
+
+        # Reasoning & QA: Databricks Dolly 15K
+        dolly_file = os.path.join(tmp_dir, "databricks_dolly_15k.jsonl")
+        if not os.path.exists(dolly_file):
+            download_file(DATASET_SOURCES["dolly_15k"]["url"], dolly_file)
+
+        if os.path.exists(dolly_file):
+            try:
+                dolly_count = 0
+                with open(dolly_file, "r", encoding="utf-8") as f:
+                    for line in f:
+                        if not line.strip():
+                            continue
+                        raw_item = json.loads(line)
+                        conv = convert_dolly_item(raw_item)
+                        if conv:
+                            line_str = json.dumps(conv, ensure_ascii=False)
+                            h = hash(line_str)
+                            if h not in seen_hashes:
+                                seen_hashes.add(h)
+                                out_f.write(line_str + "\n")
+                                total_written += 1
+                                dolly_count += 1
+                log.info(f"  ✓ Reasoning & QA domain merged: {dolly_count:,} items from Dolly-15K.")
+            except Exception as e:
+                log.warning(f"Could not parse Dolly-15K: {e}")
 
         seeds = generate_high_density_domain_seeds()
         for seed_item in seeds:
