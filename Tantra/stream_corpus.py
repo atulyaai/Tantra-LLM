@@ -45,6 +45,11 @@ DATASET_SOURCES = {
         "url": "https://rajpurkar.github.io/SQuAD-explorer/dataset/train-v2.0.json",
         "domain": "world_knowledge",
         "format": "squad"
+    },
+    "sciq_science": {
+        "url": "https://huggingface.co/datasets/allenai/sciq/resolve/main/data/train-00000-of-00001.parquet",
+        "domain": "science_reasoning",
+        "format": "parquet"
     }
 }
 
@@ -381,6 +386,41 @@ def build_master_corpus(
                 log.info(f"  ✓ World Knowledge domain merged: {squad_count:,} items from SQuAD-2.0.")
             except Exception as e:
                 log.warning(f"Could not parse SQuAD-2.0: {e}")
+
+        # Science & Natural Sciences QA: SciQ (11.7K)
+        sciq_file = os.path.join(tmp_dir, "sciq_train.parquet")
+        if not os.path.exists(sciq_file):
+            download_file(DATASET_SOURCES["sciq_science"]["url"], sciq_file)
+
+        if os.path.exists(sciq_file):
+            try:
+                import pyarrow.parquet as pq
+                sciq_table = pq.read_table(sciq_file)
+                sciq_count = 0
+                questions = sciq_table["question"].to_pylist()
+                answers = sciq_table["correct_answer"].to_pylist()
+                supports = sciq_table["support"].to_pylist()
+                for q, ans, supp in zip(questions, answers, supports):
+                    q = (q or "").strip()
+                    ans = (ans or "").strip()
+                    supp = (supp or "").strip()
+                    if q and ans:
+                        full_ans = f"{ans}\n\nExplanation: {supp}" if supp else ans
+                        item = {
+                            "system": "You are Tantra, a helpful, polite, and intelligent AI assistant developed by Atulya AI.",
+                            "user": q,
+                            "assistant": full_ans
+                        }
+                        line_str = json.dumps(item, ensure_ascii=False)
+                        h = hash(line_str)
+                        if h not in seen_hashes:
+                            seen_hashes.add(h)
+                            out_f.write(line_str + "\n")
+                            total_written += 1
+                            sciq_count += 1
+                log.info(f"  ✓ Science QA domain merged: {sciq_count:,} items from SciQ.")
+            except Exception as e:
+                log.warning(f"Could not parse SciQ: {e}")
 
         seeds = generate_high_density_domain_seeds()
         for seed_item in seeds:
