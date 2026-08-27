@@ -155,14 +155,12 @@ class ALRAAttention(nn.Module):
         if T <= 2048:
             # Fast vectorized causal path (O(1) memory graph overhead on GPU/CPU)
             if gates is not None:
-                log_g = torch.log(gates + 1e-8)
+                log_g = torch.log(gates.clamp(min=1e-6))
                 cum_log_g = torch.cumsum(log_g, dim=-1)
                 diff = cum_log_g.unsqueeze(-1) - cum_log_g.unsqueeze(-2)
-                
-                # Prevent NaN in backward pass: mask upper triangle with -inf before exp
+                diff = diff.clamp(max=0.0, min=-50.0)
                 mask = torch.tril(torch.ones(T, T, device=Q.device, dtype=torch.bool))
-                diff = diff.masked_fill(~mask, float('-inf'))
-                D = torch.exp(diff)
+                D = torch.exp(diff) * mask.to(Q.dtype)
             else:
                 D = torch.tril(torch.ones(T, T, device=Q.device, dtype=Q.dtype))
                 
@@ -173,8 +171,9 @@ class ALRAAttention(nn.Module):
                 attn = attn * D.unsqueeze(0).unsqueeze(0)
                 
             num = torch.matmul(attn, V)
-            den = attn.sum(dim=-1, keepdim=True) + self.eps
-            return num / den
+            den = attn.sum(dim=-1, keepdim=True).clamp(min=self.eps)
+            out = torch.nan_to_num(num / den, nan=0.0, posinf=1.0, neginf=-1.0)
+            return out
 
         chunk_size = 256
         outs = []
