@@ -37,7 +37,7 @@ DATASET_SOURCES = {
         "format": "alpaca"
     },
     "dolly_15k": {
-        "url": "https://huggingface.co/datasets/databricks/databricks-dolly-15k/raw/main/databricks-dolly-15k.jsonl",
+        "url": "https://huggingface.co/datasets/databricks/databricks-dolly-15k/resolve/main/databricks-dolly-15k.jsonl",
         "domain": "reasoning_qa",
         "format": "dolly"
     }
