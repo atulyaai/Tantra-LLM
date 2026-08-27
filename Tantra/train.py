@@ -316,7 +316,8 @@ class NeuroTrainer:
                 loss = loss + 0.3 * mtp_loss
 
         if math.isnan(loss.item()) or math.isinf(loss.item()):
-            log.error("NaN or Inf detected in loss! Skipping batch update to prevent weight corruption.")
+            log.warning("NaN or Inf detected in loss! Skipping batch update and auto-repairing weights.")
+            SelfRepairEngine().scan_and_repair(self.model)
             self.optimizer.zero_grad(set_to_none=True)
             self._micro_step += 1
             return 0.0, 0.0, 0.0, 0.0, False
@@ -364,15 +365,23 @@ class NeuroTrainer:
             if self.scaler.is_enabled():
                 self.scaler.unscale_(self.optimizer)
             grad_norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0).item()
-            if grad_norm > 6.0:
-                SelfRepairEngine().sanitize_optimizer_momentum(self.optimizer, grad_norm, threshold=6.0)
-            if self.scaler.is_enabled():
-                self.scaler.step(self.optimizer)
-                self.scaler.update()
+            if math.isnan(grad_norm) or math.isinf(grad_norm):
+                log.warning("NaN or Inf detected in grad_norm! Purging gradients and repairing model.")
+                self.optimizer.zero_grad(set_to_none=True)
+                SelfRepairEngine().scan_and_repair(self.model)
+                if self.scaler.is_enabled():
+                    self.scaler.update()
+                grad_norm = 0.0
             else:
-                self.optimizer.step()
-            self.scheduler.step()
-            self.step_count += 1
+                if grad_norm > 6.0:
+                    SelfRepairEngine().sanitize_optimizer_momentum(self.optimizer, grad_norm, threshold=6.0)
+                if self.scaler.is_enabled():
+                    self.scaler.step(self.optimizer)
+                    self.scaler.update()
+                else:
+                    self.optimizer.step()
+                self.scheduler.step()
+                self.step_count += 1
         else:
             grad_norm = 0.0
 
