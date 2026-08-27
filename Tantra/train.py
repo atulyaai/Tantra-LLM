@@ -1088,6 +1088,7 @@ class NeuroTrainer:
         raw_model.load_state_dict(state_dict, strict=False)
         if hasattr(raw_model, "sync_category_gates_from_checkpoint"):
             raw_model.sync_category_gates_from_checkpoint(state_dict)
+        SelfRepairEngine().scan_and_repair(raw_model)
         # Optimizer is optional (only saved when save_optimizer=True)
         if "optimizer_state_dict" in ckpt:
             try:
