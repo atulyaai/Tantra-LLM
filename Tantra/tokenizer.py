@@ -236,11 +236,17 @@ class UnifiedTokenizer:
             raise ValueError("Expected bytes or list[int] for media modalities.")
         raise ValueError(f"Unknown modality: {modality}")
 
+    def encode_text(self, text: str) -> list[int]:
+        return self.encode(text, modality=MODALITY_TEXT)
+
     def decode(self, token_ids: list[int], modality: str = MODALITY_TEXT) -> Any:
         if modality == MODALITY_TEXT:
             return self.bpe.decode(token_ids)
         local_ids = self.remap_from_unified(token_ids, modality)
         return self.patcher.decode_to_bytes(local_ids)
+
+    def decode_text(self, token_ids: list[int]) -> str:
+        return str(self.decode(token_ids, modality=MODALITY_TEXT))
 
     def remap_to_unified(self, ids: list[int], modality: str) -> list[int]:
         offset = self._offset(modality)
