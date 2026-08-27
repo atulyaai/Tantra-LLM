@@ -877,6 +877,7 @@ class NeuroCoreModel(nn.Module):
         temperature: float = 0.35,
         top_p: float = 0.85,
         repetition_penalty: float = 1.25,
+        use_mtp_speculation: bool = False,
         use_latent_reasoning: bool = True,
         eos_token_id: Optional[int] = 2,
         min_new_tokens: int = 1,
