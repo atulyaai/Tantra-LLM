@@ -292,7 +292,7 @@ class NeuroTrainer:
                 logits_main = out[0]
                 logits_mtp = None
 
-            logits_flat = torch.nan_to_num(logits_main.reshape(-1, logits_main.size(-1)).float(), nan=0.0, posinf=50.0, neginf=-50.0).clamp(-50.0, 50.0)
+            logits_flat = logits_main.reshape(-1, logits_main.size(-1))
             y_flat = self._safe_targets(y.reshape(-1), logits_main.size(-1))
 
             supervised_mask = (y_flat != IGNORE_INDEX)
@@ -310,7 +310,7 @@ class NeuroTrainer:
 
             # Auxiliary MTP Loss (Multi-Token Prediction)
             if logits_mtp is not None and y.size(1) > 1:
-                logits_mtp_flat = torch.nan_to_num(logits_mtp[:, :-1, :].reshape(-1, logits_mtp.size(-1)).float(), nan=0.0, posinf=50.0, neginf=-50.0).clamp(-50.0, 50.0)
+                logits_mtp_flat = logits_mtp[:, :-1, :].reshape(-1, logits_mtp.size(-1))
                 y_mtp_flat = self._safe_targets(y[:, 1:].reshape(-1), logits_mtp.size(-1))
                 mtp_loss = self.criterion(logits_mtp_flat, y_mtp_flat)
                 loss = loss + 0.3 * mtp_loss

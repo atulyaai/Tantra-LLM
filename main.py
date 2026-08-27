@@ -731,6 +731,8 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
     # pretraining. Keep the immediate sample for instruction tuning only.
     if training_stage == "sft":
         eval_callback(trainer.step_count)
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
     from Tantra.dataset import TopicMixedDataset
     
