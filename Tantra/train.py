@@ -292,7 +292,7 @@ class NeuroTrainer:
                 logits_main = out[0]
                 logits_mtp = None
 
-            logits_flat = torch.clamp(logits_main.reshape(-1, logits_main.size(-1)), -50.0, 50.0)
+            logits_flat = torch.nan_to_num(logits_main.reshape(-1, logits_main.size(-1)).float(), nan=0.0, posinf=50.0, neginf=-50.0).clamp(-50.0, 50.0)
             y_flat = self._safe_targets(y.reshape(-1), logits_main.size(-1))
 
             supervised_mask = (y_flat != IGNORE_INDEX)
@@ -301,16 +301,18 @@ class NeuroTrainer:
                 self._micro_step += 1
                 return 0.0, 0.0, 0.0, 0.0, False
 
-            loss = self.criterion(logits_flat.float(), y_flat)
+            loss = self.criterion(logits_flat, y_flat)
 
             if hasattr(self.model, "get_aux_loss"):
-                loss = loss + self.model.get_aux_loss()
+                aux_loss = self.model.get_aux_loss()
+                if aux_loss is not None and not (math.isnan(aux_loss.item()) if hasattr(aux_loss, 'item') else math.isnan(aux_loss)):
+                    loss = loss + aux_loss
 
             # Auxiliary MTP Loss (Multi-Token Prediction)
             if logits_mtp is not None and y.size(1) > 1:
-                logits_mtp_flat = torch.clamp(logits_mtp[:, :-1, :].reshape(-1, logits_mtp.size(-1)), -50.0, 50.0)
+                logits_mtp_flat = torch.nan_to_num(logits_mtp[:, :-1, :].reshape(-1, logits_mtp.size(-1)).float(), nan=0.0, posinf=50.0, neginf=-50.0).clamp(-50.0, 50.0)
                 y_mtp_flat = self._safe_targets(y[:, 1:].reshape(-1), logits_mtp.size(-1))
-                mtp_loss = self.criterion(logits_mtp_flat.float(), y_mtp_flat)
+                mtp_loss = self.criterion(logits_mtp_flat, y_mtp_flat)
                 loss = loss + 0.3 * mtp_loss
 
         if math.isnan(loss.item()) or math.isinf(loss.item()):
