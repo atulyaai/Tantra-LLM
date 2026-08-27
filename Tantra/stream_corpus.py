@@ -40,6 +40,11 @@ DATASET_SOURCES = {
         "url": "https://huggingface.co/datasets/databricks/databricks-dolly-15k/resolve/main/databricks-dolly-15k.jsonl",
         "domain": "reasoning_qa",
         "format": "dolly"
+    },
+    "squad_world_knowledge": {
+        "url": "https://rajpurkar.github.io/SQuAD-explorer/dataset/train-v2.0.json",
+        "domain": "world_knowledge",
+        "format": "squad"
     }
 }
 
@@ -279,6 +284,42 @@ def build_master_corpus(
                 log.info(f"  ✓ Reasoning & QA domain merged: {dolly_count:,} items from Dolly-15K.")
             except Exception as e:
                 log.warning(f"Could not parse Dolly-15K: {e}")
+
+        # World Knowledge & Factual Reasoning: SQuAD 2.0 (130K)
+        squad_file = os.path.join(tmp_dir, "squad_train_v2.0.json")
+        if not os.path.exists(squad_file):
+            download_file(DATASET_SOURCES["squad_world_knowledge"]["url"], squad_file)
+
+        if os.path.exists(squad_file):
+            try:
+                squad_count = 0
+                with open(squad_file, "r", encoding="utf-8") as f:
+                    squad_raw = json.load(f)
+                for article in squad_raw.get("data", []):
+                    title = article.get("title", "").replace("_", " ")
+                    for p in article.get("paragraphs", []):
+                        ctx = p.get("context", "").strip()
+                        for qa in p.get("qas", []):
+                            q = qa.get("question", "").strip()
+                            answers = qa.get("answers", [])
+                            if answers and q:
+                                ans = answers[0].get("text", "").strip()
+                                if ans:
+                                    item = {
+                                        "system": "You are Tantra, a helpful, polite, and intelligent AI assistant developed by Atulya AI.",
+                                        "user": f"{q}\n\nContext:\n{ctx}" if len(ctx) < 400 else q,
+                                        "assistant": ans
+                                    }
+                                    line_str = json.dumps(item, ensure_ascii=False)
+                                    h = hash(line_str)
+                                    if h not in seen_hashes:
+                                        seen_hashes.add(h)
+                                        out_f.write(line_str + "\n")
+                                        total_written += 1
+                                        squad_count += 1
+                log.info(f"  ✓ World Knowledge domain merged: {squad_count:,} items from SQuAD-2.0.")
+            except Exception as e:
+                log.warning(f"Could not parse SQuAD-2.0: {e}")
 
         seeds = generate_high_density_domain_seeds()
         for seed_item in seeds:
