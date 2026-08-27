@@ -50,6 +50,11 @@ DATASET_SOURCES = {
         "url": "https://huggingface.co/datasets/allenai/sciq/resolve/main/data/train-00000-of-00001.parquet",
         "domain": "science_reasoning",
         "format": "parquet"
+    },
+    "cosmopedia_textbooks": {
+        "url": "https://huggingface.co/datasets/HuggingFaceTB/cosmopedia/resolve/main/data/khanacademy/train-00000-of-00001.parquet",
+        "domain": "textbooks",
+        "format": "cosmopedia_parquet"
     }
 }
 
@@ -502,6 +507,38 @@ def build_master_corpus(
                 log.info(f"  ✓ Science QA domain merged: {sciq_count:,} items from SciQ.")
             except Exception as e:
                 log.warning(f"Could not parse SciQ: {e}")
+
+        # Synthetic Textbooks & Deep Science/Math Lessons: Cosmopedia (24.1K high-density courses)
+        cosmo_file = os.path.join(tmp_dir, "cosmopedia_khan.parquet")
+        if not os.path.exists(cosmo_file):
+            download_file(DATASET_SOURCES["cosmopedia_textbooks"]["url"], cosmo_file)
+
+        if os.path.exists(cosmo_file):
+            try:
+                import pyarrow.parquet as pq
+                cosmo_table = pq.read_table(cosmo_file)
+                cosmo_count = 0
+                prompts = cosmo_table["prompt"].to_pylist()
+                texts = cosmo_table["text"].to_pylist()
+                for pr, tx in zip(prompts, texts):
+                    pr = (pr or "").strip()
+                    tx = (tx or "").strip()
+                    if pr and tx:
+                        item = {
+                            "system": "You are Tantra, a helpful, polite, and intelligent AI assistant developed by Atulya AI.",
+                            "user": pr,
+                            "assistant": tx
+                        }
+                        line_str = json.dumps(item, ensure_ascii=False)
+                        h = hash(line_str)
+                        if h not in seen_hashes:
+                            seen_hashes.add(h)
+                            out_f.write(line_str + "\n")
+                            total_written += 1
+                            cosmo_count += 1
+                log.info(f"  ✓ High-Density Textbooks domain merged: {cosmo_count:,} items from Cosmopedia.")
+            except Exception as e:
+                log.warning(f"Could not parse Cosmopedia: {e}")
 
         seeds = generate_high_density_domain_seeds()
         for seed_item in seeds:
