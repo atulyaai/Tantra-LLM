@@ -55,6 +55,16 @@ DATASET_SOURCES = {
         "url": "https://huggingface.co/datasets/HuggingFaceTB/cosmopedia/resolve/main/data/khanacademy/train-00000-of-00001.parquet",
         "domain": "textbooks",
         "format": "cosmopedia_parquet"
+    },
+    "cosmopedia_openstax": {
+        "url": "https://huggingface.co/datasets/HuggingFaceTB/cosmopedia/resolve/refs%2Fconvert%2Fparquet/openstax/train/0000.parquet",
+        "domain": "college_textbooks",
+        "format": "cosmopedia_parquet"
+    },
+    "cosmopedia_wikihow": {
+        "url": "https://huggingface.co/datasets/HuggingFaceTB/cosmopedia/resolve/refs%2Fconvert%2Fparquet/wikihow/train/0000.parquet",
+        "domain": "procedural_how_to",
+        "format": "cosmopedia_parquet"
     }
 }
 
@@ -508,37 +518,44 @@ def build_master_corpus(
             except Exception as e:
                 log.warning(f"Could not parse SciQ: {e}")
 
-        # Synthetic Textbooks & Deep Science/Math Lessons: Cosmopedia (24.1K high-density courses)
-        cosmo_file = os.path.join(tmp_dir, "cosmopedia_khan.parquet")
-        if not os.path.exists(cosmo_file):
-            download_file(DATASET_SOURCES["cosmopedia_textbooks"]["url"], cosmo_file)
-
-        if os.path.exists(cosmo_file):
-            try:
-                import pyarrow.parquet as pq
-                cosmo_table = pq.read_table(cosmo_file)
-                cosmo_count = 0
-                prompts = cosmo_table["prompt"].to_pylist()
-                texts = cosmo_table["text"].to_pylist()
-                for pr, tx in zip(prompts, texts):
-                    pr = (pr or "").strip()
-                    tx = (tx or "").strip()
-                    if pr and tx:
-                        item = {
-                            "system": "You are Tantra, a helpful, polite, and intelligent AI assistant developed by Atulya AI.",
-                            "user": pr,
-                            "assistant": tx
-                        }
-                        line_str = json.dumps(item, ensure_ascii=False)
-                        h = hash(line_str)
-                        if h not in seen_hashes:
-                            seen_hashes.add(h)
-                            out_f.write(line_str + "\n")
-                            total_written += 1
-                            cosmo_count += 1
-                log.info(f"  ✓ High-Density Textbooks domain merged: {cosmo_count:,} items from Cosmopedia.")
-            except Exception as e:
-                log.warning(f"Could not parse Cosmopedia: {e}")
+        # Synthetic Textbooks & Deep Science/Math/Practical Lessons: Cosmopedia Shards
+        cosmo_sources = [
+            ("cosmopedia_khan.parquet", DATASET_SOURCES["cosmopedia_textbooks"]["url"], "KhanAcademy Courses"),
+            ("cosmopedia_openstax.parquet", DATASET_SOURCES["cosmopedia_openstax"]["url"], "OpenStax College Textbooks"),
+            ("cosmopedia_wikihow.parquet", DATASET_SOURCES["cosmopedia_wikihow"]["url"], "WikiHow Procedural Knowledge"),
+        ]
+        for c_fname, c_url, c_desc in cosmo_sources:
+            c_path = os.path.join(tmp_dir, c_fname)
+            if not os.path.exists(c_path):
+                download_file(c_url, c_path)
+            if os.path.exists(c_path):
+                try:
+                    import pyarrow.parquet as pq
+                    c_table = pq.read_table(c_path)
+                    c_count = 0
+                    p_col = "prompt" if "prompt" in c_table.column_names else c_table.column_names[0]
+                    t_col = "text" if "text" in c_table.column_names else c_table.column_names[1]
+                    prompts = c_table[p_col].to_pylist()
+                    texts = c_table[t_col].to_pylist()
+                    for pr, tx in zip(prompts, texts):
+                        pr = (pr or "").strip()
+                        tx = (tx or "").strip()
+                        if pr and tx:
+                            item = {
+                                "system": "You are Tantra, a helpful, polite, and intelligent AI assistant developed by Atulya AI.",
+                                "user": pr,
+                                "assistant": tx
+                            }
+                            line_str = json.dumps(item, ensure_ascii=False)
+                            h = hash(line_str)
+                            if h not in seen_hashes:
+                                seen_hashes.add(h)
+                                out_f.write(line_str + "\n")
+                                total_written += 1
+                                c_count += 1
+                    log.info(f"  ✓ High-Density {c_desc} merged: {c_count:,} items.")
+                except Exception as e:
+                    log.warning(f"Could not parse {c_desc}: {e}")
 
         seeds = generate_high_density_domain_seeds()
         for seed_item in seeds:
