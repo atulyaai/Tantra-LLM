@@ -209,7 +209,7 @@ def run_interactive_chat(model, tokenizer, device, temp=0.7, top_p=0.9, router=N
             if console and routed is not None:
                 console.print(f"[dim]→ routed to adapter: {routed}[/dim]")
 
-            formatted_input = f"<|user|>\n{user_input}\n<|assistant|>\n"
+            formatted_input = f"<|system|>\nYou are Tantra, a helpful, polite, and intelligent AI assistant.\n<|user|>\n{user_input}\n<|assistant|>\n"
             tokens = tokenizer.encode(formatted_input)
             prompt = torch.tensor([tokens], device=device)
 
@@ -224,6 +224,8 @@ def run_interactive_chat(model, tokenizer, device, temp=0.7, top_p=0.9, router=N
                 for token_id in model.generate_stream(prompt, max_new_tokens=256, temperature=temp, top_p=top_p, use_mtp_speculation=use_mtp):
                     generated_tokens.append(token_id)
                     piece = tokenizer.decode([token_id])
+                    if any(stop_tag in piece for stop_tag in ["<|user|>", "<|system|>", "<|assistant|>", "</s>", "<s>"]):
+                        break
                     if console:
                         console.print(piece, end="")
                     else:
@@ -889,7 +891,7 @@ def main():
     parser.add_argument("--steps", type=int, default=30, help="Training steps")
     parser.add_argument("--seq-len", type=int, default=128, help="Context sequence length window")
     parser.add_argument("--use-mtp", action=argparse.BooleanOptionalAction, default=True, help="Enable/disable Multi-Token Prediction (MTP)")
-    parser.add_argument("--temperature", type=float, default=0.7, help="Sampling temperature")
+    parser.add_argument("--temperature", type=float, default=0.35, help="Sampling temperature")
     parser.add_argument("--top-p", type=float, default=0.9, help="Top-p nucleus sampling")
     parser.add_argument("--port", type=int, default=8000, help="Server port (serve mode)")
     parser.add_argument("--device", type=str, default="auto", help="Compute device: auto, cpu, cuda, mps")
