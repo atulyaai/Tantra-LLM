@@ -1126,6 +1126,22 @@ def main():
     elif args.mode == "generate":
         run_generation(model, vcfg, rt.device)
     elif args.mode == "serve":
+        ckpt_to_load = args.checkpoint
+        if ckpt_to_load is None:
+            for cand in [
+                os.path.join(MODEL_DIR, "Checkpoints", "checkpoint_step_30000.pt"),
+                os.path.join(MODEL_DIR, "Best", "checkpoint_best.pt"),
+                os.path.join(MODEL_DIR, "Latest", "checkpoint_latest.pt"),
+            ]:
+                if os.path.exists(cand):
+                    ckpt_to_load = cand
+                    break
+        if ckpt_to_load and os.path.exists(ckpt_to_load):
+            try:
+                trainer.load_checkpoint(ckpt_to_load)
+                log.info(f"Loaded checkpoint for serve: {ckpt_to_load}")
+            except Exception as e:
+                log.warning(f"Could not load checkpoint {ckpt_to_load}: {e}")
         serve(model, tok, port=args.port, expert_dir=EXPERTS_DIR)
     else:  # full mode
         run_forward(model, vcfg, rt.batch_size, rt.device)
