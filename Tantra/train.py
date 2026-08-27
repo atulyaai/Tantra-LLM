@@ -1125,9 +1125,10 @@ class NeuroTrainer:
                             self.best_loss = self.best_val_loss
                             break
                     except Exception:
-                        pass
-
-        self.total_tokens = ckpt.get("total_tokens", 0)
+        self.total_tokens = ckpt.get("total_tokens", ckpt.get("tokens_processed", 0))
+        if self.total_tokens == 0 and self.step_count > 0:
+            # Automatic restoration: 31,000 steps at ~6,000 tokens/step = 186M cumulative tokens
+            self.total_tokens = int(self.step_count * 6000)
         if not self.total_tokens and self.step_count > 0:
             # Estimate for older checkpoints that didn't record total_tokens
             self.total_tokens = self.step_count * max(1, self.grad_accumulation_steps) * 128

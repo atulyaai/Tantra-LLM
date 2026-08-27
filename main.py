@@ -515,7 +515,7 @@ def run_training(model, vcfg, steps=30, resume=False):
     trainer.save_checkpoint(latest_ckpt, save_optimizer=True)
 
 
-def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False, eval_every=1000, log_every=50, checkpoint_every=500, batch_size=1, seq_len=128, grad_accumulation_steps=1, data_workers=0, use_latent_reasoning=True, use_mtp_loss=True, compile=False, lr=1e-4, weight_decay=0.01, optimizer="adamw", warmup_steps=None, topic_weights=None, training_stage="sft", auto_growth=False, growth_patience=1000, growth_min_delta=0.005, max_layers=None, model_dir=None, adapter_name=None, archive_checkpoints=True, pack_sequences=True):
+def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False, eval_every=1000, log_every=50, checkpoint_every=500, batch_size=1, seq_len=128, grad_accumulation_steps=1, data_workers=0, use_latent_reasoning=True, use_mtp_loss=True, compile=False, lr=1e-4, weight_decay=0.01, optimizer="adamw", warmup_steps=None, topic_weights=None, training_stage="sft", auto_growth=False, growth_patience=1000, growth_min_delta=0.005, max_layers=None, model_dir=None, adapter_name=None, archive_checkpoints=True, pack_sequences=True, checkpoint_path=None):
 
     log.info("== [DATASET PRE-TRAINING MODE] =====================")
     if training_stage not in {"pretrain", "sft"}:
@@ -567,21 +567,37 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
     # Resume only when explicitly requested.  Automatically restoring an
     # instruction-tuning checkpoint for a new broad pretraining stage carries
     # over a mismatched LR schedule and can erase/generalize poorly from an
-    # already overfit state.
     resume_target = None
-    if resume:
-        step_checkpoints = sorted(
-            glob.glob(os.path.join(checkpoints_dir, "checkpoint_step_*.pt")),
-            key=os.path.getmtime,
-            reverse=True,
-        )
-        local_latest = os.path.join(MODEL_DIR, "Latest", "checkpoint_latest.pt")
-        local_root = os.path.join(MODEL_DIR, "checkpoint_latest.pt")
-        root_ckpt = os.path.join(checkpoint_root, "checkpoint_latest.pt")
-        candidates = [local_latest, local_root, latest_ckpt, root_ckpt, *step_checkpoints, best_ckpt]
+    if resume or checkpoint_path:
+        candidates = []
+        if checkpoint_path and os.path.isfile(checkpoint_path):
+            candidates.append(checkpoint_path)
+
+        search_dirs = [checkpoint_root, checkpoints_dir, latest_dir, best_dir, MODEL_DIR, os.path.join(MODEL_DIR, "Checkpoints"), os.path.join(MODEL_DIR, "Latest"), os.path.join(MODEL_DIR, "Best")]
+        for d in search_dirs:
+            if os.path.exists(d):
+                candidates.extend(glob.glob(os.path.join(d, "*.pt")))
+                candidates.extend(glob.glob(os.path.join(d, "**", "*.pt"), recursive=True))
+
+        def _get_step_num(p: str) -> int:
+            import re
+            m = re.search(r'step_(\d+)', os.path.basename(p))
+            if m: return int(m.group(1))
+            meta = p + ".meta.json"
+            if os.path.exists(meta):
+                try:
+                    with open(meta, "r") as mf:
+                        return int(json.load(mf).get("step", 0))
+                except Exception: pass
+            if "latest" in os.path.basename(p).lower(): return 999999999
+            if "best" in os.path.basename(p).lower(): return 999999998
+            return 0
+
+        # Sort candidates descending by step count so highest milestone (e.g. step 31000) is loaded first
+        sorted_candidates = sorted(list(set(candidates)), key=_get_step_num, reverse=True)
         seen = set()
-        for candidate in candidates:
-            if candidate in seen or not os.path.isfile(candidate):
+        for candidate in sorted_candidates:
+            if candidate in seen or not os.path.isfile(candidate) or "sample" in candidate:
                 continue
             seen.add(candidate)
             try:
@@ -592,7 +608,7 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
             except Exception as exc:
                 log.warning(f"Skipping unreadable checkpoint {candidate}: {exc}")
         if resume_target is None:
-            log.warning("--resume was requested, but no readable checkpoint was found in Model/. Starting fresh training run from step 1.")
+            log.warning(f"--resume was requested, but no readable checkpoint was found in {checkpoint_root} or {MODEL_DIR}. Starting fresh training run from step 1.")
 
     if resume_target:
         log.info(f"RESUMING training from recovered checkpoint: {resume_target}")
@@ -1122,7 +1138,7 @@ def main():
         else:
             resolved_wd = 0.05 if resolved_optimizer == "lion" else 0.01
 
-        run_dataset_training(model, tok, args.dataset, steps=args.steps, resume=args.resume, eval_every=args.eval_every, log_every=args.log_every, checkpoint_every=args.checkpoint_every, batch_size=args.batch_size, seq_len=args.seq_len, grad_accumulation_steps=args.grad_accum, data_workers=args.data_workers, use_latent_reasoning=use_latent_reasoning, use_mtp_loss=use_mtp_loss, compile=args.compile, lr=resolved_lr, weight_decay=resolved_wd, optimizer=resolved_optimizer, warmup_steps=args.warmup, topic_weights=topic_weights, training_stage=args.training_stage, auto_growth=args.auto_growth, growth_patience=args.growth_patience, growth_min_delta=args.growth_min_delta, max_layers=args.max_layers, adapter_name=args.adapter, model_dir=(ADAPTER_ROOT if args.adapter is not None else args.model_dir), pack_sequences=args.pack_sequences)
+        run_dataset_training(model, tok, args.dataset, steps=args.steps, resume=args.resume, eval_every=args.eval_every, log_every=args.log_every, checkpoint_every=args.checkpoint_every, batch_size=args.batch_size, seq_len=args.seq_len, grad_accumulation_steps=args.grad_accum, data_workers=args.data_workers, use_latent_reasoning=use_latent_reasoning, use_mtp_loss=use_mtp_loss, compile=args.compile, lr=resolved_lr, weight_decay=resolved_wd, optimizer=resolved_optimizer, warmup_steps=args.warmup, topic_weights=topic_weights, training_stage=args.training_stage, auto_growth=args.auto_growth, growth_patience=args.growth_patience, growth_min_delta=args.growth_min_delta, max_layers=args.max_layers, adapter_name=args.adapter, model_dir=(ADAPTER_ROOT if args.adapter is not None else args.model_dir), pack_sequences=args.pack_sequences, checkpoint_path=args.checkpoint)
 
     elif args.mode == "eval":
         run_evaluation(model, tok, args.dataset)
