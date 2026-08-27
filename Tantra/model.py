@@ -17,11 +17,11 @@ from Tantra.utils import elu_plus_one, top_k_mask
 
 class DynamicScaleNorm(nn.Module):
     """
-    DSN: (x - mean) / std * sigmoid(W*x + b) * gamma + beta
+    DSN: LayerNorm(x) * sigmoid(W*x + b) * gamma + beta
     Learned scale adapts to input magnitude dynamically.
-    Drop-in replacement for nn.LayerNorm with FP32 numerical stability.
+    Uses native C++ LayerNorm kernel for guaranteed gradient stability.
     """
-    def __init__(self, dim: int, eps: float = 1e-6):
+    def __init__(self, dim: int, eps: float = 1e-5):
         super().__init__()
         self.eps = eps
         self.w_scale = nn.Linear(dim, 1, bias=True)
@@ -30,13 +30,9 @@ class DynamicScaleNorm(nn.Module):
 
     def forward(self, x: Tensor) -> Tensor:
         orig_dtype = x.dtype
-        x_fp32 = x.float()
-        mean = x_fp32.mean(dim=-1, keepdim=True)
-        var = x_fp32.var(dim=-1, unbiased=False, keepdim=True)
-        x_norm = (x_fp32 - mean) / torch.sqrt(var.clamp(min=0.0) + self.eps)
+        x_norm = F.layer_norm(x.float(), (x.shape[-1],), eps=self.eps).to(orig_dtype)
         scale = torch.sigmoid(self.w_scale(x))
-        out = x_norm.to(orig_dtype) * scale * self.gamma + self.beta
-        return torch.nan_to_num(out, nan=0.0, posinf=50.0, neginf=-50.0)
+        return x_norm * scale * self.gamma + self.beta
 
 
 # ── RotaryPositionalEncoding ──
@@ -157,17 +153,17 @@ class ALRAAttention(nn.Module):
         
         if T <= 2048:
             # Fast vectorized causal path (O(1) memory graph overhead on GPU/CPU)
-            # Compute attention scan in FP32 to avoid FP16 overflow on 10M+ tokens
             orig_dtype = Q.dtype
-            Q_f = Q.float()
+            scale_factor = 1.0 / (Dh ** 0.5)
+            Q_f = Q.float() * scale_factor
             K_f = K.float()
             V_f = V.float()
 
             if gates is not None:
-                log_g = torch.log(gates.float().clamp(min=1e-6))
+                log_g = torch.log(gates.float().clamp(min=1e-4, max=1.0))
                 cum_log_g = torch.cumsum(log_g, dim=-1)
                 diff = cum_log_g.unsqueeze(-1) - cum_log_g.unsqueeze(-2)
-                diff = diff.clamp(max=0.0, min=-50.0)
+                diff = diff.clamp(max=0.0, min=-30.0)
                 mask = torch.tril(torch.ones(T, T, device=Q.device, dtype=torch.bool))
                 D = torch.exp(diff) * mask.float()
             else:
@@ -180,8 +176,8 @@ class ALRAAttention(nn.Module):
                 attn = attn * D.unsqueeze(0).unsqueeze(0)
                 
             num = torch.matmul(attn, V_f)
-            den = attn.sum(dim=-1, keepdim=True).clamp(min=self.eps)
-            out = torch.nan_to_num(num / den, nan=0.0, posinf=1.0, neginf=-1.0).to(orig_dtype)
+            den = (attn.sum(dim=-1, keepdim=True) + 1.0).clamp(min=1.0)
+            out = (num / den).to(orig_dtype)
             return out
 
         chunk_size = 256
