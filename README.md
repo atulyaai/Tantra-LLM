@@ -69,21 +69,21 @@
 
 ## 🏆 Global LLM Capability & Scale Comparison Matrix
 
-How Tantra-LLM compares against standard open-source micro, edge, and frontier models:
+How Tantra-LLM compares against modern edge champions and frontier models:
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│                                GLOBAL LLM SCALE & CAPABILITY COMPARISON MATRIX                                  │
+│                         GLOBAL LLM SCALE & CAPABILITY COMPARISON (MODERN FRONTIER & EDGE)                        │
 ├──────────────────────┬─────────────┬──────────────────┬─────────────────┬──────────────┬─────────────┬───────────┤
 │ Model / Architecture │ Parameters  │ Tokens Ingested  │ Target Hardware │ GSM8K (Math) │ HumanEval   │ Zero-Shot │
 │                      │             │ (Data Volume)    │ & RAM Footprint │ (Exact Match)│ (pass@1)    │ MMLU      │
 ├──────────────────────┼─────────────┼──────────────────┼─────────────────┼──────────────┼─────────────┼───────────┤
 │ **Tantra-LLM (Ours)**│ **82.8M**   │ **0.54 Billion** │ Local CPU (~208M│ Active SFT   │ Active SFT  │ **34.0%** │
-│ GPT-2                │ 124M        │ 10.0 Billion     │ Cloud GPU       │ 2.1%         │ 0.8%        │ 26.2%     │
-│ SmolLM-135M          │ 135M        │ 600.0 Billion    │ 256x H100s      │ 18.2%        │ 11.6%       │ 39.4%     │
-│ Phi-1 (Microsoft)    │ 350M        │ 54.0 Billion     │ 512x A100s      │ 38.0%        │ 50.6%       │ 45.2%     │
-│ TinyLlama-1.1B       │ 1,100M      │ 3.0 Trillion     │ 1,024x A100s    │ 4.2%         │ 9.2%        │ 32.1%     │
-│ Llama-3-8B           │ 8,000M      │ 15.0 Trillion    │ 16,000x H100s   │ 79.6%        │ 62.2%       │ 66.6%     │
+│ SmolLM2-135M         │ 135M        │ 2.0 Trillion     │ Edge Device     │ 35.1%        │ 22.0%       │ 46.5%     │
+│ Qwen-2.5-0.5B        │ 490M        │ 5.5 Trillion     │ Edge / CPU      │ 52.4%        │ 41.5%       │ 54.2%     │
+│ Llama-3.2-1B         │ 1,200M      │ 9.0 Trillion     │ Edge / Mobile   │ 44.4%        │ 34.6%       │ 49.3%     │
+│ Gemma-2-2B           │ 2,000M      │ 2.0 Trillion     │ Local Workstn   │ 56.2%        │ 42.1%       │ 56.3%     │
+│ DeepSeek-V3 (MoE)    │ 671B (37B)  │ 14.8 Trillion    │ Cloud Cluster   │ 91.6%        │ 82.6%       │ 88.5%     │
 │ Claude 3.5 Sonnet    │ ~175B+      │ ~15–20 Trillion  │ 30,000x H100s   │ 96.4%        │ 93.7%       │ 88.7%     │
 │ ChatGPT (GPT-4o)     │ ~200B+      │ ~15–20 Trillion  │ 30,000x H100s   │ 95.8%        │ 90.2%       │ 88.6%     │
 └──────────────────────┴─────────────┴──────────────────┴─────────────────┴──────────────┴─────────────┴───────────┘
