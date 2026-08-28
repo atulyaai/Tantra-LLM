@@ -993,9 +993,9 @@ def main():
     
     parser = argparse.ArgumentParser(description="Tantra-LLM / NeuroCore CLI Engine")
     parser.add_argument("--mode", default="full",
-                        choices=["full", "probe", "vocab", "train", "dataset", "eval", "compress", "generate", "serve", "status", "experts", "chat", "adapter", "dpo", "auto-pilot"],
+                        choices=["full", "probe", "vocab", "train", "dataset", "eval", "compress", "generate", "serve", "status", "experts", "chat", "adapter", "dpo", "auto-pilot", "benchmark", "export"],
                         help="Execution mode")
-    parser.add_argument("--checkpoint", type=str, default=None, help="Path to custom .pt model checkpoint to load (for chat, eval, serve, dpo)")
+    parser.add_argument("--checkpoint", type=str, default=None, help="Path to custom .pt model checkpoint to load (for chat, eval, serve, dpo, benchmark, export)")
     parser.add_argument("--pack-sequences", action=argparse.BooleanOptionalAction, default=True, help="Enable continuous document sequence packing (0% padding waste)")
     parser.add_argument("--dataset", type=str, default=DEFAULT_DATASET, help="JSONL dataset path")
     parser.add_argument("--preference-dataset", type=str, default="Datasets/preference_pairs.jsonl", help="DPO pairwise preference dataset path")
@@ -1320,6 +1320,12 @@ def main():
         )
         log.info("🏆 [AUTO-PILOT PIPELINE COMPLETE] Multi-Stage Autonomous Training & Alignment Finished!")
 
+    elif args.mode == "benchmark":
+        from Tantra.benchmark import run_benchmarks
+        run_benchmarks(args.checkpoint, str(rt.device))
+    elif args.mode == "export":
+        from Tantra.export import export_clean_checkpoint
+        export_clean_checkpoint(args.checkpoint, args.model_dir or "Model/Export/checkpoint_clean.pt")
     elif args.mode == "eval":
         run_evaluation(model, tok, args.dataset)
     elif args.mode == "generate":

@@ -211,7 +211,12 @@ python main.py --mode chat --checkpoint Model/Checkpoints/checkpoint_latest.pt -
 
 ### 4. Run Full Industry Benchmark Suite
 ```powershell
-python tools/benchmark.py --checkpoint Model/Checkpoints/checkpoint_latest.pt
+python main.py --mode benchmark --checkpoint Model/Checkpoints/checkpoint_latest.pt
+```
+
+### 5. Export Production Clean Checkpoint
+```powershell
+python main.py --mode export --checkpoint Model/Checkpoints/checkpoint_latest.pt
 ```
 
 ---
@@ -225,18 +230,16 @@ Tantra-LLM/
 │   ├── model.py               NeuroCore Backbone (ALRA attention, SGP, BitNet)
 │   ├── train.py               NeuroTrainer, DPO loop, Multi-GPU DataParallel
 │   ├── evolution.py           AutoGrowthController & SelfRepairEngine
-│   ├── dataset.py             DPODataset, Streaming and sequence packing
+│   ├── dataset.py             DPODataset, 4-track curriculum & sequence packing
+│   ├── benchmark.py           5-Level industry evaluation runner (GSM8K, HumanEval, MMLU)
+│   ├── export.py              Clean checkpoint stripper & model exporter
 │   ├── tokenizer.py           Byte-level BPE + Megabyte fallback patcher
 │   └── eval_suite.py          Industry-standard evaluation benchmarks
-├── tools/                     Consolidated 3-Tool Suite
-│   ├── dataset.py             4-Track domain curriculum builder & synthetic gold data
-│   ├── benchmark.py           5-Level industry evaluation matrix runner (GSM8K, HumanEval, MMLU)
-│   └── export.py              Clean checkpoint stripper & model exporter
 ├── Tests/                     Automated PyTest suite (94 passing tests)
 ├── Datasets/                  4-Track domain curriculum & preference pairs
 ├── Model/                     Checkpoints, vocabulary merges, and tokenizer
 ├── webui/                     FastAPI web server & interactive dashboard
-├── main.py                    Unified CLI entry point
+├── main.py                    Unified CLI entry point (--mode train/chat/benchmark/export/auto-pilot)
 └── requirements.txt / pyproject.toml
 ```
 
