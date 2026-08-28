@@ -874,6 +874,121 @@ class NeuroTrainer:
         log.info(f"Dataset pre-training run complete ({self.step_count} steps executed).")
         return losses
 
+    def compute_sequence_logprobs(self, logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
+        """
+        Computes per-sequence sum of log probabilities for labeled tokens.
+        logits: (batch, seq_len, vocab_size)
+        labels: (batch, seq_len) with IGNORE_INDEX (-100) for prompt/padding tokens.
+        """
+        shift_logits = logits[:, :-1, :].contiguous()
+        shift_labels = labels[:, 1:].contiguous()
+        log_probs = torch.log_softmax(shift_logits, dim=-1)
+        loss_mask = shift_labels != -100
+        clamped_labels = torch.clamp(shift_labels, min=0)
+        per_token_logps = torch.gather(log_probs, dim=2, index=clamped_labels.unsqueeze(2)).squeeze(2)
+        return (per_token_logps * loss_mask.float()).sum(dim=1)
+
+    def train_dpo(
+        self,
+        dpo_dataloader: Any,
+        ref_model: Optional[nn.Module] = None,
+        beta: float = 0.1,
+        max_steps: int = 2000,
+        log_every: int = 25,
+        checkpoint_every: int = 500,
+        checkpoint_callback: Optional[Callable[[int, float], None]] = None,
+        eval_every: int = 500,
+        eval_callback: Optional[Callable[[int], None]] = None,
+    ) -> List[float]:
+        """Direct Preference Optimization (DPO) preference alignment training loop."""
+        import copy
+        if ref_model is None:
+            log.info("Cloning frozen reference model baseline for DPO...")
+            raw_model = getattr(self.model, "module", getattr(self.model, "_orig_mod", self.model))
+            ref_model = copy.deepcopy(raw_model).to(self.device)
+            ref_model.eval()
+            for p in ref_model.parameters():
+                p.requires_grad = False
+
+        self.model.train()
+        log.info(f"🚀 Starting DPO Preference Alignment (Target: {max_steps} steps, beta={beta})...")
+
+        dpo_iter = iter(dpo_dataloader)
+        losses: List[float] = []
+        start_step = self.step_count
+        
+        for step in range(start_step + 1, start_step + max_steps + 1):
+            self.optimizer.zero_grad(set_to_none=True)
+            accum_loss = 0.0
+            accum_win_rate = 0.0
+            accum_margin = 0.0
+            
+            for _ in range(self.grad_accumulation_steps):
+                try:
+                    batch = next(dpo_iter)
+                except StopIteration:
+                    dpo_iter = iter(dpo_dataloader)
+                    batch = next(dpo_iter)
+                
+                chosen_ids = batch["chosen_input_ids"].to(self.device)
+                chosen_labels = batch["chosen_labels"].to(self.device)
+                rejected_ids = batch["rejected_input_ids"].to(self.device)
+                rejected_labels = batch["rejected_labels"].to(self.device)
+                
+                # Forward current model
+                chosen_out = self.model(chosen_ids)
+                chosen_logits = chosen_out[0] if isinstance(chosen_out, tuple) else chosen_out
+                rejected_out = self.model(rejected_ids)
+                rejected_logits = rejected_out[0] if isinstance(rejected_out, tuple) else rejected_out
+                
+                # Forward reference model (frozen)
+                with torch.no_grad():
+                    ref_chosen_out = ref_model(chosen_ids)
+                    ref_chosen_logits = ref_chosen_out[0] if isinstance(ref_chosen_out, tuple) else ref_chosen_out
+                    ref_rejected_out = ref_model(rejected_ids)
+                    ref_rejected_logits = ref_rejected_out[0] if isinstance(ref_rejected_out, tuple) else ref_rejected_out
+                
+                # Compute log probabilities
+                pi_chosen_logps = self.compute_sequence_logprobs(chosen_logits, chosen_labels)
+                pi_rejected_logps = self.compute_sequence_logprobs(rejected_logits, rejected_labels)
+                
+                ref_chosen_logps = self.compute_sequence_logprobs(ref_chosen_logits, chosen_labels)
+                ref_rejected_logps = self.compute_sequence_logprobs(ref_rejected_logits, rejected_labels)
+                
+                # DPO loss calculation
+                pi_logratios = pi_chosen_logps - pi_rejected_logps
+                ref_logratios = ref_chosen_logps - ref_rejected_logps
+                
+                logits_diff = beta * (pi_logratios - ref_logratios)
+                loss = -torch.nn.functional.logsigmoid(logits_diff).mean()
+                
+                loss_scaled = loss / self.grad_accumulation_steps
+                loss_scaled.backward()
+                
+                accum_loss += loss.item() / self.grad_accumulation_steps
+                win_rate = (logits_diff > 0).float().mean().item()
+                accum_win_rate += win_rate / self.grad_accumulation_steps
+                accum_margin += logits_diff.mean().item() / self.grad_accumulation_steps
+            
+            torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
+            self.optimizer.step()
+            if self.scheduler is not None:
+                self.scheduler.step()
+            self.step_count = step
+            losses.append(accum_loss)
+            
+            if step % log_every == 0 or step == start_step + max_steps:
+                lr = self.optimizer.param_groups[0]["lr"]
+                log.info(f"   🎯 [DPO Step {step:,}/{start_step + max_steps:,}] 📉 Loss: {accum_loss:.4f} │ 🏆 Chosen Win: {accum_win_rate*100:.1f}% │ 📈 Margin: {accum_margin:+.3f} │ 🎚️ LR: {lr:.2e}")
+            
+            if checkpoint_callback is not None and (step % checkpoint_every == 0 or step == start_step + max_steps):
+                checkpoint_callback(step, accum_loss)
+            if eval_callback is not None and step % eval_every == 0:
+                eval_callback(step)
+                
+        log.info(f"DPO Preference Alignment complete ({max_steps} steps executed).")
+        return losses
+
     def train_demo(self, steps: int = 20, batch_size: int = 2, seq_len: int = 64, vocab_size: int = 32000) -> list[float]:
         """Run quick training demo over synthetic batches."""
         log.info(f"Starting training run: {steps} steps (batch={batch_size}, seq_len={seq_len})...")

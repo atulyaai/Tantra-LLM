@@ -658,3 +658,84 @@ class TopicMixedDataset(IterableDataset):
             count += 1
             if self.max_samples and count >= self.max_samples:
                 return
+
+
+class DPODataset(IterableDataset):
+    """
+    DPO (Direct Preference Optimization) Dataset.
+    Loads JSONL items containing:
+      {"prompt": "...", "chosen": "...", "rejected": "..."}
+      OR
+      {"system": "...", "user": "...", "chosen": "...", "rejected": "..."}
+    Yields dictionary with tokenized tensors:
+      chosen_input_ids, chosen_labels, rejected_input_ids, rejected_labels
+    """
+    def __init__(self, path: str, tokenizer: Any, max_len: int = 128, max_samples: Optional[int] = None, seed: int = 42):
+        super().__init__()
+        self.path = path
+        self.tokenizer = tokenizer
+        self.max_len = max_len
+        self.max_samples = max_samples
+        self.seed = seed
+
+    def _encode_pair(self, prompt: str, chosen: str, rejected: str) -> Optional[Dict[str, torch.Tensor]]:
+        if not prompt or not chosen or not rejected:
+            return None
+        prompt_text = prompt if "<|user|>" in prompt else f"<|system|>\nYou are Tantra, a helpful, precise, and polite AI assistant created by Atulya AI.<|user|>\n{prompt.strip()}<|assistant|>\n"
+        
+        prompt_ids = self.tokenizer.encode(prompt_text)
+        chosen_resp_ids = self.tokenizer.encode(chosen.strip()) + [EOS_ID]
+        rejected_resp_ids = self.tokenizer.encode(rejected.strip()) + [EOS_ID]
+        
+        chosen_ids = (prompt_ids + chosen_resp_ids)[:self.max_len]
+        chosen_labels = [IGNORE_INDEX] * len(prompt_ids) + chosen_resp_ids
+        chosen_labels = chosen_labels[:self.max_len]
+        
+        rejected_ids = (prompt_ids + rejected_resp_ids)[:self.max_len]
+        rejected_labels = [IGNORE_INDEX] * len(prompt_ids) + rejected_resp_ids
+        rejected_labels = rejected_labels[:self.max_len]
+        
+        pad_len_c = max(0, self.max_len - len(chosen_ids))
+        pad_len_r = max(0, self.max_len - len(rejected_ids))
+        
+        chosen_ids += [0] * pad_len_c
+        chosen_labels += [IGNORE_INDEX] * pad_len_c
+        
+        rejected_ids += [0] * pad_len_r
+        rejected_labels += [IGNORE_INDEX] * pad_len_r
+        
+        return {
+            "chosen_input_ids": torch.tensor(chosen_ids, dtype=torch.long),
+            "chosen_labels": torch.tensor(chosen_labels, dtype=torch.long),
+            "rejected_input_ids": torch.tensor(rejected_ids, dtype=torch.long),
+            "rejected_labels": torch.tensor(rejected_labels, dtype=torch.long),
+        }
+
+    def __iter__(self) -> Iterator[Dict[str, torch.Tensor]]:
+        if not os.path.exists(self.path):
+            log.warning(f"DPO dataset path not found: {self.path}")
+            return
+        count = 0
+        while True:
+            with open(self.path, "r", encoding="utf-8", errors="ignore") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        data = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    
+                    prompt = data.get("prompt") or data.get("instruction") or data.get("user", "")
+                    if "system" in data and "user" in data:
+                        prompt = f"<|system|>\n{data['system']}<|user|>\n{data['user']}<|assistant|>\n"
+                    chosen = data.get("chosen") or data.get("response_chosen") or data.get("assistant", "")
+                    rejected = data.get("rejected") or data.get("response_rejected", "")
+                    
+                    item = self._encode_pair(prompt, chosen, rejected)
+                    if item is not None:
+                        yield item
+                        count += 1
+                        if self.max_samples and count >= self.max_samples:
+                            return

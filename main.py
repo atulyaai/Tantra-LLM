@@ -868,6 +868,70 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
         log.info("🏁 [FINAL CHECKPOINT FLUSHED] Step %d successfully written to disk: %s", final_step, final_milestone)
 
 
+def run_dpo_training(
+    model, tokenizer, dataset_path, steps=1000, eval_every=250, log_every=25,
+    checkpoint_every=250, batch_size=4, grad_accumulation_steps=4, data_workers=2,
+    lr=5e-6, beta=0.1, model_dir=None, checkpoint_path=None
+):
+    from Tantra.dataset import DPODataset
+    from torch.utils.data import DataLoader
+    
+    checkpoints_dir = os.path.join(model_dir or MODEL_DIR, "Checkpoints")
+    latest_dir = os.path.join(model_dir or MODEL_DIR, "Latest")
+    os.makedirs(checkpoints_dir, exist_ok=True)
+    os.makedirs(latest_dir, exist_ok=True)
+    latest_ckpt = os.path.join(latest_dir, "checkpoint_latest.pt")
+    
+    device = next(model.parameters()).device
+    trainer = NeuroTrainer(
+        model, lr=lr, weight_decay=0.01,
+        total_steps=steps, warmup_steps=max(10, steps // 20),
+        grad_accumulation_steps=grad_accumulation_steps
+    )
+    trainer.device = device
+    
+    if checkpoint_path and os.path.exists(checkpoint_path):
+        trainer.load_checkpoint(checkpoint_path)
+        log.info(f"Loaded baseline checkpoint for DPO: {checkpoint_path}")
+        
+    dpo_dataset = DPODataset(dataset_path, tokenizer, max_len=128)
+    dpo_loader = DataLoader(
+        dpo_dataset,
+        batch_size=batch_size,
+        num_workers=data_workers,
+        pin_memory=torch.cuda.is_available(),
+        persistent_workers=data_workers > 0,
+        prefetch_factor=2 if data_workers > 0 else None,
+    )
+    
+    def ckpt_cb(step, loss):
+        milestone = os.path.join(checkpoints_dir, f"checkpoint_dpo_step_{step}.pt")
+        trainer.save_checkpoint(milestone, save_optimizer=True, async_write=False)
+        trainer.save_checkpoint(latest_ckpt, save_optimizer=True, async_write=False)
+        
+    def eval_cb(step):
+        run_world_benchmark(model, tokenizer, step, device=device)
+        
+    try:
+        trainer.train_dpo(
+            dpo_loader,
+            beta=beta,
+            max_steps=steps,
+            log_every=log_every,
+            checkpoint_every=checkpoint_every,
+            checkpoint_callback=ckpt_cb,
+            eval_every=eval_every,
+            eval_callback=eval_cb,
+        )
+    finally:
+        final_step = trainer.step_count
+        final_milestone = os.path.join(checkpoints_dir, f"checkpoint_dpo_step_{final_step}.pt")
+        trainer.save_checkpoint(final_milestone, save_optimizer=True, async_write=False)
+        trainer.save_checkpoint(latest_ckpt, save_optimizer=True, async_write=False)
+        trainer.flush_checkpoint_writers()
+        log.info("🏁 [DPO ALIGNMENT FINISHED] Checkpoint saved: %s", final_milestone)
+
+
 def run_evaluation(model, tokenizer, dataset_path):
     log.info("== [MODEL EVALUATION & BENCHMARK MODE] =============")
     engine = EvaluationEngine(model)
@@ -907,11 +971,13 @@ def main():
     
     parser = argparse.ArgumentParser(description="Tantra-LLM / NeuroCore CLI Engine")
     parser.add_argument("--mode", default="full",
-                        choices=["full", "probe", "vocab", "train", "dataset", "eval", "compress", "generate", "serve", "status", "experts", "chat", "adapter"],
+                        choices=["full", "probe", "vocab", "train", "dataset", "eval", "compress", "generate", "serve", "status", "experts", "chat", "adapter", "dpo"],
                         help="Execution mode")
-    parser.add_argument("--checkpoint", type=str, default=None, help="Path to custom .pt model checkpoint to load (for chat, eval, serve)")
+    parser.add_argument("--checkpoint", type=str, default=None, help="Path to custom .pt model checkpoint to load (for chat, eval, serve, dpo)")
     parser.add_argument("--pack-sequences", action=argparse.BooleanOptionalAction, default=True, help="Enable continuous document sequence packing (0% padding waste)")
     parser.add_argument("--dataset", type=str, default=DEFAULT_DATASET, help="JSONL dataset path")
+    parser.add_argument("--preference-dataset", type=str, default="Datasets/preference_pairs.jsonl", help="DPO pairwise preference dataset path")
+    parser.add_argument("--dpo-beta", type=float, default=0.1, help="DPO temperature scaling hyperparameter beta (default: 0.1)")
     parser.add_argument("--steps", type=int, default=30, help="Training steps")
     parser.add_argument("--seq-len", type=int, default=128, help="Context sequence length window")
     parser.add_argument("--use-mtp", action=argparse.BooleanOptionalAction, default=True, help="Enable/disable Multi-Token Prediction (MTP)")
@@ -1155,6 +1221,26 @@ def main():
             resolved_wd = 0.05 if resolved_optimizer == "lion" else 0.01
 
         run_dataset_training(model, tok, args.dataset, steps=args.steps, resume=args.resume, eval_every=args.eval_every, log_every=args.log_every, checkpoint_every=args.checkpoint_every, batch_size=args.batch_size, seq_len=args.seq_len, grad_accumulation_steps=args.grad_accum, data_workers=args.data_workers, use_latent_reasoning=use_latent_reasoning, use_mtp_loss=use_mtp_loss, compile=args.compile, lr=resolved_lr, weight_decay=resolved_wd, optimizer=resolved_optimizer, warmup_steps=args.warmup, topic_weights=topic_weights, training_stage=args.training_stage, auto_growth=args.auto_growth, growth_patience=args.growth_patience, growth_min_delta=args.growth_min_delta, max_layers=args.max_layers, adapter_name=args.adapter, model_dir=(ADAPTER_ROOT if args.adapter is not None else args.model_dir), pack_sequences=args.pack_sequences, checkpoint_path=args.checkpoint)
+
+    elif args.mode == "dpo":
+        dpo_ckpt = args.checkpoint
+        if dpo_ckpt is None:
+            cand_list = []
+            for d in [os.path.join(args.model_dir or MODEL_DIR, "Checkpoints"), os.path.join(args.model_dir or MODEL_DIR, "Best"), os.path.join(args.model_dir or MODEL_DIR, "Latest")]:
+                if os.path.exists(d):
+                    cand_list.extend(glob.glob(os.path.join(d, "*.pt")))
+            if cand_list:
+                import re
+                dpo_ckpt = max([p for p in cand_list if "sample" not in p], key=lambda p: int(re.search(r'step_(\d+)', p).group(1)) if re.search(r'step_(\d+)', p) else 0)
+
+        run_dpo_training(
+            model, tok, args.preference_dataset, steps=args.steps,
+            eval_every=args.eval_every, log_every=args.log_every,
+            checkpoint_every=args.checkpoint_every, batch_size=args.batch_size,
+            grad_accumulation_steps=args.grad_accum, data_workers=args.data_workers,
+            lr=args.lr or 5e-6, beta=args.dpo_beta, model_dir=args.model_dir,
+            checkpoint_path=dpo_ckpt
+        )
 
     elif args.mode == "eval":
         run_evaluation(model, tok, args.dataset)
