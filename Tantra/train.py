@@ -961,11 +961,23 @@ class NeuroTrainer:
             elif "Best" in target_dir or "best" in target_dir:
                 NeuroTrainer.prune_checkpoint_history(target_dir, max_keep=4)
 
+        if not hasattr(self, "_writer_threads"):
+            self._writer_threads = []
+
         if async_write:
-            t = threading.Thread(target=_disk_writer, args=(ckpt_data, path, step_num), daemon=True)
+            t = threading.Thread(target=_disk_writer, args=(ckpt_data, path, step_num), daemon=False)
+            self._writer_threads.append(t)
             t.start()
         else:
             _disk_writer(ckpt_data, path, step_num)
+
+    def flush_checkpoint_writers(self, timeout: float = 60.0) -> None:
+        """Synchronously wait for all background checkpoint write threads to finish."""
+        threads = getattr(self, "_writer_threads", [])
+        for t in threads:
+            if t.is_alive():
+                t.join(timeout=timeout)
+        self._writer_threads = [t for t in threads if t.is_alive()]
 
     @staticmethod
     def prune_checkpoint_history(checkpoints_dir: str, max_keep: int = 4) -> None:

@@ -856,11 +856,16 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
     except KeyboardInterrupt:
         # Ctrl+C happens after an optimizer boundary in many practical runs.
         # Save that completed state before allowing the process to stop.
-        trainer.save_checkpoint(latest_ckpt, save_optimizer=True)
+        trainer.save_checkpoint(latest_ckpt, save_optimizer=True, async_write=False)
         log.warning("Training interrupted; recovery checkpoint saved at step %d.", trainer.step_count)
-
-    if trainer.step_count > trainer._last_saved_step:
-        trainer.save_checkpoint(latest_ckpt, save_optimizer=True)
+    finally:
+        # Guarantee that the exact final milestone checkpoint is written synchronously
+        final_step = trainer.step_count
+        final_milestone = os.path.join(checkpoints_dir, f"checkpoint_step_{final_step}.pt")
+        trainer.save_checkpoint(final_milestone, save_optimizer=True, async_write=False)
+        trainer.save_checkpoint(latest_ckpt, save_optimizer=True, async_write=False)
+        trainer.flush_checkpoint_writers()
+        log.info("🏁 [FINAL CHECKPOINT FLUSHED] Step %d successfully written to disk: %s", final_step, final_milestone)
 
 
 def run_evaluation(model, tokenizer, dataset_path):
