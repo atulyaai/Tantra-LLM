@@ -705,7 +705,13 @@ class NeuroTrainer:
                     )
 
                     if growth_controller is not None:
-                        raw_model = getattr(self.model, "_orig_mod", self.model)
+                        raw_model = self.model
+                        while hasattr(raw_model, "module"):
+                            raw_model = raw_model.module
+                        while hasattr(raw_model, "_orig_mod"):
+                            raw_model = raw_model._orig_mod
+                        while hasattr(raw_model, "module"):
+                            raw_model = raw_model.module
                         before = {id(param) for param in raw_model.parameters()}
                         if growth_controller.observe(float(self.ema_loss), raw_model):
                             new_params = [param for param in raw_model.parameters() if id(param) not in before]

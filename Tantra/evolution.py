@@ -49,32 +49,40 @@ class AutoGrowthController:
 
         if improvement < self.min_delta:
             log.info(f"Loss plateau detected (improvement: {improvement:.5f} < {self.min_delta}). Triggering auto-growth...")
-            if not self.grow_capacity(model):
-                return False
+            grown = self.grow_capacity(model)
+            # Reset tracking so we evaluate again only after a new full patience window
             self.loss_history.clear()
             self._steps_since_growth = 0
-            return True
+            return grown
 
         return False
 
     def grow_capacity(self, model: nn.Module) -> bool:
         """Dynamically add capacity to model layers or experts."""
-        if hasattr(model, "layers") and isinstance(model.layers, nn.ModuleList) and len(model.layers) > 0:
-            if self.max_layers is not None and len(model.layers) >= self.max_layers:
+        actual_model = model
+        while hasattr(actual_model, "module"):
+            actual_model = actual_model.module
+        while hasattr(actual_model, "_orig_mod"):
+            actual_model = actual_model._orig_mod
+        while hasattr(actual_model, "module"):
+            actual_model = actual_model.module
+
+        if hasattr(actual_model, "layers") and isinstance(actual_model.layers, nn.ModuleList) and len(actual_model.layers) > 0:
+            if self.max_layers is not None and len(actual_model.layers) >= self.max_layers:
                 log.info("Auto-growth plateau observed, but maximum depth (%d) is already reached.", self.max_layers)
                 return False
             # Duplicate and perturb last layer to grow depth
             import copy
-            last_layer = model.layers[-1]
+            last_layer = actual_model.layers[-1]
             new_layer = copy.deepcopy(last_layer)
             
             # Small random perturbation to break symmetry
             for p in new_layer.parameters():
                 p.data.add_(torch.randn_like(p.data) * 0.001)
                 
-            model.layers.append(new_layer)
-            log.info(f"Model capacity auto-grown: total layers is now {len(model.layers)}")
-            self.growth_events.append({"type": "add_layer", "new_total": len(model.layers)})
+            actual_model.layers.append(new_layer)
+            log.info(f"Model capacity auto-grown: total layers is now {len(actual_model.layers)}")
+            self.growth_events.append({"type": "add_layer", "new_total": len(actual_model.layers)})
             return True
         return False
 
