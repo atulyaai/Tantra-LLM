@@ -927,12 +927,14 @@ class NeuroTrainer:
         def _disk_writer(data, target_path, step):
             target_dir = os.path.dirname(target_path) or "."
             os.makedirs(target_dir, exist_ok=True)
-            temporary_path = target_path + ".tmp"
+            import uuid
+            unique_suffix = f"{os.getpid()}_{threading.get_ident()}_{uuid.uuid4().hex[:6]}"
+            temporary_path = f"{target_path}.{unique_suffix}.tmp"
             try:
                 torch.save(data, temporary_path)
                 os.replace(temporary_path, target_path)
                 meta_path = target_path + ".meta.json"
-                meta_temp = meta_path + ".tmp"
+                meta_temp = f"{meta_path}.{unique_suffix}.tmp"
                 with open(meta_temp, "w", encoding="utf-8") as handle:
                     json.dump({
                         "num_layers": data["num_layers"],
