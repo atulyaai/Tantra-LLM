@@ -226,17 +226,22 @@ class NeuroTrainer:
             log.info("  MTP auxiliary loss DISABLED for this run (reduced CPU output-projection work).")
 
     def refresh_optimizer(self) -> None:
-        """Rebuild the optimizer (and LR schedule) from the model's current
-        trainable parameters. Call this after ``freeze_for_category`` or
-        ``grow_category`` so a newly unfrozen/added layer is actually optimized.
-        The schedule keeps its current step count.
+        """Rebuild the optimizer and LR schedule from the model's current
+        trainable parameters. Call this after Auto-Growth or adapter changes
+        so newly added layers are optimized and the LR scheduler stays perfectly synced.
         """
-        lr = self.optimizer.param_groups[0]["lr"] if self.optimizer.param_groups else 1e-4
+        current_step = getattr(self.scheduler, "last_epoch", self.step_count)
+        current_lr = self.optimizer.param_groups[0]["lr"] if (self.optimizer and self.optimizer.param_groups) else self.lr
         trainable_parameters = [p for p in self.model.parameters() if p.requires_grad]
         if not trainable_parameters:
             raise ValueError("No trainable parameters are enabled after refresh.")
-        self.optimizer = build_optimizer(self.optimizer_name, trainable_parameters, lr=lr, weight_decay=self.weight_decay)
+        self.optimizer = build_optimizer(self.optimizer_name, trainable_parameters, lr=self.lr, weight_decay=self.weight_decay)
         self.scheduler = create_lr_scheduler(self.optimizer, warmup_steps=self.warmup_steps, total_steps=self.total_steps, min_lr_ratio=0.05)
+        if self.scheduler is not None:
+            self.scheduler.last_epoch = current_step
+            # Update base_lrs and current group lrs
+            for g in self.optimizer.param_groups:
+                g["lr"] = current_lr
 
     def _write_training_status(self, **status: Any) -> None:
         """Publish real training state for the local Web UI and recovery logs."""
@@ -716,13 +721,8 @@ class NeuroTrainer:
                         if growth_controller.observe(float(self.ema_loss), raw_model):
                             new_params = [param for param in raw_model.parameters() if id(param) not in before]
                             if new_params:
-                                base_group = self.optimizer.param_groups[0]
-                                self.optimizer.add_param_group({
-                                    "params": new_params,
-                                    "lr": base_group["lr"],
-                                    "weight_decay": base_group.get("weight_decay", 0.0),
-                                })
-                                log.info("Auto-growth added %d parameters; optimizer now tracks %d layers.", sum(p.numel() for p in new_params), len(raw_model.layers))
+                                self.refresh_optimizer()
+                                log.info("Auto-growth added %d parameters; optimizer & scheduler now track %d layers seamlessly.", sum(p.numel() for p in new_params), len(raw_model.layers))
 
                     is_card_step = (session_steps == 1 or session_steps % log_every == 0 or self.step_count == max_steps)
                     ticker_interval = max(10, log_every // 2)
