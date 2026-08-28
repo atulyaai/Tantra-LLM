@@ -17,7 +17,7 @@ from Tantra.tokenizer import ByteBPETokenizer, MegabytePatcher, UnifiedTokenizer
 from Tantra.evolution import AutoGrowthController, SelfRepairEngine
 from Tantra.moe import MoERouter, LoadBalancer, ExpertRegistry, LazyExpertLoader
 from Tantra.dataset import JSONLDataset, format_jsonl_prompt
-from Tantra.eval import EvaluationEngine
+from Tantra.eval_suite import EvaluationEngine
 from Tantra.train import NeuroTrainer, generate_synthetic_batch
 
 

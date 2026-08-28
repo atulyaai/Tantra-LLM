@@ -12,7 +12,7 @@ from Tantra.codec import DNACodec, CompressionBenchmark
 from Tantra.train import NeuroTrainer
 from Tantra.dataset import JSONLDataset, extract_corpus_sample
 from Tantra.evolution import AutoGrowthController, SelfRepairEngine
-from Tantra.eval import EvaluationEngine
+from Tantra.eval_suite import EvaluationEngine, IndustryBenchmarkSuite
 
 __version__ = "1.0.0"
 
