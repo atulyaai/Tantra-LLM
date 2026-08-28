@@ -1079,16 +1079,23 @@ def main():
         return
         
     if args.mode == "chat":
-        # Load custom checkpoint if passed or automatically load Best / Latest
+        # Load custom checkpoint if passed or automatically load highest available milestone
         ckpt_to_load = args.checkpoint
         if ckpt_to_load is None:
-            for cand in [
-                os.path.join(MODEL_DIR, "Best", "checkpoint_best.pt"),
-                os.path.join(MODEL_DIR, "Latest", "checkpoint_latest.pt"),
-            ]:
-                if os.path.exists(cand):
-                    ckpt_to_load = cand
-                    break
+            cand_list = []
+            for d in [os.path.join(MODEL_DIR, "Checkpoints"), os.path.join(MODEL_DIR, "Best"), os.path.join(MODEL_DIR, "Latest"), os.path.join(MODEL_DIR, "Archive")]:
+                if os.path.exists(d):
+                    cand_list.extend(glob.glob(os.path.join(d, "*.pt")))
+
+            def _step_val(p):
+                import re
+                m = re.search(r'step_(\d+)', os.path.basename(p))
+                return int(m.group(1)) if m else 0
+
+            sorted_cands = sorted([p for p in cand_list if "sample" not in p], key=_step_val, reverse=True)
+            if sorted_cands:
+                ckpt_to_load = sorted_cands[0]
+
         if ckpt_to_load and os.path.exists(ckpt_to_load):
             try:
                 trainer.load_checkpoint(ckpt_to_load)
