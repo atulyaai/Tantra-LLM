@@ -73,15 +73,15 @@ Following the **next-gen deployment tier specification**, here is how **Tantra (
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│                                       TANTRA vs NEXT-GEN FRONTIER & EDGE CATEGORY CHAMPIONS                                      │
+│                                    TANTRA vs NEXT-GEN FRONTIER & EDGE CATEGORY CHAMPIONS                                         │
 ├───────────────────────┬──────────────┬──────────────┬──────────────┬──────────────┬────────────────┬─────────────────────────────┤
-│ Evaluation Metric     │ Tantra 83M   │ Qwen 3.8     │ Gemma 4 /    │ DeepSeek V4  │ Claude 5 /     │ GPT-5.6 /                   │
-│                       │ [On-Device]  │ [Edge MoE]   │ Llama 4 Edge │ [Open MoE]   │ Fable (Agent)  │ ChatGPT Sol (Frontier Omni) │
+│ Evaluation Metric     │ Tantra 83M   │ Qwen 2.5/3   │ Gemma 2/3 /  │ DeepSeek-R1  │ Claude 3.7 /   │ OpenAI o3 /                 │
+│                       │ [On-Device]  │ [0.5B Edge]  │ Llama 3.2 1B │ [Open MoE]   │ 4 (Agentic)    │ GPT-4.5 (Frontier Omni)     │
 ├───────────────────────┼──────────────┼──────────────┼──────────────┼──────────────┼────────────────┼─────────────────────────────┤
-│ Total Parameters      │ 82.8M        │ 590M         │ 2.0B – 4.0B  │ 671B (MoE)   │ Undisclosed    │ Undisclosed                 │
-│ Active Params / Layer │ 82.8M        │ 590M         │ 2.0B         │ 37B (MoE)    │ MoE            │ MoE                         │
+│ Total Parameters      │ 82.8M        │ 490M         │ 1.2B – 2.0B  │ 671B (MoE)   │ Undisclosed    │ Undisclosed                 │
+│ Active Params / Layer │ 82.8M        │ 490M         │ 1.2B – 2.0B  │ 37B (MoE)    │ MoE            │ MoE                         │
 │ Native Context Window │ 131,072 (131K│ 64K – 128K   │ 128K – 256K  │ 256K – 1M    │ 1,000,000 (1M) │ 2,000,000 (2M)              │
-│ Thinking / CoT Mode   │ Latent CoT   │ Thinking SFT │ Dynamic CoT  │ DeepThink R2 │ Hybrid CoT     │ Adaptive Reasoning          │
+│ Thinking / CoT Mode   │ Latent CoT   │ Thinking SFT │ Dynamic CoT  │ DeepThink R1 │ Hybrid CoT     │ Adaptive Reasoning          │
 │ Target Hardware       │ Local CPU    │ Local CPU/NPU│ Local Workstn│ Multi-GPU    │ Cloud Cluster  │ Cloud Cluster               │
 │ RAM / VRAM Footprint  │ ~208 MB ⚡   │ ~1,200 MB    │ ~4,500 MB    │ ~600,000 MB  │ Managed API    │ Managed API                 │
 │ Local Generation Speed│ 21.7 tok/s   │ ~35 tok/s    │ ~18 tok/s    │ Infeasible   │ Cloud API      │ Cloud API                   │
@@ -101,10 +101,10 @@ Following the **next-gen deployment tier specification**, here is how **Tantra (
 
 ```
 RAM Footprint (Lower is Better — Ultra-Low Resource On-Device Deployment):
-Tantra 83M      | █ (208 MB) ⚡ [Runs on Any Laptop, Raspberry Pi, or CPU]
-Qwen 3.8 0.6B   | ██████ (1,200 MB)
-Gemma 4 / 2B    | ████████████████████ (4,500 MB)
-DeepSeek / 70B+ | ██████████████████████████████████████████████████████████ (600,000 MB)
+Tantra 83M      | █ (208 MB) ⚡ [Runs on Any Laptop, Raspberry Pi, or Commodity CPU]
+Qwen 0.5B       | ██████ (1,200 MB)
+Gemma 2B / 1B   | ████████████████████ (4,500 MB)
+DeepSeek MoE    | ██████████████████████████████████████████████████████████ (600,000 MB)
 ```
 
 ---
@@ -115,12 +115,14 @@ DeepSeek / 70B+ | ████████████████████�
   <img src="Assets/tantra_architecture.jpg" alt="Tantra NeuroCore Architecture" width="90%"/>
 </div>
 
-### NeuroCore Engine — Block Diagram
+### NeuroCore Engine — Complete 6-Stage Block Diagram
 
 ```
 ┌─────────────────────────────────────┬───────────────────────────────────────┐
-│                        1. INPUT TOKENIZER LAYER                             │
-│  Text Prompt  ──► BPE (32K Vocab) ──► Megabyte Byte-Fallback Patcher        │
+│              1. INPUT TOKENIZER & MULTIMODAL PROJECTION LAYER               │
+│  💬 Text Prompt     ──► BPE (32,768 Vocab) ──► Megabyte Byte-Fallback       │
+│  📸 Vision Patches  ──► ImageTokenizer     ──► 512-Dim Linear Projection    │
+│  🎙️ Audio Spectr.   ──► AudioTokenizer     ──► 512-Dim Mel-Scale Projection │
 └─────────────────────────────────────┬───────────────────────────────────────┘
                                       │
                                       ▼
@@ -143,13 +145,21 @@ DeepSeek / 70B+ | ████████████████████�
 ┌─────────────────────────────────────┬───────────────────────────────────────┐
 │                    4. DUAL-HEAD PREDICTION ENGINE                           │
 │  Main Output Head (Token t+1)  ◄───►  MTP Speculative Head (Token t+2)      │
-│  Latent Chain-of-Thought       ◄───►  Pairwise DPO Alignment (Frozen Pi_ref)│
+│  Latent Chain-of-Thought       ◄───►  Auxiliary Speculative Loss            │
 └─────────────────────────────────────┬───────────────────────────────────────┘
                                       │
                                       ▼
 ┌─────────────────────────────────────┬───────────────────────────────────────┐
-│                   5. COMPACT DNA WEIGHT STORAGE                             │
+│               5. AUTONOMOUS EVOLUTION & ALIGNMENT ENGINE                    │
+│  AutoGrowth Depth Controller (8 ➔ 10+ Layers) ◄──► SelfRepairEngine (NaNs)  │
+│  Pairwise DPO Alignment (Frozen Pi_ref Baseline ➔ +15.15 Preference Margin) │
+└─────────────────────────────────────┬───────────────────────────────────────┘
+                                      │
+                                      ▼
+┌─────────────────────────────────────┬───────────────────────────────────────┐
+│               6. COMPACT DNA WEIGHT STORAGE & EXPORT ENGINE                 │
 │  NumPy Bitwise XOR Encryption ──► ZSTD Dictionary ──► DNA 2-Bit Disk Pack   │
+│  Zero-Latency Export: GGUF ──► TorchScript ──► ONNX ──► FastAPI Web Server  │
 └───────────────────────────────────────────────────────────────────────────┘
 ```
 
