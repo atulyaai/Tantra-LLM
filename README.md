@@ -216,7 +216,7 @@ python main.py --mode benchmark --checkpoint Model/Checkpoints/checkpoint_latest
 
 ### 5. Export Production Clean Checkpoint
 ```powershell
-python main.py --mode export --checkpoint Model/Checkpoints/checkpoint_latest.pt
+python main.py --mode export --checkpoint Model/Latest/checkpoint_latest.pt
 ```
 
 ---
@@ -226,20 +226,29 @@ python main.py --mode export --checkpoint Model/Checkpoints/checkpoint_latest.pt
 ```
 Tantra-LLM/
 ├── Assets/                    Logo, architecture diagram, hero banner GIF
+├── Datasets/                  4-Track domain curriculum (Conversation, Code, Math, General) & DPO pairs
+├── Model/                     Canonical Tokenizer, Best & Latest checkpoints, stripped export
+├── Samples/                   Multimodal sample catalog (Audio, Images, Video, Code, Text, ToolCalling)
 ├── Tantra/                    Core Neural Engine (model, train, evolution, dataset, bitnet)
-│   ├── model.py               NeuroCore Backbone (ALRA attention, SGP, BitNet)
+│   ├── model.py               NeuroCore Backbone (ALRA attention, SGP, BitNet, MTP heads)
 │   ├── train.py               NeuroTrainer, DPO loop, Multi-GPU DataParallel
 │   ├── evolution.py           AutoGrowthController & SelfRepairEngine
-│   ├── dataset.py             DPODataset, 4-track curriculum & sequence packing
+│   ├── dataset.py             4-Track curriculum builder & continuous sequence packing
 │   ├── benchmark.py           5-Level industry evaluation runner (GSM8K, HumanEval, MMLU)
 │   ├── export.py              Clean checkpoint stripper & model exporter
-│   ├── tokenizer.py           Byte-level BPE + Megabyte fallback patcher
-│   └── eval_suite.py          Industry-standard evaluation benchmarks
-├── Tests/                     Automated PyTest suite (94 passing tests)
-├── Datasets/                  4-Track domain curriculum & preference pairs
-├── Model/                     Checkpoints, vocabulary merges, and tokenizer
+│   ├── tokenizer.py           Byte-level BPE + Megabyte fallback patcher + omnimodal projections
+│   ├── codec.py               DNA-AI NumPy XOR + ZSTD 2-bit dictionary weight compression
+│   ├── bitnet.py              BitNet 1.58-bit ternary quantization ({-1, 0, +1})
+│   ├── tool_router.py         Native XML <tool_call> AST router & sandboxes
+│   ├── moe.py                 Mixture-of-Experts token routing & load balancing
+│   ├── adapters.py            Dynamic category domain adapters
+│   ├── hardware.py            Hardware auto-detection & CPU thread pinning
+│   ├── config.py              NeuroCore dataclass configurations
+│   └── utils.py               Structured logging & deterministic seed utilities
+├── Tests/                     Automated PyTest suite (94 passing unit tests)
 ├── webui/                     FastAPI web server & interactive dashboard
 ├── main.py                    Unified CLI entry point (--mode train/chat/benchmark/export/auto-pilot)
+├── tantra.ps1 / run_sft.bat   Universal Windows launchers
 └── requirements.txt / pyproject.toml
 ```
 
