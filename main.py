@@ -1146,7 +1146,7 @@ def main():
                 log.warning(f"Could not read checkpoint config: {_exc}; using default architecture.")
         model = init_model(mcfg, rt.device)
         dev_str = str(getattr(rt.device, "type", rt.device))
-        if torch.cuda.is_available() and torch.cuda.device_count() > 1 and dev_str.startswith("cuda") and args.mode in ("train", "dataset"):
+        if torch.cuda.is_available() and torch.cuda.device_count() > 1 and dev_str.startswith("cuda") and args.mode in ("train", "dataset", "auto-pilot", "dpo"):
             log.info(f"  [Multi-GPU DataParallel] Enabling {torch.cuda.device_count()}x GPUs for parallel batch execution.")
             model = torch.nn.DataParallel(model)
 
