@@ -41,3 +41,4 @@ dataclasses-json>=0.6.0  # Config serialization
 einops>=0.7.0            # Tensor operations & attention reshaping
 pyarrow>=14.0.0          # Parquet dataset streaming
 scikit-learn>=1.4.0      # Clustering & vector quantization
+edge-tts>=6.1.0          # High-fidelity natural neural voice synthesis
