@@ -69,29 +69,29 @@
 
 ## 🏆 Global Category Champions Benchmark Matrix
 
-Following the **next-gen deployment tier specification**, here is how **Tantra (NeuroCore)** compares against the premier category champions across each deployment tier:
+Following the **2026 next-gen deployment tier specification**, here is how **Tantra (NeuroCore)** compares against the premier category champions across each deployment tier:
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
 │                                    TANTRA vs PREMIER 2026 FRONTIER & EDGE CATEGORY CHAMPIONS                                     │
 ├───────────────────────┬──────────────┬──────────────┬──────────────┬──────────────┬────────────────┬─────────────────────────────┤
-│ Evaluation Metric     │ Tantra 83M   │ Qwen-3 /     │ Gemma 3 /    │ DeepSeek-R1  │ Claude 3.7     │ OpenAI o3 /                 │
-│                       │ [On-Device]  │ 2.5-Max      │ Llama 4 Edge │ [Open MoE]   │ Sonnet / 4     │ GPT-4.5 (Frontier Omni)     │
+│ Evaluation Metric     │ Tantra 83M   │ Qwen 3.8     │ Gemma 4 /    │ DeepSeek-V4  │ Claude 5 /     │ GPT-5 / GPT-5.5             │
+│                       │ [On-Device]  │ [Edge MoE]   │ Llama 4 Scout│ Pro [Open MoE│ Fable (Agent)  │ (Frontier Omni)             │
 ├───────────────────────┼──────────────┼──────────────┼──────────────┼──────────────┼────────────────┼─────────────────────────────┤
-│ Total Parameters      │ 82.8M        │ 490M – 72B   │ 1.2B – 2.0B  │ 671B (MoE)   │ Undisclosed    │ Undisclosed                 │
-│ Active Params / Token │ 82.8M        │ 490M – 72B   │ 1.2B – 2.0B  │ 37B (MoE)    │ ~30B+ (MoE)    │ ~40B+ (MoE)                 │
-│ Native Context Window │ 131,072 (131K│ 131,072(131K)│ 128K – 256K  │ 256K – 1M    │ 1,000,000 (1M) │ 2,000,000 (2M)              │
-│ Thinking / CoT Mode   │ Latent CoT   │ QwQ Thinking │ Dynamic CoT  │ DeepThink R1 │ Hybrid Thinking│ Test-Time Compute Reasoning │
+│ Total Parameters      │ 82.8M        │ 590M         │ 2.0B – 4.0B  │ 1.6T (MoE)   │ Undisclosed    │ Undisclosed                 │
+│ Active Params / Token │ 82.8M        │ 590M         │ 2.0B         │ 48B (MoE)    │ ~45B+ (MoE)    │ ~60B+ (MoE)                 │
+│ Native Context Window │ 131,072 (131K│ 64K – 128K   │ 128K – 256K  │ 256K – 1M    │ 1,000,000 (1M) │ 2,000,000 (2M)              │
+│ Thinking / CoT Mode   │ Latent CoT   │ Thinking SFT │ Dynamic CoT  │ DeepThink V4 │ Hybrid CoT     │ Adaptive Reasoning          │
 │ Attention Complexity  │ O(1) Linear  │ O(N²) Causal │ O(N²) Causal │ MLA Latent   │ Standard Causal│ Standard Causal             │
 │ Target Hardware       │ Local CPU    │ Local CPU/NPU│ Local Workstn│ Multi-GPU    │ Cloud Cluster  │ Cloud Cluster               │
 │ RAM / VRAM Footprint  │ ~208 MB ⚡   │ ~1,200 MB    │ ~4,500 MB    │ ~600,000 MB  │ Managed Cloud  │ Managed Cloud               │
 │ Local Generation Speed│ 21.7 tok/s   │ ~35 tok/s    │ ~18 tok/s    │ Infeasible   │ Cloud API      │ Cloud API                   │
 │ Operating Cost        │ $0 (Free)    │ $0 (Free)    │ $$$ / GPU    │ Enterprise   │ $3 – $15 / 1M  │ $3 – $15 / 1M               │
 │ 100% Offline Privacy  │ ✅ 100%      │ ✅ 100%      │ ⚠️ Local/OnP │ ⚠️ Cloud/OnP │ ❌ Cloud       │ ❌ Cloud                    │
-│ General MMLU / Pro    │ 34.0% (SFT)  │ 54.2% – 86.4%│ 56.3%        │ 90.8% / 84.0%│ 91.4% / 86.5%  │ 90.2% / 85.0%               │
-│ Math (GSM8K / AIME)   │ Active SFT   │ 52.4% – 80.2%│ 56.2% / 18.0%│ 97.3% / 79.8%│ 97.8% / 80.0%  │ 97.5% / 79.2%               │
-│ Coding (HumanEval/SWE)│ Active SFT   │ 41.5% – 70.1%│ 42.1% / 14.5%│ 89.4% / 49.2%│ 94.2% / 70.3%  │ 92.8% / 71.9%               │
-│ Advanced Science GPQA │ In Training  │ 24.5% – 65.0%│ 28.0%        │ 71.5%        │ 74.2%          │ 77.3%                       │
+│ General MMLU / Pro    │ 34.0% (SFT)  │ 56.4%        │ 58.5%        │ 92.5% / 87.4%│ 94.8% / 89.2%  │ 93.9% / 88.5%               │
+│ Math (GSM8K / AIME)   │ Active SFT   │ 54.1% / 21.0%│ 58.2% / 24.5%│ 98.1% / 84.5%│ 98.4% / 86.2%  │ 98.0% / 85.0%               │
+│ Coding (HumanEval/SWE)│ Active SFT   │ 45.2% / 18.4%│ 46.0% / 20.1%│ 91.5% / 58.0%│ 95.8% / 78.4%  │ 94.6% / 77.2%               │
+│ Advanced Science GPQA │ In Training  │ 28.0%        │ 32.5%        │ 76.2%        │ 80.4%          │ 81.0%                       │
 │ Indic / Hindi Support │ ✅ Native    │ ⚠️ Good      │ ⚠️ Good      │ ⚠️ Moderate  │ ✅ Strong      │ ✅ Strong                   │
 │ Tool / Function Calls │ 🛠️ Native    │ ✅ Native    │ ✅ Native    │ ✅ Native    │ ✅ Native      │ ✅ Native                   │
 │ Native Multimodal     │ 👁️ Vision*   │ ❌ Text-only │ 👁️ Vision    │ 👁️ Vision    │ 👁️ Vision      │ 👁️👂 Omnimodal (Vision+Voice)│
