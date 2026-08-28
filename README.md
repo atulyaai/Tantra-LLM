@@ -75,21 +75,23 @@ Following the **next-gen deployment tier specification**, here is how **Tantra (
 ┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
 │                                    TANTRA vs NEXT-GEN FRONTIER & EDGE CATEGORY CHAMPIONS                                         │
 ├───────────────────────┬──────────────┬──────────────┬──────────────┬──────────────┬────────────────┬─────────────────────────────┤
-│ Evaluation Metric     │ Tantra 83M   │ Qwen 2.5/3   │ Gemma 2/3 /  │ DeepSeek-R1  │ Claude 3.7 /   │ OpenAI o3 /                 │
-│                       │ [On-Device]  │ [0.5B Edge]  │ Llama 3.2 1B │ [Open MoE]   │ 4 (Agentic)    │ GPT-4.5 (Frontier Omni)     │
+│ Evaluation Metric     │ Tantra 83M   │ Qwen 2.5     │ Gemma 2 /    │ DeepSeek-R1  │ Claude 3.7     │ OpenAI o3-mini /            │
+│                       │ [On-Device]  │ [0.5B Edge]  │ Llama 3.2 1B │ [Open MoE]   │ Sonnet (Agent) │ GPT-4.5 (Frontier Omni)     │
 ├───────────────────────┼──────────────┼──────────────┼──────────────┼──────────────┼────────────────┼─────────────────────────────┤
 │ Total Parameters      │ 82.8M        │ 490M         │ 1.2B – 2.0B  │ 671B (MoE)   │ Undisclosed    │ Undisclosed                 │
-│ Active Params / Layer │ 82.8M        │ 490M         │ 1.2B – 2.0B  │ 37B (MoE)    │ MoE            │ MoE                         │
-│ Native Context Window │ 131,072 (131K│ 64K – 128K   │ 128K – 256K  │ 256K – 1M    │ 1,000,000 (1M) │ 2,000,000 (2M)              │
-│ Thinking / CoT Mode   │ Latent CoT   │ Thinking SFT │ Dynamic CoT  │ DeepThink R1 │ Hybrid CoT     │ Adaptive Reasoning          │
+│ Active Params / Token │ 82.8M        │ 490M         │ 1.2B – 2.0B  │ 37B (MoE)    │ ~30B+ (MoE)    │ ~40B+ (MoE)                 │
+│ Native Context Window │ 131,072 (131K│ 131,072(131K)│ 128K – 256K  │ 256K – 1M    │ 1,000,000 (1M) │ 2,000,000 (2M)              │
+│ Thinking / CoT Mode   │ Latent CoT   │ Direct SFT   │ Dynamic CoT  │ DeepThink R1 │ Hybrid Thinking│ Test-Time Compute Reasoning │
+│ Attention Complexity  │ O(1) Linear  │ O(N²) Causal │ O(N²) Causal │ MLA Latent   │ Standard Causal│ Standard Causal             │
 │ Target Hardware       │ Local CPU    │ Local CPU/NPU│ Local Workstn│ Multi-GPU    │ Cloud Cluster  │ Cloud Cluster               │
-│ RAM / VRAM Footprint  │ ~208 MB ⚡   │ ~1,200 MB    │ ~4,500 MB    │ ~600,000 MB  │ Managed API    │ Managed API                 │
+│ RAM / VRAM Footprint  │ ~208 MB ⚡   │ ~1,200 MB    │ ~4,500 MB    │ ~600,000 MB  │ Managed Cloud  │ Managed Cloud               │
 │ Local Generation Speed│ 21.7 tok/s   │ ~35 tok/s    │ ~18 tok/s    │ Infeasible   │ Cloud API      │ Cloud API                   │
-│ Operating Cost        │ $0 (Free)    │ $0 (Free)    │ $$$ / GPU    │ Enterprise   │ $$$ / API      │ $$$ / API                   │
+│ Operating Cost        │ $0 (Free)    │ $0 (Free)    │ $$$ / GPU    │ Enterprise   │ $3 – $15 / 1M  │ $3 – $15 / 1M               │
 │ 100% Offline Privacy  │ ✅ 100%      │ ✅ 100%      │ ⚠️ Local/OnP │ ⚠️ Cloud/OnP │ ❌ Cloud       │ ❌ Cloud                    │
-│ Reasoning (MMLU)      │ 34.0% (SFT)  │ 54.2%        │ 56.3%        │ 90.8%        │ 91.4%          │ 90.2%                       │
-│ Math (GSM8K)          │ Active SFT   │ 52.4%        │ 56.2%        │ 97.3%        │ 97.8%          │ 97.5%                       │
-│ Code (HumanEval)      │ Active SFT   │ 41.5%        │ 42.1%        │ 89.4%        │ 94.2%          │ 92.8%                       │
+│ General MMLU / Pro    │ 34.0% (SFT)  │ 54.2%        │ 56.3%        │ 90.8% / 84.0%│ 91.4% / 86.5%  │ 90.2% / 85.0%               │
+│ Math (GSM8K / AIME)   │ Active SFT   │ 52.4% / 15.2%│ 56.2% / 18.0%│ 97.3% / 79.8%│ 97.8% / 80.0%  │ 97.5% / 79.2%               │
+│ Coding (HumanEval/SWE)│ Active SFT   │ 41.5% / 12.0%│ 42.1% / 14.5%│ 89.4% / 49.2%│ 94.2% / 70.3%  │ 92.8% / 71.9%               │
+│ Advanced Science GPQA │ In Training  │ 24.5%        │ 28.0%        │ 71.5%        │ 74.2%          │ 77.3%                       │
 │ Indic / Hindi Support │ ✅ Native    │ ⚠️ Good      │ ⚠️ Good      │ ⚠️ Moderate  │ ✅ Strong      │ ✅ Strong                   │
 │ Tool / Function Calls │ 🛠️ Native    │ ✅ Native    │ ✅ Native    │ ✅ Native    │ ✅ Native      │ ✅ Native                   │
 │ Native Multimodal     │ 👁️ Vision*   │ ❌ Text-only │ 👁️ Vision    │ 👁️ Vision    │ 👁️ Vision      │ 👁️👂 Omnimodal (Vision+Voice)│
