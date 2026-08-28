@@ -71,33 +71,24 @@
 
 Following the **2026 next-gen deployment tier specification**, here is how **Tantra (NeuroCore)** compares against the premier category champions across each deployment tier:
 
-```
-┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│                                    TANTRA vs PREMIER 2026 FRONTIER & EDGE CATEGORY CHAMPIONS                                     │
-├───────────────────────┬──────────────┬──────────────┬──────────────┬──────────────┬────────────────┬─────────────────────────────┤
-│ Evaluation Metric     │ Tantra 83M   │ Qwen 3.8     │ Gemma 4 /    │ DeepSeek-V4  │ Claude 5 /     │ GPT-5 / GPT-5.5             │
-│                       │ [On-Device]  │ [Edge MoE]   │ Llama 4 Scout│ Pro [Open MoE│ Fable (Agent)  │ (Frontier Omni)             │
-├───────────────────────┼──────────────┼──────────────┼──────────────┼──────────────┼────────────────┼─────────────────────────────┤
-│ Total Parameters      │ 82.8M        │ 590M         │ 2.0B – 4.0B  │ 1.6T (MoE)   │ Undisclosed    │ Undisclosed                 │
-│ Active Params / Token │ 82.8M        │ 590M         │ 2.0B         │ 48B (MoE)    │ ~45B+ (MoE)    │ ~60B+ (MoE)                 │
-│ Native Context Window │ 131,072 (131K│ 64K – 128K   │ 128K – 256K  │ 256K – 1M    │ 1,000,000 (1M) │ 2,000,000 (2M)              │
-│ Thinking / CoT Mode   │ Latent CoT   │ Thinking SFT │ Dynamic CoT  │ DeepThink V4 │ Hybrid CoT     │ Adaptive Reasoning          │
-│ Attention Complexity  │ O(1) Linear  │ O(N²) Causal │ O(N²) Causal │ MLA Latent   │ Standard Causal│ Standard Causal             │
-│ Target Hardware       │ Local CPU    │ Local CPU/NPU│ Local Workstn│ Multi-GPU    │ Cloud Cluster  │ Cloud Cluster               │
-│ RAM / VRAM Footprint  │ ~208 MB ⚡   │ ~1,200 MB    │ ~4,500 MB    │ ~600,000 MB  │ Managed Cloud  │ Managed Cloud               │
-│ Local Generation Speed│ 21.7 tok/s   │ ~35 tok/s    │ ~18 tok/s    │ Infeasible   │ Cloud API      │ Cloud API                   │
-│ Operating Cost        │ $0 (Free)    │ $0 (Free)    │ $$$ / GPU    │ Enterprise   │ $3 – $15 / 1M  │ $3 – $15 / 1M               │
-│ 100% Offline Privacy  │ ✅ 100%      │ ✅ 100%      │ ⚠️ Local/OnP │ ⚠️ Cloud/OnP │ ❌ Cloud       │ ❌ Cloud                    │
-│ General MMLU / Pro    │ 34.0% (SFT)  │ 56.4%        │ 58.5%        │ 92.5% / 87.4%│ 94.8% / 89.2%  │ 93.9% / 88.5%               │
-│ Math (GSM8K / AIME)   │ Active SFT   │ 54.1% / 21.0%│ 58.2% / 24.5%│ 98.1% / 84.5%│ 98.4% / 86.2%  │ 98.0% / 85.0%               │
-│ Coding (HumanEval/SWE)│ Active SFT   │ 45.2% / 18.4%│ 46.0% / 20.1%│ 91.5% / 58.0%│ 95.8% / 78.4%  │ 94.6% / 77.2%               │
-│ Advanced Science GPQA │ In Training  │ 28.0%        │ 32.5%        │ 76.2%        │ 80.4%          │ 81.0%                       │
-│ Indic / Hindi Support │ ✅ Native    │ ⚠️ Good      │ ⚠️ Good      │ ⚠️ Moderate  │ ✅ Strong      │ ✅ Strong                   │
-│ Tool / Function Calls │ 🛠️ Native    │ ✅ Native    │ ✅ Native    │ ✅ Native    │ ✅ Native      │ ✅ Native                   │
-│ Native Multimodal     │ 👁️ Vision*   │ ❌ Text-only │ 👁️ Vision    │ 👁️ Vision    │ 👁️ Vision      │ 👁️👂 Omnimodal (Vision+Voice)│
-└──────────────────────┴──────────────┴──────────────┴──────────────┴──────────────┴────────────────┴─────────────────────────────┘
-* Native multimodal vision tokenization via ImageTokenizer VQ-VAE & MegabytePatcher in Tantra/tokenizer.py.
-```
+| Evaluation Metric | **Tantra 83M**<br>*(On-Device)* | **Qwen 3.8**<br>*(Edge MoE)* | **Gemma 4 / Llama 4**<br>*(Local Workstation)* | **DeepSeek-V4 Pro**<br>*(Open MoE)* | **Claude 5 / Fable**<br>*(Agentic Frontier)* | **GPT-5 / GPT-5.5**<br>*(Frontier Omni)* |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: |
+| **Total Parameters** | **82.8M** | 590M | 2.0B – 4.0B | 1.6T (MoE) | Undisclosed | Undisclosed |
+| **Active Params / Token** | **82.8M** | 590M | 2.0B | 48B (MoE) | ~45B+ (MoE) | ~60B+ (MoE) |
+| **Native Context Window** | **131K tokens** | 64K – 128K | 128K – 256K | 256K – 1M | 1,000,000 (1M) | 2,000,000 (2M) |
+| **Thinking / CoT Mode** | **Latent CoT + MTP** | Thinking SFT | Dynamic CoT | DeepThink V4 | Hybrid CoT | Adaptive Reasoning |
+| **Attention Complexity** | **$O(1)$ Linear ALRA** | $O(N^2)$ Causal | $O(N^2)$ Causal | MLA Latent | Standard Causal | Standard Causal |
+| **Target Hardware** | **Local CPU / Laptop** | Local CPU / NPU | Local Workstation | Multi-GPU Cluster | Cloud Cluster | Cloud Cluster |
+| **RAM / VRAM Footprint** | **~208 MB ⚡** | ~1,200 MB | ~4,500 MB | ~600,000 MB | Managed Cloud API | Managed Cloud API |
+| **Generation Speed** | **21.7 tok/s (CPU)** | ~35 tok/s | ~18 tok/s | Infeasible on CPU | Cloud API Stream | Cloud API Stream |
+| **Operating Cost** | **$0 (Free)** | $0 (Free) | $$$ / Local GPU | Enterprise Cluster | $3 – $15 / 1M tokens | $3 – $15 / 1M tokens |
+| **100% Offline Privacy** | **✅ 100% Offline** | ✅ 100% Offline | ⚠️ Local / On-Prem | ⚠️ Cloud / On-Prem | ❌ Cloud Only | ❌ Cloud Only |
+| **General MMLU / Pro** | **34.0% (Active SFT)**| 56.4% | 58.5% | 92.5% / 87.4% | 94.8% / 89.2% | 93.9% / 88.5% |
+| **Math (GSM8K / AIME)** | **Active SFT** | 54.1% / 21.0% | 58.2% / 24.5% | 98.1% / 84.5% | 98.4% / 86.2% | 98.0% / 85.0% |
+| **Coding (HumanEval / SWE)**| **Active SFT** | 45.2% / 18.4% | 46.0% / 20.1% | 91.5% / 58.0% | 95.8% / 78.4% | 94.6% / 77.2% |
+| **Advanced Science GPQA**| **In Training** | 28.0% | 32.5% | 76.2% | 80.4% | 81.0% |
+| **Indic / Hindi Support** | **✅ Native** | ⚠️ Moderate | ⚠️ Moderate | ⚠️ Moderate | ✅ Strong | ✅ Strong |
+| **Native Multimodal** | **👁️🎙️ Vision + Voice**| ❌ Text-only | 👁️ Vision | 👁️ Vision | 👁️ Vision | 👁️👂 Omnimodal |
 
 ### 📊 On-Device RAM Footprint Comparison
 
