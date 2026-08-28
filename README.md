@@ -211,7 +211,7 @@ python main.py --mode chat --checkpoint Model/Checkpoints/checkpoint_latest.pt -
 
 ### 4. Run Full Industry Benchmark Suite
 ```powershell
-python tools/industry_eval_matrix.py --checkpoint Model/Checkpoints/checkpoint_latest.pt
+python tools/benchmark.py --checkpoint Model/Checkpoints/checkpoint_latest.pt
 ```
 
 ---
@@ -228,11 +228,10 @@ Tantra-LLM/
 │   ├── dataset.py             DPODataset, Streaming and sequence packing
 │   ├── tokenizer.py           Byte-level BPE + Megabyte fallback patcher
 │   └── eval_suite.py          Industry-standard evaluation benchmarks
-├── tools/                     Caching, multi-level benchmarking, and model export
-│   ├── build_curriculum_datasets.py  Fast 4-track curriculum builder with caching
-│   ├── generate_gold_dataset.py      Synthetic instruction & DPO preference builder
-│   ├── industry_eval_matrix.py       5-Level benchmark matrix runner
-│   └── export_model.py               TorchScript, ONNX, and 1.58-bit BitNet export
+├── tools/                     Consolidated 3-Tool Suite
+│   ├── dataset.py             4-Track domain curriculum builder & synthetic gold data
+│   ├── benchmark.py           5-Level industry evaluation matrix runner (GSM8K, HumanEval, MMLU)
+│   └── export.py              Clean checkpoint stripper & model exporter
 ├── Tests/                     Automated PyTest suite (94 passing tests)
 ├── Datasets/                  4-Track domain curriculum & preference pairs
 ├── Model/                     Checkpoints, vocabulary merges, and tokenizer
