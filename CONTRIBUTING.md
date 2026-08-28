@@ -1,60 +1,53 @@
-# Contributing to Tantra-LLM
+# 🤝 Contributing to Tantra-LLM
 
-Thank you for helping improve Tantra-LLM. The project is an experimental local
-LLM implementation; contributions should make its behaviour more measurable,
-reproducible, or reliable.
+Thank you for your interest in contributing to **Tantra-LLM**! We welcome contributions from AI researchers, systems engineers, and open-source developers to advance open, efficient, local-compute foundation models.
 
-## Setup
+---
+
+## 🛠️ 1. Development Setup
 
 ```powershell
+# Clone the repository
 git clone https://github.com/atulyaai/Tantra-LLM.git
 cd Tantra-LLM
+
+# Create and activate virtual environment
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
+
+# Install dependencies in editable mode
 pip install -r requirements.txt
-python -m pytest Tests -q
+
+# Run the automated test suite to verify setup
+pytest Tests/ -q
 ```
 
-## Where code belongs
+---
 
-- Put reusable importable code in `Tantra/`.
-- Put reusable command-line workflows beside their owning `Tantra/` module;
-  keep destructive dataset actions explicit and separately named.
-- Keep `main.py` focused on coordinating public CLI modes.
-- Put tests in `Tests/` using `test_*.py` names.
+## 🏛️ 2. Architectural Guidelines & Code Organization
 
-Do not move a script into `Tantra/` merely for folder tidiness. Move reusable
-functions first, then keep a thin script wrapper for the CLI command.
+* **`Tantra/`**: All reusable core neural network code, training engines, tokenizers, and evolution controllers live here.
+* **`Tests/`**: Automated unit and regression tests categorized into 4 suites:
+  * `Tests/test_core_architecture.py` (Architecture, Attention, BitNet 1.58b, MTP)
+  * `Tests/test_training_alignment.py` (Continuous Packing, DataLoaders, DPO Preference)
+  * `Tests/test_omnimodal_tools.py` (Vision, Audio, Video, Tool Calling)
+  * `Tests/test_system_integration.py` (Robustness, Red-Teaming, WebUI Server API)
+* **`Datasets/`**: 4-Track Domain Curriculum (`expert_conversation.jsonl`, `expert_code.jsonl`, `expert_math_science.jsonl`, `expert_general.jsonl`).
+* **`main.py`**: Unified entry point for all modes (`train`, `chat`, `benchmark`, `export`, `auto-pilot`).
 
-## Before opening a pull request
+---
 
-```powershell
-python -m pytest Tests -q
-python -m py_compile main.py Tantra\*.py webui\server.py
-```
+## 📋 3. Pre-Flight PR Checklist
 
-For training or performance changes, include:
+Before submitting a Pull Request, ensure:
 
-1. Hardware, PyTorch version, threads, batch size, sequence length, and seed.
-2. Dataset identity and held-out evaluation method (never commit private/raw
-   data).
-3. Parameter count, tokens/sec, validation loss, and a short qualitative
-   evaluation when generation is affected.
-4. A checkpoint compatibility plan if any model shape, tokenizer, or vocabulary
-   changes.
+1. **All Tests Pass**: Run `pytest Tests/ -q` and ensure **100% of tests pass**.
+2. **Deterministic & Safe**: Code should execute cleanly without NaN/Inf leaks.
+3. **No Large Binary Checkpoints**: Checkpoint `.pt` weights and temporary data are gitignored.
+4. **Documentation**: Update docstrings and documentation if modifying public APIs or CLI arguments.
 
-## Rules for artifacts and safety
+---
 
-- Do not commit checkpoints, logs, model state, caches, API keys, or raw
-  datasets. They are intentionally ignored by Git.
-- Do not claim performance or model-quality improvements without a comparable
-  measurement.
-- Preserve compatible checkpoint loading or add an explicit converter.
-- Keep WebUI and server changes local-first by default. Do not enable code
-  execution or network-facing services without clear opt-in and tests.
+## 📜 4. License & Contributor Agreement
 
-## Pull requests
-
-Use a focused branch, explain the problem and validation, and avoid combining
-formatting-only rewrites with functional changes. Contributions are licensed
-under the [MIT License](LICENSE).
+By contributing to Tantra-LLM, you agree that your contributions will be licensed under the project's **[MIT License](LICENSE)**.
