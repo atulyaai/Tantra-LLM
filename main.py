@@ -910,7 +910,29 @@ def run_dpo_training(
         trainer.save_checkpoint(latest_ckpt, save_optimizer=True, async_write=False)
         
     def eval_cb(step):
-        run_world_benchmark(model, tokenizer, step, device=device)
+        log.info(f"┌── 🌐 [ DPO PREFERENCE ALIGNMENT BENCHMARK @ Step {step:,} ] " + "─" * 20)
+        test_prompts = [
+            ("General", "💬", "<|user|>\nWhat is Tantra LLM?\n\n<|assistant|>\n"),
+            ("Coding",  "💻", "<|user|>\nWrite a Python function to reverse a string.\n\n<|assistant|>\n"),
+            ("Math",    "🔢", "<|user|>\nSolve for x in 2x + 6 = 14.\n\n<|assistant|>\n"),
+            ("Science", "🔬", "<|user|>\nState Newton's First Law of Motion.\n\n<|assistant|>\n")
+        ]
+        raw_model = getattr(model, "module", getattr(model, "_orig_mod", model))
+        for domain, icon, prompt_text in test_prompts:
+            prompt_ids = torch.tensor([tokenizer.encode(prompt_text)], device=raw_model.embed.weight.device)
+            out = raw_model.generate(prompt_ids, max_new_tokens=48, min_new_tokens=1, temperature=0.7, top_p=0.9, repetition_penalty=1.2)
+            new_tokens = out[0, prompt_ids.shape[1]:].tolist()
+            response = tokenizer.decode(new_tokens).strip().replace("\n", " ")
+            log.info(f"│ {icon} [{domain:7s}]: {response[:90]}")
+        
+        try:
+            from Tantra.world_eval import evaluate_zero_shot_world_knowledge
+            world_res = evaluate_zero_shot_world_knowledge(raw_model, tokenizer)
+            if world_res:
+                log.info(f"│ 🌍 [World MMLU]: 🏆 {world_res['world_mmlu_accuracy']:.1f}% Zero-Shot Accuracy ({world_res['correct_samples']}/{world_res['total_samples']} correct)")
+        except Exception:
+            pass
+        log.info("└" + "─" * 80)
         
     try:
         trainer.train_dpo(
