@@ -941,7 +941,8 @@ def main():
     parser.add_argument("--weight-decay", type=float, default=None, help="Weight decay (default: 0.01 for AdamW, 0.05 for Lion)")
     parser.add_argument("--warmup", type=int, default=None, help="LR warmup steps (default: steps // 10)")
     parser.add_argument("--topic-weights", type=str, default=None, help="JSON dict of topic weights, e.g. '{\"general\":40,\"code\":15}'")
-    parser.add_argument("--model-dir", type=str, default=None, help="Custom root directory for model checkpoints (e.g. Google Drive)")
+    parser.add_argument("--model-dir", "--checkpoint-dir", dest="model_dir", type=str, default=None, help="Custom root directory for model checkpoints (e.g. Kaggle/Google Drive)")
+    parser.add_argument("--mask-non-assistant", action="store_true", default=None, help="Supervise assistant replies only during training")
     parser.add_argument("--adapter-action", default="list", choices=["list", "add", "remove", "init"],
                         help="--mode adapter sub-action")
     parser.add_argument("--adapter", type=str, default=None,
