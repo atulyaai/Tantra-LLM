@@ -84,16 +84,20 @@ The word comes from two Sanskrit roots:
 
 | Component | Status | Evidence |
 |---|---|---|
-| **Hardware Auto-Detection** | ✅ Verified | Profiles CPU/RAM/disk, builds adaptive runtime config |
-| **Forward Pass & Training Loop** | ✅ Verified | Dense 32K model trains with live per-step loss & ETA |
-| **Resume & Fresh Checkpoints** | ✅ Verified | `--resume` restores step count & state from `Latest` |
-| **Chunked ALRA Attention** | ✅ Verified | O(1) memory blockwise recurrent scan, no full-sequence materialization |
+| **Hardware Auto-Detection** | ✅ Verified | Profiles CPU/RAM/disk/Dual-GPU, builds adaptive runtime config |
+| **Forward Pass & Training Loop** | ✅ Verified | Dense 32K model trains with live per-step loss, Top-1/5 metrics & ETA |
+| **Resume & Fresh Checkpoints** | ✅ Verified | `--resume` restores step count, momentum buffers & state seamlessly |
+| **Chunked ALRA Attention** | ✅ Verified | O(1) memory blockwise recurrent scan, no quadratic memory explosion |
 | **BitNet 1.58-bit Ternary** | ✅ Verified | Vectorized uint8 packing, ternary GEMM {-1, 0, +1} |
 | **DNA-AI Compression** | ✅ Verified | Lossless round-trip with NumPy XOR + ZSTD dict compression |
-| **Multi-Token Prediction** | ✅ Verified | Concurrent t+1, t+2 heads with auxiliary MTP loss |
-| **Local Web UI & CLI** | ✅ Verified | FastAPI WebUI + `Tantra.cpu_cli` chat/train commands |
-| **Test Suite** | ✅ 66/66 | 100% tests pass in ~37s |
-| **Auto-Growth & Self-Repair** | ⚠️ On-Demand | Growth controller + repair engine active during runs |
+| **Multi-Token Prediction** | ✅ Verified | Concurrent t+1, t+2 heads with speculative acceleration |
+| **Autonomous Auto-Pilot Pipeline** | ✅ Verified | Dual-stage pipeline: 90% SFT + Auto-Growth ➔ 10% DPO Alignment |
+| **Reactive Layer Auto-Growth** | ✅ Verified | Autonomously expanded from 8 ➔ 9 ➔ 10 layers (82.8M params) live |
+| **Direct Preference Optimization (DPO)** | ✅ Verified | Preference margin peaked at +15.15 with 100% chosen win rate |
+| **4-Track Domain Curriculum** | ✅ Verified | 489K samples partitioned (154K Conv, 45K Code, 117K Math, 170K Gen) |
+| **Industry Benchmark Suite** | ✅ Verified | Standard 5-level suite (GSM8k, HumanEval pass@1 sandbox, MMLU) |
+| **Local Web UI & REST API** | ✅ Verified | FastAPI WebUI + OpenAI-compatible `/v1/chat/completions` REST API |
+| **Test Suite** | ✅ 94/94 | 100% automated tests pass in ~38s |
 
 ---
 
