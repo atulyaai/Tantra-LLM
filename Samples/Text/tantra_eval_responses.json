@@ -1,0 +1,50 @@
+[
+  {
+    "category": "Greeting",
+    "prompt": "Hello! How are you today?",
+    "response": "Welcome to our e-learning module all about \"The World of Microbiology\"! Today we will explore the fascinating world of microbiology through the lens of microbiology. But don't worry - we won’t be using big words or complicated ideas; instead, let's dive into the wonderful world of microbiology!",
+    "tokens": 70
+  },
+  {
+    "category": "Identity",
+    "prompt": "Who created you and what is your name?",
+    "response": "A name is a name that can be used to describe things in a way that is easy and enjoyable for everyone involved. This unit will focus on how people can use their ideas to make sense of the world around them.\n\nFirstly, let's talk about something called \"the reason of a religion.\" It means being able to express themselves",
+    "tokens": 70
+  },
+  {
+    "category": "Science",
+    "prompt": "What is photosynthesis and how does it work?",
+    "response": "Photosynthesis: The process through which plants grow and reproduce through photosynthesis. This process occurs in the chlorophyll pigment layer, where they undergo photosynthesis, releasing carbon dioxide into glucose and oxygen, producing carbon dioxide (CO2) and oxygen gas. This process releases energy during photosynthesis, releasing carbon dioxide into the atmosphere. These reactions occur within the",
+    "tokens": 70
+  },
+  {
+    "category": "Math",
+    "prompt": "What is the formula for the volume of a sphere?",
+    "response": "The radius of a sphere is defined as the ratio of the radius of a circle to its radius. This unit will delve into the relationship between the radius (r) and radius (r), which we discussed earlier in this unit. We will explore how these radii can be determined using the formula for calculating the radius of a circle:\n\n$$ r",
+    "tokens": 70
+  },
+  {
+    "category": "Coding_Python",
+    "prompt": "Write a Python function to reverse a string.",
+    "response": "# Test an string of string\n```\n# Test the string\n\n### Test Test\n\nTest the Test: Test Test Test Test\n-------------------------------\n\nTest Test Test Test Test Test Test Test Test Test Test Test Test Test Test Test Test Test Test Test Test Test Test Test Test Test Test Test Test Test Test Test",
+    "tokens": 70
+  },
+  {
+    "category": "Coding_Java",
+    "prompt": "Write a Java function to find the minimum of two integers.",
+    "response": "The absolute value function (FV) is defined as follows:\n\n$$P(x)=\\frac{1}{2}\\left(\\frac{1}{4}\\right)^{3}=\\frac{1}{6}+\\frac{1}{2}\\left(\\frac{1}{8}\\right)^n",
+    "tokens": 70
+  },
+  {
+    "category": "Coding_JS",
+    "prompt": "Write a JavaScript function for binary search.",
+    "response": "constibelization: An algorithm to locate the graph of an e-commerce platform.\n\nThe following steps to create a binary search engine:\n\n1. **Search:** The search engine is a way to search for keywords related to the search engine's search engine. This involves searching for keywords that search for the search engine, search engine",
+    "tokens": 70
+  },
+  {
+    "category": "Coding_CPP",
+    "prompt": "Write a C++ function to check if an integer is prime.",
+    "response": "The absolute value function is the smallest positive integer greater than 1. This means that every positive integer has a positive integer value. It's important to note that this definition applies to integers without any restrictions on its absolute value. To do so, we need to consider two arbitrary real numbers $a$ and $b$. Then, we can write down the",
+    "tokens": 70
+  }
+]
