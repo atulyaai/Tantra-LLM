@@ -222,8 +222,11 @@ def run_interactive_chat(model, tokenizer, device, temp=0.7, top_p=0.9, router=N
             generated_tokens = []
             with torch.no_grad():
                 for token_id in model.generate_stream(prompt, max_new_tokens=256, temperature=temp, top_p=top_p, use_mtp_speculation=use_mtp):
-                    generated_tokens.append(token_id)
-                    piece = tokenizer.decode([token_id])
+                    tid = int(token_id.item() if hasattr(token_id, "item") else token_id)
+                    if tid in (0, 2):  # <pad> or </s> (EOS)
+                        break
+                    generated_tokens.append(tid)
+                    piece = tokenizer.decode([tid])
                     if any(stop_tag in piece for stop_tag in ["<|user|>", "<|system|>", "<|assistant|>", "</s>", "<s>"]):
                         break
                     if console:
