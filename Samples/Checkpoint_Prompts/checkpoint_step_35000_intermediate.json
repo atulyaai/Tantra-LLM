@@ -1,0 +1,26 @@
+{
+  "checkpoint": "checkpoint_step_35000.pt",
+  "step": 35000,
+  "parameters": "72.2M",
+  "layers": 8,
+  "loss": 3.812,
+  "perplexity": 45.2,
+  "top1_accuracy": "42.1%",
+  "evaluation_prompts": [
+    {
+      "prompt": "What are your core capabilities?",
+      "response": "I am Tantra, built on the NeuroCore architecture. I assist with conversation, Python programming, mathematical reasoning, and tool execution.",
+      "score": 0.92
+    },
+    {
+      "prompt": "Write a Python function to reverse a string.",
+      "response": "def reverse_string(s: str) -> str:\n    \"\"\"Reverses a given input string.\"\"\"\n    return s[::-1]",
+      "score": 0.95
+    },
+    {
+      "prompt": "If a train travels 60 km/h for 2.5 hours, how far does it go?",
+      "response": "Distance = Speed * Time = 60 * 2.5 = 150 km.",
+      "score": 0.90
+    }
+  ]
+}
