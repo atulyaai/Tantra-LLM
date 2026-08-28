@@ -930,6 +930,7 @@ def main():
 
     parser.add_argument("--training-stage", choices=["pretrain", "sft"], default="sft", help="pretrain uses full-token loss; sft supervises assistant replies only")
     parser.add_argument("--latent-reasoning", action=argparse.BooleanOptionalAction, default=None, help="Enable/disable latent reasoning. Defaults off for pretraining and on for SFT.")
+    parser.add_argument("--mtp-loss", action=argparse.BooleanOptionalAction, default=None, help="Train the MTP auxiliary head. Defaults off for pretraining and on for SFT.")
     parser.add_argument("--auto-growth", action=argparse.BooleanOptionalAction, default=True, help="Automatically add depth layers whenever loss plateaus (default: enabled)")
     parser.add_argument("--growth-patience", type=int, default=600, help="Optimizer steps to observe before auto-growth adds a layer (default: 600)")
     parser.add_argument("--growth-min-delta", type=float, default=0.005, help="Minimum EMA-loss improvement required to avoid auto-growth")
