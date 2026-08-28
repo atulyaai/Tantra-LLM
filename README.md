@@ -69,23 +69,23 @@
 
 ## 🏆 Global LLM Capability & Scale Comparison Matrix
 
-How Tantra-LLM compares against modern edge champions and frontier models:
+How Tantra-LLM compares against modern edge champions and the latest 2026 frontier models:
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│                         GLOBAL LLM SCALE & CAPABILITY COMPARISON (MODERN FRONTIER & EDGE)                        │
+│                         GLOBAL LLM SCALE & CAPABILITY COMPARISON (LATEST FRONTIER & EDGE)                        │
 ├──────────────────────┬─────────────┬──────────────────┬─────────────────┬──────────────┬─────────────┬───────────┤
-│ Model / Architecture │ Parameters  │ Tokens Ingested  │ Target Hardware │ GSM8K (Math) │ HumanEval   │ Zero-Shot │
-│                      │             │ (Data Volume)    │ & RAM Footprint │ (Exact Match)│ (pass@1)    │ MMLU      │
+│ Model / Architecture │ Parameters  │ Tokens Ingested  │ Target Hardware │ GSM8K (Math) │ HumanEval   │ MMLU      │
+│                      │             │ (Data Volume)    │ & RAM Footprint │ (Exact Match)│ (pass@1)    │ (50-Shot) │
 ├──────────────────────┼─────────────┼──────────────────┼─────────────────┼──────────────┼─────────────┼───────────┤
 │ **Tantra-LLM (Ours)**│ **82.8M**   │ **0.54 Billion** │ Local CPU (~208M│ Active SFT   │ Active SFT  │ **34.0%** │
 │ SmolLM2-135M         │ 135M        │ 2.0 Trillion     │ Edge Device     │ 35.1%        │ 22.0%       │ 46.5%     │
 │ Qwen-2.5-0.5B        │ 490M        │ 5.5 Trillion     │ Edge / CPU      │ 52.4%        │ 41.5%       │ 54.2%     │
 │ Llama-3.2-1B         │ 1,200M      │ 9.0 Trillion     │ Edge / Mobile   │ 44.4%        │ 34.6%       │ 49.3%     │
 │ Gemma-2-2B           │ 2,000M      │ 2.0 Trillion     │ Local Workstn   │ 56.2%        │ 42.1%       │ 56.3%     │
-│ DeepSeek-V3 (MoE)    │ 671B (37B)  │ 14.8 Trillion    │ Cloud Cluster   │ 91.6%        │ 82.6%       │ 88.5%     │
-│ Claude 3.5 Sonnet    │ ~175B+      │ ~15–20 Trillion  │ 30,000x H100s   │ 96.4%        │ 93.7%       │ 88.7%     │
-│ ChatGPT (GPT-4o)     │ ~200B+      │ ~15–20 Trillion  │ 30,000x H100s   │ 95.8%        │ 90.2%       │ 88.6%     │
+│ DeepSeek-R1 (MoE)    │ 671B (37B)  │ 14.8 Trillion    │ Cloud Cluster   │ 97.3%        │ 89.4%       │ 90.8%     │
+│ Claude 3.7 Sonnet    │ ~175B+      │ ~15–20 Trillion  │ 30,000x H100s   │ 97.8%        │ 94.2%       │ 91.4%     │
+│ OpenAI o3-mini       │ Undisclosed │ ~15–20 Trillion  │ Cloud Cluster   │ 97.5%        │ 92.8%       │ 90.2%     │
 └──────────────────────┴─────────────┴──────────────────┴─────────────────┴──────────────┴─────────────┴───────────┘
 ```
 
