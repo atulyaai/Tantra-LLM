@@ -993,7 +993,7 @@ def main():
     
     parser = argparse.ArgumentParser(description="Tantra-LLM / NeuroCore CLI Engine")
     parser.add_argument("--mode", default="full",
-                        choices=["full", "probe", "vocab", "train", "dataset", "eval", "compress", "generate", "serve", "status", "experts", "chat", "adapter", "dpo"],
+                        choices=["full", "probe", "vocab", "train", "dataset", "eval", "compress", "generate", "serve", "status", "experts", "chat", "adapter", "dpo", "auto-pilot"],
                         help="Execution mode")
     parser.add_argument("--checkpoint", type=str, default=None, help="Path to custom .pt model checkpoint to load (for chat, eval, serve, dpo)")
     parser.add_argument("--pack-sequences", action=argparse.BooleanOptionalAction, default=True, help="Enable continuous document sequence packing (0% padding waste)")
@@ -1020,8 +1020,8 @@ def main():
     parser.add_argument("--latent-reasoning", action=argparse.BooleanOptionalAction, default=None, help="Enable/disable latent reasoning. Defaults off for pretraining and on for SFT.")
     parser.add_argument("--mtp-loss", action=argparse.BooleanOptionalAction, default=None, help="Train the MTP auxiliary head. Defaults off for pretraining and on for SFT.")
     parser.add_argument("--auto-growth", action=argparse.BooleanOptionalAction, default=True, help="Automatically add depth layers whenever loss plateaus (default: enabled)")
-    parser.add_argument("--growth-patience", type=int, default=600, help="Optimizer steps to observe before auto-growth adds a layer (default: 600)")
-    parser.add_argument("--growth-min-delta", type=float, default=0.005, help="Minimum EMA-loss improvement required to avoid auto-growth")
+    parser.add_argument("--growth-patience", type=int, default=250, help="Optimizer steps to observe before auto-growth adds a layer (default: 250)")
+    parser.add_argument("--growth-min-delta", type=float, default=0.003, help="Minimum EMA-loss improvement required to avoid auto-growth")
     parser.add_argument("--max-layers", type=int, default=16, help="Hard maximum depth when auto-growth is enabled (default: 16 layers)")
     parser.add_argument("--compile", action="store_true", help="Compile model with torch.compile(backend='inductor') for CPU/GPU kernel fusion")
     parser.add_argument("--optimizer", type=str, choices=["adamw", "adam", "lion", "sgd"], default="adamw", help="Optimizer choice (default: adamw)")
@@ -1275,6 +1275,50 @@ def main():
             lr=args.lr or 5e-6, beta=args.dpo_beta, model_dir=args.model_dir,
             checkpoint_path=dpo_ckpt
         )
+
+    elif args.mode == "auto-pilot":
+        total_steps = args.steps
+        sft_steps = int(total_steps * 0.90)
+        dpo_steps = max(1, total_steps - sft_steps)
+        
+        log.info("=" * 80)
+        log.info(f"🚀 [AUTO-PILOT PIPELINE] Total: {total_steps:,} Steps │ Phase 1 (SFT + Auto-Growth): {sft_steps:,} Steps │ Phase 2 (DPO Preference Alignment): {dpo_steps:,} Steps")
+        log.info("=" * 80)
+        
+        # Phase 1: High-Density SFT with Dynamic Auto-Growth
+        log.info("▶️ [AUTO-PILOT PHASE 1/2] Starting High-Density SFT & Auto-Growth...")
+        resolved_optimizer = (args.optimizer or "adamw").lower().strip()
+        resolved_lr = args.lr if args.lr is not None else (5e-5 if resolved_optimizer == "lion" else 1e-4)
+        resolved_wd = args.weight_decay if args.weight_decay is not None else (0.05 if resolved_optimizer == "lion" else 0.01)
+        
+        run_dataset_training(
+            model, tok, args.dataset, steps=sft_steps, resume=args.resume,
+            eval_every=args.eval_every, log_every=args.log_every,
+            checkpoint_every=args.checkpoint_every, batch_size=args.batch_size,
+            seq_len=args.seq_len, grad_accumulation_steps=args.grad_accum,
+            data_workers=args.data_workers,
+            use_latent_reasoning=(args.latent_reasoning if args.latent_reasoning is not None else True),
+            use_mtp_loss=(args.mtp_loss if args.mtp_loss is not None else True),
+            compile=args.compile, lr=resolved_lr, weight_decay=resolved_wd,
+            optimizer=resolved_optimizer, warmup_steps=args.warmup,
+            training_stage="sft", auto_growth=args.auto_growth,
+            growth_patience=args.growth_patience, growth_min_delta=args.growth_min_delta,
+            max_layers=args.max_layers, model_dir=args.model_dir,
+            pack_sequences=args.pack_sequences, checkpoint_path=args.checkpoint
+        )
+        
+        # Phase 2: DPO Alignment
+        log.info("▶️ [AUTO-PILOT PHASE 2/2] Phase 1 complete! Autonomously starting Phase 2 (DPO Preference Alignment)...")
+        latest_ckpt = os.path.join(args.model_dir or MODEL_DIR, "Latest", "checkpoint_latest.pt")
+        run_dpo_training(
+            model, tok, args.preference_dataset, steps=dpo_steps,
+            eval_every=args.eval_every, log_every=args.log_every,
+            checkpoint_every=args.checkpoint_every, batch_size=args.batch_size,
+            grad_accumulation_steps=args.grad_accum, data_workers=args.data_workers,
+            lr=5e-6, beta=args.dpo_beta, model_dir=args.model_dir,
+            checkpoint_path=latest_ckpt if os.path.exists(latest_ckpt) else None
+        )
+        log.info("🏆 [AUTO-PILOT PIPELINE COMPLETE] Multi-Stage Autonomous Training & Alignment Finished!")
 
     elif args.mode == "eval":
         run_evaluation(model, tok, args.dataset)
