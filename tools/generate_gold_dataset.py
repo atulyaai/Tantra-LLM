@@ -151,6 +151,12 @@ def generate_synthetic_code_problems(count=5000):
     return problems
 
 def build_all_gold_data():
+    import sys
+    force = "--force" in sys.argv
+    if not force and os.path.exists(GOLD_CORPUS_PATH) and os.path.exists(GOLD_DPO_PATH) and os.path.getsize(GOLD_CORPUS_PATH) > 1024 * 1024 and os.path.getsize(GOLD_DPO_PATH) > 100 * 1024:
+        print("[GOLD CACHE] Verified existing gold SFT and DPO datasets in Datasets/. Skipping re-creation for instant startup.")
+        return
+
     os.makedirs("Datasets", exist_ok=True)
     all_sft = []
     all_dpo = []

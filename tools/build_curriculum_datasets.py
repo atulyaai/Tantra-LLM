@@ -12,6 +12,18 @@ import json
 import random
 
 def build_curriculum():
+    import sys
+    force = "--force" in sys.argv
+    expected_files = [
+        "Datasets/expert_conversation.jsonl",
+        "Datasets/expert_code.jsonl",
+        "Datasets/expert_math_science.jsonl",
+        "Datasets/expert_general.jsonl"
+    ]
+    if not force and all(os.path.exists(p) and os.path.getsize(p) > 1024 * 1024 for p in expected_files):
+        print("[CURRICULUM CACHE] Verified existing expert curriculum tracks in Datasets/. Skipping re-creation for instant startup.")
+        return
+
     os.makedirs("Datasets", exist_ok=True)
     
     conv_items = []
