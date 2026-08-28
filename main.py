@@ -1193,12 +1193,24 @@ def main():
             if sorted_cands:
                 ckpt_to_load = sorted_cands[0]
 
+        if args.checkpoint is not None:
+            if not os.path.exists(args.checkpoint):
+                log.error(f"❌ Checkpoint file not found: '{args.checkpoint}'")
+                # Try finding matching checkpoints
+                cand_find = [p for p in glob.glob("**/*.pt", recursive=True) if "sample" not in p]
+                if cand_find:
+                    log.info(f"Available checkpoints found on disk: {cand_find[:5]}")
+            else:
+                ckpt_to_load = args.checkpoint
+
         if ckpt_to_load and os.path.exists(ckpt_to_load):
             try:
                 trainer.load_checkpoint(ckpt_to_load)
-                log.info(f"Loaded checkpoint for chat: {ckpt_to_load}")
+                log.info(f"✅ Loaded checkpoint for chat: {ckpt_to_load} (Step {trainer.step_count:,})")
             except Exception as e:
-                log.warning(f"Could not load checkpoint {ckpt_to_load}: {e}")
+                log.error(f"Failed to load checkpoint {ckpt_to_load}: {e}")
+        else:
+            log.warning("⚠️ No valid checkpoint loaded! Model is running on random untrained weights.")
 
         if args.adapter is not None:
             if args.adapter not in model.category_layers:
