@@ -116,3 +116,28 @@ class IndustryBenchmarkSuite:
         avg_loss = (total_loss / batches) if batches > 0 else 0.0
         ppl = math.exp(min(avg_loss, 20.0))
         return {"val_loss": avg_loss, "val_perplexity": ppl}
+
+    def evaluate_world_mmlu(self, questions: List[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Evaluates zero-shot multi-choice accuracy on MMLU world knowledge questions."""
+        self.model.eval()
+        if not questions:
+            questions = [
+                {"question": "What is the powerhouse of the cell?", "options": {"A": "Nucleus", "B": "Mitochondria", "C": "Ribosome", "D": "Golgi"}, "answer": "B"},
+                {"question": "What is the capital of France?", "options": {"A": "Berlin", "B": "Rome", "C": "Paris", "D": "Madrid"}, "answer": "C"},
+                {"question": "What is the SI unit of force?", "options": {"A": "Joule", "B": "Watt", "C": "Newton", "D": "Pascal"}, "answer": "C"},
+                {"question": "What is the chemical symbol for Gold?", "options": {"A": "Ag", "B": "Au", "C": "Fe", "D": "Pb"}, "answer": "B"}
+            ]
+        correct = 0
+        total = len(questions)
+        for q in questions:
+            prompt = f"<|user|>\nQuestion: {q['question']}\nOptions:\n" + "\n".join(f"{k}: {v}" for k, v in q['options'].items()) + "\nAnswer:\n<|assistant|>\n"
+            input_ids = torch.tensor([self.tokenizer.encode(prompt)], dtype=torch.long, device=self.device)
+            with torch.no_grad():
+                raw = self.model.module if hasattr(self.model, "module") else self.model
+                out = raw.generate(input_ids, max_new_tokens=4, temperature=0.1)
+            gen = self.tokenizer.decode(out[0].tolist())
+            if q["answer"] in gen.upper():
+                correct += 1
+        acc = (correct / total * 100.0) if total > 0 else 0.0
+        return {"world_mmlu_accuracy": acc, "correct_samples": correct, "total_samples": total}
+
