@@ -770,20 +770,45 @@ CURRICULUM_TRACKS = {
 
 
 def generate_gold_datasets(datasets_dir: str = "Datasets", force: bool = False) -> None:
-    """Generates synthetic high-entropy, deduplicated reasoning and DPO preference datasets with instant caching."""
+    """Safely seeds synthetic reasoning datasets if real datasets are missing on a fresh machine.
+    NEVER overwrites or truncates existing non-empty gold_corpus.jsonl or preference_pairs.jsonl."""
     import hashlib
     os.makedirs(datasets_dir, exist_ok=True)
     gold_path = os.path.join(datasets_dir, "gold_corpus.jsonl")
     pref_path = os.path.join(datasets_dir, "preference_pairs.jsonl")
 
-    if not force and os.path.exists(gold_path) and os.path.getsize(gold_path) > 1_000_000 and \
-       os.path.exists(pref_path) and os.path.getsize(pref_path) > 500_000:
-        log.info(f"⚡ [CACHE HIT] Gold & preference datasets cached in {datasets_dir}/.")
+    # Safety protection: if real datasets already exist, never overwrite them!
+    has_real_gold = os.path.exists(gold_path) and os.path.getsize(gold_path) > 500_000
+    has_real_pref = os.path.exists(pref_path) and os.path.getsize(pref_path) > 100_000
+
+    if has_real_gold and has_real_pref and not force:
+        log.info(f"⚡ [CACHE HIT] Preserving real gold & preference datasets in {datasets_dir}/.")
+        return
+    elif has_real_gold and not force:
+        log.info(f"⚡ [CACHE HIT] Preserving real gold_corpus.jsonl ({os.path.getsize(gold_path):,} bytes).")
         return
 
-    log.info("🚀 Generating High-Diversity, Deduplicated Gold Corpus & Preference Pairs...")
+    log.info("🚀 Seeding High-Diversity Synthetic Gold Corpus & Preference Pairs...")
     seen_hashes = set()
     gold_samples = []
+
+    # Read any existing samples first so we NEVER lose or duplicate data
+    if os.path.exists(gold_path):
+        try:
+            with open(gold_path, "r", encoding="utf-8", errors="ignore") as f:
+                for line in f:
+                    if not line.strip(): continue
+                    try:
+                        d = json.loads(line)
+                        u = d.get("user") or d.get("instruction") or d.get("prompt") or ""
+                        a = d.get("assistant") or d.get("output") or d.get("response") or ""
+                        h = hashlib.sha256((str(u).strip() + "|||" + str(a).strip()).encode("utf-8")).hexdigest()
+                        seen_hashes.add(h)
+                        gold_samples.append(d)
+                    except Exception:
+                        pass
+        except Exception as e:
+            log.warning(f"Could not read existing gold corpus: {e}")
 
     def _add_sample(domain: str, instruction: str, output: str, complexity: int = 1):
         h = hashlib.sha256((instruction.strip() + "|||" + output.strip()).encode("utf-8")).hexdigest()
@@ -872,38 +897,41 @@ def generate_gold_datasets(datasets_dir: str = "Datasets", force: bool = False) 
     for q, a in science_facts:
         _add_sample("science", q, a, complexity=2)
 
-    # Write deduplicated gold corpus
-    with open(gold_path, "w", encoding="utf-8") as f:
-        for s in gold_samples:
-            f.write(json.dumps(s) + "\n")
+    # Only write gold corpus if not already populated with real data
+    if not has_real_gold:
+        with open(gold_path, "w", encoding="utf-8") as f:
+            for s in gold_samples:
+                f.write(json.dumps(s) + "\n")
+        log.info(f"✅ Generated {len(gold_samples)} unique seed gold samples.")
 
     # ── 5. DPO Preference Pairs Generation ───────────────────────────────────
-    pref_samples = [
-        {
-            "prompt": "Hello! Who are you?",
-            "chosen": "Hello! I am Tantra, an AI assistant developed by Atulya AI.",
-            "rejected": "I am a generic language model. The first step in the list is the world."
-        },
-        {
-            "prompt": "What is 15 * 6?",
-            "chosen": "15 * 6 = 90.",
-            "rejected": "The three main reasons why 15 times 6 is popular are 1. The first step is 100."
-        },
-        {
-            "prompt": "Write a Python function to reverse a string.",
-            "chosen": "def reverse_string(s: str) -> str:\n    return s[::-1]",
-            "rejected": "# Test the string\nTest Test Test Test Test Test Test"
-        },
-        {
-            "prompt": "What is the formula for the volume of a sphere?",
-            "chosen": "The formula for the volume of a sphere is V = (4/3) * pi * r^3, where r is the radius.",
-            "rejected": "The radius of a sphere is defined as the ratio of the radius to its radius."
-        }
-    ]
-    with open(pref_path, "w", encoding="utf-8") as f:
-        for p in pref_samples:
-            f.write(json.dumps(p) + "\n")
-    log.info(f"✅ Generated {len(gold_samples)} unique, deduplicated gold samples and {len(pref_samples)} DPO pairs.")
+    if not has_real_pref:
+        pref_samples = [
+            {
+                "prompt": "Hello! Who are you?",
+                "chosen": "Hello! I am Tantra, an AI assistant developed by Atulya AI.",
+                "rejected": "I am a generic language model. The first step in the list is the world."
+            },
+            {
+                "prompt": "What is 15 * 6?",
+                "chosen": "15 * 6 = 90.",
+                "rejected": "The three main reasons why 15 times 6 is popular are 1. The first step is 100."
+            },
+            {
+                "prompt": "Write a Python function to reverse a string.",
+                "chosen": "def reverse_string(s: str) -> str:\n    return s[::-1]",
+                "rejected": "# Test the string\nTest Test Test Test Test Test Test"
+            },
+            {
+                "prompt": "What is the formula for the volume of a sphere?",
+                "chosen": "The formula for the volume of a sphere is V = (4/3) * pi * r^3, where r is the radius.",
+                "rejected": "The radius of a sphere is defined as the ratio of the radius to its radius."
+            }
+        ]
+        with open(pref_path, "w", encoding="utf-8") as f:
+            for p in pref_samples:
+                f.write(json.dumps(p) + "\n")
+        log.info(f"✅ Generated {len(pref_samples)} seed DPO pairs.")
 
 
 def build_4track_curriculum(datasets_dir: str = "Datasets", force: bool = False) -> None:
