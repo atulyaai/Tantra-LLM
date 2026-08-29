@@ -94,7 +94,17 @@ def read_local_file(filepath: str, repo_root: Optional[str] = None) -> str:
         repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     repo_root = os.path.realpath(repo_root)
 
-    if os.path.isabs(filepath):
+    import ntpath
+    import posixpath
+
+    is_absolute = (
+        os.path.isabs(filepath)
+        or ntpath.isabs(filepath)
+        or posixpath.isabs(filepath)
+        or (len(filepath) > 1 and filepath[1] == ":")
+        or filepath.startswith(("\\\\", "//", "\\", "/"))
+    )
+    if is_absolute:
         return f"Access denied: absolute paths are not allowed ({filepath!r})."
 
     target = os.path.realpath(os.path.join(repo_root, filepath))
