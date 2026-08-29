@@ -1079,6 +1079,101 @@ def ingest_open_super_corpus(datasets_dir: str = "Datasets", max_samples: int = 
     return total_added
 
 
+def ingest_gigabyte_super_corpus(datasets_dir: str = "Datasets", target_samples: int = 1_000_000) -> int:
+    """Streams and packs 1,000,000+ samples (Multi-GB / 1B+ Tokens) from Cosmopedia, Python-Edu, OpenOrca, and FineWeb."""
+    os.makedirs(datasets_dir, exist_ok=True)
+    master_path = os.path.join(datasets_dir, "master_corpus.jsonl")
+    
+    try:
+        from datasets import load_dataset
+    except ImportError:
+        log.warning("HuggingFace `datasets` not installed. Run: pip install datasets")
+        return 0
+
+    total_added = 0
+    with open(master_path, "a", encoding="utf-8") as out_f:
+        # 1. Cosmopedia Educational Textbooks & Science (300K samples)
+        try:
+            log.info("📥 [1/4] Streaming Cosmopedia v2 Educational Textbooks & Science (300K)...")
+            ds = load_dataset("HuggingFaceTB/smollm-corpus", "cosmopedia-v2", split="train", streaming=True)
+            for i, it in enumerate(ds):
+                if i >= 300_000: break
+                text = it.get("text", "")
+                if len(text) > 100:
+                    out_f.write(json.dumps({
+                        "instruction": f"Explain the core scientific concepts and principles of the following topic in depth.",
+                        "input": text[:200],
+                        "output": text,
+                        "domain": "general"
+                    }) + "\n")
+                    total_added += 1
+                    if total_added % 50_000 == 0:
+                        log.info(f"  • Ingested {total_added:,} samples...")
+        except Exception as e:
+            log.warning(f"Could not stream cosmopedia: {e}")
+
+        # 2. Python-Edu & Code Repositories (200K samples)
+        try:
+            log.info("📥 [2/4] Streaming Python-Edu Code & Software Engineering (200K)...")
+            ds = load_dataset("HuggingFaceTB/smollm-corpus", "python-edu", split="train", streaming=True)
+            for i, it in enumerate(ds):
+                if i >= 200_000: break
+                code = it.get("text", "")
+                if len(code) > 80:
+                    out_f.write(json.dumps({
+                        "instruction": "Write a clean, optimized Python implementation with docstrings and type annotations.",
+                        "input": "",
+                        "output": code,
+                        "domain": "code"
+                    }) + "\n")
+                    total_added += 1
+                    if total_added % 50_000 == 0:
+                        log.info(f"  • Ingested {total_added:,} samples...")
+        except Exception as e:
+            log.warning(f"Could not stream python-edu: {e}")
+
+        # 3. FineWeb-Edu Curated Knowledge (300K samples)
+        try:
+            log.info("📥 [3/4] Streaming FineWeb-Edu World Knowledge (300K)...")
+            ds = load_dataset("HuggingFaceTB/smollm-corpus", "fineweb-edu-dedup", split="train", streaming=True)
+            for i, it in enumerate(ds):
+                if i >= 300_000: break
+                text = it.get("text", "")
+                if len(text) > 100:
+                    out_f.write(json.dumps({
+                        "instruction": "Provide a comprehensive, accurate, and detailed factual explanation.",
+                        "input": text[:150],
+                        "output": text,
+                        "domain": "general"
+                    }) + "\n")
+                    total_added += 1
+                    if total_added % 50_000 == 0:
+                        log.info(f"  • Ingested {total_added:,} samples...")
+        except Exception as e:
+            log.warning(f"Could not stream fineweb-edu: {e}")
+
+        # 4. Open-Orca Reasoning & Logic (200K samples)
+        try:
+            log.info("📥 [4/4] Streaming Open-Orca GPT-4 Reasoning & Logic (200K)...")
+            ds = load_dataset("Open-Orca/OpenOrca", split="train", streaming=True)
+            for i, it in enumerate(ds):
+                if i >= 200_000: break
+                out_f.write(json.dumps({
+                    "instruction": it.get("question", ""),
+                    "input": it.get("system_prompt", ""),
+                    "output": it.get("response", ""),
+                    "domain": "math" if any(k in it.get("question", "").lower() for k in ["math", "calculate", "solve", "x="]) else "general"
+                }) + "\n")
+                total_added += 1
+                if total_added % 50_000 == 0:
+                    log.info(f"  • Ingested {total_added:,} samples...")
+        except Exception as e:
+            log.warning(f"Could not stream open-orca: {e}")
+
+    log.info(f"🎉 Gigabyte Super Corpus Complete: {total_added:,} total samples written to {master_path}!")
+    return total_added
+
+
 def build_4track_curriculum(datasets_dir: str = "Datasets", force: bool = False) -> None:
     """Partitions all available master and gold datasets into 4 expert tracks ordered by curriculum complexity."""
     os.makedirs(datasets_dir, exist_ok=True)
