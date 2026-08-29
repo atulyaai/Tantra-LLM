@@ -168,6 +168,7 @@ async function sendMessage() {
 
     const temp = parseFloat(document.getElementById('inp-temp').value) || 0.3;
     const top_p = parseFloat(document.getElementById('inp-topp').value) || 0.85;
+    const adapter = document.getElementById('chat-adapter-select')?.value || 'auto';
 
     try {
         const response = await fetch('/v1/chat/completions', {
@@ -177,6 +178,7 @@ async function sendMessage() {
                 messages: chatSessions[currentSessionId].messages.slice(0, -1),
                 temperature: temp,
                 top_p: top_p,
+                adapter: adapter,
                 stream: true
             })
         });

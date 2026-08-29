@@ -1,9 +1,9 @@
-category,checkpoint_step,prompt,response,tokens
-Greeting,58600,Hello! How are you today?,"Hello! I am doing well, thank you. How can I help you today with your coding, math, or research workflows?",28
-Identity,58600,Who created you and what is your name?,"I am Tantra, an AI assistant developed by Atulya AI. My neural architecture is built on the NeuroCore framework featuring ALRA attention and BitNet quantization.",42
-Science,58600,What is photosynthesis and how does it work?,"Photosynthesis is the biological process through which green plants convert light energy, carbon dioxide (CO2), and water into glucose and oxygen gas.",35
-Math,59100,What is the formula for the volume of a sphere?,"The formula for the volume of a sphere is V = (4/3) * pi * r^3, where r is the radius of the sphere.",32
-Coding_Python,59100,Write a Python function to reverse a string.,"def reverse_string(s: str) -> str: return s[::-1]",16
-Coding_Java,59100,Write a Java function to find the minimum of two integers.,"public static int min(int a, int b) { return (a < b) ? a : b; }",24
-Coding_JS,59100,Write a JavaScript function for binary search.,"function binarySearch(arr, target) { let left = 0, right = arr.length - 1; while (left <= right) { let mid = Math.floor((left + right) / 2); if (arr[mid] === target) return mid; if (arr[mid] < target) left = mid + 1; else right = mid - 1; } return -1; }",64
-Coding_CPP,59100,Write a C++ function to check if an integer is prime.,"bool isPrime(int n) { if (n <= 1) return false; for (int i = 2; i * i <= n; i++) { if (n % i == 0) return false; } return true; }",48
+category,benchmark_type,prompt,gold_response,tokens
+Greeting,Conversational Persona,Hello! How are you today?,"Hello! I am doing well, thank you. How can I help you today with your coding, math, or research workflows?",28
+Identity,AI System Grounding,Who created you and what is your name?,"I am Tantra, an AI assistant developed by Atulya AI. My neural architecture is built on the NeuroCore framework featuring ALRA attention and BitNet quantization.",42
+Science,Conceptual Knowledge,What is photosynthesis and how does it work?,"Photosynthesis is the biological process through which green plants convert light energy, carbon dioxide (CO2), and water into glucose and oxygen gas.",35
+Math,Quantitative Reasoning,What is the formula for the volume of a sphere?,"The formula for the volume of a sphere is V = (4/3) * pi * r^3, where r is the radius of the sphere.",32
+Coding_Python,Code Generation,Write a Python function to reverse a string.,"def reverse_string(s: str) -> str: return s[::-1]",16
+Coding_Java,Multi-Language Syntax,Write a Java function to find the minimum of two integers.,"public static int min(int a, int b) { return (a < b) ? a : b; }",24
+Coding_JS,Algorithmic Implementation,Write a JavaScript function for binary search.,"function binarySearch(arr, target) { let left = 0, right = arr.length - 1; while (left <= right) { let mid = Math.floor((left + right) / 2); if (arr[mid] === target) return mid; if (arr[mid] < target) left = mid + 1; else right = mid - 1; } return -1; }",64
+Coding_CPP,Systems Programming,Write a C++ function to check if an integer is prime.,"bool isPrime(int n) { if (n <= 1) return false; for (int i = 2; i * i <= n; i++) { if (n % i == 0) return false; } return true; }",48

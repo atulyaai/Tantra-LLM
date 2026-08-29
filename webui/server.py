@@ -573,13 +573,32 @@ async def get_experts():
         load_val = int((hash(f"{ACTIVE_CHECKPOINT}_{i}") % 45) + 40)
         experts.append({
             "id": i,
-            "name": name,
+            "name": f"Expert #{i+1}: {name}",
+            "specialization": name,
+            "load_percentage": load_val,
+            "status": "online",
             "icon": icon,
-            "arch": f"BitNet 1.58-bit (Top-{top_k})",
-            "load": load_val
+            "active": i < top_k
         })
-
     return {"experts": experts, "num_experts": num_experts, "top_k": top_k}
+
+
+@app.get("/api/adapters")
+async def get_adapters():
+    """Returns list of registered domain adapter categories."""
+    from Tantra.adapters import AdapterRegistry
+    registry = AdapterRegistry()
+    categories = []
+    for cat in registry.all():
+        categories.append({
+            "name": cat.name,
+            "description": cat.description,
+            "depth": cat.depth,
+            "status": cat.status,
+            "params": cat.params,
+            "keywords": cat.keywords[:6]
+        })
+    return {"categories": categories, "count": len(categories)}
 
 
 @app.post("/v1/chat/completions")
@@ -653,9 +672,25 @@ async def chat_completions(request: Request):
     stop_tokens = [getattr(tokenizer, "eos_id", 2), 2, 3, 5, 6]
     min_new_tokens = max(1, min(32, max_tokens))
 
-    # ── Stop strings (#2) ──────────────────────────────────────────────────
-    # Prevent model from generating fake follow-up turns
-    STOP_STRINGS = ["<|user|>", "<|system|>", "\nUser:", "\nHuman:", "\nAssistant:"]
+    # ── Category / Domain Adapter Routing ──────────────────────────────────
+    from Tantra.adapters import AdapterRegistry, RequestRouter
+    req_adapter = body.get("adapter") or body.get("category")
+    if req_adapter == "auto" or req_adapter is None:
+        try:
+            router = RequestRouter(AdapterRegistry())
+            resolved_adapter = router.route(last_user_msg)
+        except Exception:
+            resolved_adapter = None
+    elif req_adapter in ("none", "base", "core"):
+        resolved_adapter = None
+    else:
+        resolved_adapter = str(req_adapter).strip().lower()
+
+    if resolved_adapter and hasattr(model, "category_layers") and resolved_adapter not in model.category_layers:
+        resolved_adapter = None
+
+    if resolved_adapter:
+        log.info(f"Routed chat request to domain adapter: '{resolved_adapter}'")
 
     if is_stream:
         async def event_generator():
@@ -669,6 +704,7 @@ async def chat_completions(request: Request):
                 repetition_penalty=repetition_penalty,
                 use_mtp_speculation=False,
                 use_latent_reasoning=False,
+                adapter_name=resolved_adapter,
                 eos_token_id=stop_tokens,
                 min_new_tokens=min_new_tokens,
             ):
@@ -739,6 +775,7 @@ async def chat_completions(request: Request):
             repetition_penalty=repetition_penalty,
             use_mtp_speculation=False,
             use_latent_reasoning=False,
+            adapter_name=resolved_adapter,
             eos_token_id=stop_tokens,
             min_new_tokens=min_new_tokens,
         )
