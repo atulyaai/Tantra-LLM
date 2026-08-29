@@ -1032,6 +1032,22 @@ async def switch_checkpoint_endpoint(request: Request):
 async def get_telemetry():
     model, tokenizer, hw = get_model_and_tokenizer()
     
+    import psutil
+    vm = psutil.virtual_memory()
+    cpu_pct = psutil.cpu_percent(interval=None)
+
+    gpu_info = None
+    if torch.cuda.is_available():
+        gpu_name = torch.cuda.get_device_name(0)
+        vram_alloc = torch.cuda.memory_allocated(0) / (1024 * 1024)
+        vram_total = torch.cuda.get_device_properties(0).total_memory / (1024 * 1024)
+        gpu_info = {
+            "name": gpu_name,
+            "vram_allocated_mb": round(vram_alloc, 1),
+            "vram_total_mb": round(vram_total, 1),
+            "count": torch.cuda.device_count()
+        }
+    
     simd_features = []
     if hw and hw.cpu:
         if getattr(hw.cpu, "has_avx512", False):
@@ -1040,20 +1056,27 @@ async def get_telemetry():
             simd_features.append("AVX2")
     simd_str = ", ".join(simd_features) if simd_features else "AVX2 SIMD"
     
+    total_params = sum(p.numel() for p in model.parameters())
+    raw_m = getattr(model, "module", getattr(model, "_orig_mod", model))
+    num_layers = len(raw_m.layers) if hasattr(raw_m, "layers") else 8
+
     return {
         "status": "online",
         "device": str(model.device),
         "vocab_size": tokenizer.vocab_size,
-        "parameters": sum(p.numel() for p in model.parameters()),
+        "parameters": total_params,
+        "layers": num_layers,
         "active_checkpoint": ACTIVE_CHECKPOINT,
         "training": get_training_metrics(),
         "hardware": {
-            "brand": hw.cpu.brand if (hw and hw.cpu) else "Generic x86 CPU",
-            "cpu_threads": hw.cpu.logical_cores if (hw and hw.cpu) else (os.cpu_count() or 8),
-            "physical_cores": hw.cpu.physical_cores if (hw and hw.cpu) else 4,
+            "brand": hw.cpu.brand if (hw and hw.cpu) else "Standard CPU",
+            "cpu_threads": psutil.cpu_count(logical=True) or 8,
+            "physical_cores": psutil.cpu_count(logical=False) or 4,
+            "cpu_utilization_pct": cpu_pct,
             "simd": simd_str,
-            "ram_total_gb": round((hw.ram_total_mb if hw else 16384) / 1024, 1),
-            "ram_free_gb": round((hw.ram_free_mb if hw else 8192) / 1024, 1),
+            "ram_total_gb": round(vm.total / (1024 ** 3), 2),
+            "ram_free_gb": round(vm.available / (1024 ** 3), 2),
+            "gpu": gpu_info,
             "mtp_speedup": "2.35x"
         }
     }
@@ -1061,30 +1084,42 @@ async def get_telemetry():
 
 @app.get("/api/training/live")
 async def get_live_training_status():
-    """Returns real-time training telemetry, loss curve, layer auto-growth, and DPO status."""
+    """Returns real-time training telemetry from active run or latest real checkpoint."""
     status_data = load_json_file(TRAINING_STATUS_FILE, {})
-    if not status_data:
-        status_data = {
-            "step": 67601,
-            "loss": 2.842,
-            "top1_accuracy": 55.4,
-            "active_layers": 10,
-            "parameters": "82.8M",
-            "total_tokens_seen": "541M",
-            "stage": "DPO Alignment",
-            "dpo_reward_margin": "+15.15",
-            "history": [
-                {"step": 1000, "loss": 6.85, "layers": 8, "lr": 1e-4},
-                {"step": 10000, "loss": 4.85, "layers": 8, "lr": 9.5e-5},
-                {"step": 25000, "loss": 3.92, "layers": 8, "lr": 8.0e-5},
-                {"step": 35000, "loss": 3.62, "layers": 8, "lr": 7.0e-5},
-                {"step": 50000, "loss": 3.25, "layers": 8, "lr": 5.5e-5},
-                {"step": 58600, "loss": 3.12, "layers": 9, "lr": 4.8e-5, "event": "AutoGrowth ➔ 9 Layers"},
-                {"step": 59100, "loss": 2.91, "layers": 10, "lr": 4.2e-5, "event": "AutoGrowth ➔ 10 Layers"},
-                {"step": 67601, "loss": 2.84, "layers": 10, "lr": 5e-6, "event": "DPO Preference Margin +15.15"}
-            ]
-        }
-    return status_data
+    if status_data:
+        return status_data
+    
+    # Fallback: Query real checkpoints on disk
+    model, tokenizer, _ = get_model_and_tokenizer()
+    raw_m = getattr(model, "module", getattr(model, "_orig_mod", model))
+    num_layers = len(raw_m.layers) if hasattr(raw_m, "layers") else 8
+    total_params = sum(p.numel() for p in model.parameters())
+
+    meta_files = glob.glob(os.path.join(REPO_ROOT, "**/*.meta.json"), recursive=True)
+    step_num = 0
+    total_toks = 0
+    loss_val = None
+    if meta_files:
+        try:
+            with open(meta_files[-1], "r", encoding="utf-8") as f:
+                meta = json.load(f)
+                step_num = meta.get("step_count", 0)
+                total_toks = meta.get("total_tokens", 0)
+                loss_val = meta.get("best_loss")
+        except Exception:
+            pass
+
+    return {
+        "status": "idle",
+        "step": step_num,
+        "loss": loss_val,
+        "top1_accuracy": None,
+        "active_layers": num_layers,
+        "parameters": f"{total_params / 1e6:.1f}M",
+        "total_tokens_seen": f"{total_toks / 1e6:.1f}M" if total_toks else "N/A",
+        "stage": "Ready / Idle",
+        "history": []
+    }
 
 
 @app.post("/api/multimodal/audio_generate")
@@ -1150,43 +1185,45 @@ async def inspect_multimodal_image(request: Request):
 
 @app.post("/api/compare")
 async def compare_checkpoints(request: Request):
-    """Compares model responses side-by-side across two checkpoints/milestones."""
+    """Compares model responses live using the loaded checkpoint engine."""
     body = await request.json()
     prompt = body.get("prompt", "What is photosynthesis?")
-    model_a = body.get("model_a", "step_10000_baseline")
-    model_b = body.get("model_b", "step_59100_10layer")
     
-    milestone_kb = {
-        "step_10000_baseline": {
-            "name": "Step 10,000 Baseline (8 Layers / 72.2M)",
-            "response": "Photosynthesis is when plants grow and they make food using light and water and carbon dioxide.",
-            "metrics": {"loss": 4.85, "top1": "38.2%", "layers": 8}
-        },
-        "step_35000_intermediate": {
-            "name": "Step 35,000 Intermediate (8 Layers / 72.2M)",
-            "response": "Photosynthesis is the biological process where green plants use sunlight to convert carbon dioxide and water into glucose and oxygen gas in chloroplasts.",
-            "metrics": {"loss": 3.62, "top1": "47.1%", "layers": 8}
-        },
-        "step_59100_10layer": {
-            "name": "Step 59,100 AutoGrowth (10 Layers / 82.8M)",
-            "response": "Photosynthesis is the multi-stage biochemical process occurring in chloroplasts where chlorophyll pigments capture photon energy to convert $6\\text{CO}_2 + 6\\text{H}_2\\text{O} \\xrightarrow{h\\nu} \\text{C}_6\\text{H}_{12}\\text{O}_6 + 6\\text{O}_2$.",
-            "metrics": {"loss": 2.91, "top1": "54.8%", "layers": 10}
-        },
-        "step_67601_dpo": {
-            "name": "Step 67,601 DPO Aligned (+15.15 Margin)",
-            "response": "Photosynthesis is the vital biological pathway whereby photoautotrophs convert light energy into chemical energy: $6\\text{CO}_2 + 6\\text{H}_2\\text{O} \\rightarrow \\text{C}_6\\text{H}_{12}\\text{O}_6 + 6\\text{O}_2$, releasing molecular oxygen into the atmosphere.",
-            "metrics": {"loss": 2.84, "top1": "55.4%", "layers": 10, "reward": "+15.15"}
-        }
-    }
+    model, tokenizer, _ = get_model_and_tokenizer()
+    raw_m = getattr(model, "module", getattr(model, "_orig_mod", model))
+    num_layers = len(raw_m.layers) if hasattr(raw_m, "layers") else 8
+    total_params = sum(p.numel() for p in model.parameters())
+
+    # Live generation
+    formatted_prompt = f"<|user|>\n{prompt}\n<|assistant|>\n"
+    tokens = tokenizer.encode(formatted_prompt)
+    input_ids = torch.tensor([tokens], dtype=torch.long, device=model.device)
     
-    # If dynamic live model generation requested for model_b
-    res_a = milestone_kb.get(model_a, milestone_kb["step_10000_baseline"])
-    res_b = milestone_kb.get(model_b, milestone_kb["step_59100_10layer"])
+    with torch.no_grad():
+        out_ids = []
+        curr = input_ids
+        for _ in range(64):
+            logits = model(curr)
+            next_tok = int(torch.argmax(logits[0, -1, :]).item())
+            if next_tok in (tokenizer.eos_token_id, tokenizer.pad_token_id):
+                break
+            out_ids.append(next_tok)
+            curr = torch.cat([curr, torch.tensor([[next_tok]], device=model.device)], dim=-1)
     
+    live_response = tokenizer.decode(out_ids) if out_ids else "Completed live inference."
+
     return {
         "prompt": prompt,
-        "model_a": res_a,
-        "model_b": res_b
+        "model_a": {
+            "name": f"Current Live Checkpoint ({ACTIVE_CHECKPOINT})",
+            "response": live_response,
+            "metrics": {"layers": num_layers, "parameters": f"{total_params / 1e6:.1f}M", "device": str(model.device)}
+        },
+        "model_b": {
+            "name": f"NeuroCore Active Engine ({num_layers} Layers)",
+            "response": live_response,
+            "metrics": {"layers": num_layers, "parameters": f"{total_params / 1e6:.1f}M", "status": "Online"}
+        }
     }
 
 
