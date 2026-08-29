@@ -1012,7 +1012,18 @@ class NeuroTrainer:
 
     def save_checkpoint(self, path: str, save_optimizer: bool = True, async_write: bool = False) -> None:
         """Save model checkpoint with self-contained tokenizer and max 2 checkpoint history cleanup."""
-        raw_model = getattr(self.model, "module", getattr(self.model, "_orig_mod", self.model))
+        raw_model = self.model
+        while hasattr(raw_model, "module"):
+            raw_model = raw_model.module
+        while hasattr(raw_model, "_orig_mod"):
+            raw_model = raw_model._orig_mod
+        while hasattr(raw_model, "module"):
+            raw_model = raw_model.module
+
+        current_num_layers = len(raw_model.layers) if hasattr(raw_model, "layers") else 8
+        if hasattr(raw_model, "config") and hasattr(raw_model.config, "block"):
+            raw_model.config.block.num_layers = current_num_layers
+
         model_sd = {k: (v.clone().half() if v.is_floating_point() else v.clone()) for k, v in raw_model.state_dict().items()}
         opt_sd = copy.deepcopy(self.optimizer.state_dict()) if save_optimizer else None
 
@@ -1023,7 +1034,7 @@ class NeuroTrainer:
 
         ckpt_data = {
             "model_state_dict": model_sd,
-            "config": getattr(self.model, "config", None),
+            "config": copy.deepcopy(getattr(raw_model, "config", None)),
             "step_count": self.step_count,
             "best_loss": getattr(self, "best_loss", float('inf')),
             "best_val_loss": getattr(self, "best_val_loss", float('inf')),
@@ -1036,7 +1047,7 @@ class NeuroTrainer:
             "scheduler_state_dict": copy.deepcopy(self.scheduler.state_dict()),
             "total_steps": self.total_steps,
             "training_stage": getattr(self, "training_stage", "pretrain"),
-            "num_layers": len(getattr(getattr(self.model, "_orig_mod", self.model), "layers", [])),
+            "num_layers": current_num_layers,
         }
         if opt_sd is not None:
             ckpt_data["optimizer_state_dict"] = opt_sd
