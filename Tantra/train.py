@@ -313,12 +313,14 @@ class NeuroTrainer:
                 if aux_loss is not None and not (math.isnan(aux_loss.item()) if hasattr(aux_loss, 'item') else math.isnan(aux_loss)):
                     loss = loss + aux_loss
 
-            # Auxiliary MTP Loss (Multi-Token Prediction)
+            # Auxiliary MTP Loss (Multi-Token Prediction) — Memory-Efficient Supervised Slicing
             if logits_mtp is not None and y.size(1) > 1:
                 logits_mtp_flat = logits_mtp[:, :-1, :].reshape(-1, logits_mtp.size(-1))
                 y_mtp_flat = self._safe_targets(y[:, 1:].reshape(-1), logits_mtp.size(-1))
-                mtp_loss = self.criterion(logits_mtp_flat, y_mtp_flat)
-                loss = loss + 0.3 * mtp_loss
+                mtp_mask = (y_mtp_flat != IGNORE_INDEX)
+                if mtp_mask.any():
+                    mtp_loss = self.criterion(logits_mtp_flat[mtp_mask], y_mtp_flat[mtp_mask])
+                    loss = loss + 0.3 * mtp_loss
 
         if math.isnan(loss.item()) or math.isinf(loss.item()):
             log.warning("NaN or Inf detected in loss! Skipping batch update and auto-repairing weights.")

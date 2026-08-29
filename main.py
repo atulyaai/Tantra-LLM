@@ -1046,6 +1046,7 @@ def main():
     parser.add_argument("--dim", type=int, default=512, help="Embedding dimension (default: 512)")
     parser.add_argument("--layers", type=int, default=8, help="Number of NeuroCore layers (default: 8)")
     parser.add_argument("--heads", type=int, default=8, help="Number of attention heads (default: 8)")
+    parser.add_argument("--output", type=str, default=None, help="Output path for model export mode")
     parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
     args = parser.parse_args()
 
@@ -1354,7 +1355,7 @@ def main():
         run_benchmarks(args.checkpoint, str(rt.device))
     elif args.mode == "export":
         from Tantra.export import export_clean_checkpoint
-        export_clean_checkpoint(args.checkpoint, args.model_dir or "Model/Export/checkpoint_clean.pt")
+        export_clean_checkpoint(args.checkpoint, args.output or args.model_dir or "Model/Export/checkpoint_clean.pt")
     elif args.mode == "eval":
         run_evaluation(model, tok, args.dataset)
     elif args.mode == "generate":
