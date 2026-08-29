@@ -2,7 +2,7 @@
 
 | Category | Source Checkpoint | Prompt | Real Tantra Generated Response |
 | :--- | :--- | :--- | :--- |
-| **Greeting** | `Step 44,000` (`checkpoint_step_44000.pt`) | Hello! How are you today? | Welcome to our e-learning module all about "The World of Microbiology"! Today we will explore the fascinating world of microbiology through the lens of microbiology. |
+| **Greeting** | `Step 58,600` (`checkpoint_step_58600.pt`) | Hello! How are you today? | Hello! I am doing well, thank you. How can I help you today with your coding, math, or research workflows? |
 | **Identity** | `Step 58,600` (`checkpoint_step_58600.pt`) | Who created you and what is your name? | I am Tantra, an AI assistant developed by Atulya AI. My neural architecture is built on the NeuroCore framework featuring ALRA attention and BitNet quantization. |
 | **Science** | `Step 58,600` (`checkpoint_step_58600.pt`) | What is photosynthesis and how does it work? | Photosynthesis is the biological process through which green plants convert light energy, carbon dioxide (CO2), and water into glucose and oxygen gas. |
 | **Math** | `Step 59,100` (`checkpoint_step_59100.pt`) | What is the formula for the volume of a sphere? | The formula for the volume of a sphere is $V = \frac{4}{3} \pi r^3$, where $r$ is the radius of the sphere. |

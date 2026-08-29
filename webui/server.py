@@ -659,10 +659,8 @@ async def chat_completions(request: Request):
 
     if is_stream:
         async def event_generator():
-            # ``generate_stream`` yields each sampled token as soon as it is
-            # available.  The previous implementation first generated the
-            # entire answer, then simulated streaming word-by-word; slow CPU
-            # generation therefore left clients waiting with no bytes sent.
+            from Tantra.tool_router import parse_and_execute_tool_calls
+            accumulated_text = ""
             for token in model.generate_stream(
                 input_tensor,
                 max_new_tokens=max_tokens,
@@ -679,6 +677,7 @@ async def chat_completions(request: Request):
                 chunk_text = tokenizer.decode([int(token.item())])
                 if not chunk_text or any(stop in chunk_text for stop in STOP_STRINGS):
                     continue
+                accumulated_text += chunk_text
                 data = {
                     "id": f"chatcmpl-{int(time.time())}",
                     "object": "chat.completion.chunk",
@@ -693,6 +692,30 @@ async def chat_completions(request: Request):
                     ]
                 }
                 yield f"data: {json.dumps(data)}\n\n"
+
+            # Execute tool calls if emitted in streaming session
+            if "<tool_call>" in accumulated_text and "</tool_call>" in accumulated_text:
+                executed_text, did_execute = parse_and_execute_tool_calls(
+                    accumulated_text, sandbox_enabled=SANDBOX_ENABLED
+                )
+                if did_execute:
+                    # Yield the executed result delta
+                    tool_result_delta = executed_text[len(accumulated_text):]
+                    if tool_result_delta:
+                        tool_data = {
+                            "id": f"chatcmpl-{int(time.time())}",
+                            "object": "chat.completion.chunk",
+                            "created": int(time.time()),
+                            "model": "tantra-neurocore-v1",
+                            "choices": [
+                                {
+                                    "index": 0,
+                                    "delta": {"content": tool_result_delta},
+                                    "finish_reason": None
+                                }
+                            ]
+                        }
+                        yield f"data: {json.dumps(tool_data)}\n\n"
 
             finish = {
                 "id": f"chatcmpl-{int(time.time())}",

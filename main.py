@@ -1285,6 +1285,15 @@ def main():
         log.info(f"🚀 [AUTO-PILOT PIPELINE] Total: {total_steps:,} Steps │ Phase 1 (SFT + Auto-Growth): {sft_steps:,} Steps │ Phase 2 (DPO Preference Alignment): {dpo_steps:,} Steps")
         log.info("=" * 80)
         
+        # Ensure datasets are ready
+        from Tantra.dataset import build_4track_curriculum, generate_gold_datasets
+        if not os.path.exists(args.dataset):
+            log.info(f"Dataset {args.dataset} not found locally. Auto-building 4-Track Domain Curriculum...")
+            build_4track_curriculum(datasets_dir=os.path.dirname(args.dataset) or "Datasets")
+        if args.preference_dataset and not os.path.exists(args.preference_dataset):
+            log.info(f"Preference dataset {args.preference_dataset} not found. Auto-generating DPO pairs...")
+            generate_gold_datasets(datasets_dir=os.path.dirname(args.preference_dataset) or "Datasets")
+
         # Phase 1: High-Density SFT with Dynamic Auto-Growth
         log.info("▶️ [AUTO-PILOT PHASE 1/2] Starting High-Density SFT & Auto-Growth...")
         resolved_optimizer = (args.optimizer or "adamw").lower().strip()

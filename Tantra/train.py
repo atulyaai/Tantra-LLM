@@ -928,7 +928,11 @@ class NeuroTrainer:
                     batch = next(dpo_iter)
                 except StopIteration:
                     dpo_iter = iter(dpo_dataloader)
-                    batch = next(dpo_iter)
+                    try:
+                        batch = next(dpo_iter)
+                    except StopIteration:
+                        log.warning("DPO dataloader is empty or exhausted. Concluding DPO phase safely.")
+                        break
                 
                 chosen_ids = batch["chosen_input_ids"].to(self.device)
                 chosen_labels = batch["chosen_labels"].to(self.device)

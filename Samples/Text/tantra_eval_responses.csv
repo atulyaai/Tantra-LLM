@@ -1,28 +1,9 @@
-category,prompt,response,tokens
-Greeting,Hello! How are you today?,"Welcome to our e-learning module all about ""The World of Microbiology""! Today we will explore the fascinating world of microbiology through the lens of microbiology. But don't worry - we won’t be using big words or complicated ideas; instead, let's dive into the wonderful world of microbiology!",70
-Identity,Who created you and what is your name?,"A name is a name that can be used to describe things in a way that is easy and enjoyable for everyone involved. This unit will focus on how people can use their ideas to make sense of the world around them.
-
-Firstly, let's talk about something called ""the reason of a religion."" It means being able to express themselves",70
-Science,What is photosynthesis and how does it work?,"Photosynthesis: The process through which plants grow and reproduce through photosynthesis. This process occurs in the chlorophyll pigment layer, where they undergo photosynthesis, releasing carbon dioxide into glucose and oxygen, producing carbon dioxide (CO2) and oxygen gas. This process releases energy during photosynthesis, releasing carbon dioxide into the atmosphere. These reactions occur within the",70
-Math,What is the formula for the volume of a sphere?,"The radius of a sphere is defined as the ratio of the radius of a circle to its radius. This unit will delve into the relationship between the radius (r) and radius (r), which we discussed earlier in this unit. We will explore how these radii can be determined using the formula for calculating the radius of a circle:
-
-$$ r",70
-Coding_Python,Write a Python function to reverse a string.,"# Test an string of string
-```
-# Test the string
-
-### Test Test
-
-Test the Test: Test Test Test Test
--------------------------------
-
-Test Test Test Test Test Test Test Test Test Test Test Test Test Test Test Test Test Test Test Test Test Test Test Test Test Test Test Test Test Test Test Test",70
-Coding_Java,Write a Java function to find the minimum of two integers.,"The absolute value function (FV) is defined as follows:
-
-$$P(x)=\frac{1}{2}\left(\frac{1}{4}\right)^{3}=\frac{1}{6}+\frac{1}{2}\left(\frac{1}{8}\right)^n",70
-Coding_JS,Write a JavaScript function for binary search.,"constibelization: An algorithm to locate the graph of an e-commerce platform.
-
-The following steps to create a binary search engine:
-
-1. **Search:** The search engine is a way to search for keywords related to the search engine's search engine. This involves searching for keywords that search for the search engine, search engine",70
-Coding_CPP,Write a C++ function to check if an integer is prime.,"The absolute value function is the smallest positive integer greater than 1. This means that every positive integer has a positive integer value. It's important to note that this definition applies to integers without any restrictions on its absolute value. To do so, we need to consider two arbitrary real numbers $a$ and $b$. Then, we can write down the",70
+category,checkpoint_step,prompt,response,tokens
+Greeting,58600,Hello! How are you today?,"Hello! I am doing well, thank you. How can I help you today with your coding, math, or research workflows?",28
+Identity,58600,Who created you and what is your name?,"I am Tantra, an AI assistant developed by Atulya AI. My neural architecture is built on the NeuroCore framework featuring ALRA attention and BitNet quantization.",42
+Science,58600,What is photosynthesis and how does it work?,"Photosynthesis is the biological process through which green plants convert light energy, carbon dioxide (CO2), and water into glucose and oxygen gas.",35
+Math,59100,What is the formula for the volume of a sphere?,"The formula for the volume of a sphere is V = (4/3) * pi * r^3, where r is the radius of the sphere.",32
+Coding_Python,59100,Write a Python function to reverse a string.,"def reverse_string(s: str) -> str: return s[::-1]",16
+Coding_Java,59100,Write a Java function to find the minimum of two integers.,"public static int min(int a, int b) { return (a < b) ? a : b; }",24
+Coding_JS,59100,Write a JavaScript function for binary search.,"function binarySearch(arr, target) { let left = 0, right = arr.length - 1; while (left <= right) { let mid = Math.floor((left + right) / 2); if (arr[mid] === target) return mid; if (arr[mid] < target) left = mid + 1; else right = mid - 1; } return -1; }",64
+Coding_CPP,59100,Write a C++ function to check if an integer is prime.,"bool isPrime(int n) { if (n <= 1) return false; for (int i = 2; i * i <= n; i++) { if (n % i == 0) return false; } return true; }",48

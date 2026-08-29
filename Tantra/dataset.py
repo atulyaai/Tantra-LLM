@@ -359,8 +359,15 @@ class JSONLDataset(IterableDataset):
 
     def __iter__(self) -> Iterator[Tuple[torch.Tensor, torch.Tensor]]:
         if not os.path.exists(self.jsonl_path):
-            log.warning(f"Dataset path does not exist: {self.jsonl_path}. Returning synthetic stream.")
-            return
+            log.warning(f"Dataset path does not exist: {self.jsonl_path}. Auto-generating 4-track curriculum...")
+            build_4track_curriculum(datasets_dir=os.path.dirname(self.jsonl_path) or "Datasets")
+        
+        if not os.path.exists(self.jsonl_path):
+            log.warning(f"Fallback to synthetic tokens stream for: {self.jsonl_path}")
+            while True:
+                x = torch.randint(0, min(self.tokenizer.vocab_size, 32000), (self.seq_len,))
+                y = x.clone()
+                yield x, y
 
         worker_info = torch.utils.data.get_worker_info()
         worker_id = worker_info.id if worker_info is not None else 0
@@ -713,7 +720,20 @@ class DPODataset(IterableDataset):
 
     def __iter__(self) -> Iterator[Dict[str, torch.Tensor]]:
         if not os.path.exists(self.path):
-            log.warning(f"DPO dataset path not found: {self.path}")
+            log.warning(f"DPO dataset path not found: {self.path}. Auto-generating preference pairs...")
+            generate_gold_datasets(datasets_dir=os.path.dirname(self.path) or "Datasets")
+        if not os.path.exists(self.path):
+            log.warning(f"Using in-memory preference seed pairs for DPO alignment.")
+            seeds = [
+                ("Hello! Who are you?", "Hello! I am Tantra, an AI assistant developed by Atulya AI.", "I don't know who made me."),
+                ("Write a Python function to compute factorial.", "def factorial(n: int) -> int:\n    return 1 if n in (0, 1) else n * factorial(n - 1)", "def fact(n): return n"),
+                ("What is 15 * 6?", "15 * 6 = 90.", "15 * 6 is 100."),
+            ]
+            while True:
+                for p, c, r in seeds:
+                    item = self._encode_pair(p, c, r)
+                    if item is not None:
+                        yield item
             return
         count = 0
         while True:
