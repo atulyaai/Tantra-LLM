@@ -818,10 +818,16 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
             dataset = TopicMixedDataset(topic_paths, weights, tokenizer, seq_len=seq_len,
                                         max_samples=max_samples, mask_non_assistant=mask_non_assistant)
         else:
-            # Fallback to single file if no subdirectories with jsonl found
-            fallback = glob.glob(os.path.join(dataset_path, "*.jsonl"))
-            if fallback:
-                dataset = JSONLDataset(fallback[0], tokenizer, seq_len=seq_len,
+            # Multiple jsonl files directly under dataset_path
+            direct_jsonls = [p for p in glob.glob(os.path.join(dataset_path, "*.jsonl")) if "preference" not in p and "sample" not in p]
+            if len(direct_jsonls) > 1:
+                topic_paths = {os.path.splitext(os.path.basename(p))[0].replace("expert_", ""): [p] for p in direct_jsonls}
+                log.info(f"  Multi-track datasets detected: {list(topic_paths.keys())}")
+                weights = {t: 1.0 for t in topic_paths.keys()}
+                dataset = TopicMixedDataset(topic_paths, weights, tokenizer, seq_len=seq_len,
+                                            max_samples=max_samples, mask_non_assistant=mask_non_assistant)
+            elif len(direct_jsonls) == 1:
+                dataset = JSONLDataset(direct_jsonls[0], tokenizer, seq_len=seq_len,
                                       max_samples=max_samples, mask_non_assistant=mask_non_assistant, pack_sequences=pack_sequences)
             else:
                 dataset = JSONLDataset(dataset_path, tokenizer, seq_len=seq_len,
