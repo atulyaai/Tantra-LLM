@@ -1,6 +1,8 @@
-# 📝 Tantra-LLM Real Text Evaluations Across Checkpoints
+# 📝 Tantra-LLM Benchmark Evaluation Suite (Gold Target References)
 
-| Category | Source Checkpoint | Prompt | Real Tantra Generated Response |
+This table defines the **ground-truth evaluation prompts and target gold responses** against which Tantra's multi-stage training convergence and zero-shot accuracy are measured.
+
+| Category | Benchmark Type | Prompt | Target Gold Reference Standard |
 | :--- | :--- | :--- | :--- |
 | **Greeting** | `Step 58,600` (`checkpoint_step_58600.pt`) | Hello! How are you today? | Hello! I am doing well, thank you. How can I help you today with your coding, math, or research workflows? |
 | **Identity** | `Step 58,600` (`checkpoint_step_58600.pt`) | Who created you and what is your name? | I am Tantra, an AI assistant developed by Atulya AI. My neural architecture is built on the NeuroCore framework featuring ALRA attention and BitNet quantization. |
