@@ -934,10 +934,11 @@ def generate_gold_datasets(datasets_dir: str = "Datasets", force: bool = False) 
         log.info(f"✅ Generated {len(pref_samples)} seed DPO pairs.")
 
 
-def ingest_open_super_corpus(datasets_dir: str = "Datasets", max_samples: int = 150_000) -> int:
-    """Download and stream high-density open-source multi-domain datasets (Alpaca, Code, Math)."""
+def ingest_open_super_corpus(datasets_dir: str = "Datasets", max_samples: int = 350_000) -> int:
+    """Download and stream high-density open-source multi-domain datasets (UltraChat, CodeAlpaca, MetaMath, Dolly, DPO)."""
     os.makedirs(datasets_dir, exist_ok=True)
     master_path = os.path.join(datasets_dir, "master_corpus.jsonl")
+    pref_path = os.path.join(datasets_dir, "preference_pairs.jsonl")
     
     try:
         from datasets import load_dataset
@@ -947,9 +948,9 @@ def ingest_open_super_corpus(datasets_dir: str = "Datasets", max_samples: int = 
 
     total_added = 0
     with open(master_path, "a", encoding="utf-8") as out_f:
-        # 1. Clean Instructions (Alpaca Cleaned 52K)
+        # 1. Clean General Instructions (Alpaca Cleaned 52K)
         try:
-            log.info("📥 Ingesting Alpaca Cleaned Instructions (52K)...")
+            log.info("📥 [1/7] Ingesting Alpaca Cleaned Instructions (52K)...")
             ds = load_dataset("yahma/alpaca-cleaned", split="train")
             for it in ds:
                 out_f.write(json.dumps({
@@ -962,9 +963,42 @@ def ingest_open_super_corpus(datasets_dir: str = "Datasets", max_samples: int = 
         except Exception as e:
             log.warning(f"Could not load alpaca-cleaned: {e}")
 
-        # 2. Python Code Instructions (18K)
+        # 2. Multi-Turn Dialogue & Persona (UltraChat 200K - 50K sample)
         try:
-            log.info("📥 Ingesting Python Code Instructions (18K)...")
+            log.info("📥 [2/7] Ingesting UltraChat Multi-Turn Conversations (50K)...")
+            ds = load_dataset("HuggingFaceH4/ultrachat_200k", split="train_sft[:50000]")
+            for it in ds:
+                msgs = it.get("messages", [])
+                if len(msgs) >= 2:
+                    u = msgs[0].get("content", "")
+                    a = msgs[1].get("content", "")
+                    out_f.write(json.dumps({
+                        "user": u,
+                        "assistant": a,
+                        "domain": "conversation"
+                    }) + "\n")
+                    total_added += 1
+        except Exception as e:
+            log.warning(f"Could not load ultrachat: {e}")
+
+        # 3. High-Quality Fact & World Reasoning (Databricks Dolly 15K)
+        try:
+            log.info("📥 [3/7] Ingesting Databricks Dolly Knowledge Base (15K)...")
+            ds = load_dataset("databricks/databricks-dolly-15k", split="train")
+            for it in ds:
+                out_f.write(json.dumps({
+                    "instruction": it.get("instruction", ""),
+                    "input": it.get("context", ""),
+                    "output": it.get("response", ""),
+                    "domain": "general"
+                }) + "\n")
+                total_added += 1
+        except Exception as e:
+            log.warning(f"Could not load dolly-15k: {e}")
+
+        # 4. Python Algorithms & Doctests (18.6K)
+        try:
+            log.info("📥 [4/7] Ingesting Python Code Instructions (18K)...")
             ds = load_dataset("iamtarun/python_code_instructions_18k_alpaca", split="train")
             for it in ds:
                 out_f.write(json.dumps({
@@ -977,9 +1011,38 @@ def ingest_open_super_corpus(datasets_dir: str = "Datasets", max_samples: int = 
         except Exception as e:
             log.warning(f"Could not load python_code_instructions: {e}")
 
-        # 3. GSM8K Step-by-Step Math Reasoning (8.5K)
+        # 5. Multi-Language Code (CodeAlpaca 20K - JS, C++, Python, Java)
         try:
-            log.info("📥 Ingesting GSM8K Chain-of-Thought Math (8.5K)...")
+            log.info("📥 [5/7] Ingesting CodeAlpaca Multi-Language Programming (20K)...")
+            ds = load_dataset("sahil2801/CodeAlpaca-20k", split="train")
+            for it in ds:
+                out_f.write(json.dumps({
+                    "instruction": it.get("instruction", ""),
+                    "input": it.get("input", ""),
+                    "output": it.get("output", ""),
+                    "domain": "code"
+                }) + "\n")
+                total_added += 1
+        except Exception as e:
+            log.warning(f"Could not load codealpaca: {e}")
+
+        # 6. Deep Chain-of-Thought Math (MetaMathQA 50K sample + GSM8K)
+        try:
+            log.info("📥 [6/7] Ingesting MetaMathQA Step-by-Step Math (50K)...")
+            ds = load_dataset("meta-math/MetaMathQA", split="train[:50000]")
+            for it in ds:
+                out_f.write(json.dumps({
+                    "instruction": it.get("query", ""),
+                    "input": "",
+                    "output": it.get("response", ""),
+                    "domain": "math"
+                }) + "\n")
+                total_added += 1
+        except Exception as e:
+            log.warning(f"Could not load metamathqa: {e}")
+
+        try:
+            log.info("📥 [6b/7] Ingesting GSM8K Grade-School Math (8.5K)...")
             ds = load_dataset("openai/gsm8k", "main", split="train")
             for it in ds:
                 out_f.write(json.dumps({
@@ -991,6 +1054,26 @@ def ingest_open_super_corpus(datasets_dir: str = "Datasets", max_samples: int = 
                 total_added += 1
         except Exception as e:
             log.warning(f"Could not load gsm8k: {e}")
+
+    # 7. DPO High-Margin Preference Pairs (UltraFeedback Binarized 10K)
+    try:
+        log.info("📥 [7/7] Ingesting UltraFeedback DPO Preference Pairs (10K)...")
+        ds = load_dataset("HuggingFaceH4/ultrafeedback_binarized", split="train_prefs[:10000]")
+        with open(pref_path, "a", encoding="utf-8") as pref_f:
+            for it in ds:
+                p = it.get("prompt", "")
+                c = it.get("chosen", [])
+                r = it.get("rejected", [])
+                c_txt = c[-1].get("content", "") if isinstance(c, list) and c else str(c)
+                r_txt = r[-1].get("content", "") if isinstance(r, list) and r else str(r)
+                if p and c_txt and r_txt:
+                    pref_f.write(json.dumps({
+                        "prompt": p,
+                        "chosen": c_txt,
+                        "rejected": r_txt
+                    }) + "\n")
+    except Exception as e:
+        log.warning(f"Could not load ultrafeedback: {e}")
 
     log.info(f"✅ Successfully ingested {total_added:,} fresh multi-domain samples into {master_path}!")
     return total_added
