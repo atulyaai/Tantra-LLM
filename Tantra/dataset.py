@@ -934,8 +934,70 @@ def generate_gold_datasets(datasets_dir: str = "Datasets", force: bool = False) 
         log.info(f"✅ Generated {len(pref_samples)} seed DPO pairs.")
 
 
+def ingest_open_super_corpus(datasets_dir: str = "Datasets", max_samples: int = 150_000) -> int:
+    """Download and stream high-density open-source multi-domain datasets (Alpaca, Code, Math)."""
+    os.makedirs(datasets_dir, exist_ok=True)
+    master_path = os.path.join(datasets_dir, "master_corpus.jsonl")
+    
+    try:
+        from datasets import load_dataset
+    except ImportError:
+        log.warning("HuggingFace `datasets` not installed. Run: pip install datasets")
+        return 0
+
+    total_added = 0
+    with open(master_path, "a", encoding="utf-8") as out_f:
+        # 1. Clean Instructions (Alpaca Cleaned 52K)
+        try:
+            log.info("📥 Ingesting Alpaca Cleaned Instructions (52K)...")
+            ds = load_dataset("yahma/alpaca-cleaned", split="train")
+            for it in ds:
+                out_f.write(json.dumps({
+                    "instruction": it.get("instruction", ""),
+                    "input": it.get("input", ""),
+                    "output": it.get("output", ""),
+                    "domain": "general"
+                }) + "\n")
+                total_added += 1
+        except Exception as e:
+            log.warning(f"Could not load alpaca-cleaned: {e}")
+
+        # 2. Python Code Instructions (18K)
+        try:
+            log.info("📥 Ingesting Python Code Instructions (18K)...")
+            ds = load_dataset("iamtarun/python_code_instructions_18k_alpaca", split="train")
+            for it in ds:
+                out_f.write(json.dumps({
+                    "instruction": it.get("instruction", ""),
+                    "input": it.get("input", ""),
+                    "output": it.get("output", ""),
+                    "domain": "code"
+                }) + "\n")
+                total_added += 1
+        except Exception as e:
+            log.warning(f"Could not load python_code_instructions: {e}")
+
+        # 3. GSM8K Step-by-Step Math Reasoning (8.5K)
+        try:
+            log.info("📥 Ingesting GSM8K Chain-of-Thought Math (8.5K)...")
+            ds = load_dataset("openai/gsm8k", "main", split="train")
+            for it in ds:
+                out_f.write(json.dumps({
+                    "instruction": it.get("question", ""),
+                    "input": "",
+                    "output": it.get("answer", ""),
+                    "domain": "math"
+                }) + "\n")
+                total_added += 1
+        except Exception as e:
+            log.warning(f"Could not load gsm8k: {e}")
+
+    log.info(f"✅ Successfully ingested {total_added:,} fresh multi-domain samples into {master_path}!")
+    return total_added
+
+
 def build_4track_curriculum(datasets_dir: str = "Datasets", force: bool = False) -> None:
-    """Partitions master dataset into 4 expert tracks ordered by curriculum complexity (Easy ➔ Hard)."""
+    """Partitions all available master and gold datasets into 4 expert tracks ordered by curriculum complexity."""
     os.makedirs(datasets_dir, exist_ok=True)
     expected_files = [os.path.join(datasets_dir, f) for f in CURRICULUM_TRACKS.keys()]
     
@@ -944,45 +1006,71 @@ def build_4track_curriculum(datasets_dir: str = "Datasets", force: bool = False)
         return
 
     generate_gold_datasets(datasets_dir=datasets_dir, force=force)
-    master_path = os.path.join(datasets_dir, "master_corpus.jsonl")
-    if not os.path.exists(master_path):
-        master_path = os.path.join(datasets_dir, "gold_corpus.jsonl")
+    
+    # Collect all candidate source JSONL files (excluding the target partitioned files)
+    target_filenames = set(CURRICULUM_TRACKS.keys())
+    source_files = []
+    for fname in os.listdir(datasets_dir):
+        if fname.endswith(".jsonl") and fname not in target_filenames and "preference" not in fname and "sample" not in fname:
+            source_files.append(os.path.join(datasets_dir, fname))
 
-    # Load and partition items
+    if not source_files:
+        source_files = [os.path.join(datasets_dir, "gold_corpus.jsonl")]
+
+    log.info(f"📚 Partitioning sources: {[os.path.basename(p) for p in source_files]}")
+
+    # Load, deduplicate, and partition items
     track_buckets = {f: [] for f in CURRICULUM_TRACKS.keys()}
+    seen_hashes = set()
 
-    with open(master_path, "r", encoding="utf-8", errors="ignore") as f:
-        for line in f:
-            if not line.strip():
-                continue
-            try:
-                data = json.loads(line)
-                u = data.get("user") or data.get("instruction") or data.get("prompt") or ""
-                a = data.get("assistant") or data.get("output") or data.get("response") or ""
-                d = data.get("domain") or data.get("category") or ""
-                if "messages" in data and isinstance(data["messages"], list):
-                    for m in data["messages"]:
-                        if m.get("role") == "user": u += " " + m.get("content", "")
-                        elif m.get("role") == "assistant": a += " " + m.get("content", "")
-                
-                text = (str(u) + " " + str(a) + " " + str(d)).lower()
-                matched = False
-                for target_file, keywords in CURRICULUM_TRACKS.items():
-                    if any(kw in text for kw in keywords):
-                        track_buckets[target_file].append(data)
-                        matched = True
-                        break
-                if not matched:
-                    track_buckets["expert_general.jsonl"].append(data)
-            except Exception:
-                continue
+    for src in source_files:
+        if not os.path.exists(src):
+            continue
+        with open(src, "r", encoding="utf-8", errors="ignore") as f:
+            for line in f:
+                if not line.strip():
+                    continue
+                try:
+                    data = json.loads(line)
+                    u = data.get("user") or data.get("instruction") or data.get("prompt") or ""
+                    a = data.get("assistant") or data.get("output") or data.get("response") or ""
+                    d = data.get("domain") or data.get("category") or ""
+                    if "messages" in data and isinstance(data["messages"], list):
+                        for m in data["messages"]:
+                            if m.get("role") == "user": u += " " + m.get("content", "")
+                            elif m.get("role") == "assistant": a += " " + m.get("content", "")
+                    
+                    if not str(u).strip() or not str(a).strip():
+                        continue
+                    
+                    # Deduplicate by prompt
+                    phash = hash(str(u).strip()[:100])
+                    if phash in seen_hashes:
+                        continue
+                    seen_hashes.add(phash)
+
+                    text = (str(u) + " " + str(a) + " " + str(d)).lower()
+                    matched = False
+                    for target_file, keywords in CURRICULUM_TRACKS.items():
+                        if any(kw in text for kw in keywords):
+                            track_buckets[target_file].append(data)
+                            matched = True
+                            break
+                    if not matched:
+                        track_buckets["expert_general.jsonl"].append(data)
+                except Exception:
+                    continue
 
     # Sort each track from Easy (complexity 1) ➔ Hard (complexity 3)
+    total_samples = 0
     for target_file, items in track_buckets.items():
         sorted_items = sorted(items, key=lambda x: (x.get("complexity", 1), len(x.get("output", ""))))
         out_path = os.path.join(datasets_dir, target_file)
         with open(out_path, "w", encoding="utf-8") as f:
             for it in sorted_items:
                 f.write(json.dumps(it) + "\n")
-        log.info(f"  • {target_file}: {len(sorted_items)} curriculum-ordered samples written.")
+        total_samples += len(sorted_items)
+        log.info(f"  • {target_file}: {len(sorted_items):,} curriculum-ordered samples written.")
+    
+    log.info(f"🎯 Total Master Dataset Partitioned: {total_samples:,} samples across 4 tracks.")
 
