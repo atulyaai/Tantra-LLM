@@ -1213,6 +1213,27 @@ class NeuroTrainer:
         ckpt = torch.load(path, map_location=self.device, weights_only=False)
         state_dict = ckpt["model_state_dict"]
         raw_model = getattr(self.model, "module", getattr(self.model, "_orig_mod", self.model))
+
+        # Check and dynamically grow layers if loading a deeper checkpoint (e.g. 9/10/12 layers)
+        import re, copy
+        layer_indices = set()
+        for k in state_dict.keys():
+            m = re.search(r'layers\.(\d+)\.', k)
+            if m:
+                layer_indices.add(int(m.group(1)))
+        
+        if layer_indices and hasattr(raw_model, "layers") and isinstance(raw_model.layers, torch.nn.ModuleList):
+            ckpt_layers = max(layer_indices) + 1
+            current_layers = len(raw_model.layers)
+            if ckpt_layers > current_layers:
+                log.info(f"Dynamically growing model architecture from {current_layers} -> {ckpt_layers} layers to match checkpoint.")
+                while len(raw_model.layers) < ckpt_layers:
+                    new_l = copy.deepcopy(raw_model.layers[-1])
+                    raw_model.layers.append(new_l)
+                if hasattr(raw_model, "config") and hasattr(raw_model.config, "block"):
+                    raw_model.config.block.num_layers = len(raw_model.layers)
+                self.refresh_optimizer()
+
         model_state = raw_model.state_dict()
 
         # Auto-align vocabulary shape mismatches (e.g. checkpoint saved at 32000, model configured for 65536)

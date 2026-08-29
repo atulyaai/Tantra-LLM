@@ -1128,12 +1128,15 @@ def main():
         model = build_cpu_model("dense", attention_kind="causal", vocab_size=vcfg.vocab_size)
         log.info(f"Initialized fresh official 38.6M CPU profile model ({model.num_parameters:,} parameters).")
     else:
-        ckpt_candidates = [
-            os.path.join(MODEL_DIR, "Latest", "checkpoint_latest.pt"),
-            os.path.join(MODEL_DIR, "checkpoint_latest.pt"),
+        ckpt_candidates = []
+        if args.checkpoint and os.path.exists(args.checkpoint):
+            ckpt_candidates.append(args.checkpoint)
+        ckpt_candidates.extend([
             os.path.join(args.model_dir or MODEL_DIR, "Latest", "checkpoint_latest.pt"),
             os.path.join(args.model_dir or MODEL_DIR, "checkpoint_latest.pt"),
-        ]
+            os.path.join(MODEL_DIR, "Latest", "checkpoint_latest.pt"),
+            os.path.join(MODEL_DIR, "checkpoint_latest.pt"),
+        ])
         latest_ckpt_file = next((p for p in ckpt_candidates if os.path.exists(p) and os.path.getsize(p) > 10 * 1024 * 1024), ckpt_candidates[0])
         restore_checkpoint_architecture(mcfg, latest_ckpt_file)
         _ckpt_path = latest_ckpt_file
@@ -1146,8 +1149,19 @@ def main():
                     if _ckpt_cfg is not None:
                         _ckpt_cfg.vocab.vocab_size = vcfg.vocab_size
                         mcfg = _ckpt_cfg
-                        log.info("Rebuilt model architecture from checkpoint config "
-                                 f"(dim={_ckpt_cfg.block.alra.dim}, layers={_ckpt_cfg.block.num_layers}, vocab={_ckpt_cfg.vocab.vocab_size}).")
+                    
+                    # Also check state_dict layer keys for dynamically grown models
+                    sdict = _ckpt.get("model_state_dict", {})
+                    import re
+                    layer_indices = [int(m.group(1)) for k in sdict.keys() for m in [re.search(r'layers\.(\d+)\.', k)] if m]
+                    if layer_indices and mcfg is not None and hasattr(mcfg, "block"):
+                        ckpt_num_layers = max(layer_indices) + 1
+                        if ckpt_num_layers != mcfg.block.num_layers:
+                            mcfg.block.num_layers = ckpt_num_layers
+                            log.info(f"Detected {ckpt_num_layers} layers in checkpoint weights; initialized architecture accordingly.")
+
+                    log.info("Rebuilt model architecture from checkpoint "
+                             f"(dim={mcfg.block.alra.dim}, layers={mcfg.block.num_layers}, vocab={mcfg.vocab.vocab_size}).")
             except Exception as _exc:
                 log.warning(f"Could not read checkpoint config: {_exc}; using default architecture.")
         model = init_model(mcfg, rt.device)

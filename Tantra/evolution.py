@@ -81,6 +81,8 @@ class AutoGrowthController:
                 p.data.add_(torch.randn_like(p.data) * 0.001)
                 
             actual_model.layers.append(new_layer)
+            if hasattr(actual_model, "config") and hasattr(actual_model.config, "block"):
+                actual_model.config.block.num_layers = len(actual_model.layers)
             log.info(f"Model capacity auto-grown: total layers is now {len(actual_model.layers)}")
             self.growth_events.append({"type": "add_layer", "new_total": len(actual_model.layers)})
             return True
