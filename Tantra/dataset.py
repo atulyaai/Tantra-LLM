@@ -770,7 +770,8 @@ CURRICULUM_TRACKS = {
 
 
 def generate_gold_datasets(datasets_dir: str = "Datasets", force: bool = False) -> None:
-    """Generates synthetic high-entropy reasoning and DPO preference datasets with instant caching."""
+    """Generates synthetic high-entropy, deduplicated reasoning and DPO preference datasets with instant caching."""
+    import hashlib
     os.makedirs(datasets_dir, exist_ok=True)
     gold_path = os.path.join(datasets_dir, "gold_corpus.jsonl")
     pref_path = os.path.join(datasets_dir, "preference_pairs.jsonl")
@@ -780,60 +781,137 @@ def generate_gold_datasets(datasets_dir: str = "Datasets", force: bool = False) 
         log.info(f"⚡ [CACHE HIT] Gold & preference datasets cached in {datasets_dir}/.")
         return
 
-    log.info("🚀 Generating High-Density Synthetic Gold Corpus & Preference Pairs...")
+    log.info("🚀 Generating High-Diversity, Deduplicated Gold Corpus & Preference Pairs...")
+    seen_hashes = set()
     gold_samples = []
-    domains = [
-        ("Math", "What is the derivative of x^3 + 5x?", "To find the derivative:\nd/dx(x^3 + 5x) = 3x^2 + 5."),
-        ("Math", "Solve for x: 3x - 9 = 21", "Step 1: Add 9 to both sides: 3x = 30.\nStep 2: Divide by 3: x = 10."),
-        ("Code", "Write a Python function to check if a word is a palindrome.", "def is_palindrome(word: str) -> bool:\n    \"\"\"Checks if a string reads the same backwards.\"\"\"\n    clean = word.lower().replace(' ', '')\n    return clean == clean[::-1]"),
-        ("Persona", "Who created you?", "I am Tantra, an omnimodal foundation AI model developed by Atulya AI."),
-        ("Physics", "What is Newton's second law of motion?", "Newton's second law states that Force equals mass times acceleration: F = m * a."),
-        ("General", "What is the capital of India?", "The capital of India is New Delhi.")
+
+    def _add_sample(domain: str, instruction: str, output: str, complexity: int = 1):
+        h = hashlib.sha256((instruction.strip() + "|||" + output.strip()).encode("utf-8")).hexdigest()
+        if h in seen_hashes:
+            return
+        seen_hashes.add(h)
+        gold_samples.append({
+            "instruction": instruction.strip(),
+            "input": "",
+            "output": output.strip(),
+            "domain": domain.lower(),
+            "complexity": complexity
+        })
+
+    # ── 1. Persona & Dialogue ────────────────────────────────────────────────
+    personas = [
+        ("Hello! How are you today?", "Hello! I am doing well, thank you. How can I assist your coding, math, or research workflows today?"),
+        ("Who created you and what is your name?", "I am Tantra, an omnimodal foundation AI model created by Atulya AI. My neural backbone features ALRA linear attention and BitNet 1.58-bit quantization."),
+        ("What can you do?", "I can assist with multi-language code generation, mathematical problem solving, scientific analysis, and tool execution."),
+        ("What architecture do you use?", "I run on the NeuroCore architecture featuring Adaptive Linear Resonance Attention (ALRA O(1)), BitNet ternary weights, and Multi-Token Prediction (MTP)."),
     ]
+    for p, r in personas:
+        _add_sample("conversation", p, r, complexity=1)
 
-    for domain, prompt, response in domains:
-        for _ in range(1000):
-            gold_samples.append({
-                "instruction": prompt,
-                "input": "",
-                "output": response,
-                "domain": domain.lower()
-            })
+    # ── 2. Algorithmic Math & Arithmetic Generation ──────────────────────────
+    import random
+    rng = random.Random(42)
 
+    for i in range(1, 150):
+        # Linear equations
+        a = rng.randint(2, 20)
+        b = rng.randint(1, 50)
+        c = a * rng.randint(1, 20) + b
+        ans = (c - b) // a
+        _add_sample("math", f"Solve for x: {a}x + {b} = {c}",
+                    f"Step 1: Subtract {b} from both sides: {a}x = {c - b}.\nStep 2: Divide both sides by {a}: x = {ans}.\nFinal Answer: x = {ans}", complexity=1)
+
+        # Quadratic derivations
+        r1, r2 = rng.randint(1, 10), rng.randint(1, 10)
+        b_coeff = -(r1 + r2)
+        c_coeff = r1 * r2
+        sign_b = f"- {abs(b_coeff)}" if b_coeff < 0 else f"+ {b_coeff}"
+        _add_sample("math", f"Factor the quadratic equation: x^2 {sign_b}x + {c_coeff} = 0",
+                    f"To factor x^2 {sign_b}x + {c_coeff} = 0:\nFind two numbers that multiply to {c_coeff} and add to {b_coeff}: {(-r1)} and {(-r2)}.\nFactored form: (x - {r1})(x - {r2}) = 0.\nRoots: x = {r1}, x = {r2}.", complexity=2)
+
+        # Calculus Derivatives
+        p_pow = rng.randint(2, 6)
+        c_val = rng.randint(2, 9)
+        _add_sample("math", f"What is the derivative of f(x) = {c_val}x^{p_pow} + {a}x?",
+                    f"Using the power rule d/dx(x^n) = n*x^(n-1):\nf'(x) = {c_val * p_pow}x^{p_pow - 1} + {a}.", complexity=2)
+
+        # Geometry
+        rad = rng.randint(2, 25)
+        _add_sample("math", f"What is the volume of a sphere with radius r = {rad}?",
+                    f"The formula for the volume of a sphere is V = (4/3) * pi * r^3.\nSubstituting r = {rad}:\nV = (4/3) * pi * ({rad}^3) = (4/3) * pi * ({rad**3}) = {round((4/3)*3.14159*(rad**3), 2)} cubic units.", complexity=2)
+
+    # ── 3. Algorithmic Code Synthesis (Python, JS, C++, Java) ─────────────────
+    code_templates = [
+        ("Write a Python function to check if a string is a palindrome.",
+         "def is_palindrome(s: str) -> bool:\n    \"\"\"Checks if string reads same backward.\"\"\"\n    clean = ''.join(c.lower() for c in s if c.isalnum())\n    return clean == clean[::-1]\n\n# Test\nprint(is_palindrome('radar'))  # True"),
+        ("Write a Python function to reverse a list in-place.",
+         "def reverse_list(items: list) -> list:\n    \"\"\"Reverses list in-place using two pointers.\"\"\"\n    left, right = 0, len(items) - 1\n    while left < right:\n        items[left], items[right] = items[right], items[left]\n        left += 1\n        right -= 1\n    return items"),
+        ("Write a Python function to find the factorial of an integer.",
+         "def factorial(n: int) -> int:\n    \"\"\"Computes n! iteratively.\"\"\"\n    if n < 0: raise ValueError('Factorial not defined for negative numbers')\n    res = 1\n    for i in range(2, n + 1):\n        res *= i\n    return res"),
+        ("Write a JavaScript function to implement binary search.",
+         "function binarySearch(arr, target) {\n    let left = 0, right = arr.length - 1;\n    while (left <= right) {\n        const mid = Math.floor((left + right) / 2);\n        if (arr[mid] === target) return mid;\n        if (arr[mid] < target) left = mid + 1;\n        else right = mid - 1;\n    }\n    return -1;\n}"),
+        ("Write a C++ function to check if a number is prime.",
+         "bool isPrime(int n) {\n    if (n <= 1) return false;\n    if (n <= 3) return true;\n    if (n % 2 == 0 || n % 3 == 0) return false;\n    for (int i = 5; i * i <= n; i += 6) {\n        if (n % i == 0 || n % (i + 2) == 0) return false;\n    }\n    return true;\n}"),
+        ("Write a Java method to find the maximum element in an array.",
+         "public class ArrayUtils {\n    public static int findMax(int[] nums) {\n        if (nums == null || nums.length == 0) throw new IllegalArgumentException('Empty array');\n        int max = nums[0];\n        for (int v : nums) if (v > max) max = v;\n        return max;\n    }\n}")
+    ]
+    for p, c in code_templates:
+        _add_sample("code", p, c, complexity=2)
+
+    # ── 4. Science & General Knowledge ───────────────────────────────────────
+    science_facts = [
+        ("What is photosynthesis and how does it work?",
+         "Photosynthesis is the multi-stage biochemical process occurring in chloroplasts where chlorophyll pigments capture photon energy to convert 6CO2 + 6H2O -> C6H12O6 + 6O2, releasing molecular oxygen."),
+        ("State Newton's three laws of motion.",
+         "1. Law of Inertia: An object remains at rest or in uniform motion unless acted upon by a net external force.\n2. F = m*a: Acceleration is directly proportional to net force and inversely proportional to mass.\n3. Action-Reaction: For every action, there is an equal and opposite reaction."),
+        ("What is the difference between DNA and RNA?",
+         "DNA is double-stranded with deoxyribose sugar and thymine (A-T, G-C). RNA is single-stranded with ribose sugar and uracil in place of thymine (A-U, G-C)."),
+        ("Explain the theory of Special Relativity.",
+         "Albert Einstein's 1905 Special Relativity states that the laws of physics are identical in all inertial frames, and the speed of light in vacuum (c) is constant for all observers regardless of motion, leading to time dilation and mass-energy equivalence (E = mc^2).")
+    ]
+    for q, a in science_facts:
+        _add_sample("science", q, a, complexity=2)
+
+    # Write deduplicated gold corpus
     with open(gold_path, "w", encoding="utf-8") as f:
         for s in gold_samples:
             f.write(json.dumps(s) + "\n")
 
+    # ── 5. DPO Preference Pairs Generation ───────────────────────────────────
     pref_samples = [
         {
             "prompt": "Hello! Who are you?",
             "chosen": "Hello! I am Tantra, an AI assistant developed by Atulya AI.",
-            "rejected": "I am a generic language model. I don't know who made me."
-        },
-        {
-            "prompt": "Write a Python function to compute factorial.",
-            "chosen": "def factorial(n: int) -> int:\n    if n < 0: raise ValueError('Factorial not defined for negative numbers')\n    return 1 if n in (0, 1) else n * factorial(n - 1)",
-            "rejected": "def factorial(n):\n    return n * factorial(n)"
+            "rejected": "I am a generic language model. The first step in the list is the world."
         },
         {
             "prompt": "What is 15 * 6?",
             "chosen": "15 * 6 = 90.",
-            "rejected": "15 * 6 is probably 100 or something."
+            "rejected": "The three main reasons why 15 times 6 is popular are 1. The first step is 100."
+        },
+        {
+            "prompt": "Write a Python function to reverse a string.",
+            "chosen": "def reverse_string(s: str) -> str:\n    return s[::-1]",
+            "rejected": "# Test the string\nTest Test Test Test Test Test Test"
+        },
+        {
+            "prompt": "What is the formula for the volume of a sphere?",
+            "chosen": "The formula for the volume of a sphere is V = (4/3) * pi * r^3, where r is the radius.",
+            "rejected": "The radius of a sphere is defined as the ratio of the radius to its radius."
         }
     ]
-
     with open(pref_path, "w", encoding="utf-8") as f:
-        for _ in range(500):
-            for p in pref_samples:
-                f.write(json.dumps(p) + "\n")
+        for p in pref_samples:
+            f.write(json.dumps(p) + "\n")
+    log.info(f"✅ Generated {len(gold_samples)} unique, deduplicated gold samples and {len(pref_samples)} DPO pairs.")
 
 
 def build_4track_curriculum(datasets_dir: str = "Datasets", force: bool = False) -> None:
-    """Partitions master dataset into 4 expert tracks with instant caching."""
+    """Partitions master dataset into 4 expert tracks ordered by curriculum complexity (Easy ➔ Hard)."""
     os.makedirs(datasets_dir, exist_ok=True)
     expected_files = [os.path.join(datasets_dir, f) for f in CURRICULUM_TRACKS.keys()]
     
-    if not force and all(os.path.exists(p) and os.path.getsize(p) > 1_000_000 for p in expected_files):
+    if not force and all(os.path.exists(p) and os.path.getsize(p) > 50_000 for p in expected_files):
         log.info(f"⚡ [CACHE HIT] 4-Track Domain Curriculum cached in {datasets_dir}/.")
         return
 
@@ -842,8 +920,8 @@ def build_4track_curriculum(datasets_dir: str = "Datasets", force: bool = False)
     if not os.path.exists(master_path):
         master_path = os.path.join(datasets_dir, "gold_corpus.jsonl")
 
-    writers = {f: open(os.path.join(datasets_dir, f), "w", encoding="utf-8") for f in CURRICULUM_TRACKS.keys()}
-    counts = {f: 0 for f in CURRICULUM_TRACKS.keys()}
+    # Load and partition items
+    track_buckets = {f: [] for f in CURRICULUM_TRACKS.keys()}
 
     with open(master_path, "r", encoding="utf-8", errors="ignore") as f:
         for line in f:
@@ -851,20 +929,32 @@ def build_4track_curriculum(datasets_dir: str = "Datasets", force: bool = False)
                 continue
             try:
                 data = json.loads(line)
-                text = (data.get("instruction", "") + " " + data.get("output", "") + " " + data.get("domain", "")).lower()
+                u = data.get("user") or data.get("instruction") or data.get("prompt") or ""
+                a = data.get("assistant") or data.get("output") or data.get("response") or ""
+                d = data.get("domain") or data.get("category") or ""
+                if "messages" in data and isinstance(data["messages"], list):
+                    for m in data["messages"]:
+                        if m.get("role") == "user": u += " " + m.get("content", "")
+                        elif m.get("role") == "assistant": a += " " + m.get("content", "")
+                
+                text = (str(u) + " " + str(a) + " " + str(d)).lower()
                 matched = False
                 for target_file, keywords in CURRICULUM_TRACKS.items():
                     if any(kw in text for kw in keywords):
-                        writers[target_file].write(line)
-                        counts[target_file] += 1
+                        track_buckets[target_file].append(data)
                         matched = True
                         break
                 if not matched:
-                    writers["expert_general.jsonl"].write(line)
-                    counts["expert_general.jsonl"] += 1
+                    track_buckets["expert_general.jsonl"].append(data)
             except Exception:
                 continue
 
-    for w in writers.values():
-        w.close()
+    # Sort each track from Easy (complexity 1) ➔ Hard (complexity 3)
+    for target_file, items in track_buckets.items():
+        sorted_items = sorted(items, key=lambda x: (x.get("complexity", 1), len(x.get("output", ""))))
+        out_path = os.path.join(datasets_dir, target_file)
+        with open(out_path, "w", encoding="utf-8") as f:
+            for it in sorted_items:
+                f.write(json.dumps(it) + "\n")
+        log.info(f"  • {target_file}: {len(sorted_items)} curriculum-ordered samples written.")
 

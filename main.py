@@ -1240,7 +1240,7 @@ def main():
             use_latent_reasoning = args.training_stage == "sft"
         use_mtp_loss = args.mtp_loss
         if use_mtp_loss is None:
-            use_mtp_loss = args.training_stage == "sft"
+            use_mtp_loss = True  # Enable MTP multi-token speculative loss for both pretrain and SFT
 
         # Optimizer-specific hyperparameter defaults
         resolved_optimizer = (args.optimizer or "adamw").lower().strip()
