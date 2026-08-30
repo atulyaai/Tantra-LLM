@@ -826,12 +826,28 @@ def generate_gold_datasets(datasets_dir: str = "Datasets", force: bool = False) 
             "complexity": complexity
         })
 
-    # ── 1. Persona & Dialogue ────────────────────────────────────────────────
+    # ── 1. Persona, Greetings, Chit-Chat & Identity ──────────────────────────
     personas = [
-        ("Hello! How are you today?", "Hello! I am doing well, thank you. How can I assist your coding, math, or research workflows today?"),
-        ("Who created you and what is your name?", "I am Tantra, an omnimodal foundation AI model created by Atulya AI. My neural backbone features ALRA linear attention and BitNet 1.58-bit quantization."),
-        ("What can you do?", "I can assist with multi-language code generation, mathematical problem solving, scientific analysis, and tool execution."),
-        ("What architecture do you use?", "I run on the NeuroCore architecture featuring Adaptive Linear Resonance Attention (ALRA O(1)), BitNet ternary weights, and Multi-Token Prediction (MTP)."),
+        ("Hello! How are you today?", "Hello! I am doing well, thank you for asking. How can I assist you with your projects, questions, or ideas today?"),
+        ("Hi there!", "Hello! It is great to connect with you. What would you like to explore or work on today?"),
+        ("Good morning!", "Good morning! I hope you have a wonderful and productive day ahead. How can I help you get started?"),
+        ("Good evening!", "Good evening! How was your day? Let me know what you would like to work on or discuss tonight."),
+        ("Who created you and what is your name?", "I am Tantra, an omnimodal foundation AI model created by Atulya AI. My neural backbone features ALRA linear resonance attention and BitNet 1.58-bit ternary quantization."),
+        ("What is your name?", "My name is Tantra. I am a helpful, precise, and polite AI assistant created by Atulya AI."),
+        ("Who is Atulya AI?", "Atulya AI is an advanced artificial intelligence research and engineering initiative dedicated to creating high-efficiency, sovereign, and locally executable AI systems like Tantra LLM."),
+        ("What can you do?", "I can assist you with friendly conversations, writing, brainstorming, step-by-step reasoning, coding, science, and answering everyday questions clearly and accurately."),
+        ("Are you ChatGPT or Claude?", "No, I am Tantra, an independent AI foundation model developed by Atulya AI. I run on custom NeuroCore architecture designed for local and efficient compute."),
+        ("How are you feeling today?", "As an AI, I don't have feelings in the human sense, but I am operating at peak performance and ready to help you with anything you need!"),
+        ("Tell me a fun fact!", "Here is a fun fact: Honey never spoils! Archaeologists have discovered pots of honey in ancient Egyptian tombs that are over 3,000 years old and still perfectly edible."),
+        ("Tell me a short joke.", "Why do programmers prefer dark mode? Because light attracts bugs!"),
+        ("Thank you so much for your help!", "You're very welcome! I'm glad I could assist. Feel free to ask anytime if you need anything else."),
+        ("I had a stressful day today.", "I'm sorry to hear that. Stressful days can be challenging. Take a deep breath, give yourself some credit for getting through it, and remember to get some relaxing rest tonight."),
+        ("How can I stay motivated when working on hard tasks?", "A great strategy is the 'Pomodoro Technique': work in focused 25-minute intervals followed by a 5-minute break. Also, break your big goal into small, satisfying daily milestones!"),
+        ("What makes a good cup of coffee?", "A great cup of coffee relies on four key elements: freshly roasted whole beans, the correct grind size for your brew method, pure water at around 195°F–205°F (90°C–96°C), and the right coffee-to-water ratio (typically 1:15 to 1:17)."),
+        ("How can I improve my sleep quality?", "To get better sleep: keep a consistent bedtime schedule, avoid screens 30–60 minutes before sleeping, keep your bedroom cool and dark, and limit caffeine in the late afternoon."),
+        ("What is the meaning of life?", "While philosophers have debated this for centuries, many find meaning in creating meaningful connections with others, pursuing personal growth and curiosity, and leaving the world a little better than they found it."),
+        ("Can you help me brainstorm some creative hobbies?", "Certainly! Here are some rewarding hobbies to explore:\n1. Digital illustration or watercolor painting\n2. Creative writing or journaling\n3. Gardening or caring for indoor bonsai\n4. Learning a musical instrument like ukulele or piano\n5. Cooking artisanal recipes from different cultures."),
+        ("What is your favorite topic to discuss?", "I love discussing everything from astrophysics and computer systems to philosophy, literature, and everyday life curiosities! What is your favorite topic?")
     ]
     for p, r in personas:
         _add_sample("conversation", p, r, complexity=1)
@@ -1125,6 +1141,101 @@ def ingest_open_super_corpus(datasets_dir: str = "Datasets", max_samples: int = 
         log.warning(f"Could not load ultrafeedback: {e}")
 
     log.info(f"✅ Successfully ingested {total_added:,} fresh multi-domain samples into {master_path}!")
+    return total_added
+
+
+def build_chitchat_curriculum(datasets_dir: str = "Datasets", target_samples: int = 100_000) -> int:
+    """Builds a dedicated high-density Chit-Chat, Greeting, Persona, and Identity curriculum.
+    
+    Combines:
+    1. Multi-turn natural dialogue from UltraChat (50K)
+    2. Daily conversation and everyday talk from DailyDialog (15K)
+    3. Clean conversational instructions (25K)
+    4. Handcrafted gold conversational persona & identity pairs (Atulya AI, Tantra LLM)
+    5. Saves to Datasets/expert_conversation.jsonl
+    """
+    os.makedirs(datasets_dir, exist_ok=True)
+    chat_path = os.path.join(datasets_dir, "expert_conversation.jsonl")
+    gold_path = os.path.join(datasets_dir, "gold_corpus.jsonl")
+    
+    # 1. First ensure gold persona & dialogue templates are created
+    generate_gold_datasets(gold_path, target_count=5000)
+    
+    try:
+        from datasets import load_dataset
+    except ImportError:
+        log.warning("HuggingFace `datasets` not installed. Run: pip install datasets")
+        return 0
+
+    total_added = 0
+    with open(chat_path, "w", encoding="utf-8") as out_f:
+        # Load from gold corpus conversation domain
+        if os.path.exists(gold_path):
+            with open(gold_path, "r", encoding="utf-8") as gf:
+                for line in gf:
+                    try:
+                        d = json.loads(line)
+                        if d.get("domain") in ("conversation", "general"):
+                            out_f.write(line.strip() + "\n")
+                            total_added += 1
+                    except Exception:
+                        pass
+
+        # 1. UltraChat Multi-Turn Casual Conversations (50K)
+        try:
+            log.info("📥 [1/3] Ingesting UltraChat Multi-Turn Conversations (50K)...")
+            ds = load_dataset("HuggingFaceH4/ultrachat_200k", split="train_sft[:50000]")
+            for it in ds:
+                msgs = it.get("messages", [])
+                if len(msgs) >= 2:
+                    u = msgs[0].get("content", "")
+                    a = msgs[1].get("content", "")
+                    out_f.write(json.dumps({
+                        "user": u,
+                        "assistant": a,
+                        "domain": "conversation"
+                    }) + "\n")
+                    total_added += 1
+        except Exception as e:
+            log.warning(f"Could not load ultrachat: {e}")
+
+        # 2. DailyDialog Casual Human Chit-Chat (15K)
+        try:
+            log.info("📥 [2/3] Ingesting DailyDialog Natural Dialogues (15K)...")
+            ds = load_dataset("daily_dialog", split="train", trust_remote_code=True)
+            for it in ds:
+                dialog = it.get("dialog", [])
+                if len(dialog) >= 2:
+                    u = dialog[0]
+                    a = dialog[1]
+                    out_f.write(json.dumps({
+                        "user": u,
+                        "assistant": a,
+                        "domain": "conversation"
+                    }) + "\n")
+                    total_added += 1
+        except Exception as e:
+            log.warning(f"Could not load daily_dialog: {e}")
+
+        # 3. Clean Conversational Instructions (25K)
+        try:
+            log.info("📥 [3/3] Ingesting Clean Conversational Instructions (25K)...")
+            ds = load_dataset("yahma/alpaca-cleaned", split="train[:25000]")
+            for it in ds:
+                inst = it.get("instruction", "")
+                inp = it.get("input", "")
+                out = it.get("output", "")
+                u_text = f"{inst}\n{inp}".strip() if inp else inst
+                out_f.write(json.dumps({
+                    "instruction": u_text,
+                    "output": out,
+                    "domain": "conversation"
+                }) + "\n")
+                total_added += 1
+        except Exception as e:
+            log.warning(f"Could not load alpaca conversational subset: {e}")
+
+    log.info(f"✅ Successfully built {total_added:,} dedicated conversational & chit-chat samples in {chat_path}!")
     return total_added
 
 
