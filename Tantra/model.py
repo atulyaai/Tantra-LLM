@@ -25,6 +25,8 @@ class DynamicScaleNorm(nn.Module):
         super().__init__()
         self.eps = eps
         self.w_scale = nn.Linear(dim, 1, bias=True)
+        nn.init.zeros_(self.w_scale.weight)
+        nn.init.constant_(self.w_scale.bias, 2.0)
         self.gamma = nn.Parameter(torch.ones(dim))
         self.beta = nn.Parameter(torch.zeros(dim))
 

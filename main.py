@@ -844,9 +844,27 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
                                   max_samples=max_samples, mask_non_assistant=mask_non_assistant, pack_sequences=pack_sequences)
 
     val_loader = None
-    if os.path.isfile(dataset_path):
-        val_dataset = JSONLDataset(dataset_path, tokenizer, seq_len=seq_len, max_samples=100, mask_non_assistant=mask_non_assistant, split="val", val_ratio=0.05, pack_sequences=pack_sequences)
-        val_loader = torch.utils.data.DataLoader(val_dataset, batch_size=batch_size, num_workers=0)
+    target_val_file = dataset_path if os.path.isfile(dataset_path) else None
+    if target_val_file is None and os.path.isdir(dataset_path):
+        candidates = [
+            os.path.join(dataset_path, "master_corpus.jsonl"),
+            os.path.join(dataset_path, "expert_general.jsonl"),
+            os.path.join(dataset_path, "expert_conversation.jsonl"),
+        ] + glob.glob(os.path.join(dataset_path, "**/*.jsonl"), recursive=True)
+        for c in candidates:
+            if os.path.isfile(c) and os.path.getsize(c) > 100:
+                target_val_file = c
+                break
+
+    if target_val_file and os.path.isfile(target_val_file):
+        try:
+            val_dataset = JSONLDataset(target_val_file, tokenizer, seq_len=seq_len, max_samples=100,
+                                       mask_non_assistant=mask_non_assistant, split="val", val_ratio=0.05,
+                                       pack_sequences=pack_sequences)
+            val_loader = torch.utils.data.DataLoader(val_dataset, batch_size=batch_size, num_workers=0)
+            log.info(f"  Held-out validation stream active from: {os.path.basename(target_val_file)}")
+        except Exception as e:
+            log.debug(f"Could not build validation dataset: {e}")
 
 
 
