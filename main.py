@@ -1041,8 +1041,10 @@ def run_dpo_training(
     )
     
     def ckpt_cb(step, loss):
-        milestone = os.path.join(checkpoints_dir, f"checkpoint_dpo_step_{step}.pt")
-        trainer.save_checkpoint(milestone, save_optimizer=True, async_write=False)
+        ck_interval = checkpoint_every if (checkpoint_every and checkpoint_every > 0) else 250
+        if step > 0 and step % ck_interval == 0:
+            milestone = os.path.join(checkpoints_dir, f"checkpoint_dpo_step_{step}.pt")
+            trainer.save_checkpoint(milestone, save_optimizer=True, async_write=False)
         trainer.save_checkpoint(latest_ckpt, save_optimizer=True, async_write=False)
         
     def eval_cb(step):
@@ -1083,11 +1085,14 @@ def run_dpo_training(
         )
     finally:
         final_step = trainer.step_count
-        final_milestone = os.path.join(checkpoints_dir, f"checkpoint_dpo_step_{final_step}.pt")
-        trainer.save_checkpoint(final_milestone, save_optimizer=True, async_write=False)
+        ck_interval = checkpoint_every if (checkpoint_every and checkpoint_every > 0) else 250
+        if final_step > 0 and final_step % ck_interval == 0:
+            final_milestone = os.path.join(checkpoints_dir, f"checkpoint_dpo_step_{final_step}.pt")
+            trainer.save_checkpoint(final_milestone, save_optimizer=True, async_write=False)
+            log.info("🏁 [DPO MILESTONE CHECKPOINT FLUSHED] Step %d written to disk: %s", final_step, final_milestone)
         trainer.save_checkpoint(latest_ckpt, save_optimizer=True, async_write=False)
         trainer.flush_checkpoint_writers()
-        log.info("🏁 [DPO ALIGNMENT FINISHED] Checkpoint saved: %s", final_milestone)
+        log.info("🏁 [DPO LATEST CHECKPOINT FLUSHED] Step %d successfully written to disk: %s", final_step, latest_ckpt)
 
 
 def run_evaluation(model, tokenizer, dataset_path, device="cpu", max_batches=50):

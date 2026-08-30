@@ -1034,9 +1034,9 @@ class NeuroTrainer:
                 lr = self.optimizer.param_groups[0]["lr"]
                 log.info(f"   🎯 [DPO Step {step:,}/{start_step + max_steps:,}] 📉 Loss: {accum_loss:.4f} │ 🏆 Chosen Win: {accum_win_rate*100:.1f}% │ 📈 Margin: {accum_margin:+.3f} │ 🎚️ LR: {lr:.2e}")
             
-            if checkpoint_callback is not None and (step % checkpoint_every == 0 or step == start_step + max_steps):
+            if checkpoint_callback is not None and checkpoint_every > 0 and (step % checkpoint_every == 0):
                 checkpoint_callback(step, accum_loss)
-            if eval_callback is not None and step % eval_every == 0:
+            if eval_callback is not None and eval_every > 0 and (step % eval_every == 0):
                 eval_callback(step)
                 
         log.info(f"DPO Preference Alignment complete ({max_steps} steps executed).")
