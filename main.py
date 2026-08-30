@@ -993,13 +993,30 @@ def run_compression_benchmark(comp_cfg):
     bench.run(sample_weight, output_dir=os.path.join(MODEL_DIR, "reports"))
 
 
-def run_generation(model, vcfg, device):
+def run_generation(model, tokenizer, vcfg, device, prompt_text=None, temperature=0.35, top_p=0.9, max_new_tokens=64, use_mtp=True):
     log.info("── [TEXT GENERATION MODE (MTP Speculation)] ───────")
-    prompt = torch.randint(0, vcfg.vocab_size, (1, 4), device=device)
-    log.info(f"  Prompt tokens: {prompt.tolist()[0]}")
+    if prompt_text:
+        log.info(f"  Prompt: {prompt_text!r}")
+        prompt_ids = tokenizer.encode(prompt_text)
+        if not prompt_ids:
+            prompt_ids = [1]  # <bos>
+        prompt_tensor = torch.tensor([prompt_ids], dtype=torch.long, device=device)
+    else:
+        prompt_tensor = torch.randint(0, vcfg.vocab_size, (1, 4), device=device)
+        log.info(f"  Random Prompt tokens: {prompt_tensor.tolist()[0]}")
+
+    model.eval()
     with torch.no_grad():
-        out = model.generate(prompt, max_new_tokens=10, temperature=0.8, use_mtp_speculation=True)
-    log.info(f"  Generated sequence tokens: {out.tolist()[0]}  ✓")
+        out = model.generate(prompt_tensor, max_new_tokens=max_new_tokens, temperature=temperature, top_p=top_p, use_mtp_speculation=use_mtp)
+
+    out_ids = out.tolist()[0]
+    gen_ids = out_ids[prompt_tensor.size(1):] if prompt_text else out_ids
+    decoded = tokenizer.decode(gen_ids)
+    print("\n" + "=" * 60)
+    print(f"🤖 [TANTRA RESPONSE]:\n{decoded}")
+    print("=" * 60 + "\n")
+    log.info(f"  Generated Tokens Count: {len(gen_ids)} ✓")
+    return decoded
 
 
 def serve(model, tokenizer, port=8000, expert_dir=None):
@@ -1064,6 +1081,8 @@ def main():
     parser.add_argument("--dim", type=int, default=512, help="Embedding dimension (default: 512)")
     parser.add_argument("--layers", type=int, default=8, help="Number of NeuroCore layers (default: 8)")
     parser.add_argument("--output", type=str, default=None, help="Output path for model export mode")
+    parser.add_argument("--prompt", type=str, default=None, help="Text prompt for --mode generate")
+    parser.add_argument("--max-new-tokens", type=int, default=64, help="Max new tokens to generate")
     parser.add_argument("--max-grad-norm", type=float, default=1.0, help="Max gradient norm clipping threshold (default: 1.0)")
     parser.add_argument("--mtp-weight", type=float, default=0.3, help="Auxiliary MTP loss weight factor (default: 0.3)")
     parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
@@ -1379,7 +1398,24 @@ def main():
     elif args.mode == "eval":
         run_evaluation(model, tok, args.dataset)
     elif args.mode == "generate":
-        run_generation(model, vcfg, rt.device)
+        ckpt_to_load = args.checkpoint
+        if ckpt_to_load is None:
+            cand_list = []
+            for d in [os.path.join(MODEL_DIR, "Checkpoints"), os.path.join(MODEL_DIR, "Best"), os.path.join(MODEL_DIR, "Latest")]:
+                if os.path.exists(d):
+                    cand_list.extend(glob.glob(os.path.join(d, "*.pt")))
+            if cand_list:
+                import re
+                ckpt_to_load = max([p for p in cand_list if "sample" not in p], key=lambda p: int(re.search(r'step_(\d+)', p).group(1)) if re.search(r'step_(\d+)', p) else 0)
+
+        if ckpt_to_load and os.path.exists(ckpt_to_load):
+            try:
+                trainer.load_checkpoint(ckpt_to_load)
+                log.info(f"Loaded checkpoint for generation: {ckpt_to_load}")
+            except Exception as e:
+                log.warning(f"Could not load checkpoint {ckpt_to_load}: {e}")
+
+        run_generation(model, tok, vcfg, rt.device, prompt_text=args.prompt, temperature=args.temperature, top_p=args.top_p, max_new_tokens=args.max_new_tokens, use_mtp=args.use_mtp)
     elif args.mode == "serve":
         ckpt_to_load = args.checkpoint
         if ckpt_to_load is None:
