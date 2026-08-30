@@ -262,11 +262,19 @@ class NeuroTrainer:
                 "weight_decay": self.weight_decay,
             })
             if self.scheduler is not None:
-                if hasattr(self.scheduler, "base_lrs"):
-                    self.scheduler.base_lrs.append(self.lr)
-                if hasattr(self.scheduler, "lr_lambdas") and self.scheduler.lr_lambdas:
-                    self.scheduler.lr_lambdas.append(self.scheduler.lr_lambdas[0])
+                self._sync_scheduler_lambdas()
             log.info(f"  Optimizer dynamically registered {len(new_parameters)} new parameter tensors while preserving existing momentum history.")
+
+    def _sync_scheduler_lambdas(self) -> None:
+        """Guarantees LambdaLR lr_lambdas length strictly matches base_lrs and optimizer param_groups."""
+        if self.scheduler is not None:
+            if hasattr(self.scheduler, "lr_lambdas") and hasattr(self.scheduler, "base_lrs"):
+                if self.scheduler.lr_lambdas:
+                    while len(self.scheduler.lr_lambdas) < len(self.scheduler.base_lrs):
+                        self.scheduler.lr_lambdas.append(self.scheduler.lr_lambdas[0])
+                if len(self.scheduler.base_lrs) < len(self.optimizer.param_groups):
+                    while len(self.scheduler.base_lrs) < len(self.optimizer.param_groups):
+                        self.scheduler.base_lrs.append(self.lr)
 
     def _write_training_status(self, **status: Any) -> None:
         """Publish real training state for the local Web UI and recovery logs."""
@@ -413,6 +421,7 @@ class NeuroTrainer:
                     self.scaler.update()
                 else:
                     self.optimizer.step()
+                self._sync_scheduler_lambdas()
                 self.scheduler.step()
                 self.step_count += 1
         else:
@@ -1346,6 +1355,7 @@ class NeuroTrainer:
         if "scheduler_state_dict" in ckpt:
             try:
                 self.scheduler.load_state_dict(ckpt["scheduler_state_dict"])
+                self._sync_scheduler_lambdas()
                 log.info("LR scheduler state restored — resuming at correct point in warmup/cosine schedule.")
             except Exception as e:
                 log.warning(f"Could not restore scheduler state ({e}); fast-forwarding by step_count instead.")
