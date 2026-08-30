@@ -1141,7 +1141,7 @@ def main():
     parser.add_argument("--optimizer", type=str, choices=["adamw", "adam", "lion", "sgd"], default="adamw", help="Optimizer choice (default: adamw)")
     parser.add_argument("--lr", type=float, default=None, help="Learning rate (default: 1e-4 for AdamW, 5e-5 for Lion)")
     parser.add_argument("--weight-decay", type=float, default=None, help="Weight decay (default: 0.01 for AdamW, 0.05 for Lion)")
-    parser.add_argument("--warmup", type=int, default=None, help="LR warmup steps (default: steps // 10)")
+    parser.add_argument("--warmup", "--warmup-steps", dest="warmup", type=int, default=None, help="LR warmup steps (default: steps // 10)")
     parser.add_argument("--topic-weights", type=str, default=None, help="JSON dict of topic weights, e.g. '{\"general\":40,\"code\":15}'")
     parser.add_argument("--model-dir", "--checkpoint-dir", dest="model_dir", type=str, default=None, help="Custom root directory for model checkpoints (e.g. Kaggle/Google Drive)")
     parser.add_argument("--mask-non-assistant", action="store_true", default=None, help="Supervise assistant replies only during training")

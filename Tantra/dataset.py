@@ -1202,7 +1202,10 @@ def build_chitchat_curriculum(datasets_dir: str = "Datasets", target_samples: in
         # 2. DailyDialog Casual Human Chit-Chat (15K)
         try:
             log.info("📥 [2/3] Ingesting DailyDialog Natural Dialogues (15K)...")
-            ds = load_dataset("daily_dialog", split="train", trust_remote_code=True)
+            try:
+                ds = load_dataset("roskoN/dailydialog", split="train")
+            except Exception:
+                ds = load_dataset("daily_dialog", split="train")
             for it in ds:
                 dialog = it.get("dialog", [])
                 if len(dialog) >= 2:
