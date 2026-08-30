@@ -518,7 +518,7 @@ def run_training(model, vcfg, steps=30, resume=False):
     trainer.save_checkpoint(latest_ckpt, save_optimizer=True)
 
 
-def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False, eval_every=1000, log_every=50, checkpoint_every=500, batch_size=1, seq_len=128, grad_accumulation_steps=1, data_workers=0, use_latent_reasoning=True, use_mtp_loss=True, compile=False, lr=1e-4, weight_decay=0.01, optimizer="adamw", warmup_steps=None, topic_weights=None, training_stage="sft", auto_growth=False, growth_patience=1000, growth_min_delta=0.005, max_layers=None, model_dir=None, adapter_name=None, archive_checkpoints=True, pack_sequences=True, checkpoint_path=None):
+def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False, eval_every=1000, log_every=50, checkpoint_every=500, batch_size=1, seq_len=128, grad_accumulation_steps=1, data_workers=0, use_latent_reasoning=True, use_mtp_loss=True, compile=False, lr=1e-4, weight_decay=0.01, optimizer="adamw", warmup_steps=None, topic_weights=None, training_stage="sft", auto_growth=False, growth_patience=1000, growth_min_delta=0.005, max_layers=None, model_dir=None, adapter_name=None, archive_checkpoints=True, pack_sequences=True, checkpoint_path=None, max_grad_norm=1.0, mtp_loss_weight=0.3):
 
     log.info("== [DATASET PRE-TRAINING MODE] =====================")
     if training_stage not in {"pretrain", "sft"}:
@@ -555,8 +555,8 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
         auto_growth = False  # handled per-category below, not on the frozen base
 
     warmup = warmup_steps if warmup_steps is not None else max(50, steps // 10)
-    log.info(f"Optimizer: {optimizer.upper()}  |  Learning rate: {lr:.2e}  |  Warmup steps: {warmup}")
-    trainer = NeuroTrainer(model, lr=lr, weight_decay=weight_decay, optimizer_name=optimizer, total_steps=steps, warmup_steps=warmup, grad_accumulation_steps=grad_accumulation_steps, use_latent_reasoning=use_latent_reasoning, use_mtp_loss=use_mtp_loss)
+    log.info(f"Optimizer: {optimizer.upper()}  |  Learning rate: {lr:.2e}  |  Warmup steps: {warmup}  |  Grad clip: {max_grad_norm}  |  MTP weight: {mtp_loss_weight}")
+    trainer = NeuroTrainer(model, lr=lr, weight_decay=weight_decay, optimizer_name=optimizer, total_steps=steps, warmup_steps=warmup, grad_accumulation_steps=grad_accumulation_steps, use_latent_reasoning=use_latent_reasoning, use_mtp_loss=use_mtp_loss, mtp_loss_weight=mtp_loss_weight, max_grad_norm=max_grad_norm)
 
     checkpoint_root = os.path.abspath(model_dir or MODEL_DIR)
     latest_dir = os.path.join(checkpoint_root, "Latest")
@@ -1063,8 +1063,9 @@ def main():
     parser.add_argument("--adapter-topics", type=str, default=None, help="Comma list of Datasets/<topic> folders for a new category")
     parser.add_argument("--dim", type=int, default=512, help="Embedding dimension (default: 512)")
     parser.add_argument("--layers", type=int, default=8, help="Number of NeuroCore layers (default: 8)")
-    parser.add_argument("--heads", type=int, default=8, help="Number of attention heads (default: 8)")
     parser.add_argument("--output", type=str, default=None, help="Output path for model export mode")
+    parser.add_argument("--max-grad-norm", type=float, default=1.0, help="Max gradient norm clipping threshold (default: 1.0)")
+    parser.add_argument("--mtp-weight", type=float, default=0.3, help="Auxiliary MTP loss weight factor (default: 0.3)")
     parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
     args = parser.parse_args()
 
@@ -1293,7 +1294,7 @@ def main():
         else:
             resolved_wd = 0.05 if resolved_optimizer == "lion" else 0.01
 
-        run_dataset_training(model, tok, args.dataset, steps=args.steps, resume=args.resume, eval_every=args.eval_every, log_every=args.log_every, checkpoint_every=args.checkpoint_every, batch_size=args.batch_size, seq_len=args.seq_len, grad_accumulation_steps=args.grad_accum, data_workers=args.data_workers, use_latent_reasoning=use_latent_reasoning, use_mtp_loss=use_mtp_loss, compile=args.compile, lr=resolved_lr, weight_decay=resolved_wd, optimizer=resolved_optimizer, warmup_steps=args.warmup, topic_weights=topic_weights, training_stage=args.training_stage, auto_growth=args.auto_growth, growth_patience=args.growth_patience, growth_min_delta=args.growth_min_delta, max_layers=args.max_layers, adapter_name=args.adapter, model_dir=(ADAPTER_ROOT if args.adapter is not None else args.model_dir), pack_sequences=args.pack_sequences, checkpoint_path=args.checkpoint)
+        run_dataset_training(model, tok, args.dataset, steps=args.steps, resume=args.resume, eval_every=args.eval_every, log_every=args.log_every, checkpoint_every=args.checkpoint_every, batch_size=args.batch_size, seq_len=args.seq_len, grad_accumulation_steps=args.grad_accum, data_workers=args.data_workers, use_latent_reasoning=use_latent_reasoning, use_mtp_loss=use_mtp_loss, compile=args.compile, lr=resolved_lr, weight_decay=resolved_wd, optimizer=resolved_optimizer, warmup_steps=args.warmup, topic_weights=topic_weights, training_stage=args.training_stage, auto_growth=args.auto_growth, growth_patience=args.growth_patience, growth_min_delta=args.growth_min_delta, max_layers=args.max_layers, adapter_name=args.adapter, model_dir=(ADAPTER_ROOT if args.adapter is not None else args.model_dir), pack_sequences=args.pack_sequences, checkpoint_path=args.checkpoint, max_grad_norm=args.max_grad_norm, mtp_loss_weight=args.mtp_weight)
 
     elif args.mode == "dpo":
         dpo_ckpt = args.checkpoint
@@ -1352,7 +1353,8 @@ def main():
             training_stage="sft", auto_growth=args.auto_growth,
             growth_patience=args.growth_patience, growth_min_delta=args.growth_min_delta,
             max_layers=args.max_layers, model_dir=args.model_dir,
-            pack_sequences=args.pack_sequences, checkpoint_path=args.checkpoint
+            pack_sequences=args.pack_sequences, checkpoint_path=args.checkpoint,
+            max_grad_norm=args.max_grad_norm, mtp_loss_weight=args.mtp_weight
         )
         
         # Phase 2: DPO Alignment

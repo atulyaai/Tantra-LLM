@@ -122,7 +122,8 @@ def run_benchmarks(checkpoint_path: str = None, device: str = "auto"):
     # 2. HumanEval
     print("\n[Level 2] Evaluating HumanEval Code Sandbox (pass@1)...")
     he_res = suite.evaluate_humaneval_code(BENCHMARK_HUMANEVAL)
-    print(f"  -> HumanEval pass@1: {he_res['pass_at_1']:.1f}% ({he_res['passed']}/{he_res['total']})")
+    pass_rate = he_res.get("humaneval_pass_at_1", he_res.get("pass_at_1", 0.0))
+    print(f"  -> HumanEval pass@1: {pass_rate:.1f}% ({he_res.get('passed', 0)}/{he_res.get('total', 0)})")
 
     print("\n" + "=" * 70)
     print("✅ Benchmark execution complete.")

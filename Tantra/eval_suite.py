@@ -189,7 +189,7 @@ class IndustryBenchmarkSuite:
             full_script = f"{code_to_test}\n\n{unit_test_code}"
             
             # Execute in sandbox subprocess with 2-second timeout
-            with tempfile.NamedTemporaryFile("w", suffix=".py", delete=False) as f:
+            with tempfile.NamedTemporaryFile("w", suffix=".py", delete=False, encoding="utf-8") as f:
                 f.write(full_script)
                 temp_name = f.name
                 
