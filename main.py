@@ -1174,7 +1174,7 @@ def main():
     parser.add_argument("--curriculum-phase", "--phase", dest="curriculum_phase", type=int, default=None, choices=[1, 2, 3],
                         help="Curriculum learning phase: 1=greetings & identity only, 2=short dialogues (<100 words), 3=full multi-turn dataset")
     parser.add_argument("--checkpoint", type=str, default=None, help="Path to custom .pt model checkpoint to load (for chat, eval, serve, dpo, benchmark, export)")
-    parser.add_argument("--pack-sequences", action=argparse.BooleanOptionalAction, default=True, help="Enable continuous document sequence packing (0% padding waste)")
+    parser.add_argument("--pack-sequences", action=argparse.BooleanOptionalAction, default=True, help="Enable continuous document sequence packing (zero padding waste)")
     parser.add_argument("--dataset", type=str, default=DEFAULT_DATASET, help="JSONL dataset path")
     parser.add_argument("--preference-dataset", type=str, default="Datasets/preference_pairs.jsonl", help="DPO pairwise preference dataset path")
     parser.add_argument("--dpo-beta", type=float, default=0.1, help="DPO temperature scaling hyperparameter beta (default: 0.1)")
@@ -1211,32 +1211,32 @@ def main():
     parser.add_argument("--mask-non-assistant", action="store_true", default=None, help="Supervise assistant replies only during training")
     parser.add_argument("--adapter-action", default="list", choices=["list", "add", "remove", "init"],
                         help="--mode adapter sub-action")
-    parser.add_argument(\"--adapter\", type=str, default=None,
-                        help=\"Category to train (dataset mode) or force for chat/generate. None routes per-request.\")
-    parser.add_argument(\"--adapter-desc\", type=str, default=\"\", help=\"Description when adding a category\")
-    parser.add_argument(\"--adapter-topics\", type=str, default=None, help=\"Comma list of Datasets/<topic> folders for a new category\")
-    parser.add_argument(\"--dim\", type=int, default=512, help=\"Embedding dimension (default: 512)\")
-    parser.add_argument(\"--layers\", type=int, default=8, help=\"Number of NeuroCore layers (default: 8)\")
-    parser.add_argument(\"--heads\", type=int, default=8, help=\"Number of attention heads (default: 8)\")
+    parser.add_argument("--adapter", type=str, default=None,
+                        help="Category to train (dataset mode) or force for chat/generate. None routes per-request.")
+    parser.add_argument("--adapter-desc", type=str, default="", help="Description when adding a category")
+    parser.add_argument("--adapter-topics", type=str, default=None, help="Comma list of Datasets/<topic> folders for a new category")
+    parser.add_argument("--dim", type=int, default=512, help="Embedding dimension (default: 512)")
+    parser.add_argument("--layers", type=int, default=8, help="Number of NeuroCore layers (default: 8)")
+    parser.add_argument("--heads", type=int, default=8, help="Number of attention heads (default: 8)")
     # ── MoE Expert Configuration ──────────────────────────────────────────────
-    parser.add_argument(\"--num-experts\", type=int, default=0,
-                        help=\"Number of real Top-1 MoE experts per MoE layer (0 = dense, no MoE). "
-                             "Recommended: 4 for Dual-T4 Kaggle runs. Odd layers get MoE blocks.\")
-    parser.add_argument(\"--real-moe\", action=\"store_true\", default=False,
-                        help=\"Enable real Top-1 MoE routing (requires --num-experts >= 2). "
-                             "When off, the model is a dense transformer regardless of --num-experts.\")
+    parser.add_argument("--num-experts", type=int, default=0,
+                        help="Number of real Top-1 MoE experts per MoE layer (0 = dense, no MoE). "
+                             "Recommended: 4 for Dual-T4 Kaggle runs. Odd layers get MoE blocks.")
+    parser.add_argument("--real-moe", action="store_true", default=False,
+                        help="Enable real Top-1 MoE routing (requires --num-experts >= 2). "
+                             "When off, the model is a dense transformer regardless of --num-experts.")
     # ── Automatic Curriculum Sequencer ───────────────────────────────────────
-    parser.add_argument(\"--curriculum-order\", action=\"store_true\", default=False,
-                        help=\"Run the full phased curriculum in order automatically: "
+    parser.add_argument("--curriculum-order", action="store_true", default=False,
+                        help="Run the full phased curriculum in order automatically: "
                              "chitchat-p1 -> p2 -> p3 -> math-p1 -> p2 -> p3 -> code-p1 -> p2 -> p3 -> science-p1 -> p2 -> p3. "
                              "Each phase gets steps/12 of the total --steps budget. "
-                             "Conversation phases get 3x weight to prioritize greetings & grammar first.\")
-    parser.add_argument(\"--output\", type=str, default=None, help=\"Output path for model export mode\")
-    parser.add_argument(\"--prompt\", type=str, default=None, help=\"Text prompt for --mode generate\")
-    parser.add_argument(\"--max-new-tokens\", type=int, default=64, help=\"Max new tokens to generate\")
-    parser.add_argument(\"--max-grad-norm\", type=float, default=1.0, help=\"Max gradient norm clipping threshold (default: 1.0)\")
-    parser.add_argument(\"--mtp-weight\", type=float, default=0.3, help=\"Auxiliary MTP loss weight factor (default: 0.3)\")
-    parser.add_argument(\"--seed\", type=int, default=42, help=\"Random seed for reproducibility\")
+                             "Conversation phases get 3x weight to prioritize greetings & grammar first.")
+    parser.add_argument("--output", type=str, default=None, help="Output path for model export mode")
+    parser.add_argument("--prompt", type=str, default=None, help="Text prompt for --mode generate")
+    parser.add_argument("--max-new-tokens", type=int, default=64, help="Max new tokens to generate")
+    parser.add_argument("--max-grad-norm", type=float, default=1.0, help="Max gradient norm clipping threshold (default: 1.0)")
+    parser.add_argument("--mtp-weight", type=float, default=0.3, help="Auxiliary MTP loss weight factor (default: 0.3)")
+    parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
     args = parser.parse_args()
 
     from Tantra.utils import set_seed
