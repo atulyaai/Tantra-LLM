@@ -41,7 +41,7 @@ def run_benchmarks(checkpoint_path: str = None, device: str = "auto"):
     dev = torch.device("cuda" if torch.cuda.is_available() and device == "auto" else (device if device != "auto" else "cpu"))
     print(f"⚡ Device: {dev}")
 
-    cfg = NeuroCoreConfig.small()
+    cfg = NeuroCoreConfig()
     cfg.vocab.vocab_size = 32768
 
     if checkpoint_path and os.path.exists(checkpoint_path):
@@ -52,9 +52,24 @@ def run_benchmarks(checkpoint_path: str = None, device: str = "auto"):
         if ckpt_cfg is not None:
             cfg = ckpt_cfg
         elif "embed.weight" in state:
-            ckpt_vocab = state["embed.weight"].size(0)
-            if cfg.vocab.vocab_size != ckpt_vocab:
-                cfg.vocab.vocab_size = ckpt_vocab
+            embed_w = state["embed.weight"]
+            ckpt_vocab = embed_w.size(0)
+            ckpt_dim = embed_w.size(1)
+            cfg.vocab.vocab_size = ckpt_vocab
+            cfg.block.alra.dim = ckpt_dim
+            cfg.block.sgp.dim = ckpt_dim
+            cfg.block.alra.num_heads = 8 if ckpt_dim == 512 else (12 if ckpt_dim == 768 else max(1, ckpt_dim // 64))
+            cfg.block.alra.head_dim = max(1, ckpt_dim // cfg.block.alra.num_heads)
+
+            layer_indices = set()
+            for k in state.keys():
+                if k.startswith("layers."):
+                    parts = k.split(".")
+                    if len(parts) > 1 and parts[1].isdigit():
+                        layer_indices.add(int(parts[1]))
+            if layer_indices:
+                cfg.block.num_layers = max(layer_indices) + 1
+
             router_key = next((k for k in state if k.endswith("router.router_weights.weight")), None)
             if router_key:
                 cfg.moe.num_experts = state[router_key].size(0)
