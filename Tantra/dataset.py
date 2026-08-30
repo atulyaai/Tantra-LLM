@@ -1159,7 +1159,7 @@ def build_chitchat_curriculum(datasets_dir: str = "Datasets", target_samples: in
     gold_path = os.path.join(datasets_dir, "gold_corpus.jsonl")
     
     # 1. First ensure gold persona & dialogue templates are created
-    generate_gold_datasets(gold_path, target_count=5000)
+    generate_gold_datasets(datasets_dir, force=False)
     
     try:
         from datasets import load_dataset
