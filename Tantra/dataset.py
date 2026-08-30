@@ -871,17 +871,17 @@ def generate_gold_datasets(datasets_dir: str = "Datasets", force: bool = False) 
     # ── 3. Algorithmic Code Synthesis (Python, JS, C++, Java) ─────────────────
     code_templates = [
         ("Write a Python function to check if a string is a palindrome.",
-         "def is_palindrome(s: str) -> bool:\n    \"\"\"Checks if string reads same backward.\"\"\"\n    clean = ''.join(c.lower() for c in s if c.isalnum())\n    return clean == clean[::-1]\n\n# Test\nprint(is_palindrome('radar'))  # True"),
+         "```python\ndef is_palindrome(s: str) -> bool:\n    \"\"\"Checks if string reads same backward.\"\"\"\n    clean = ''.join(c.lower() for c in s if c.isalnum())\n    return clean == clean[::-1]\n\n# Test\nprint(is_palindrome('radar'))  # True\n```"),
         ("Write a Python function to reverse a list in-place.",
-         "def reverse_list(items: list) -> list:\n    \"\"\"Reverses list in-place using two pointers.\"\"\"\n    left, right = 0, len(items) - 1\n    while left < right:\n        items[left], items[right] = items[right], items[left]\n        left += 1\n        right -= 1\n    return items"),
+         "```python\ndef reverse_list(items: list) -> list:\n    \"\"\"Reverses list in-place using two pointers.\"\"\"\n    left, right = 0, len(items) - 1\n    while left < right:\n        items[left], items[right] = items[right], items[left]\n        left += 1\n        right -= 1\n    return items\n```"),
         ("Write a Python function to find the factorial of an integer.",
-         "def factorial(n: int) -> int:\n    \"\"\"Computes n! iteratively.\"\"\"\n    if n < 0: raise ValueError('Factorial not defined for negative numbers')\n    res = 1\n    for i in range(2, n + 1):\n        res *= i\n    return res"),
+         "```python\ndef factorial(n: int) -> int:\n    \"\"\"Computes n! iteratively.\"\"\"\n    if n < 0: raise ValueError('Factorial not defined for negative numbers')\n    res = 1\n    for i in range(2, n + 1):\n        res *= i\n    return res\n```"),
         ("Write a JavaScript function to implement binary search.",
-         "function binarySearch(arr, target) {\n    let left = 0, right = arr.length - 1;\n    while (left <= right) {\n        const mid = Math.floor((left + right) / 2);\n        if (arr[mid] === target) return mid;\n        if (arr[mid] < target) left = mid + 1;\n        else right = mid - 1;\n    }\n    return -1;\n}"),
+         "```javascript\nfunction binarySearch(arr, target) {\n    let left = 0, right = arr.length - 1;\n    while (left <= right) {\n        const mid = Math.floor((left + right) / 2);\n        if (arr[mid] === target) return mid;\n        if (arr[mid] < target) left = mid + 1;\n        else right = mid - 1;\n    }\n    return -1;\n}\n```"),
         ("Write a C++ function to check if a number is prime.",
-         "bool isPrime(int n) {\n    if (n <= 1) return false;\n    if (n <= 3) return true;\n    if (n % 2 == 0 || n % 3 == 0) return false;\n    for (int i = 5; i * i <= n; i += 6) {\n        if (n % i == 0 || n % (i + 2) == 0) return false;\n    }\n    return true;\n}"),
+         "```cpp\nbool isPrime(int n) {\n    if (n <= 1) return false;\n    if (n <= 3) return true;\n    if (n % 2 == 0 || n % 3 == 0) return false;\n    for (int i = 5; i * i <= n; i += 6) {\n        if (n % i == 0 || n % (i + 2) == 0) return false;\n    }\n    return true;\n}\n```"),
         ("Write a Java method to find the maximum element in an array.",
-         "public class ArrayUtils {\n    public static int findMax(int[] nums) {\n        if (nums == null || nums.length == 0) throw new IllegalArgumentException('Empty array');\n        int max = nums[0];\n        for (int v : nums) if (v > max) max = v;\n        return max;\n    }\n}")
+         "```java\npublic class ArrayUtils {\n    public static int findMax(int[] nums) {\n        if (nums == null || nums.length == 0) throw new IllegalArgumentException('Empty array');\n        int max = nums[0];\n        for (int v : nums) if (v > max) max = v;\n        return max;\n    }\n}\n```")
     ]
     for p, c in code_templates:
         _add_sample("code", p, c, complexity=2)

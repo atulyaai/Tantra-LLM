@@ -655,18 +655,33 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
         # Evaluates 4 diverse domain prompts to monitor multi-skill emergence
         log.info(f"┌── 🌐 [ MULTI-DOMAIN & ZERO-SHOT WORLD BENCHMARK @ Step {step:,} ] " + "─" * 20)
         test_prompts = [
-            ("General", "💬", "<|user|>\nWhat is Tantra LLM?\n\n<|assistant|>\n"),
-            ("Coding",  "💻", "<|user|>\nWrite a Python function to reverse a string.\n\n<|assistant|>\n"),
-            ("Math",    "🔢", "<|user|>\nSolve for x in 2x + 6 = 14.\n\n<|assistant|>\n"),
-            ("Science", "🔬", "<|user|>\nState Newton's First Law of Motion.\n\n<|assistant|>\n")
+            ("General", "💬", "<|user|>\nWhat is Tantra LLM?\n\n<|assistant|>\n", 0.4),
+            ("Coding",  "💻", "<|user|>\nWrite a Python function to reverse a string.\n\n<|assistant|>\n```python\n", 0.2),
+            ("Math",    "🔢", "<|user|>\nSolve for x in 2x + 6 = 14.\n\n<|assistant|>\n", 0.2),
+            ("Science", "🔬", "<|user|>\nState Newton's First Law of Motion.\n\n<|assistant|>\n", 0.4)
         ]
         raw_model = getattr(model, "module", getattr(model, "_orig_mod", model))
-        for domain, icon, prompt_text in test_prompts:
+        for domain, icon, prompt_text, temp in test_prompts:
             prompt_ids = torch.tensor([tokenizer.encode(prompt_text)], device=raw_model.embed.weight.device)
-            out = raw_model.generate(prompt_ids, max_new_tokens=48, min_new_tokens=1, temperature=0.7, top_p=0.9, repetition_penalty=1.2)
+            out = raw_model.generate(prompt_ids, max_new_tokens=64, min_new_tokens=1, temperature=temp, top_p=0.9, repetition_penalty=1.15)
             new_tokens = out[0, prompt_ids.shape[1]:].tolist()
-            response = tokenizer.decode(new_tokens).strip().replace("\n", " ")
-            log.info(f"│ {icon} [{domain:7s}]: {response[:90]}")
+            response = tokenizer.decode(new_tokens).strip()
+
+            extra_tag = ""
+            if domain == "Coding":
+                import ast
+                code_cand = response.replace("```python", "").replace("```", "").strip()
+                try:
+                    ast.parse(code_cand)
+                    extra_tag = " (✅ Valid Python AST)"
+                except Exception:
+                    pass
+            elif domain == "Math":
+                if "x = 4" in response or "x=4" in response or "= 4" in response:
+                    extra_tag = " (✅ Solved: x = 4)"
+
+            clean_disp = response.replace("\n", " ")[:90]
+            log.info(f"│ {icon} [{domain:7s}]: {clean_disp}{extra_tag}")
         
         # Zero-Shot World Knowledge MMLU Benchmark Evaluation
         try:

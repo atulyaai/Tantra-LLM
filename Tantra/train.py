@@ -213,6 +213,7 @@ class NeuroTrainer:
         self.best_loss = float('inf')
         self.best_val_loss = float('inf')
         self.ema_loss = None
+        self.ema_alignment: Optional[float] = None
 
         self.total_tokens = 0
         self._session_tokens = 0   # tokens in THIS training run only
@@ -821,8 +822,12 @@ class NeuroTrainer:
                         if asst_snippet and model_snippet:
                             t_words = {w for w in asst_snippet.lower().split() if len(w) > 2}
                             m_words = {w for w in model_snippet.lower().split() if len(w) > 2}
-                            if t_words:
+                            if len(t_words) >= 2:
                                 match_score = len(t_words & m_words) / len(t_words) * 100.0
+                                if self.ema_alignment is None:
+                                    self.ema_alignment = match_score
+                                else:
+                                    self.ema_alignment = 0.85 * self.ema_alignment + 0.15 * match_score
 
                         header = f"🚀 [Step {self.step_count:,}/{max_steps:,} ({pct:.1f}%)]"
                         metrics_line1 = f"📉 Loss: {avg_loss:.4f} {loss_arrow} │ 🎯 Top-1: {avg_acc:.1f}% │ 🌟 Top-5: {avg_top5_acc:.1f}% {acc_arrow} │ 🔮 PPL: {avg_ppl:.1f}"
@@ -843,7 +848,8 @@ class NeuroTrainer:
                         if model_snippet:
                             log.info(f"│ 🤖 [Predicted] : {model_snippet}")
                         if match_score > 0:
-                            log.info(f"│ 🎯 [Alignment] : {match_score:.1f}% (Key concept overlap)")
+                            smoothed_str = f" │ Smoothed: {self.ema_alignment:.1f}%" if self.ema_alignment is not None else ""
+                            log.info(f"│ 🎯 [Alignment] : {match_score:.1f}%{smoothed_str} (Key concept overlap)")
                         log.info(f"└── 📦 Streamed: {self._session_tokens/1000:.1f}K session tokens │ 🌐 Cumulative: {self.total_tokens/1e6:.2f}M tokens " + "─" * 15)
 
 
