@@ -346,7 +346,9 @@ class NeuroTrainer:
                 # without skipping accumulation boundaries or dropping previously accumulated gradients.
                 loss = logits_flat.sum() * 0.0
             else:
-                loss = self.criterion(logits_flat, y_flat)
+                # Memory optimization: only allocate cross-entropy softmax/backward buffers
+                # for supervised tokens rather than the full context window.
+                loss = self.criterion(logits_flat[supervised_mask], y_flat[supervised_mask])
 
             raw_m = unwrap_model(self.model)
             if hasattr(raw_m, "get_aux_loss"):
@@ -1073,8 +1075,30 @@ class NeuroTrainer:
         if hasattr(raw_model, "config") and hasattr(raw_model.config, "block"):
             raw_model.config.block.num_layers = current_num_layers
 
-        model_sd = {k: (v.clone().half() if v.is_floating_point() else v.clone()) for k, v in raw_model.state_dict().items()}
-        opt_sd = copy.deepcopy(self.optimizer.state_dict()) if save_optimizer else None
+        # Zero GPU VRAM overhead during checkpoint saving: clone directly to host CPU
+        model_sd = {}
+        for k, v in raw_model.state_dict().items():
+            if isinstance(v, torch.Tensor):
+                model_sd[k] = v.detach().cpu().half() if v.is_floating_point() else v.detach().cpu()
+            else:
+                model_sd[k] = v
+
+        opt_sd = None
+        if save_optimizer and self.optimizer is not None:
+            raw_opt_sd = self.optimizer.state_dict()
+            opt_sd = {}
+            for k, v in raw_opt_sd.items():
+                if k == "state":
+                    opt_sd["state"] = {}
+                    for param_id, p_state in v.items():
+                        opt_sd["state"][param_id] = {}
+                        for s_k, s_v in p_state.items():
+                            if isinstance(s_v, torch.Tensor):
+                                opt_sd["state"][param_id][s_k] = s_v.detach().cpu()
+                            else:
+                                opt_sd["state"][param_id][s_k] = s_v
+                else:
+                    opt_sd[k] = copy.deepcopy(v)
 
         session_elapsed_sec = max(0.0, time.perf_counter() - self._start_time)
         session_steps = max(self.step_count - getattr(self, "_session_start_step", 0), 1)
