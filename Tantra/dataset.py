@@ -1227,8 +1227,10 @@ def build_chitchat_curriculum(datasets_dir: str = "Datasets", target_samples: in
             ("I had a great day today!", "That's wonderful to hear! What was the best part of your day?"),
             ("I had a bad day", "I'm sorry to hear that. Some days can be really tough. Take it easy tonight, get some rest, and remember tomorrow is a fresh start.")
         ]
-        # Repeat greeting anchors throughout the dataset to anchor core conversational reflexes
-        for _ in range(120):
+        # Repeat greeting anchors a small number of times to anchor core conversational reflexes.
+        # 8x is enough to anchor the behavior; 120x was spending 6% of curriculum budget on
+        # 50 near-identical pairs (the exact repeat-over-diversity bug pattern).
+        for _ in range(8):
             for u, a in greetings_bank:
                 out_f.write(json.dumps({
                     "user": u,
@@ -1477,8 +1479,9 @@ def build_phased_chitchat_curriculum(datasets_dir: str = "Datasets") -> dict:
     log.info("📥 [Phase 1/3] Building pure greetings & identity dataset...")
     phase1_count = 0
     with open(phase1_path, "w", encoding="utf-8") as f:
-        # Write greeting bank repeated 200x for strong anchoring
-        for _ in range(200):
+        # 10x is enough to anchor greetings/identity at Phase 1 without
+        # wasting 90% of the file on byte-for-byte copies of 50 pairs.
+        for _ in range(10):
             for u, a in greetings_bank:
                 f.write(json.dumps({"user": u, "assistant": a, "domain": "conversation"}) + "\n")
                 phase1_count += 1
@@ -1501,8 +1504,8 @@ def build_phased_chitchat_curriculum(datasets_dir: str = "Datasets") -> dict:
     log.info("📥 [Phase 2/3] Building short conversation dataset...")
     phase2_count = 0
     with open(phase2_path, "w", encoding="utf-8") as f:
-        # Include Phase 1 data (greetings at 100x repetition to keep anchored)
-        for _ in range(100):
+        # Include Phase 1 data (greetings at 5x — dataset already has UltraChat diversity below)
+        for _ in range(5):
             for u, a in greetings_bank:
                 f.write(json.dumps({"user": u, "assistant": a, "domain": "conversation"}) + "\n")
                 phase2_count += 1
@@ -1558,8 +1561,8 @@ def build_phased_chitchat_curriculum(datasets_dir: str = "Datasets") -> dict:
     log.info("📥 [Phase 3/3] Building full conversation dataset...")
     phase3_count = 0
     with open(phase3_path, "w", encoding="utf-8") as f:
-        # Greetings at 50x (lower ratio since full dataset is large)
-        for _ in range(50):
+        # 3x — large dataset; greetings need tiny representation only
+        for _ in range(3):
             for u, a in greetings_bank:
                 f.write(json.dumps({"user": u, "assistant": a, "domain": "conversation"}) + "\n")
                 phase3_count += 1
@@ -1683,7 +1686,7 @@ def build_phased_code_curriculum(datasets_dir: str = "Datasets") -> dict:
     log.info("📥 [Code Phase 1/3] Building pure syntax & one-liner dataset...")
     p1_count = 0
     with open(p1_path, "w", encoding="utf-8") as f:
-        for _ in range(150):
+        for _ in range(8):  # 8x anchors syntax reflexes without excessive repetition
             for u, a in code_syntax_bank:
                 f.write(json.dumps({"user": u, "assistant": a, "domain": "code"}) + "\n")
                 p1_count += 1
@@ -1701,7 +1704,7 @@ def build_phased_code_curriculum(datasets_dir: str = "Datasets") -> dict:
     log.info("📥 [Code Phase 2/3] Building algorithms & data structures dataset...")
     p2_count = 0
     with open(p2_path, "w", encoding="utf-8") as f:
-        for _ in range(50):
+        for _ in range(4):  # 4x — 18K real examples below provide the diversity
             for u, a in code_syntax_bank:
                 f.write(json.dumps({"user": u, "assistant": a, "domain": "code"}) + "\n")
                 p2_count += 1
@@ -1720,7 +1723,7 @@ def build_phased_code_curriculum(datasets_dir: str = "Datasets") -> dict:
     log.info("📥 [Code Phase 3/3] Building full software engineering dataset...")
     p3_count = 0
     with open(p3_path, "w", encoding="utf-8") as f:
-        for _ in range(25):
+        for _ in range(2):  # 2x — 20K CodeAlpaca samples dominate; just light anchoring
             for u, a in code_syntax_bank:
                 f.write(json.dumps({"user": u, "assistant": a, "domain": "code"}) + "\n")
                 p3_count += 1
@@ -1785,7 +1788,7 @@ def build_phased_math_curriculum(datasets_dir: str = "Datasets") -> dict:
     log.info("📥 [Math Phase 1/3] Building arithmetic & equation reflexes...")
     p1_count = 0
     with open(p1_path, "w", encoding="utf-8") as f:
-        for _ in range(150):
+        for _ in range(8):  # 8x anchors arithmetic reflexes; GSM8K/MetaMath provide diversity
             for u, a in math_reflex_bank:
                 f.write(json.dumps({"user": u, "assistant": a, "domain": "math"}) + "\n")
                 p1_count += 1
@@ -1803,7 +1806,7 @@ def build_phased_math_curriculum(datasets_dir: str = "Datasets") -> dict:
     log.info("📥 [Math Phase 2/3] Building GSM8K word problems dataset...")
     p2_count = 0
     with open(p2_path, "w", encoding="utf-8") as f:
-        for _ in range(50):
+        for _ in range(4):  # 4x — 8K GSM8K examples below provide real diversity
             for u, a in math_reflex_bank:
                 f.write(json.dumps({"user": u, "assistant": a, "domain": "math"}) + "\n")
                 p2_count += 1
@@ -1822,7 +1825,7 @@ def build_phased_math_curriculum(datasets_dir: str = "Datasets") -> dict:
     log.info("📥 [Math Phase 3/3] Building advanced MetaMathQA reasoning dataset...")
     p3_count = 0
     with open(p3_path, "w", encoding="utf-8") as f:
-        for _ in range(25):
+        for _ in range(2):  # 2x — 50K MetaMathQA samples dominate; just light anchoring
             for u, a in math_reflex_bank:
                 f.write(json.dumps({"user": u, "assistant": a, "domain": "math"}) + "\n")
                 p3_count += 1
@@ -1885,7 +1888,7 @@ def build_phased_science_curriculum(datasets_dir: str = "Datasets") -> dict:
     log.info("📥 [Science Phase 1/3] Building fundamental science laws & definitions...")
     p1_count = 0
     with open(p1_path, "w", encoding="utf-8") as f:
-        for _ in range(150):
+        for _ in range(8):  # 8x anchors the fundamental laws; gold corpus adds domain diversity
             for u, a in science_reflex_bank:
                 f.write(json.dumps({"user": u, "assistant": a, "domain": "science"}) + "\n")
                 p1_count += 1
@@ -1903,7 +1906,7 @@ def build_phased_science_curriculum(datasets_dir: str = "Datasets") -> dict:
     log.info("📥 [Science Phase 2/3] Building explanatory science dataset...")
     p2_count = 0
     with open(p2_path, "w", encoding="utf-8") as f:
-        for _ in range(50):
+        for _ in range(4):  # 4x — 30K Cosmopedia entries provide real diversity
             for u, a in science_reflex_bank:
                 f.write(json.dumps({"user": u, "assistant": a, "domain": "science"}) + "\n")
                 p2_count += 1
@@ -1923,7 +1926,7 @@ def build_phased_science_curriculum(datasets_dir: str = "Datasets") -> dict:
     log.info("📥 [Science Phase 3/3] Building advanced scientific reasoning dataset...")
     p3_count = 0
     with open(p3_path, "w", encoding="utf-8") as f:
-        for _ in range(25):
+        for _ in range(2):  # 2x — 40K Open-Orca samples dominate; just light anchoring
             for u, a in science_reflex_bank:
                 f.write(json.dumps({"user": u, "assistant": a, "domain": "science"}) + "\n")
                 p3_count += 1
