@@ -266,15 +266,20 @@ class NeuroTrainer:
             log.info(f"  Optimizer dynamically registered {len(new_parameters)} new parameter tensors while preserving existing momentum history.")
 
     def _sync_scheduler_lambdas(self) -> None:
-        """Guarantees LambdaLR lr_lambdas length strictly matches base_lrs and optimizer param_groups."""
-        if self.scheduler is not None:
-            if hasattr(self.scheduler, "lr_lambdas") and hasattr(self.scheduler, "base_lrs"):
-                if self.scheduler.lr_lambdas:
-                    while len(self.scheduler.lr_lambdas) < len(self.scheduler.base_lrs):
-                        self.scheduler.lr_lambdas.append(self.scheduler.lr_lambdas[0])
-                if len(self.scheduler.base_lrs) < len(self.optimizer.param_groups):
-                    while len(self.scheduler.base_lrs) < len(self.optimizer.param_groups):
-                        self.scheduler.base_lrs.append(self.lr)
+        """Guarantees LambdaLR lr_lambdas and base_lrs lengths strictly match optimizer.param_groups."""
+        if self.scheduler is not None and self.optimizer is not None:
+            target_len = len(self.optimizer.param_groups)
+            if hasattr(self.scheduler, "base_lrs"):
+                if len(self.scheduler.base_lrs) > target_len:
+                    self.scheduler.base_lrs = self.scheduler.base_lrs[:target_len]
+                while len(self.scheduler.base_lrs) < target_len:
+                    self.scheduler.base_lrs.append(self.lr)
+            if hasattr(self.scheduler, "lr_lambdas") and self.scheduler.lr_lambdas:
+                first_lambda = self.scheduler.lr_lambdas[0]
+                if len(self.scheduler.lr_lambdas) > target_len:
+                    self.scheduler.lr_lambdas = self.scheduler.lr_lambdas[:target_len]
+                while len(self.scheduler.lr_lambdas) < target_len:
+                    self.scheduler.lr_lambdas.append(first_lambda)
 
     def _write_training_status(self, **status: Any) -> None:
         """Publish real training state for the local Web UI and recovery logs."""
