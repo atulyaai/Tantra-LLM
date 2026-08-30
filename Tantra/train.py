@@ -261,8 +261,11 @@ class NeuroTrainer:
                 "lr": current_lr,
                 "weight_decay": self.weight_decay,
             })
-            if self.scheduler is not None and hasattr(self.scheduler, "base_lrs"):
-                self.scheduler.base_lrs.append(self.lr)
+            if self.scheduler is not None:
+                if hasattr(self.scheduler, "base_lrs"):
+                    self.scheduler.base_lrs.append(self.lr)
+                if hasattr(self.scheduler, "lr_lambdas") and self.scheduler.lr_lambdas:
+                    self.scheduler.lr_lambdas.append(self.scheduler.lr_lambdas[0])
             log.info(f"  Optimizer dynamically registered {len(new_parameters)} new parameter tensors while preserving existing momentum history.")
 
     def _write_training_status(self, **status: Any) -> None:
