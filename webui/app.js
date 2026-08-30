@@ -208,7 +208,9 @@ async function sendMessage() {
                         if (lastBubble) {
                             lastBubble.innerHTML = marked.parse(assistantMsg.content);
                         }
-                    } catch (e) {}
+                    } catch (e) {
+                        console.error("SSE parse error:", e);
+                    }
                 }
             }
         }
@@ -503,6 +505,71 @@ function renderKnowledgeGraph() {
 }
 window.renderKnowledgeGraph = renderKnowledgeGraph;
 
+async function renderExperts() {
+    try {
+        const res = await fetch('/api/experts');
+        const data = await res.json();
+        const container = document.getElementById('experts-grid-container');
+        if (!container) return;
+        container.innerHTML = '';
+
+        const experts = data.experts || (Array.isArray(data) ? data : []);
+        if (experts.length === 0) {
+            container.innerHTML = '<div style="color:var(--text-muted); padding:16px;">No active MoE experts registered.</div>';
+            return;
+        }
+
+        experts.forEach(exp => {
+            const card = document.createElement('div');
+            card.className = 'glass-card';
+            card.style.padding = '18px';
+            card.innerHTML = `
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                    <span style="font-size:0.95rem; font-weight:700; color:#fff;">🧬 ${exp.name || exp.id || 'Expert'}</span>
+                    <span class="brand-badge" style="color:var(--cyan); border-color:rgba(0,245,255,0.3);">${exp.specialty || exp.category || 'General'}</span>
+                </div>
+                <div style="font-size:0.8rem; color:var(--text-muted); margin-bottom:8px;">Status: <strong style="color:var(--emerald);">${exp.status || 'Active'}</strong></div>
+                <div style="font-size:0.75rem; color:var(--text-muted);">Routing Load: ${exp.load_percentage != null ? exp.load_percentage + '%' : 'Dynamic'}</div>
+            `;
+            container.appendChild(card);
+        });
+    } catch(err) {
+        console.error("MoE render error:", err);
+    }
+}
+window.renderExperts = renderExperts;
+
+async function loadTelemetry() {
+    try {
+        const res = await fetch('/api/telemetry');
+        const data = await res.json();
+        const container = document.getElementById('telemetry-stats-container');
+        if (!container) return;
+        container.innerHTML = '';
+
+        const metrics = [
+            { label: 'DEVICE', val: data.device || 'CPU / GPU', sub: data.compute_units || 'PyTorch Hardware' },
+            { label: 'MEMORY / VRAM', val: data.memory_used || (data.ram_used_gb ? data.ram_used_gb + ' GB' : 'Monitored'), sub: data.memory_total || 'Hardware Monitored' },
+            { label: 'THROUGHPUT', val: data.tokens_per_second ? data.tokens_per_second + ' tok/s' : (data.throughput_tok_s ? data.throughput_tok_s + ' tok/s' : 'Real-time'), sub: 'Latency Optimized' },
+            { label: 'ACTIVE MODEL', val: data.model_name || 'Tantra NeuroCore', sub: data.parameters || 'Multi-Layer' }
+        ];
+
+        metrics.forEach(m => {
+            const card = document.createElement('div');
+            card.className = 'stat-card';
+            card.innerHTML = `
+                <div class="stat-label">${m.label}</div>
+                <div class="stat-val" style="color:var(--cyan);">${m.val}</div>
+                <div class="stat-sub">${m.sub}</div>
+            `;
+            container.appendChild(card);
+        });
+    } catch(err) {
+        console.error("Telemetry load error:", err);
+    }
+}
+window.loadTelemetry = loadTelemetry;
+
 async function loadDatasets() {
     try {
         const res = await fetch('/api/datasets');
@@ -551,11 +618,15 @@ async function adminSwitchCheckpoint() {
     try {
         const res = await fetch('/api/checkpoints', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer test-admin-key' },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ checkpoint: ckpt })
         });
         const data = await res.json();
-        alert(`Checkpoint successfully swapped to: ${data.active}`);
+        if (data.active) {
+            alert(`Checkpoint successfully swapped to: ${data.active}`);
+        } else {
+            alert(`Swap response: ${JSON.stringify(data)}`);
+        }
     } catch(err) {
         alert(`Error switching checkpoint: ${err.message}`);
     }

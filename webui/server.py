@@ -8,6 +8,7 @@ import os
 import sys
 import time
 import json
+import glob
 import asyncio
 import logging
 import secrets
@@ -1100,6 +1101,7 @@ async def get_live_training_status():
     total_toks = 0
     loss_val = None
     if meta_files:
+        meta_files.sort(key=os.path.getmtime)
         try:
             with open(meta_files[-1], "r", encoding="utf-8") as f:
                 meta = json.load(f)

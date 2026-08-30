@@ -407,8 +407,9 @@ class JSONLDataset(IterableDataset):
                 token_buffer.extend(clamped)
                 mask_buffer.extend(is_target if self.mask_non_assistant else [True] * len(clamped))
                 if self.insert_doc_boundaries:
-                    token_buffer.append(EOS_ID)
-                    mask_buffer.append(True)
+                    if not token_buffer or token_buffer[-1] != EOS_ID:
+                        token_buffer.append(EOS_ID)
+                        mask_buffer.append(True)
 
                 while len(token_buffer) >= self.seq_len + 1:
                     chunk_ids = token_buffer[: self.seq_len + 1]
@@ -456,8 +457,9 @@ class JSONLDataset(IterableDataset):
                 token_buffer.extend(clamped)
                 mask_buffer.extend([True] * len(clamped))
                 if self.insert_doc_boundaries:
-                    token_buffer.append(EOS_ID)
-                    mask_buffer.append(True)
+                    if not token_buffer or token_buffer[-1] != EOS_ID:
+                        token_buffer.append(EOS_ID)
+                        mask_buffer.append(True)
 
                 while len(token_buffer) >= self.seq_len + 1:
                     chunk_ids = token_buffer[: self.seq_len + 1]
@@ -650,7 +652,8 @@ class TopicMixedDataset(IterableDataset):
             except StopIteration:
                 # This file is exhausted; drop it and re-normalize weights.
                 file_iters.pop(path, None)
-                files.remove((path, max(os.path.getsize(path) if os.path.exists(path) else 1, 1.0)))
+                topic_files[topic] = [f for f in files if f[0] != path]
+                files = topic_files[topic]
                 if not files:
                     idx = active_topics.index(topic)
                     active_topics.pop(idx)
@@ -938,6 +941,9 @@ def ingest_open_super_corpus(datasets_dir: str = "Datasets", max_samples: int = 
     """Download and stream high-density open-source multi-domain datasets (UltraChat, CodeAlpaca, MetaMath, Dolly, DPO)."""
     os.makedirs(datasets_dir, exist_ok=True)
     master_path = os.path.join(datasets_dir, "master_corpus.jsonl")
+    if os.path.exists(master_path) and os.path.getsize(master_path) > 1_000_000:
+        log.info(f"⚡ [CACHE HIT] Master corpus already populated ({os.path.getsize(master_path)/1e6:.1f} MB). Skipping re-ingestion.")
+        return 0
     pref_path = os.path.join(datasets_dir, "preference_pairs.jsonl")
     
     try:
@@ -1083,6 +1089,9 @@ def ingest_gigabyte_super_corpus(datasets_dir: str = "Datasets", target_samples:
     """Streams and packs 1,000,000+ samples (Multi-GB / 1B+ Tokens) from Cosmopedia, Python-Edu, OpenOrca, and FineWeb."""
     os.makedirs(datasets_dir, exist_ok=True)
     master_path = os.path.join(datasets_dir, "master_corpus.jsonl")
+    if os.path.exists(master_path) and os.path.getsize(master_path) > 1_000_000:
+        log.info(f"⚡ [CACHE HIT] Master corpus already populated ({os.path.getsize(master_path)/1e6:.1f} MB). Skipping re-ingestion.")
+        return 0
     
     try:
         from datasets import load_dataset

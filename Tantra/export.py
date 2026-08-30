@@ -19,13 +19,16 @@ def export_clean_checkpoint(input_path: str, output_path: str) -> str:
     raw = torch.load(input_path, map_location="cpu", weights_only=False)
     
     model_state = raw.get("model_state_dict", raw.get("model", raw))
-    config_dict = raw.get("config", {})
-    step = raw.get("step", 0)
+    config_dict = raw.get("config", None)
+    step = raw.get("step_count", raw.get("step", 0))
 
     clean_payload = {
         "model_state_dict": model_state,
         "config": config_dict,
+        "step_count": step,
         "step": step,
+        "best_loss": raw.get("best_loss", float('inf')),
+        "total_tokens": raw.get("total_tokens", 0),
         "exported_at": time.time(),
         "format": "tantra-v1-production-clean"
     }
