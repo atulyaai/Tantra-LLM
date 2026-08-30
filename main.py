@@ -458,7 +458,13 @@ def build_adapter_model(rt, vocab_size: int = 32768):
 
 def init_model(cfg, device):
     log.info("== [4] NEUROCORE MODEL ENGINE & PARAMETER DIAGNOSTICS ==")
-    model = NeuroCoreModel(cfg, use_mtp=getattr(cfg, "use_mtp", True))
+    is_real_moe = getattr(cfg.moe, "real_top1", False)
+    num_exp = getattr(cfg.moe, "num_experts", 1)
+    model = NeuroCoreModel(
+        cfg,
+        use_mtp=getattr(cfg, "use_mtp", True),
+        use_moe=(is_real_moe and num_exp > 1)
+    )
     
     total_params = sum(p.numel() for p in model.parameters())
     trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -467,7 +473,8 @@ def init_model(cfg, device):
     log.info(f"  Total Parameters     : {total_params:,} ({total_params/1e6:.1f}M)")
     log.info(f"  Trainable Parameters : {trainable_params:,}")
     log.info(f"  Frozen Parameters    : {frozen_params:,}")
-    log.info(f"  Model Architecture   : {cfg.block.num_layers} NeuroCore Blocks | {cfg.block.alra.dim} Embed Dim | {cfg.block.alra.num_heads} Attention Heads")
+    moe_label = f" | {num_exp} Real Top-1 MoE Experts" if (is_real_moe and num_exp > 1) else " (Dense)"
+    log.info(f"  Model Architecture   : {cfg.block.num_layers} NeuroCore Blocks | {cfg.block.alra.dim} Embed Dim | {cfg.block.alra.num_heads} Attention Heads{moe_label}")
     log.info(f"  Attention Engine     : ALRA (Adaptive Linear Resonance Attention) [O(1) Memory Scan]")
     log.info(f"  Feed-Forward Engine  : SGP (Sparse Gated Projection) + BitNet 1.58-bit Ternary Quantization")
     log.info(f"  Speculative Engine   : Multi-Token Prediction (MTP 2x Acceleration)")
@@ -1204,19 +1211,32 @@ def main():
     parser.add_argument("--mask-non-assistant", action="store_true", default=None, help="Supervise assistant replies only during training")
     parser.add_argument("--adapter-action", default="list", choices=["list", "add", "remove", "init"],
                         help="--mode adapter sub-action")
-    parser.add_argument("--adapter", type=str, default=None,
-                        help="Category to train (dataset mode) or force for chat/generate. None routes per-request.")
-    parser.add_argument("--adapter-desc", type=str, default="", help="Description when adding a category")
-    parser.add_argument("--adapter-topics", type=str, default=None, help="Comma list of Datasets/<topic> folders for a new category")
-    parser.add_argument("--dim", type=int, default=512, help="Embedding dimension (default: 512)")
-    parser.add_argument("--layers", type=int, default=8, help="Number of NeuroCore layers (default: 8)")
-    parser.add_argument("--heads", type=int, default=8, help="Number of attention heads (default: 8)")
-    parser.add_argument("--output", type=str, default=None, help="Output path for model export mode")
-    parser.add_argument("--prompt", type=str, default=None, help="Text prompt for --mode generate")
-    parser.add_argument("--max-new-tokens", type=int, default=64, help="Max new tokens to generate")
-    parser.add_argument("--max-grad-norm", type=float, default=1.0, help="Max gradient norm clipping threshold (default: 1.0)")
-    parser.add_argument("--mtp-weight", type=float, default=0.3, help="Auxiliary MTP loss weight factor (default: 0.3)")
-    parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
+    parser.add_argument(\"--adapter\", type=str, default=None,
+                        help=\"Category to train (dataset mode) or force for chat/generate. None routes per-request.\")
+    parser.add_argument(\"--adapter-desc\", type=str, default=\"\", help=\"Description when adding a category\")
+    parser.add_argument(\"--adapter-topics\", type=str, default=None, help=\"Comma list of Datasets/<topic> folders for a new category\")
+    parser.add_argument(\"--dim\", type=int, default=512, help=\"Embedding dimension (default: 512)\")
+    parser.add_argument(\"--layers\", type=int, default=8, help=\"Number of NeuroCore layers (default: 8)\")
+    parser.add_argument(\"--heads\", type=int, default=8, help=\"Number of attention heads (default: 8)\")
+    # ── MoE Expert Configuration ──────────────────────────────────────────────
+    parser.add_argument(\"--num-experts\", type=int, default=0,
+                        help=\"Number of real Top-1 MoE experts per MoE layer (0 = dense, no MoE). "
+                             "Recommended: 4 for Dual-T4 Kaggle runs. Odd layers get MoE blocks.\")
+    parser.add_argument(\"--real-moe\", action=\"store_true\", default=False,
+                        help=\"Enable real Top-1 MoE routing (requires --num-experts >= 2). "
+                             "When off, the model is a dense transformer regardless of --num-experts.\")
+    # ── Automatic Curriculum Sequencer ───────────────────────────────────────
+    parser.add_argument(\"--curriculum-order\", action=\"store_true\", default=False,
+                        help=\"Run the full phased curriculum in order automatically: "
+                             "chitchat-p1 -> p2 -> p3 -> math-p1 -> p2 -> p3 -> code-p1 -> p2 -> p3 -> science-p1 -> p2 -> p3. "
+                             "Each phase gets steps/12 of the total --steps budget. "
+                             "Conversation phases get 3x weight to prioritize greetings & grammar first.\")
+    parser.add_argument(\"--output\", type=str, default=None, help=\"Output path for model export mode\")
+    parser.add_argument(\"--prompt\", type=str, default=None, help=\"Text prompt for --mode generate\")
+    parser.add_argument(\"--max-new-tokens\", type=int, default=64, help=\"Max new tokens to generate\")
+    parser.add_argument(\"--max-grad-norm\", type=float, default=1.0, help=\"Max gradient norm clipping threshold (default: 1.0)\")
+    parser.add_argument(\"--mtp-weight\", type=float, default=0.3, help=\"Auxiliary MTP loss weight factor (default: 0.3)\")
+    parser.add_argument(\"--seed\", type=int, default=42, help=\"Random seed for reproducibility\")
     args = parser.parse_args()
 
     from Tantra.utils import set_seed
@@ -1230,6 +1250,23 @@ def main():
     mcfg.block.alra.num_heads = args.heads
     mcfg.block.alra.head_dim = max(1, args.dim // args.heads)
     mcfg.use_mtp = args.use_mtp
+
+    # ── Wire MoE configuration from CLI flags ─────────────────────────────────
+    # Default config has num_experts=10 but real_top1=False (dense transformer).
+    # --num-experts N --real-moe enables real Top-1 conditional compute.
+    # Without --real-moe the model stays dense regardless of --num-experts.
+    _num_experts = getattr(args, "num_experts", 0) or 0
+    _real_moe    = getattr(args, "real_moe", False)
+    if _real_moe and _num_experts >= 2:
+        mcfg.moe.num_experts = _num_experts
+        mcfg.moe.real_top1   = True
+        log.info(f"🧠 [Real MoE] Enabled: {_num_experts} Top-1 experts per MoE layer (odd layers only)")
+    else:
+        # Dense mode: num_experts=1 disables all MoE paths in NeuroCoreBlock
+        mcfg.moe.num_experts = 1
+        mcfg.moe.real_top1   = False
+        if _real_moe and _num_experts < 2:
+            log.warning("--real-moe requires --num-experts >= 2. Running dense (no MoE).")
 
     moe  = MoEConfig()
     ccfg = CompressionConfig()
@@ -1444,7 +1481,53 @@ def main():
         else:
             resolved_wd = 0.05 if resolved_optimizer == "lion" else 0.01
 
-        run_dataset_training(model, tok, args.dataset, steps=args.steps, resume=args.resume, eval_every=args.eval_every, log_every=args.log_every, checkpoint_every=args.checkpoint_every, batch_size=args.batch_size, seq_len=args.seq_len, grad_accumulation_steps=args.grad_accum, data_workers=args.data_workers, use_latent_reasoning=use_latent_reasoning, use_mtp_loss=use_mtp_loss, compile=args.compile, lr=resolved_lr, weight_decay=resolved_wd, optimizer=resolved_optimizer, warmup_steps=args.warmup, topic_weights=topic_weights, training_stage=args.training_stage, auto_growth=args.auto_growth, growth_patience=args.growth_patience, growth_min_delta=args.growth_min_delta, max_layers=args.max_layers, adapter_name=args.adapter, model_dir=(ADAPTER_ROOT if args.adapter is not None else args.model_dir), pack_sequences=args.pack_sequences, checkpoint_path=args.checkpoint, max_grad_norm=args.max_grad_norm, mtp_loss_weight=args.mtp_weight, track=args.track, curriculum_phase=args.curriculum_phase)
+        if getattr(args, "curriculum_order", False):
+            # ── AUTOMATED SEQUENTIAL CURRICULUM ORDER ──
+            # Prioritizes Conversation / Greetings / Grammar FIRST (55% total budget),
+            # followed by Code (24%), Math (21%), and Science (15% normalized).
+            curriculum_stages = [
+                ("chitchat-p1", 0.20, "💬 CONVERSATION PHASE 1: Pure Greetings, Pleasantries & Identity Reflexes"),
+                ("chitchat-p2", 0.20, "💬 CONVERSATION PHASE 2: Short Natural Turn-Taking & Conversational Grammar"),
+                ("chitchat-p3", 0.15, "💬 CONVERSATION PHASE 3: Deep Multi-Turn Conversations & Instruction Fluency"),
+                ("code-p1",     0.08, "💻 CODE PHASE 1: Python Syntax & Standard Library Primitives"),
+                ("code-p2",     0.08, "💻 CODE PHASE 2: Algorithmic Logic & Functional Implementation"),
+                ("code-p3",     0.08, "💻 CODE PHASE 3: Full Software Systems & Debugging"),
+                ("math-p1",     0.07, "🔢 MATH PHASE 1: Arithmetic & Linear Equations"),
+                ("math-p2",     0.07, "🔢 MATH PHASE 2: GSM8K Multi-Step Reasoning & Word Problems"),
+                ("math-p3",     0.07, "🔢 MATH PHASE 3: MetaMathQA Advanced Symbolic Math & Proofs"),
+                ("science-p1",  0.05, "🔬 SCIENCE PHASE 1: Fundamental Physical Laws & Core Definitions"),
+                ("science-p2",  0.05, "🔬 SCIENCE PHASE 2: Explanatory Natural Sciences & Biology/Physics"),
+                ("science-p3",  0.05, "🔬 SCIENCE PHASE 3: Advanced Multidisciplinary Science & Logic"),
+            ]
+            total_target_steps = args.steps
+            log.info("=" * 80)
+            log.info(f"🚀 [AUTO CURRICULUM SEQUENCER] Running 12-Stage Phased Curriculum ({total_target_steps:,} total steps)")
+            log.info("🎯 PRIORITY: Conversation / Greetings / Grammar (55% budget) FIRST -> Code -> Math -> Science")
+            log.info("=" * 80)
+            
+            for stage_idx, (track_name, budget_ratio, stage_desc) in enumerate(curriculum_stages, 1):
+                stage_steps = max(50, int(total_target_steps * budget_ratio))
+                log.info(f"\n▶️ [{stage_idx}/12] Launching: {stage_desc}")
+                log.info(f"   Track: '{track_name}' | Steps: +{stage_steps:,} ({budget_ratio*100:.0f}% of total budget)")
+                
+                run_dataset_training(
+                    model, tok, args.dataset, steps=stage_steps, resume=True,
+                    eval_every=args.eval_every, log_every=args.log_every,
+                    checkpoint_every=args.checkpoint_every, batch_size=args.batch_size,
+                    seq_len=args.seq_len, grad_accumulation_steps=args.grad_accum,
+                    data_workers=args.data_workers, use_latent_reasoning=use_latent_reasoning,
+                    use_mtp_loss=use_mtp_loss, compile=args.compile, lr=resolved_lr,
+                    weight_decay=resolved_wd, optimizer=resolved_optimizer, warmup_steps=args.warmup,
+                    topic_weights=topic_weights, training_stage=args.training_stage,
+                    auto_growth=args.auto_growth, growth_patience=args.growth_patience,
+                    growth_min_delta=args.growth_min_delta, max_layers=args.max_layers,
+                    adapter_name=args.adapter, model_dir=(ADAPTER_ROOT if args.adapter is not None else args.model_dir),
+                    pack_sequences=args.pack_sequences, checkpoint_path=args.checkpoint,
+                    max_grad_norm=args.max_grad_norm, mtp_loss_weight=args.mtp_weight,
+                    track=track_name, curriculum_phase=None
+                )
+        else:
+            run_dataset_training(model, tok, args.dataset, steps=args.steps, resume=args.resume, eval_every=args.eval_every, log_every=args.log_every, checkpoint_every=args.checkpoint_every, batch_size=args.batch_size, seq_len=args.seq_len, grad_accumulation_steps=args.grad_accum, data_workers=args.data_workers, use_latent_reasoning=use_latent_reasoning, use_mtp_loss=use_mtp_loss, compile=args.compile, lr=resolved_lr, weight_decay=resolved_wd, optimizer=resolved_optimizer, warmup_steps=args.warmup, topic_weights=topic_weights, training_stage=args.training_stage, auto_growth=args.auto_growth, growth_patience=args.growth_patience, growth_min_delta=args.growth_min_delta, max_layers=args.max_layers, adapter_name=args.adapter, model_dir=(ADAPTER_ROOT if args.adapter is not None else args.model_dir), pack_sequences=args.pack_sequences, checkpoint_path=args.checkpoint, max_grad_norm=args.max_grad_norm, mtp_loss_weight=args.mtp_weight, track=args.track, curriculum_phase=args.curriculum_phase)
 
     elif args.mode == "dpo":
         dpo_ckpt = args.checkpoint
