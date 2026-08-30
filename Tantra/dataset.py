@@ -179,7 +179,11 @@ def build_prompt_segments(item: Dict[str, Any]) -> Optional[List[Tuple[str, bool
         segments.append((user, False))
         segments.append(("\n\n", False))
     if assistant:
-        segments.append(("<|assistant|>\n", False))
+        # FIX #3 (HIGH): Supervise the <|assistant|\n> tag itself (True, not False).
+        # The model must learn to emit its own turn-opener during generation;
+        # masking it out means it only learns the words that follow, not the
+        # transition token, causing inference failures (missing/wrong turn tags).
+        segments.append(("<|assistant|>\n", True))
         segments.append((assistant, True))
         segments.append(("\n\n", False))
     return segments

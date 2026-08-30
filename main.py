@@ -633,7 +633,33 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
         else:
             stage_name = training_stage or prev_stage or "pretrain"
             trainer.training_stage = stage_name
-            log.info(f"  [{stage_name.upper()} Stage Resume] Preserved AdamW optimizer momentum buffers and LR scheduler position across resume boundary.")
+            # ── FIX #1 (CRITICAL): Always rebuild the scheduler whenever the step horizon
+            # changes on resume.  The trainer was constructed earlier with the raw
+            # command-line --steps value (e.g. 10,000) as total_steps.  After the
+            # incremental-target math above, `steps` is now trainer.step_count + 10,000
+            # (e.g. 82,427).  Without this rebuild the cosine schedule's progress
+            # = current_step / old_total_steps > 1.0, which immediately clamps the LR
+            # to min_lr_ratio (5 % of base), and every single training step runs at
+            # that near-zero floor for the entire session.
+            remaining = max(steps - trainer.step_count, 1)
+            actual_warmup = max(1, min(warmup or max(remaining // 10, 100), remaining // 5))
+            from Tantra.train import create_lr_scheduler
+            old_total = getattr(trainer, "total_steps", 0)
+            if steps != old_total:
+                trainer.total_steps = steps
+                trainer.warmup_steps = actual_warmup
+                trainer.scheduler = create_lr_scheduler(
+                    trainer.optimizer,
+                    warmup_steps=actual_warmup,
+                    total_steps=remaining,          # schedule over the *remaining* steps
+                    min_lr_ratio=0.05,
+                )
+                log.info(
+                    f"  [Schedule Corrected ✅] LR horizon rebuilt: remaining={remaining:,} steps, "
+                    f"warmup={actual_warmup}, lr≈{lr:.2e} (was pinned at floor due to stale horizon)"
+                )
+            else:
+                log.info(f"  [{stage_name.upper()} Stage Resume] Preserved AdamW optimizer momentum buffers and LR scheduler position across resume boundary.")
     else:
         trainer.training_stage = training_stage or "pretrain"
         log.info("Starting fresh dataset training run.")

@@ -757,6 +757,12 @@ class NeuroCoreModel(nn.Module):
         x = self.final_norm(x)
         if use_latent_reasoning:
             x = self.latent_header(x)
+            # FIX #2 (CRITICAL): Re-normalize after latent_header.
+            # latent_header adds unnormalized deltas (state += g*delta), destroying
+            # the normalization that final_norm applied.  output_proj uses weight-tied
+            # embeddings that expect unit-scale input; skipping this re-norm causes
+            # logit magnitudes to explode, saturating softmax and killing gradients.
+            x = self.final_norm(x)
 
         logits_main = self.output_proj(x)
 

@@ -319,7 +319,16 @@ class NeuroTrainer:
 
         x = x.to(self.device, non_blocking=True)
         y = y.to(self.device, non_blocking=True)
-        raw_m = getattr(self.model, "module", getattr(self.model, "_orig_mod", self.model))
+        # FIX #4 (MEDIUM): Fully unwrap both DataParallel (.module) and
+        # torch.compile (_orig_mod) to reach the actual NeuroCoreModel.
+        # A single getattr() only peels one layer; nested wrapping leaves
+        # raw_m as a CompiledModel, causing hasattr(raw_m, "embed") → False
+        # and silently skipping the vocabulary clamp below.
+        raw_m = self.model
+        while hasattr(raw_m, "module"):
+            raw_m = raw_m.module
+        while hasattr(raw_m, "_orig_mod"):
+            raw_m = raw_m._orig_mod
         if hasattr(raw_m, "embed") and hasattr(raw_m.embed, "weight"):
             vsize = raw_m.embed.weight.size(0)
             x = torch.clamp(x, 0, vsize - 1)
