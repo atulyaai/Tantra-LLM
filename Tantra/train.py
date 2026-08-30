@@ -348,8 +348,9 @@ class NeuroTrainer:
             else:
                 loss = self.criterion(logits_flat, y_flat)
 
-            if hasattr(self.model, "get_aux_loss"):
-                aux_loss = self.model.get_aux_loss()
+            raw_m = getattr(self.model, "module", self.model)
+            if hasattr(raw_m, "get_aux_loss"):
+                aux_loss = raw_m.get_aux_loss()
                 if aux_loss is not None and not (math.isnan(aux_loss.item()) if hasattr(aux_loss, 'item') else math.isnan(aux_loss)):
                     loss = loss + aux_loss
 

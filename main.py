@@ -792,10 +792,19 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
             "conversation": ["chitchat_phase3_full.jsonl", "expert_conversation.jsonl", "conversation.jsonl"],
             "chat": ["chitchat_phase3_full.jsonl", "expert_conversation.jsonl", "conversation.jsonl"],
             "identity": ["chitchat_phase1_greetings.jsonl", "gold_corpus.jsonl", "expert_conversation.jsonl"],
-            "math": ["expert_math_science.jsonl", "math.jsonl", "math_science.jsonl"],
-            "code": ["expert_code.jsonl", "code.jsonl"],
+            "math": ["math_phase1_arithmetic.jsonl", "expert_math_science.jsonl"] if curriculum_phase == 1 else (["math_phase2_wordproblems.jsonl", "expert_math_science.jsonl"] if curriculum_phase == 2 else ["math_phase3_advanced.jsonl", "expert_math_science.jsonl", "math.jsonl"]),
+            "math-p1": ["math_phase1_arithmetic.jsonl"],
+            "math-p2": ["math_phase2_wordproblems.jsonl"],
+            "math-p3": ["math_phase3_advanced.jsonl", "expert_math_science.jsonl"],
+            "code": ["code_phase1_syntax.jsonl", "expert_code.jsonl"] if curriculum_phase == 1 else (["code_phase2_algorithms.jsonl", "expert_code.jsonl"] if curriculum_phase == 2 else ["code_phase3_systems.jsonl", "expert_code.jsonl", "code.jsonl"]),
+            "code-p1": ["code_phase1_syntax.jsonl"],
+            "code-p2": ["code_phase2_algorithms.jsonl"],
+            "code-p3": ["code_phase3_systems.jsonl", "expert_code.jsonl"],
+            "science": ["science_phase1_fundamentals.jsonl", "expert_math_science.jsonl"] if curriculum_phase == 1 else (["science_phase2_explanations.jsonl", "expert_math_science.jsonl"] if curriculum_phase == 2 else ["science_phase3_advanced.jsonl", "expert_math_science.jsonl", "science.jsonl"]),
+            "science-p1": ["science_phase1_fundamentals.jsonl"],
+            "science-p2": ["science_phase2_explanations.jsonl"],
+            "science-p3": ["science_phase3_advanced.jsonl", "expert_math_science.jsonl"],
             "general": ["expert_general.jsonl", "general.jsonl"],
-            "science": ["expert_math_science.jsonl", "science.jsonl"],
             "gold": ["gold_corpus.jsonl"]
         }
         cand_names = track_map.get(t_norm, [f"expert_{t_norm}.jsonl", f"{t_norm}.jsonl"])
@@ -807,17 +816,26 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
                 selected_file = c_path
                 break
         
-        if selected_file is None and t_norm in ("chitchat", "conversation", "chat", "identity", "chitchat-p1", "chitchat-p2", "chitchat-p3", "greetings"):
-            from Tantra.dataset import build_phased_chitchat_curriculum, build_chitchat_curriculum
-            build_phased_chitchat_curriculum(base_dir)
-            if t_norm in ("chitchat-p1", "greetings") or (t_norm == "chitchat" and curriculum_phase == 1):
-                selected_file = os.path.join(base_dir, "chitchat_phase1_greetings.jsonl")
-            elif t_norm == "chitchat-p2" or (t_norm == "chitchat" and curriculum_phase == 2):
-                selected_file = os.path.join(base_dir, "chitchat_phase2_short.jsonl")
-            else:
-                selected_file = os.path.join(base_dir, "chitchat_phase3_full.jsonl")
-                if not os.path.exists(selected_file):
-                    selected_file = os.path.join(base_dir, "expert_conversation.jsonl")
+        # On-demand builder for specific domains
+        if selected_file is None:
+            if "code" in t_norm:
+                from Tantra.dataset import build_phased_code_curriculum
+                build_phased_code_curriculum(base_dir)
+            elif "math" in t_norm:
+                from Tantra.dataset import build_phased_math_curriculum
+                build_phased_math_curriculum(base_dir)
+            elif "science" in t_norm:
+                from Tantra.dataset import build_phased_science_curriculum
+                build_phased_science_curriculum(base_dir)
+            elif t_norm in ("chitchat", "conversation", "chat", "identity", "chitchat-p1", "chitchat-p2", "chitchat-p3", "greetings"):
+                from Tantra.dataset import build_phased_chitchat_curriculum
+                build_phased_chitchat_curriculum(base_dir)
+            
+            for c in cand_names:
+                c_path = os.path.join(base_dir, c)
+                if os.path.isfile(c_path) and os.path.getsize(c_path) > 0:
+                    selected_file = c_path
+                    break
 
         if selected_file and os.path.isfile(selected_file):
             log.info(f"📂 Routing to Expert Track File: {selected_file} ({os.path.getsize(selected_file)/1e6:.1f} MB)")
@@ -1118,8 +1136,8 @@ def main():
                         choices=["full", "probe", "vocab", "train", "dataset", "eval", "compress", "generate", "serve", "status", "experts", "chat", "adapter", "dpo", "auto-pilot", "benchmark", "export"],
                         help="Execution mode")
     parser.add_argument("--track", "--expert", "--domain", dest="track", type=str, default=None,
-                        choices=["all", "chitchat", "conversation", "chat", "identity", "chitchat-p1", "chitchat-p2", "chitchat-p3", "greetings", "math", "code", "general", "science", "gold"],
-                        help="Select specific expert track for focused training (e.g. --track chitchat, --track chitchat-p1, --track math, --track code)")
+                        choices=["all", "chitchat", "conversation", "chat", "identity", "chitchat-p1", "chitchat-p2", "chitchat-p3", "greetings", "math", "math-p1", "math-p2", "math-p3", "code", "code-p1", "code-p2", "code-p3", "science", "science-p1", "science-p2", "science-p3", "general", "gold"],
+                        help="Select specific expert track for focused training (e.g. --track chitchat-p1, --track code-p1, --track math-p1, --track science-p1)")
     parser.add_argument("--curriculum-phase", "--phase", dest="curriculum_phase", type=int, default=None, choices=[1, 2, 3],
                         help="Curriculum learning phase: 1=greetings & identity only, 2=short dialogues (<100 words), 3=full multi-turn dataset")
     parser.add_argument("--checkpoint", type=str, default=None, help="Path to custom .pt model checkpoint to load (for chat, eval, serve, dpo, benchmark, export)")
