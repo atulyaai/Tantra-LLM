@@ -1080,6 +1080,7 @@ def main():
     parser.add_argument("--adapter-topics", type=str, default=None, help="Comma list of Datasets/<topic> folders for a new category")
     parser.add_argument("--dim", type=int, default=512, help="Embedding dimension (default: 512)")
     parser.add_argument("--layers", type=int, default=8, help="Number of NeuroCore layers (default: 8)")
+    parser.add_argument("--heads", type=int, default=8, help="Number of attention heads (default: 8)")
     parser.add_argument("--output", type=str, default=None, help="Output path for model export mode")
     parser.add_argument("--prompt", type=str, default=None, help="Text prompt for --mode generate")
     parser.add_argument("--max-new-tokens", type=int, default=64, help="Max new tokens to generate")
