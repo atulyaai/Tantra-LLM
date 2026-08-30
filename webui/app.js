@@ -675,4 +675,8 @@ window.adminSwitchCheckpoint = adminSwitchCheckpoint;
 window.addEventListener('DOMContentLoaded', () => {
     loadSessions();
     loadRAGDocuments();
+    const chatInput = document.getElementById('chat-input-field');
+    if (chatInput) {
+        chatInput.addEventListener('keydown', handleChatKey);
+    }
 });
