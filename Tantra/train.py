@@ -30,7 +30,7 @@ from torch.optim import AdamW
 from typing import Any, Iterable, Optional, Tuple
 
 
-from Tantra.utils import get_logger
+from Tantra.utils import get_logger, unwrap_model
 from Tantra.evolution import AutoGrowthController, SelfRepairEngine
 
 log = get_logger(__name__)
@@ -319,16 +319,7 @@ class NeuroTrainer:
 
         x = x.to(self.device, non_blocking=True)
         y = y.to(self.device, non_blocking=True)
-        # FIX #4 (MEDIUM): Fully unwrap both DataParallel (.module) and
-        # torch.compile (_orig_mod) to reach the actual NeuroCoreModel.
-        # A single getattr() only peels one layer; nested wrapping leaves
-        # raw_m as a CompiledModel, causing hasattr(raw_m, "embed") → False
-        # and silently skipping the vocabulary clamp below.
-        raw_m = self.model
-        while hasattr(raw_m, "module"):
-            raw_m = raw_m.module
-        while hasattr(raw_m, "_orig_mod"):
-            raw_m = raw_m._orig_mod
+        raw_m = unwrap_model(self.model)
         if hasattr(raw_m, "embed") and hasattr(raw_m.embed, "weight"):
             vsize = raw_m.embed.weight.size(0)
             x = torch.clamp(x, 0, vsize - 1)
@@ -357,7 +348,7 @@ class NeuroTrainer:
             else:
                 loss = self.criterion(logits_flat, y_flat)
 
-            raw_m = getattr(self.model, "module", self.model)
+            raw_m = unwrap_model(self.model)
             if hasattr(raw_m, "get_aux_loss"):
                 aux_loss = raw_m.get_aux_loss()
                 if aux_loss is not None and not (math.isnan(aux_loss.item()) if hasattr(aux_loss, 'item') else math.isnan(aux_loss)):
@@ -962,7 +953,7 @@ class NeuroTrainer:
         import copy
         if ref_model is None:
             log.info("Cloning frozen reference model baseline for DPO...")
-            raw_model = getattr(self.model, "module", getattr(self.model, "_orig_mod", self.model))
+            raw_model = unwrap_model(self.model)
             ref_model = copy.deepcopy(raw_model).to(self.device)
             ref_model.eval()
             for p in ref_model.parameters():
@@ -1281,7 +1272,7 @@ class NeuroTrainer:
         """Load model + optimizer + scheduler state."""
         ckpt = torch.load(path, map_location=self.device, weights_only=False)
         state_dict = ckpt["model_state_dict"]
-        raw_model = getattr(self.model, "module", getattr(self.model, "_orig_mod", self.model))
+        raw_model = unwrap_model(self.model)
 
         # Check and dynamically grow layers if loading a deeper checkpoint (e.g. 9/10/12 layers)
         import re, copy

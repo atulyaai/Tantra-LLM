@@ -139,3 +139,13 @@ def timer(name: str = "Operation"):
     yield
     elapsed = (time.perf_counter() - start) * 1000
     log.info(f"{name} took {elapsed:.2f} ms")
+
+
+def unwrap_model(model: Any) -> Any:
+    """Fully unwrap nested model wrappers (DataParallel, DDP, torch.compile _orig_mod)."""
+    raw = model
+    while hasattr(raw, "module"):
+        raw = raw.module
+    while hasattr(raw, "_orig_mod"):
+        raw = raw._orig_mod
+    return raw

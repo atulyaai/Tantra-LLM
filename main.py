@@ -28,7 +28,7 @@ import torch
 import torch._dynamo
 
 from Tantra.config import NeuroCoreConfig, VocabConfig, MoEConfig, CompressionConfig
-from Tantra.utils import get_logger
+from Tantra.utils import get_logger, unwrap_model
 from Tantra.hardware import HardwareDetector, Profiler, RuntimeConfigBuilder, AdaptiveScheduler
 from Tantra.tokenizer import ByteBPETokenizer, MegabytePatcher, UnifiedTokenizer
 from Tantra.model import NeuroCoreModel, cpu_dense_config, build_cpu_model
@@ -686,7 +686,7 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
             ("Math",    "🔢", "<|user|>\nSolve for x in 2x + 6 = 14.\n\n<|assistant|>\n", 0.2),
             ("Science", "🔬", "<|user|>\nState Newton's First Law of Motion.\n\n<|assistant|>\n", 0.4)
         ]
-        raw_model = getattr(model, "module", getattr(model, "_orig_mod", model))
+        raw_model = unwrap_model(model)
         for domain, icon, prompt_text, temp in test_prompts:
             prompt_ids = torch.tensor([tokenizer.encode(prompt_text)], device=raw_model.embed.weight.device)
             out = raw_model.generate(prompt_ids, max_new_tokens=64, min_new_tokens=1, temperature=temp, top_p=0.9, repetition_penalty=1.15)
@@ -991,13 +991,17 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
         trainer.save_checkpoint(latest_ckpt, save_optimizer=True, async_write=False)
         log.warning("Training interrupted; recovery checkpoint saved at step %d.", trainer.step_count)
     finally:
-        # Guarantee that the exact final milestone checkpoint is written synchronously
         final_step = trainer.step_count
-        final_milestone = os.path.join(checkpoints_dir, f"checkpoint_step_{final_step}.pt")
-        trainer.save_checkpoint(final_milestone, save_optimizer=True, async_write=False)
+        ck_interval = checkpoint_every if (checkpoint_every and checkpoint_every > 0) else 500
+        # Only archive into Checkpoints/ if the step is an exact multiple (e.g. 500, 1000, 74000, 75000)
+        if final_step > 0 and final_step % ck_interval == 0:
+            final_milestone = os.path.join(checkpoints_dir, f"checkpoint_step_{final_step}.pt")
+            trainer.save_checkpoint(final_milestone, save_optimizer=True, async_write=False)
+            log.info("🏁 [MILESTONE CHECKPOINT FLUSHED] Step %d successfully written to disk: %s", final_step, final_milestone)
+        # Always write Latest/checkpoint_latest.pt for seamless resume
         trainer.save_checkpoint(latest_ckpt, save_optimizer=True, async_write=False)
         trainer.flush_checkpoint_writers()
-        log.info("🏁 [FINAL CHECKPOINT FLUSHED] Step %d successfully written to disk: %s", final_step, final_milestone)
+        log.info("🏁 [LATEST CHECKPOINT FLUSHED] Step %d successfully written to disk: %s", final_step, latest_ckpt)
 
 
 def run_dpo_training(
@@ -1049,7 +1053,7 @@ def run_dpo_training(
             ("Math",    "🔢", "<|user|>\nSolve for x in 2x + 6 = 14.\n\n<|assistant|>\n"),
             ("Science", "🔬", "<|user|>\nState Newton's First Law of Motion.\n\n<|assistant|>\n")
         ]
-        raw_model = getattr(model, "module", getattr(model, "_orig_mod", model))
+        raw_model = unwrap_model(model)
         for domain, icon, prompt_text in test_prompts:
             prompt_ids = torch.tensor([tokenizer.encode(prompt_text)], device=raw_model.embed.weight.device)
             out = raw_model.generate(prompt_ids, max_new_tokens=48, min_new_tokens=1, temperature=0.7, top_p=0.9, repetition_penalty=1.2)

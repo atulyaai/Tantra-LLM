@@ -29,6 +29,7 @@ from Tantra.model import NeuroCoreModel
 from Tantra.tokenizer import UnifiedTokenizer, ByteBPETokenizer, MegabytePatcher
 from Tantra.moe import ExpertRegistry, LazyExpertLoader
 from Tantra.hardware import RuntimeConfig, HardwareDetector
+from Tantra.utils import unwrap_model
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -1073,7 +1074,7 @@ async def get_telemetry():
     simd_str = ", ".join(simd_features) if simd_features else "AVX2 SIMD"
     
     total_params = sum(p.numel() for p in model.parameters())
-    raw_m = getattr(model, "module", getattr(model, "_orig_mod", model))
+    raw_m = unwrap_model(model)
     num_layers = len(raw_m.layers) if hasattr(raw_m, "layers") else 8
 
     return {
@@ -1107,7 +1108,7 @@ async def get_live_training_status():
     
     # Fallback: Query real checkpoints on disk
     model, tokenizer, _ = get_model_and_tokenizer()
-    raw_m = getattr(model, "module", getattr(model, "_orig_mod", model))
+    raw_m = unwrap_model(model)
     num_layers = len(raw_m.layers) if hasattr(raw_m, "layers") else 8
     total_params = sum(p.numel() for p in model.parameters())
 
@@ -1207,7 +1208,7 @@ async def compare_checkpoints(request: Request):
     prompt = body.get("prompt", "What is photosynthesis?")
     
     model, tokenizer, _ = get_model_and_tokenizer()
-    raw_m = getattr(model, "module", getattr(model, "_orig_mod", model))
+    raw_m = unwrap_model(model)
     num_layers = len(raw_m.layers) if hasattr(raw_m, "layers") else 8
     total_params = sum(p.numel() for p in model.parameters())
 
