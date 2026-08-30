@@ -371,21 +371,14 @@ def build_vocab(cfg: VocabConfig, corpus_file: str | None = None) -> UnifiedToke
 
 
 def init_experts(moe_cfg, model_cfg, codec):
-    log.info("== [3] EXPERT REGISTRY & LAZY LOADER =============")
+    log.info("== [3] EXPERT REGISTRY & MOE STATUS =============")
     os.makedirs(EXPERTS_DIR, exist_ok=True)
     reg = ExpertRegistry(EXPERTS_DIR, moe_cfg.num_experts)
     reg.load()
-    # Domain experts map 1:1 to the topic dataset folders in Datasets/.
-    # This lets a topic's data route to a dedicated expert for specialization.
-    DOMAIN_SPECS = [
-        "general", "code", "math", "science", "reasoning",
-        "creative_writing", "conversation", "multilingual", "instructions", "safety",
-    ]
-    if len(reg) == 0:
-        for i, spec in enumerate(DOMAIN_SPECS):
-            reg.register_new(i, spec, 2_000_000_000)
-        log.info(f"  Registered {len(reg)} domain experts: {', '.join(DOMAIN_SPECS)}")
-
+    if getattr(moe_cfg, "real_top1", False) and getattr(moe_cfg, "num_experts", 1) > 1:
+        log.info(f"  🧠 Real Top-1 MoE Architecture Active: {moe_cfg.num_experts} sub-network experts per MoE block.")
+    else:
+        log.info(f"  ⚡ Dense Architecture Active: Single unified expert (num_experts=1).")
     return reg, LazyExpertLoader(moe_cfg, model_cfg, reg, codec)
 
 
