@@ -937,6 +937,48 @@ def generate_gold_datasets(datasets_dir: str = "Datasets", force: bool = False) 
         log.info(f"✅ Generated {len(pref_samples)} seed DPO pairs.")
 
 
+class QualityFilterAndDeduplicator:
+    """Filters low-quality, boilerplate, repetitive, or duplicate data samples."""
+
+    def __init__(self, min_prompt_len: int = 5, min_output_len: int = 20, max_token_len: int = 16384):
+        self.min_prompt_len = min_prompt_len
+        self.min_output_len = min_output_len
+        self.max_token_len = max_token_len
+        self.seen_hashes = set()
+        self.banned_phrases = [
+            "404 not found", "access denied", "cookie policy", "terms of service",
+            "privacy policy", "all rights reserved", "lorem ipsum", "subscribe to",
+            "javascript is disabled", "please enable cookies", "var _0x", "window.__initial_state__"
+        ]
+
+    def is_clean(self, prompt: str, output: str) -> bool:
+        p = (prompt or "").strip()
+        o = (output or "").strip()
+        if len(p) < self.min_prompt_len or len(o) < self.min_output_len:
+            return False
+        if len(p) + len(o) > self.max_token_len * 5:
+            return False
+
+        o_lower = o.lower()
+        if any(banned in o_lower for banned in self.banned_phrases):
+            return False
+
+        # Repetition check (detect pathological repetition)
+        words = o.split()
+        if len(words) >= 20:
+            unique_ratio = len(set(words)) / len(words)
+            if unique_ratio < 0.15:
+                return False
+
+        # Deterministic 64-bit SHA-256 content hash
+        norm = (p.lower() + "|||" + o.lower())
+        h = hashlib.sha256(norm.encode("utf-8", errors="ignore")).hexdigest()[:16]
+        if h in self.seen_hashes:
+            return False
+        self.seen_hashes.add(h)
+        return True
+
+
 def ingest_open_super_corpus(datasets_dir: str = "Datasets", max_samples: int = 350_000) -> int:
     """Download and stream high-density open-source multi-domain datasets (UltraChat, CodeAlpaca, MetaMath, Dolly, DPO)."""
     os.makedirs(datasets_dir, exist_ok=True)
@@ -945,6 +987,7 @@ def ingest_open_super_corpus(datasets_dir: str = "Datasets", max_samples: int = 
         log.info(f"⚡ [CACHE HIT] Master corpus already populated ({os.path.getsize(master_path)/1e6:.1f} MB). Skipping re-ingestion.")
         return 0
     pref_path = os.path.join(datasets_dir, "preference_pairs.jsonl")
+    filter_dedup = QualityFilterAndDeduplicator()
     
     try:
         from datasets import load_dataset
@@ -1208,7 +1251,7 @@ def build_4track_curriculum(datasets_dir: str = "Datasets", force: bool = False)
 
     # Load, deduplicate, and partition items
     track_buckets = {f: [] for f in CURRICULUM_TRACKS.keys()}
-    seen_hashes = set()
+    filter_dedup = QualityFilterAndDeduplicator()
 
     for src in source_files:
         if not os.path.exists(src):
@@ -1227,14 +1270,8 @@ def build_4track_curriculum(datasets_dir: str = "Datasets", force: bool = False)
                             if m.get("role") == "user": u += " " + m.get("content", "")
                             elif m.get("role") == "assistant": a += " " + m.get("content", "")
                     
-                    if not str(u).strip() or not str(a).strip():
+                    if not filter_dedup.is_clean(str(u), str(a)):
                         continue
-                    
-                    # Deduplicate by prompt
-                    phash = hash(str(u).strip()[:100])
-                    if phash in seen_hashes:
-                        continue
-                    seen_hashes.add(phash)
 
                     text = (str(u) + " " + str(a) + " " + str(d)).lower()
                     matched = False
