@@ -26,9 +26,11 @@ class VocabConfig:
     video_range_end: int = 31999
     special_tokens: dict = field(default_factory=lambda: {
         "<pad>": 0,
+        "<s>": 1,
+        "</s>": 2,
+        "<unk>": 3,
         "<bos>": 1,
         "<eos>": 2,
-        "<unk>": 3,
         "<audio>": 4,
         "<image>": 5,
         "<video>": 6,

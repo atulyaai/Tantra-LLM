@@ -1246,7 +1246,7 @@ class NeuroTrainer:
 
             special_tokens = {
                 "bos_token": "<s>",
-                "eos_token": "<eos>",
+                "eos_token": "</s>",
                 "unk_token": "<unk>",
                 "pad_token": "<pad>"
             }
@@ -1258,7 +1258,7 @@ class NeuroTrainer:
                 "vocab_size": len(vocab) if vocab else 32768,
                 "model_max_length": 2048,
                 "bos_token": "<s>",
-                "eos_token": "<eos>",
+                "eos_token": "</s>",
                 "unk_token": "<unk>",
                 "pad_token": "<pad>"
             }
