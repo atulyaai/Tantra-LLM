@@ -518,7 +518,7 @@ def run_training(model, vcfg, steps=30, resume=False):
     trainer.save_checkpoint(latest_ckpt, save_optimizer=True)
 
 
-def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False, eval_every=1000, log_every=50, checkpoint_every=500, batch_size=1, seq_len=128, grad_accumulation_steps=1, data_workers=0, use_latent_reasoning=True, use_mtp_loss=True, compile=False, lr=1e-4, weight_decay=0.01, optimizer="adamw", warmup_steps=None, topic_weights=None, training_stage="sft", auto_growth=False, growth_patience=1000, growth_min_delta=0.005, max_layers=None, model_dir=None, adapter_name=None, archive_checkpoints=True, pack_sequences=True, checkpoint_path=None, max_grad_norm=1.0, mtp_loss_weight=0.3, track=None):
+def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False, eval_every=1000, log_every=50, checkpoint_every=500, batch_size=1, seq_len=128, grad_accumulation_steps=1, data_workers=0, use_latent_reasoning=True, use_mtp_loss=True, compile=False, lr=1e-4, weight_decay=0.01, optimizer="adamw", warmup_steps=None, topic_weights=None, training_stage="sft", auto_growth=False, growth_patience=1000, growth_min_delta=0.005, max_layers=None, model_dir=None, adapter_name=None, archive_checkpoints=True, pack_sequences=True, checkpoint_path=None, max_grad_norm=1.0, mtp_loss_weight=0.3, track=None, curriculum_phase=None):
 
     log.info("== [DATASET PRE-TRAINING MODE] =====================")
     if training_stage not in {"pretrain", "sft"}:
@@ -784,10 +784,14 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
         t_norm = track.lower().strip()
         log.info(f"🎯 [EXPERT TRACK OVERRIDE] Training exclusively on '{t_norm}' category...")
         track_map = {
-            "chitchat": ["expert_conversation.jsonl", "conversation.jsonl"],
-            "conversation": ["expert_conversation.jsonl", "conversation.jsonl"],
-            "chat": ["expert_conversation.jsonl", "conversation.jsonl"],
-            "identity": ["expert_conversation.jsonl", "conversation.jsonl"],
+            "chitchat": ["chitchat_phase1_greetings.jsonl", "expert_conversation.jsonl"] if curriculum_phase == 1 else (["chitchat_phase2_short.jsonl", "expert_conversation.jsonl"] if curriculum_phase == 2 else ["chitchat_phase3_full.jsonl", "expert_conversation.jsonl", "conversation.jsonl"]),
+            "chitchat-p1": ["chitchat_phase1_greetings.jsonl"],
+            "chitchat-p2": ["chitchat_phase2_short.jsonl"],
+            "chitchat-p3": ["chitchat_phase3_full.jsonl", "expert_conversation.jsonl"],
+            "greetings": ["chitchat_phase1_greetings.jsonl"],
+            "conversation": ["chitchat_phase3_full.jsonl", "expert_conversation.jsonl", "conversation.jsonl"],
+            "chat": ["chitchat_phase3_full.jsonl", "expert_conversation.jsonl", "conversation.jsonl"],
+            "identity": ["chitchat_phase1_greetings.jsonl", "gold_corpus.jsonl", "expert_conversation.jsonl"],
             "math": ["expert_math_science.jsonl", "math.jsonl", "math_science.jsonl"],
             "code": ["expert_code.jsonl", "code.jsonl"],
             "general": ["expert_general.jsonl", "general.jsonl"],
@@ -803,10 +807,17 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
                 selected_file = c_path
                 break
         
-        if selected_file is None and t_norm in ("chitchat", "conversation", "chat", "identity"):
-            from Tantra.dataset import build_chitchat_curriculum
-            build_chitchat_curriculum(base_dir)
-            selected_file = os.path.join(base_dir, "expert_conversation.jsonl")
+        if selected_file is None and t_norm in ("chitchat", "conversation", "chat", "identity", "chitchat-p1", "chitchat-p2", "chitchat-p3", "greetings"):
+            from Tantra.dataset import build_phased_chitchat_curriculum, build_chitchat_curriculum
+            build_phased_chitchat_curriculum(base_dir)
+            if t_norm in ("chitchat-p1", "greetings") or (t_norm == "chitchat" and curriculum_phase == 1):
+                selected_file = os.path.join(base_dir, "chitchat_phase1_greetings.jsonl")
+            elif t_norm == "chitchat-p2" or (t_norm == "chitchat" and curriculum_phase == 2):
+                selected_file = os.path.join(base_dir, "chitchat_phase2_short.jsonl")
+            else:
+                selected_file = os.path.join(base_dir, "chitchat_phase3_full.jsonl")
+                if not os.path.exists(selected_file):
+                    selected_file = os.path.join(base_dir, "expert_conversation.jsonl")
 
         if selected_file and os.path.isfile(selected_file):
             log.info(f"📂 Routing to Expert Track File: {selected_file} ({os.path.getsize(selected_file)/1e6:.1f} MB)")
@@ -1107,8 +1118,10 @@ def main():
                         choices=["full", "probe", "vocab", "train", "dataset", "eval", "compress", "generate", "serve", "status", "experts", "chat", "adapter", "dpo", "auto-pilot", "benchmark", "export"],
                         help="Execution mode")
     parser.add_argument("--track", "--expert", "--domain", dest="track", type=str, default=None,
-                        choices=["all", "chitchat", "conversation", "chat", "identity", "math", "code", "general", "science", "gold"],
-                        help="Select specific expert track for focused training (e.g. --track chitchat, --track math, --track code)")
+                        choices=["all", "chitchat", "conversation", "chat", "identity", "chitchat-p1", "chitchat-p2", "chitchat-p3", "greetings", "math", "code", "general", "science", "gold"],
+                        help="Select specific expert track for focused training (e.g. --track chitchat, --track chitchat-p1, --track math, --track code)")
+    parser.add_argument("--curriculum-phase", "--phase", dest="curriculum_phase", type=int, default=None, choices=[1, 2, 3],
+                        help="Curriculum learning phase: 1=greetings & identity only, 2=short dialogues (<100 words), 3=full multi-turn dataset")
     parser.add_argument("--checkpoint", type=str, default=None, help="Path to custom .pt model checkpoint to load (for chat, eval, serve, dpo, benchmark, export)")
     parser.add_argument("--pack-sequences", action=argparse.BooleanOptionalAction, default=True, help="Enable continuous document sequence packing (0% padding waste)")
     parser.add_argument("--dataset", type=str, default=DEFAULT_DATASET, help="JSONL dataset path")
@@ -1387,7 +1400,7 @@ def main():
         else:
             resolved_wd = 0.05 if resolved_optimizer == "lion" else 0.01
 
-        run_dataset_training(model, tok, args.dataset, steps=args.steps, resume=args.resume, eval_every=args.eval_every, log_every=args.log_every, checkpoint_every=args.checkpoint_every, batch_size=args.batch_size, seq_len=args.seq_len, grad_accumulation_steps=args.grad_accum, data_workers=args.data_workers, use_latent_reasoning=use_latent_reasoning, use_mtp_loss=use_mtp_loss, compile=args.compile, lr=resolved_lr, weight_decay=resolved_wd, optimizer=resolved_optimizer, warmup_steps=args.warmup, topic_weights=topic_weights, training_stage=args.training_stage, auto_growth=args.auto_growth, growth_patience=args.growth_patience, growth_min_delta=args.growth_min_delta, max_layers=args.max_layers, adapter_name=args.adapter, model_dir=(ADAPTER_ROOT if args.adapter is not None else args.model_dir), pack_sequences=args.pack_sequences, checkpoint_path=args.checkpoint, max_grad_norm=args.max_grad_norm, mtp_loss_weight=args.mtp_weight, track=args.track)
+        run_dataset_training(model, tok, args.dataset, steps=args.steps, resume=args.resume, eval_every=args.eval_every, log_every=args.log_every, checkpoint_every=args.checkpoint_every, batch_size=args.batch_size, seq_len=args.seq_len, grad_accumulation_steps=args.grad_accum, data_workers=args.data_workers, use_latent_reasoning=use_latent_reasoning, use_mtp_loss=use_mtp_loss, compile=args.compile, lr=resolved_lr, weight_decay=resolved_wd, optimizer=resolved_optimizer, warmup_steps=args.warmup, topic_weights=topic_weights, training_stage=args.training_stage, auto_growth=args.auto_growth, growth_patience=args.growth_patience, growth_min_delta=args.growth_min_delta, max_layers=args.max_layers, adapter_name=args.adapter, model_dir=(ADAPTER_ROOT if args.adapter is not None else args.model_dir), pack_sequences=args.pack_sequences, checkpoint_path=args.checkpoint, max_grad_norm=args.max_grad_norm, mtp_loss_weight=args.mtp_weight, track=args.track, curriculum_phase=args.curriculum_phase)
 
     elif args.mode == "dpo":
         dpo_ckpt = args.checkpoint

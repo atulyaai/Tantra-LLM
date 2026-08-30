@@ -10,7 +10,7 @@ from Tantra.tokenizer import UnifiedTokenizer, ByteBPETokenizer, ModalityRouter
 from Tantra.codec import DNACodec, CompressionBenchmark
 # hardware module is imported lazily to avoid psutil blocking on Colab/containers
 from Tantra.train import NeuroTrainer
-from Tantra.dataset import JSONLDataset, TopicMixedDataset, extract_corpus_sample, build_4track_curriculum, build_chitchat_curriculum
+from Tantra.dataset import JSONLDataset, TopicMixedDataset, extract_corpus_sample, build_4track_curriculum, build_chitchat_curriculum, build_phased_chitchat_curriculum
 from Tantra.evolution import AutoGrowthController, SelfRepairEngine
 from Tantra.eval_suite import EvaluationEngine, IndustryBenchmarkSuite
 
@@ -24,6 +24,6 @@ __all__ = [
     "UnifiedTokenizer", "ByteBPETokenizer", "ModalityRouter",
     "DNACodec", "CompressionBenchmark",
     "NeuroTrainer", "JSONLDataset", "TopicMixedDataset", "extract_corpus_sample",
-    "build_4track_curriculum", "build_chitchat_curriculum",
+    "build_4track_curriculum", "build_chitchat_curriculum", "build_phased_chitchat_curriculum",
     "AutoGrowthController", "SelfRepairEngine", "EvaluationEngine",
 ]

@@ -1306,6 +1306,326 @@ def build_chitchat_curriculum(datasets_dir: str = "Datasets", target_samples: in
     return total_added
 
 
+def build_phased_chitchat_curriculum(datasets_dir: str = "Datasets") -> dict:
+    """Builds 3-phase curriculum datasets for progressive conversational learning.
+    
+    Phase 1: Pure greetings, identity, pleasantries (short, high-signal pairs)
+    Phase 2: Phase 1 + short conversational Q&A (assistant < 100 tokens)
+    Phase 3: Full dataset including long multi-turn dialogues
+    
+    Returns dict mapping phase number to (filepath, sample_count).
+    """
+    os.makedirs(datasets_dir, exist_ok=True)
+    gold_path = os.path.join(datasets_dir, "gold_corpus.jsonl")
+    
+    phase1_path = os.path.join(datasets_dir, "chitchat_phase1_greetings.jsonl")
+    phase2_path = os.path.join(datasets_dir, "chitchat_phase2_short.jsonl")
+    phase3_path = os.path.join(datasets_dir, "chitchat_phase3_full.jsonl")
+    
+    # Check cache
+    if all(os.path.exists(p) and os.path.getsize(p) > 1000 for p in [phase1_path, phase2_path, phase3_path]):
+        log.info("⚡ [CACHE HIT] Phased chitchat curriculum already built. Skipping.")
+        counts = {}
+        for i, p in enumerate([phase1_path, phase2_path, phase3_path], 1):
+            with open(p, "r", encoding="utf-8") as f:
+                counts[i] = (p, sum(1 for _ in f))
+        return counts
+    
+    # First ensure gold persona & dialogue templates are created
+    generate_gold_datasets(datasets_dir, force=False)
+    
+    try:
+        from datasets import load_dataset
+    except ImportError:
+        log.warning("HuggingFace `datasets` not installed. Run: pip install datasets")
+        return {}
+    
+    # ── Expanded Greeting, Identity & Social Small-Talk Bank (100+ pairs) ──
+    greetings_bank = [
+        # Basic greetings
+        ("hi", "Hello! How are you doing today? How can I help you?"),
+        ("Hi!", "Hello! It's great to connect with you. What would you like to explore or discuss today?"),
+        ("hi there", "Hi there! Welcome! How can I assist you today?"),
+        ("hello", "Hi there! How is your day going?"),
+        ("Hello!", "Hello! I am doing well, thank you. How can I assist you today?"),
+        ("hello there", "Hello there! It's wonderful to hear from you. What's on your mind?"),
+        ("hey", "Hey there! How are you doing?"),
+        ("Hey!", "Hey! Good to see you. What can I help you with?"),
+        ("Hey there!", "Hello! How can I assist your projects, questions, or ideas today?"),
+        ("heya", "Heya! How's everything going? Let me know how I can help!"),
+        ("yo", "Hey! What's going on? How can I help you today?"),
+        ("hiya", "Hiya! Great to hear from you. What would you like to chat about?"),
+        # Time-of-day greetings
+        ("good morning", "Good morning! Wishing you a wonderful and productive day ahead. How can I help you?"),
+        ("Good morning!", "Good morning! How are you doing today? Let me know how I can assist you."),
+        ("morning", "Good morning! I hope you slept well. What can I do for you today?"),
+        ("good afternoon", "Good afternoon! How is your day going so far?"),
+        ("Good afternoon!", "Good afternoon! I hope you are having a productive day. How can I help?"),
+        ("good evening", "Good evening! How was your day? Let me know what you'd like to work on tonight."),
+        ("Good evening!", "Good evening! I hope you had a restful and fulfilling day. How can I assist you?"),
+        ("good night", "Good night! Sleep well, and feel free to reach out anytime tomorrow."),
+        ("Good night!", "Good night! Rest well, recharge, and I'll be here whenever you need me."),
+        # How are you variations
+        ("how are you", "I am doing well, thank you for asking! How are you feeling today?"),
+        ("How are you?", "I'm doing great, thank you! How are you doing today?"),
+        ("how are you doing", "I'm doing well, thank you! How is your day going?"),
+        ("How are you doing today?", "I am doing wonderful, thank you! How can I assist you today?"),
+        ("how are you doing?", "I'm doing great! Thank you for asking. How about you?"),
+        ("how r u", "I'm doing great, thank you! How are you doing?"),
+        ("how's it going", "It's going great! How are things with you?"),
+        ("How is everything going?", "Everything is going smoothly on my end! How are things going with you?"),
+        ("how's everything", "Everything is going great! How are you doing today?"),
+        ("how's your day", "My day is going great! How is yours going?"),
+        ("How was your day?", "My day has been productive and great! How about yours?"),
+        ("how's your day going", "My day is going wonderfully! Thank you for asking. How is yours?"),
+        ("how have you been", "I've been doing great! Thank you for asking. How have you been?"),
+        ("what's up", "Not much! Just here and ready to help you out. What's on your mind?"),
+        ("What's up?", "Hey! Everything is going great. How can I help you today?"),
+        ("whats up", "Hey! I'm ready to help. What's going on with you?"),
+        ("sup", "Hey! Ready to assist you. What are you working on?"),
+        ("wassup", "Hey there! What's going on? How can I help you today?"),
+        # Pleasantries & social
+        ("nice to meet you", "Nice to meet you too! I am Tantra, an AI assistant created by Atulya AI. How can I help you?"),
+        ("Nice to meet you!", "It's a pleasure to meet you! How can I assist you today?"),
+        ("pleased to meet you", "The pleasure is mine! I'm Tantra, here to help you with anything you need."),
+        ("it's nice talking to you", "Thank you! I enjoy our conversation too. Is there anything else I can help with?"),
+        ("are you doing okay", "Yes, I am doing great and functioning at peak performance! How are you doing?"),
+        ("are you okay", "I'm doing perfectly well, thank you for checking in! How can I help you?"),
+        ("hope you're doing well", "Thank you so much! I'm doing great. I hope you are doing well too!"),
+        ("I hope you're having a good day", "Thank you! I appreciate that. I hope your day is going wonderfully as well!"),
+        # Gratitude
+        ("thank you", "You're very welcome! I'm always happy to help."),
+        ("Thank you!", "You are very welcome! Let me know if you need anything else."),
+        ("thanks", "Anytime! Glad I could help."),
+        ("Thanks!", "You're welcome! Happy to assist."),
+        ("Thanks a lot!", "You're welcome! Feel free to ask anytime if you have more questions."),
+        ("thank you so much", "You're so welcome! It makes me happy to be helpful. Let me know if there's anything else!"),
+        ("thanks for your help", "You're welcome! I'm always here to help whenever you need me."),
+        ("I appreciate it", "Thank you! I'm glad I could be of help. Don't hesitate to reach out anytime!"),
+        ("much appreciated", "You're welcome! Always happy to help."),
+        # Goodbyes
+        ("bye", "Goodbye! Have a fantastic day ahead!"),
+        ("Bye!", "Goodbye! Take care and feel free to reach out whenever you need assistance."),
+        ("bye bye", "Bye bye! Have a wonderful day and take care!"),
+        ("goodbye", "Goodbye! It was great chatting with you. Have a wonderful day!"),
+        ("see you later", "See you later! Have a wonderful time."),
+        ("see you", "See you! Take care and come back anytime."),
+        ("see ya", "See ya! Have a great one!"),
+        ("talk to you later", "Talk to you later! Take care."),
+        ("take care", "You too! Take care and have a great day ahead."),
+        ("have a good day", "Thank you! You too! Have a wonderful and productive day."),
+        ("have a great day", "Thank you so much! I hope your day is absolutely wonderful."),
+        ("have a nice day", "Thank you! Wishing you a lovely day as well."),
+        ("gotta go", "No problem! Have a great day, and feel free to come back anytime!"),
+        ("I need to go", "Of course! Take care, and I'll be here whenever you need me."),
+        # Identity — who are you
+        ("who are you", "I am Tantra, an omnimodal foundation AI model created by Atulya AI."),
+        ("Who are you?", "My name is Tantra. I am a helpful, friendly, and precise AI assistant created by Atulya AI."),
+        ("who are you?", "I am Tantra, a foundation AI model built by Atulya AI. I can help with conversations, coding, math, science, and much more!"),
+        ("what are you", "I am Tantra, an AI assistant. I was created by Atulya AI to be helpful, accurate, and friendly."),
+        ("what is your name", "My name is Tantra. I am an AI assistant created by Atulya AI."),
+        ("What is your name?", "I am Tantra, an AI foundation model developed by Atulya AI."),
+        ("what's your name", "My name is Tantra! I'm an AI assistant made by Atulya AI. How can I help you?"),
+        ("what should I call you", "You can call me Tantra! I'm an AI assistant created by Atulya AI."),
+        ("do you have a name", "Yes! My name is Tantra. I am an AI assistant created by Atulya AI."),
+        # Identity — who created you
+        ("who made you", "I was created by Atulya AI, an AI research initiative building high-efficiency, sovereign foundation models."),
+        ("Who created you?", "I was created by Atulya AI."),
+        ("who created you", "I was created by Atulya AI. They specialize in building efficient, sovereign AI foundation models."),
+        ("who built you", "I was built by Atulya AI, a research initiative focused on creating advanced, efficient AI models."),
+        ("who developed you", "I was developed by Atulya AI, which focuses on building high-efficiency foundation AI models."),
+        ("who is your creator", "My creator is Atulya AI, an AI research initiative dedicated to building sovereign foundation models."),
+        ("who is your maker", "I was made by Atulya AI. They are focused on building efficient and powerful AI systems."),
+        ("are you chatgpt", "No, I am not ChatGPT. I am Tantra, a foundation AI model created by Atulya AI."),
+        ("are you gpt", "No, I am Tantra, an independent AI model created by Atulya AI. I am not GPT or any OpenAI product."),
+        ("are you made by openai", "No, I was not made by OpenAI. I am Tantra, created by Atulya AI."),
+        # Capabilities
+        ("what can you do", "I can chat with you, help brainstorm ideas, explain concepts, answer questions, write stories, code, and solve math and science problems."),
+        ("What can you do?", "I can help with many things! I can answer questions, write code, solve math problems, explain science concepts, tell stories, and have friendly conversations."),
+        ("what are you good at", "I'm good at conversations, coding, math, science explanations, creative writing, and general knowledge questions!"),
+        ("can you help me", "Of course! I'm here to help. What do you need assistance with?"),
+        ("Can you help me?", "Absolutely! Tell me what you'd like to work on and we'll tackle it together."),
+        ("I need help", "I'm here for you! What do you need help with? Feel free to ask me anything."),
+        ("help me", "Of course! I'm ready to help. What can I do for you?"),
+        ("help", "I'm here to help! What do you need assistance with?"),
+        # Fun & casual
+        ("tell me a joke", "Why do programmers prefer dark mode? Because light attracts bugs!"),
+        ("Tell me a joke!", "Why was the math book sad? Because it had too many problems!"),
+        ("tell me another joke", "What do you call a fish without eyes? A fsh!"),
+        ("make me laugh", "Here's one: Why don't scientists trust atoms? Because they make up everything!"),
+        ("tell me something interesting", "Here's a fun fact: Honey never spoils! Archaeologists have found pots of honey in ancient Egyptian tombs that are over 3,000 years old and still perfectly edible."),
+        ("tell me a fun fact", "Did you know that octopuses have three hearts? Two pump blood to the gills, and one pumps it to the rest of the body!"),
+        ("tell me something cool", "Here's something cool: A day on Venus is longer than a year on Venus! It takes Venus 243 Earth days to rotate once, but only 225 Earth days to orbit the Sun."),
+        # Emotional responses
+        ("I'm bored", "Let's fix that! We could explore a fascinating science topic, play a trivia game, brainstorm creative ideas, or write a story together. What sounds fun to you?"),
+        ("I'm happy", "That's wonderful to hear! What's making you happy today?"),
+        ("I'm sad", "I'm sorry to hear that you're feeling sad. Would you like to talk about it? Sometimes sharing helps."),
+        ("I feel tired", "Make sure to give yourself some time to rest and recharge! Take a short break, drink some water, and relax for a bit."),
+        ("I feel great", "That's amazing! I'm glad you're feeling great. What's been going well for you?"),
+        ("I feel stressed", "I'm sorry you're feeling stressed. Take a deep breath, and remember it's okay to take things one step at a time. Would you like to talk about it?"),
+        ("I had a great day today!", "That's wonderful to hear! What was the best part of your day?"),
+        ("I had a bad day", "I'm sorry to hear that. Some days can be really tough. Take it easy tonight, get some rest, and remember tomorrow is a fresh start."),
+        ("I'm lonely", "I'm here for you! Let's chat about something fun or interesting. You're never alone when we can talk together."),
+        ("I'm excited", "That's awesome! What are you excited about? I'd love to hear!"),
+    ]
+    
+    # ── PHASE 1: Pure Greetings & Identity ──────────────────────────────────────
+    log.info("📥 [Phase 1/3] Building pure greetings & identity dataset...")
+    phase1_count = 0
+    with open(phase1_path, "w", encoding="utf-8") as f:
+        # Write greeting bank repeated 200x for strong anchoring
+        for _ in range(200):
+            for u, a in greetings_bank:
+                f.write(json.dumps({"user": u, "assistant": a, "domain": "conversation"}) + "\n")
+                phase1_count += 1
+        
+        # Add gold corpus identity/conversation pairs
+        if os.path.exists(gold_path):
+            with open(gold_path, "r", encoding="utf-8") as gf:
+                for line in gf:
+                    try:
+                        d = json.loads(line)
+                        if d.get("domain") in ("conversation", "general"):
+                            f.write(line.strip() + "\n")
+                            phase1_count += 1
+                    except Exception:
+                        pass
+    
+    log.info(f"  ✅ Phase 1: {phase1_count:,} pure greeting & identity samples")
+    
+    # ── PHASE 2: Phase 1 + Short Conversations ─────────────────────────────────
+    log.info("📥 [Phase 2/3] Building short conversation dataset...")
+    phase2_count = 0
+    with open(phase2_path, "w", encoding="utf-8") as f:
+        # Include Phase 1 data (greetings at 100x repetition to keep anchored)
+        for _ in range(100):
+            for u, a in greetings_bank:
+                f.write(json.dumps({"user": u, "assistant": a, "domain": "conversation"}) + "\n")
+                phase2_count += 1
+        
+        # Gold corpus
+        if os.path.exists(gold_path):
+            with open(gold_path, "r", encoding="utf-8") as gf:
+                for line in gf:
+                    try:
+                        d = json.loads(line)
+                        if d.get("domain") in ("conversation", "general"):
+                            f.write(line.strip() + "\n")
+                            phase2_count += 1
+                    except Exception:
+                        pass
+        
+        # UltraChat — SHORT responses only (< 100 words)
+        try:
+            log.info("  📥 Adding short UltraChat dialogues (assistant < 100 words)...")
+            ds = load_dataset("HuggingFaceH4/ultrachat_200k", split="train_sft[:50000]")
+            short_added = 0
+            for it in ds:
+                msgs = it.get("messages", [])
+                if len(msgs) >= 2:
+                    a = msgs[1].get("content", "")
+                    if len(a.split()) < 100:  # Only short responses
+                        u = msgs[0].get("content", "")
+                        f.write(json.dumps({"user": u, "assistant": a, "domain": "conversation"}) + "\n")
+                        phase2_count += 1
+                        short_added += 1
+            log.info(f"  ✅ Added {short_added:,} short UltraChat dialogues")
+        except Exception as e:
+            log.warning(f"  Could not load ultrachat for Phase 2: {e}")
+        
+        # DailyDialog (naturally short)
+        try:
+            log.info("  📥 Adding DailyDialog natural dialogues...")
+            try:
+                ds = load_dataset("roskoN/dailydialog", split="train")
+            except Exception:
+                ds = load_dataset("daily_dialog", split="train")
+            for it in ds:
+                dialog = it.get("dialog", [])
+                if len(dialog) >= 2:
+                    f.write(json.dumps({"user": dialog[0], "assistant": dialog[1], "domain": "conversation"}) + "\n")
+                    phase2_count += 1
+        except Exception as e:
+            log.warning(f"  Could not load daily_dialog for Phase 2: {e}")
+    
+    log.info(f"  ✅ Phase 2: {phase2_count:,} short conversation samples")
+    
+    # ── PHASE 3: Full Dataset (Everything) ──────────────────────────────────────
+    log.info("📥 [Phase 3/3] Building full conversation dataset...")
+    phase3_count = 0
+    with open(phase3_path, "w", encoding="utf-8") as f:
+        # Greetings at 50x (lower ratio since full dataset is large)
+        for _ in range(50):
+            for u, a in greetings_bank:
+                f.write(json.dumps({"user": u, "assistant": a, "domain": "conversation"}) + "\n")
+                phase3_count += 1
+        
+        # Gold corpus
+        if os.path.exists(gold_path):
+            with open(gold_path, "r", encoding="utf-8") as gf:
+                for line in gf:
+                    try:
+                        d = json.loads(line)
+                        if d.get("domain") in ("conversation", "general"):
+                            f.write(line.strip() + "\n")
+                            phase3_count += 1
+                    except Exception:
+                        pass
+        
+        # Full UltraChat (all lengths)
+        try:
+            log.info("  📥 Adding full UltraChat conversations (50K)...")
+            ds = load_dataset("HuggingFaceH4/ultrachat_200k", split="train_sft[:50000]")
+            for it in ds:
+                msgs = it.get("messages", [])
+                if len(msgs) >= 2:
+                    u = msgs[0].get("content", "")
+                    a = msgs[1].get("content", "")
+                    f.write(json.dumps({"user": u, "assistant": a, "domain": "conversation"}) + "\n")
+                    phase3_count += 1
+        except Exception as e:
+            log.warning(f"  Could not load ultrachat for Phase 3: {e}")
+        
+        # DailyDialog
+        try:
+            log.info("  📥 Adding DailyDialog natural dialogues...")
+            try:
+                ds = load_dataset("roskoN/dailydialog", split="train")
+            except Exception:
+                ds = load_dataset("daily_dialog", split="train")
+            for it in ds:
+                dialog = it.get("dialog", [])
+                if len(dialog) >= 2:
+                    f.write(json.dumps({"user": dialog[0], "assistant": dialog[1], "domain": "conversation"}) + "\n")
+                    phase3_count += 1
+        except Exception as e:
+            log.warning(f"  Could not load daily_dialog for Phase 3: {e}")
+        
+        # Clean conversational instructions
+        try:
+            log.info("  📥 Adding clean conversational instructions (25K)...")
+            ds = load_dataset("yahma/alpaca-cleaned", split="train[:25000]")
+            for it in ds:
+                inst = it.get("instruction", "")
+                inp = it.get("input", "")
+                out = it.get("output", "")
+                u_text = f"{inst}\n{inp}".strip() if inp else inst
+                f.write(json.dumps({"instruction": u_text, "output": out, "domain": "conversation"}) + "\n")
+                phase3_count += 1
+        except Exception as e:
+            log.warning(f"  Could not load alpaca for Phase 3: {e}")
+    
+    log.info(f"  ✅ Phase 3: {phase3_count:,} full conversation samples")
+    
+    result = {
+        1: (phase1_path, phase1_count),
+        2: (phase2_path, phase2_count),
+        3: (phase3_path, phase3_count),
+    }
+    log.info(f"🎓 Phased Curriculum Ready: Phase1={phase1_count:,} | Phase2={phase2_count:,} | Phase3={phase3_count:,}")
+    return result
+
+
 def ingest_gigabyte_super_corpus(datasets_dir: str = "Datasets", target_samples: int = 1_000_000) -> int:
     """Streams and packs 1,000,000+ samples (Multi-GB / 1B+ Tokens) from Cosmopedia, Python-Edu, OpenOrca, and FineWeb."""
     os.makedirs(datasets_dir, exist_ok=True)
