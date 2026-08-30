@@ -978,12 +978,29 @@ def run_dpo_training(
         log.info("🏁 [DPO ALIGNMENT FINISHED] Checkpoint saved: %s", final_milestone)
 
 
-def run_evaluation(model, tokenizer, dataset_path):
+def run_evaluation(model, tokenizer, dataset_path, device="cpu", max_batches=50):
     log.info("== [MODEL EVALUATION & BENCHMARK MODE] =============")
-    engine = EvaluationEngine(model)
-    dataset = JSONLDataset(dataset_path, tokenizer, seq_len=128, max_samples=20) if os.path.exists(dataset_path) else None
-    report = engine.print_benchmark_report(dataset, vocab_size=tokenizer.vocab_size)
-    return report
+    engine = EvaluationEngine(model, device=str(device))
+    if os.path.isdir(dataset_path):
+        from Tantra.dataset import TopicMixedDataset
+        dataset = TopicMixedDataset(dataset_path, tokenizer, seq_len=128, max_samples=500)
+    else:
+        dataset = JSONLDataset(dataset_path, tokenizer, seq_len=128, max_samples=500) if os.path.exists(dataset_path) else None
+
+    if dataset is None:
+        log.warning(f"Could not load evaluation dataset from: {dataset_path}")
+        return {}
+
+    from torch.utils.data import DataLoader
+    loader = DataLoader(dataset, batch_size=4, shuffle=False)
+    metrics = engine.evaluate_metrics(loader, max_batches=max_batches)
+    print("\n" + "=" * 65)
+    print(f"📊 EVALUATION METRICS REPORT ({dataset_path})")
+    print("=" * 65)
+    for k, v in metrics.items():
+        print(f"  • {k:20s}: {v:.4f}")
+    print("=" * 65 + "\n")
+    return metrics
 
 
 def run_compression_benchmark(comp_cfg):
@@ -1397,7 +1414,23 @@ def main():
         from Tantra.export import export_clean_checkpoint
         export_clean_checkpoint(args.checkpoint, args.output or args.model_dir or "Model/Export/checkpoint_clean.pt")
     elif args.mode == "eval":
-        run_evaluation(model, tok, args.dataset)
+        ckpt_to_load = args.checkpoint
+        if ckpt_to_load is None:
+            cand_list = []
+            for d in [os.path.join(MODEL_DIR, "Checkpoints"), os.path.join(MODEL_DIR, "Best"), os.path.join(MODEL_DIR, "Latest")]:
+                if os.path.exists(d):
+                    cand_list.extend(glob.glob(os.path.join(d, "*.pt")))
+            if cand_list:
+                import re
+                ckpt_to_load = max([p for p in cand_list if "sample" not in p], key=lambda p: int(re.search(r'step_(\d+)', p).group(1)) if re.search(r'step_(\d+)', p) else 0)
+
+        if ckpt_to_load and os.path.exists(ckpt_to_load):
+            try:
+                trainer.load_checkpoint(ckpt_to_load)
+                log.info(f"Loaded checkpoint for evaluation: {ckpt_to_load}")
+            except Exception as e:
+                log.warning(f"Could not load checkpoint {ckpt_to_load}: {e}")
+        run_evaluation(model, tok, args.dataset, device=rt.device)
     elif args.mode == "generate":
         ckpt_to_load = args.checkpoint
         if ckpt_to_load is None:
