@@ -25,6 +25,8 @@
 
 **Tantra-LLM** is an experimental, **single unified Omnimodal on-device foundation AI model** engineered with the **NeuroCore** architecture. Instead of running separate heavy models for text, speech, and vision, Tantra weaves **Text, Vision (Images), Audio (Voice), and Tool Calling** into **ONE single neural network** running locally in **~208 MB RAM** on standard CPUs and accelerating to **8,000 tok/s on Dual GPUs**.
 
+> **Current local checkpoint — verified 1 September 2026.** `Model/Latest/checkpoint_latest.pt` is a 16-layer auto-grown checkpoint at step 91,000 with 870.6M recorded training tokens. `Model/Best/checkpoint_best.pt` is an older 8-layer checkpoint at step 19,000 with 10.8M recorded tokens. The 95k milestone currently has metadata only; its weight file has not been saved. Claims below that are not explicitly marked “checkpoint verified” are historical results or implementation targets and need a fresh runtime benchmark.
+
 ```
  ┌────────────────────────────────────────────────────────────────────────────────────────┐
  │                         TANTRA SINGLE UNIFIED OMNIMODAL BRAIN                          │
@@ -53,17 +55,17 @@
 | Component | Status | Empirical Evidence |
 | :--- | :---: | :--- |
 | **Hardware Auto-Detection** | ✅ Verified | Profiles CPU/RAM/Dual-GPU topology with automatic kernel affinity |
-| **Forward Pass & Training Loop** | ✅ Verified | Real cross-entropy loss dropped from **10.4 ➔ 2.9** across **541M+ tokens** |
-| **Autonomous Auto-Pilot Pipeline** | ✅ Verified | Single-command pipeline: 90% SFT + Auto-Growth ➔ 10% DPO Alignment |
-| **Reactive Layer Auto-Growth** | ✅ Verified | Autonomously expanded from **8 ➔ 9 ➔ 10 layers (82.8M params)** live on plateaus |
-| **Preference Alignment (DPO)** | ✅ Verified | Preference reward margin peaked at **+15.15** with **100% chosen win rate** |
-| **Chunked ALRA Attention** | ✅ Verified | $O(1)$ memory blockwise recurrent scan, eliminating quadratic memory explosion |
-| **BitNet 1.58-bit Ternary** | ✅ Verified | Vectorized uint8 packing, ternary weights $\{-1, 0, +1\}$ for CPU acceleration |
-| **Multi-Token Prediction (MTP)** | ✅ Verified | Concurrent $(t+1, t+2)$ dual heads providing $2\times$ speculative speedup |
-| **4-Track Domain Curriculum** | ✅ Verified | 489K curated samples (154K Conversation, 45K Code, 117K Math, 170K General) |
-| **Industry Benchmark Suite** | ✅ Verified | Standard 5-level matrix (GSM8K Math, HumanEval sandbox `pass@1`, MMLU) |
+| **Forward Pass & Training Loop** | ✅ Checkpoint verified | Latest checkpoint: **91k steps / 870.6M tokens / 16 layers** |
+| **Autonomous Auto-Pilot Pipeline** | ⚠️ Implemented; current run unverified | SFT and DPO paths exist; completion for the current Latest checkpoint needs a fresh benchmark |
+| **Reactive Layer Auto-Growth** | ✅ Checkpoint verified | The current checkpoint grew to **16 layers**, beyond the documented 10-layer design |
+| **Preference Alignment (DPO)** | ⚠️ Implemented; current run unverified | Preference-pair data and code exist, but current-checkpoint results need measurement |
+| **Chunked ALRA Attention** | ✅ Implemented | Recurrent ALRA code is present; long-context memory and speed claims need a fresh benchmark |
+| **BitNet 1.58-bit Ternary** | ✅ Implemented | Ternary BitLinear code is present; active-checkpoint quantization needs runtime verification |
+| **Multi-Token Prediction (MTP)** | ⚠️ Training-only in current generation path | The head exists, but current live generation does not use speculative decoding |
+| **4-Track Domain Curriculum** | ⚠️ Design supported | Multi-track loaders exist; the current `Datasets` folder needs an inventory before sample-count claims are repeated |
+| **Industry Benchmark Suite** | ⚠️ Implemented; results unverified | Evaluation code exists; current-checkpoint benchmark scores need to be run and recorded |
 | **Local Web UI & REST API** | ✅ Verified | FastAPI Server + OpenAI-compatible `/v1/chat/completions` endpoint |
-| **Automated Test Suite** | ✅ **94/94** | **100% tests passing** (`pytest Tests/ -q` in ~38s) |
+| **Automated Test Suite** | ⚠️ Needs rerun | Tests are included; the stated pass count has not been re-run in this environment |
 
 ---
 
@@ -206,12 +208,12 @@ python main.py `
 
 ### 3. Interactive Local Chat
 ```powershell
-python main.py --mode chat --checkpoint Model/Checkpoints/checkpoint_latest.pt --temperature 0.3
+python main.py --mode chat --checkpoint Model/Latest/checkpoint_latest.pt --temperature 0.3
 ```
 
 ### 4. Run Full Industry Benchmark Suite
 ```powershell
-python main.py --mode benchmark --checkpoint Model/Checkpoints/checkpoint_latest.pt
+python main.py --mode benchmark --checkpoint Model/Latest/checkpoint_latest.pt
 ```
 
 ### 5. Export Production Clean Checkpoint

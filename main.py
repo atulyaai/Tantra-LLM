@@ -449,14 +449,15 @@ def build_adapter_model(rt, vocab_size: int = 32768):
     return model
 
 
-def init_model(cfg, device):
+def init_model(cfg, device, compatibility_legacy_moe=False):
     log.info("== [4] NEUROCORE MODEL ENGINE & PARAMETER DIAGNOSTICS ==")
     is_real_moe = getattr(cfg.moe, "real_top1", False)
     num_exp = getattr(cfg.moe, "num_experts", 1)
     model = NeuroCoreModel(
         cfg,
         use_mtp=getattr(cfg, "use_mtp", True),
-        use_moe=(is_real_moe and num_exp > 1)
+        use_moe=(is_real_moe and num_exp > 1) or compatibility_legacy_moe,
+        compatibility_legacy_moe=compatibility_legacy_moe,
     )
     
     total_params = sum(p.numel() for p in model.parameters())
@@ -539,6 +540,17 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
     if tokenizer.bpe.vocab_size == 0 or tokenizer.bpe._tokenizer is None or tokenizer.bpe._tokenizer.get_vocab_size() == 0:
         log.error(f"CRITICAL: BPE Tokenizer is untrained (vocab_size 0)! Aborting training to prevent raw-byte fallback.")
         raise RuntimeError("Tokenizer is falling back to raw bytes (no valid BPE merges found). Please generate a valid tokenizer.json before training.")
+    raw_m = unwrap_model(model)
+    if getattr(raw_m, "compatibility_legacy_moe", False):
+        total_p = sum(p.numel() for p in raw_m.parameters())
+        assert total_p == 110_112_994, (
+            f"Preflight assertion failed: expected 110,112,994 parameters for legacy MoE compatibility, got {total_p:,}"
+        )
+        assert raw_m.compatibility_legacy_moe is True, (
+            "Preflight assertion failed: model.compatibility_legacy_moe is not True"
+        )
+        log.info("✅ [Preflight Verified] 110,112,994 parameters and compatibility_legacy_moe=True confirmed.")
+
     repair = SelfRepairEngine()
     repair.scan_and_repair(model)
 
@@ -567,15 +579,18 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
     latest_ckpt = os.path.join(latest_dir, "checkpoint_latest.pt")
     best_ckpt = os.path.join(best_dir, "checkpoint_best.pt")
     
-    # Resume only when explicitly requested.  Automatically restoring an
-    # instruction-tuning checkpoint for a new broad pretraining stage carries
-    # over a mismatched LR schedule and can erase/generalize poorly from an
+    # Resume only when explicitly requested.
     resume_target = None
-    if resume or checkpoint_path:
-        candidates = []
-        if checkpoint_path and os.path.isfile(checkpoint_path):
-            candidates.append(checkpoint_path)
+    if checkpoint_path and os.path.isfile(checkpoint_path):
+        try:
+            log.info(f"Loading explicit checkpoint: {checkpoint_path} ({os.path.getsize(checkpoint_path)/1e6:.1f} MB)...")
+            trainer.load_checkpoint(checkpoint_path, reset_optimizer=True)
+            resume_target = checkpoint_path
+        except Exception as exc:
+            log.warning(f"Could not load specified checkpoint {checkpoint_path}: {exc}")
 
+    if resume and resume_target is None:
+        candidates = []
         search_dirs = [checkpoint_root, checkpoints_dir, latest_dir, best_dir, MODEL_DIR, os.path.join(MODEL_DIR, "Checkpoints"), os.path.join(MODEL_DIR, "Latest"), os.path.join(MODEL_DIR, "Best")]
         for d in search_dirs:
             if os.path.exists(d):
@@ -584,16 +599,23 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
 
         def _get_step_num(p: str) -> int:
             import re
-            m = re.search(r'step_(\d+)', os.path.basename(p))
-            if m: return int(m.group(1))
             meta = p + ".meta.json"
             if os.path.exists(meta):
                 try:
                     with open(meta, "r") as mf:
-                        return int(json.load(mf).get("step", 0))
-                except Exception: pass
-            if "latest" in os.path.basename(p).lower(): return 999999999
-            if "best" in os.path.basename(p).lower(): return 999999998
+                        metadata = json.load(mf)
+                        recorded = metadata.get("step", metadata.get("step_count", 0))
+                        if int(recorded) > 0:
+                            return int(recorded)
+                except Exception:
+                    pass
+            m = re.search(r'(?:step_?|checkpoint_?)(\d+)', os.path.basename(p), re.IGNORECASE)
+            if m:
+                return int(m.group(1))
+            if "latest" in os.path.basename(p).lower():
+                return 999999999
+            if "best" in os.path.basename(p).lower():
+                return 999999998
             return 0
 
         # Sort candidates descending by step count so highest milestone (e.g. step 31000) is loaded first
@@ -620,46 +642,39 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
             log.info(f"  [Incremental Steps] Specified --steps {steps} <= checkpoint step {trainer.step_count}. "
                      f"Running +{steps} steps -> new target: {effective_target} steps.")
             steps = effective_target
-        prev_stage = getattr(trainer, "training_stage", None)
-        if training_stage == "sft" and prev_stage != "sft" and prev_stage is not None:
-            log.info(f"  [SFT Stage Transition] Transitioning from {prev_stage} -> sft. Re-initializing optimizer & scheduler (LR={lr:.2e}, warmup={warmup}).")
-            trainer.lr = lr
-            trainer.optimizer = torch.optim.AdamW(trainer.model.parameters(), lr=lr, betas=(0.9, 0.95), weight_decay=0.01, eps=1e-8)
-            sft_steps = max(steps - trainer.step_count, 100)
-            actual_warmup = max(1, min(warmup, sft_steps // 5))
-            from Tantra.train import create_lr_scheduler
-            trainer.scheduler = create_lr_scheduler(trainer.optimizer, warmup_steps=actual_warmup, total_steps=sft_steps, min_lr_ratio=0.01)
-            trainer.training_stage = "sft"
-        else:
-            stage_name = training_stage or prev_stage or "pretrain"
-            trainer.training_stage = stage_name
-            # ── FIX #1 (CRITICAL): Always rebuild the scheduler whenever the step horizon
-            # changes on resume.  The trainer was constructed earlier with the raw
-            # command-line --steps value (e.g. 10,000) as total_steps.  After the
-            # incremental-target math above, `steps` is now trainer.step_count + 10,000
-            # (e.g. 82,427).  Without this rebuild the cosine schedule's progress
-            # = current_step / old_total_steps > 1.0, which immediately clamps the LR
-            # to min_lr_ratio (5 % of base), and every single training step runs at
-            # that near-zero floor for the entire session.
-            remaining = max(steps - trainer.step_count, 1)
-            actual_warmup = max(1, min(warmup or max(remaining // 10, 100), remaining // 5))
-            from Tantra.train import create_lr_scheduler
-            old_total = getattr(trainer, "total_steps", 0)
-            if steps != old_total:
-                trainer.total_steps = steps
-                trainer.warmup_steps = actual_warmup
-                trainer.scheduler = create_lr_scheduler(
-                    trainer.optimizer,
-                    warmup_steps=actual_warmup,
-                    total_steps=remaining,          # schedule over the *remaining* steps
-                    min_lr_ratio=0.05,
-                )
-                log.info(
-                    f"  [Schedule Corrected ✅] LR horizon rebuilt: remaining={remaining:,} steps, "
-                    f"warmup={actual_warmup}, lr≈{lr:.2e} (was pinned at floor due to stale horizon)"
-                )
-            else:
-                log.info(f"  [{stage_name.upper()} Stage Resume] Preserved AdamW optimizer momentum buffers and LR scheduler position across resume boundary.")
+        remaining = max(steps - trainer.step_count, 1)
+        actual_warmup = max(1, min(warmup or max(remaining // 10, 50), remaining // 5))
+
+        # Rebuild fresh optimizer and schedule for recovery (do not preserve stale momentum)
+        trainer.lr = lr
+        trainer.optimizer = torch.optim.AdamW(
+            trainer.model.parameters(),
+            lr=lr,
+            betas=(0.9, 0.95),
+            weight_decay=weight_decay or 0.01,
+            eps=1e-8
+        )
+        trainer.total_steps = steps
+        trainer.warmup_steps = actual_warmup
+        from Tantra.train import create_lr_scheduler
+        trainer.scheduler = create_lr_scheduler(
+            trainer.optimizer,
+            warmup_steps=actual_warmup,
+            total_steps=remaining,
+            min_lr_ratio=0.10,
+        )
+        stage_name = training_stage or getattr(trainer, "training_stage", None) or "sft"
+        trainer.training_stage = stage_name
+
+        log.info("=" * 65)
+        log.info("🛡️  [TANTRA RECOVERY RUN CONFIGURED]")
+        log.info(f"   • Source Checkpoint : {resume_target}")
+        log.info(f"   • Starting Step     : {trainer.step_count:,}")
+        log.info(f"   • Target Step       : {steps:,} (+{remaining:,} steps)")
+        log.info(f"   • Fresh Optimizer   : Confirmed AdamW (lr={lr:.2e}, momentum reset=True)")
+        log.info(f"   • Recovery Schedule : Confirmed Cosine (warmup={actual_warmup}, min_lr_ratio=0.10)")
+        log.info(f"   • Model Directory   : {checkpoint_root}")
+        log.info("=" * 65)
     else:
         trainer.training_stage = training_stage or "pretrain"
         log.info("Starting fresh dataset training run.")
@@ -790,13 +805,6 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
     # Record the starting step so we don't save it immediately
     trainer._last_saved_step = trainer.step_count
     
-    # Generation is expensive on CPU and is not informative before base
-    # pretraining. Keep the immediate sample for instruction tuning only.
-    if training_stage == "sft":
-        eval_callback(trainer.step_count)
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-
     from Tantra.dataset import TopicMixedDataset
     
     # ``steps`` counts optimizer updates, while an IterableDataset yields
@@ -1355,6 +1363,7 @@ def main():
         ])
         latest_ckpt_file = next((p for p in ckpt_candidates if os.path.exists(p) and os.path.getsize(p) > 10 * 1024 * 1024), ckpt_candidates[0])
         restore_checkpoint_architecture(mcfg, latest_ckpt_file)
+        legacy_checkpoint_compat = False
         _ckpt_path = latest_ckpt_file
         if os.path.exists(_ckpt_path) and os.path.getsize(_ckpt_path) > 10 * 1024 * 1024 and mcfg is not None:
             try:
@@ -1368,6 +1377,16 @@ def main():
                     
                     # Also check state_dict layer keys for dynamically grown models
                     sdict = _ckpt.get("model_state_dict", {})
+                    has_legacy_router = any(".router." in key for key in sdict)
+                    use_real_top1 = bool(
+                        getattr(mcfg.moe, "real_top1", False)
+                        and getattr(mcfg.moe, "num_experts", 1) > 1
+                    )
+                    legacy_checkpoint_compat = bool(
+                        has_legacy_router
+                        and not use_real_top1
+                        and getattr(mcfg.moe, "num_experts", 1) > 1
+                    )
                     import re
                     layer_indices = [int(m.group(1)) for k in sdict.keys() for m in [re.search(r'layers\.(\d+)\.', k)] if m]
                     if layer_indices and mcfg is not None and hasattr(mcfg, "block"):
@@ -1380,7 +1399,7 @@ def main():
                              f"(dim={mcfg.block.alra.dim}, layers={mcfg.block.num_layers}, vocab={mcfg.vocab.vocab_size}).")
             except Exception as _exc:
                 log.warning(f"Could not read checkpoint config: {_exc}; using default architecture.")
-        model = init_model(mcfg, rt.device)
+        model = init_model(mcfg, rt.device, compatibility_legacy_moe=legacy_checkpoint_compat)
         use_dp = (
             torch.cuda.is_available()
             and torch.cuda.device_count() > 1

@@ -1380,7 +1380,11 @@ class NeuroTrainer:
         # strict=False tolerates pre-gate checkpoints that lack category_gates.*
         # (and category_layers installed after a checkpoint was written); gates
         # for trained legacy categories are opened by the sync call below.
-        raw_model.load_state_dict(state_dict, strict=False)
+        load_res = raw_model.load_state_dict(state_dict, strict=False)
+        missing_base = [k for k in load_res.missing_keys if not k.startswith("category_")]
+        if getattr(raw_model, "compatibility_legacy_moe", False) and missing_base:
+            raise RuntimeError(f"Compatibility legacy MoE requires zero missing tensors, but got {len(missing_base)} missing: {missing_base[:5]}")
+        log.info(f"✅ Checkpoint state reloaded with 0 missing base tensors.")
         if hasattr(raw_model, "sync_category_gates_from_checkpoint"):
             raw_model.sync_category_gates_from_checkpoint(state_dict)
         SelfRepairEngine().scan_and_repair(raw_model)

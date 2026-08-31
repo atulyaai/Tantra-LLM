@@ -19,6 +19,7 @@ import json
 import math
 import os
 import random
+import re
 from typing import Iterator, List, Dict, Any, Optional, Tuple
 
 
@@ -29,11 +30,8 @@ from Tantra.utils import get_logger
 
 log = get_logger(__name__)
 
-import re
-
 IGNORE_INDEX = -100
 EOS_ID = 2  # must match VocabConfig.special_tokens["<eos>"]
-_NON_LATIN_SCRIPT_REGEX = re.compile(r'[\u0400-\u04FF\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\u0900-\u0D7F\u0E00-\u0E7F\u3040-\u30FF\u4E00-\u9FFF\uAC00-\uD7AF]')
 
 
 class TokenJuiceEngine:
@@ -343,10 +341,6 @@ class JSONLDataset(IterableDataset):
         (True) or masked out of the loss (False). Raw / non-chat lines are
         fully supervised, matching the original (pre-masking) behavior.
         """
-        # English-Only Filter: Skip lines containing non-Latin scripts (Devanagari, CJK, Cyrillic, Arabic, Indic, etc.)
-        if _NON_LATIN_SCRIPT_REGEX.search(raw_line):
-            return [], []
-
         try:
             item = json.loads(raw_line)
             parsed_ok = True

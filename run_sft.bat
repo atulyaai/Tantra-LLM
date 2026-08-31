@@ -5,5 +5,5 @@ echo ============================================================
 echo        TANTRA NEUROCORE INSTRUCTION FINE-TUNING (SFT)
 echo ============================================================
 cd /d "%~dp0"
-python main.py --mode auto-pilot --dataset Datasets/expert_conversation.jsonl --steps 10000 --resume --lr 1e-4 --grad-accum 2 --batch-size 16 --seq-len 512 --eval-every 500 --checkpoint-every 500 --auto-growth --device auto
+python main.py --mode auto-pilot --dataset Datasets/tantra_master_dataset.jsonl --steps 50000 --resume --lr 1e-4 --grad-accum 4 --batch-size 1 --seq-len 128 --eval-every 2000 --checkpoint-every 5000 --auto-growth --max-layers 16 --device auto --layers 16
 pause

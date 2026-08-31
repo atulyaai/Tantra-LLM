@@ -9,7 +9,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
 
-from Tantra.config import NeuroCoreConfig, ALRAConfig, SGPConfig, NeuroCoreBlockConfig
+from Tantra.config import NeuroCoreConfig, ALRAConfig, SGPConfig, NeuroCoreBlockConfig, BitNetConfig
+from Tantra.bitnet import BitLinear, TernaryQuantizer
 from Tantra.utils import elu_plus_one, top_k_mask
 
 
@@ -86,7 +87,7 @@ class ALRAAttention(nn.Module):
     O(n*d^2) complexity vs standard O(n^2*d).
     Uses learned forget gate for adaptive context window.
     """
-    def __init__(self, config: ALRAConfig):
+    def __init__(self, config: ALRAConfig, bitnet_config: Optional[BitNetConfig] = None):
         super().__init__()
         self.dim = config.dim
         self.num_heads = config.num_heads
@@ -96,13 +97,17 @@ class ALRAAttention(nn.Module):
 
         assert self.dim == self.num_heads * self.head_dim, "dim must be num_heads * head_dim"
 
-        self.w_q = nn.Linear(self.dim, self.dim)
-        self.w_k = nn.Linear(self.dim, self.dim)
-        self.w_v = nn.Linear(self.dim, self.dim)
-        self.w_o = nn.Linear(self.dim, self.dim)
+        linear_cls = BitLinear if bitnet_config and bitnet_config.enabled else nn.Linear
+
+        # Early trained checkpoints include projection biases. Retain them so
+        # those weights do not silently load into a partly-random model.
+        self.w_q = linear_cls(self.dim, self.dim, bias=True)
+        self.w_k = linear_cls(self.dim, self.dim, bias=True)
+        self.w_v = linear_cls(self.dim, self.dim, bias=True)
+        self.w_o = linear_cls(self.dim, self.dim, bias=True)
         
         if self.use_forget_gate:
-            self.w_gate = nn.Linear(self.dim, self.num_heads)
+            self.w_gate = linear_cls(self.dim, self.num_heads, bias=True)
 
         self.rope = RotaryPositionalEncoding(self.head_dim)
         
@@ -253,13 +258,14 @@ class ALRAAttention(nn.Module):
 
 class CausalSelfAttention(nn.Module):
     """Standard causal attention for controlled CPU comparisons with ALRA."""
-    def __init__(self, config: ALRAConfig):
+    def __init__(self, config: ALRAConfig, bitnet_config: Optional[BitNetConfig] = None):
         super().__init__()
         self.dim, self.num_heads, self.head_dim = config.dim, config.num_heads, config.head_dim
-        self.w_q = nn.Linear(self.dim, self.dim)
-        self.w_k = nn.Linear(self.dim, self.dim)
-        self.w_v = nn.Linear(self.dim, self.dim)
-        self.w_o = nn.Linear(self.dim, self.dim)
+        linear_cls = BitLinear if bitnet_config and bitnet_config.enabled else nn.Linear
+        self.w_q = linear_cls(self.dim, self.dim, bias=True)
+        self.w_k = linear_cls(self.dim, self.dim, bias=True)
+        self.w_v = linear_cls(self.dim, self.dim, bias=True)
+        self.w_o = linear_cls(self.dim, self.dim, bias=True)
         self.rope = RotaryPositionalEncoding(self.head_dim)
 
     def forward(self, x: Tensor, mask: Optional[Tensor] = None, state: Optional[dict] = None) -> Tuple[Tensor, Optional[dict]]:
@@ -300,15 +306,17 @@ class CausalSelfAttention(nn.Module):
 
 class SparseGatedProjection(nn.Module):
     """SGP: brain-inspired sparse FFN with top-k% active neurons."""
-    def __init__(self, config: SGPConfig):
+    def __init__(self, config: SGPConfig, bitnet_config: Optional[BitNetConfig] = None):
         super().__init__()
         self.dim = config.dim
         self.hidden_dim = self.dim * config.expansion
         self.k = max(1, int(self.hidden_dim * config.sparsity))
         
-        self.w_up = nn.Linear(self.dim, self.hidden_dim, bias=False)
-        self.w_down = nn.Linear(self.hidden_dim, self.dim, bias=False)
-        self.w_gate = nn.Linear(self.dim, self.hidden_dim, bias=True)
+        linear_cls = BitLinear if bitnet_config and bitnet_config.enabled else nn.Linear
+        
+        self.w_up = linear_cls(self.dim, self.hidden_dim, bias=False)
+        self.w_down = linear_cls(self.hidden_dim, self.dim, bias=False)
+        self.w_gate = linear_cls(self.dim, self.hidden_dim, bias=True)
         
         if config.activation == "silu":
             self.act = F.silu
@@ -342,13 +350,14 @@ class SparseGatedProjection(nn.Module):
 
 class SwiGLUProjection(nn.Module):
     """Dense CPU-friendly gated MLP; avoids top-k sorting and masking overhead."""
-    def __init__(self, config: SGPConfig):
+    def __init__(self, config: SGPConfig, bitnet_config: Optional[BitNetConfig] = None):
         super().__init__()
         self.dim = config.dim
         self.hidden_dim = self.dim * config.expansion
-        self.w_up = nn.Linear(self.dim, self.hidden_dim, bias=False)
-        self.w_gate = nn.Linear(self.dim, self.hidden_dim, bias=False)
-        self.w_down = nn.Linear(self.hidden_dim, self.dim, bias=False)
+        linear_cls = BitLinear if bitnet_config and bitnet_config.enabled else nn.Linear
+        self.w_up = linear_cls(self.dim, self.hidden_dim, bias=False)
+        self.w_gate = linear_cls(self.dim, self.hidden_dim, bias=False)
+        self.w_down = linear_cls(self.hidden_dim, self.dim, bias=False)
 
     def forward(self, x: Tensor) -> Tensor:
         return self.w_down(F.silu(self.w_gate(x)) * self.w_up(x))
@@ -356,12 +365,13 @@ class SwiGLUProjection(nn.Module):
 
 class Top1MoEProjection(nn.Module):
     """Actual top-1 MoE: selected token groups run through separate MLP experts."""
-    def __init__(self, config: SGPConfig, num_experts: int, balance_coeff: float = 0.01):
+    def __init__(self, config: SGPConfig, num_experts: int, balance_coeff: float = 0.01, bitnet_config: Optional[BitNetConfig] = None):
         super().__init__()
         self.num_experts = max(2, num_experts)
         self.balance_coeff = balance_coeff
-        self.router = nn.Linear(config.dim, self.num_experts, bias=False)
-        self.experts = nn.ModuleList(SwiGLUProjection(config) for _ in range(self.num_experts))
+        linear_cls = BitLinear if bitnet_config and bitnet_config.enabled else nn.Linear
+        self.router = linear_cls(config.dim, self.num_experts, bias=False)
+        self.experts = nn.ModuleList(SwiGLUProjection(config, bitnet_config) for _ in range(self.num_experts))
         self.last_aux_loss: Optional[Tensor] = None
         self.last_usage: Optional[Tensor] = None
 
@@ -389,7 +399,7 @@ class Top1MoEProjection(nn.Module):
 
 class NeuroCoreBlock(nn.Module):
     """Full NeuroCore block: x -> DSN -> ALRA -> residual -> DSN -> SGP/MoE -> residual -> output."""
-    def __init__(self, config: NeuroCoreBlockConfig, layer_idx: int, moe_config: Optional[Any] = None, use_moe: bool = False):
+    def __init__(self, config: NeuroCoreBlockConfig, layer_idx: int, moe_config: Optional[Any] = None, use_moe: bool = False, bitnet_config: Optional[BitNetConfig] = None, compatibility_legacy_moe: bool = False):
         super().__init__()
         self.layer_idx = layer_idx
         self.pre_norm = config.pre_norm
@@ -397,16 +407,25 @@ class NeuroCoreBlock(nn.Module):
         dim = config.alra.dim
         
         self.norm1 = DynamicScaleNorm(dim)
-        self.attn = CausalSelfAttention(config.alra) if config.alra.attention_kind == "causal" else ALRAAttention(config.alra)
-        self.norm2 = DynamicScaleNorm(dim)
-        if use_moe and moe_config is not None and getattr(moe_config, "real_top1", False):
-            self.mlp = Top1MoEProjection(config.sgp, moe_config.num_experts, moe_config.load_balance_coeff)
-        elif config.sgp.implementation == "swiglu":
-            self.mlp = SwiGLUProjection(config.sgp)
+        if config.alra.attention_kind == "causal":
+            self.attn = CausalSelfAttention(config.alra, bitnet_config)
         else:
-            self.mlp = SparseGatedProjection(config.sgp)
+            self.attn = ALRAAttention(config.alra, bitnet_config)
+        self.norm2 = DynamicScaleNorm(dim)
+        self.compatibility_legacy_moe = bool(compatibility_legacy_moe)
+        if self.compatibility_legacy_moe and (moe_config is None or getattr(moe_config, "real_top1", False)):
+            raise ValueError("Legacy-MoE compatibility requires a legacy MoE configuration.")
+        if use_moe and moe_config is not None and getattr(moe_config, "real_top1", False):
+            self.mlp = Top1MoEProjection(config.sgp, moe_config.num_experts, moe_config.load_balance_coeff, bitnet_config)
+        elif config.sgp.implementation == "swiglu":
+            self.mlp = SwiGLUProjection(config.sgp, bitnet_config)
+        else:
+            self.mlp = SparseGatedProjection(config.sgp, bitnet_config)
 
-        if self.use_moe and moe_config is not None and not getattr(moe_config, "real_top1", False):
+        # This path exists only to faithfully reload old checkpoints. It is
+        # not used for new training: it scales one shared MLP and is not a
+        # token-level mixture of experts. New models use Top1MoEProjection.
+        if self.compatibility_legacy_moe:
             from Tantra.moe import MoERouter
             self.router = MoERouter(moe_config, embed_dim=dim)
         else:
@@ -425,7 +444,7 @@ class NeuroCoreBlock(nn.Module):
             
             norm_x2 = self.norm2(x)
             if self.router is not None:
-                routing_weights, selected_experts, _ = self.router(norm_x2)
+                routing_weights, _, _ = self.router(norm_x2)
                 mlp_out = self.mlp(norm_x2) * routing_weights.mean(dim=-1, keepdim=True)
             else:
                 mlp_out = self.mlp(norm_x2)
@@ -434,7 +453,7 @@ class NeuroCoreBlock(nn.Module):
             attn_out, new_state = self.attn(x, mask=mask, state=state)
             x = self.norm1(x + attn_out)
             if self.router is not None:
-                routing_weights, selected_experts, _ = self.router(x)
+                routing_weights, _, _ = self.router(x)
                 mlp_out = self.mlp(x) * routing_weights.mean(dim=-1, keepdim=True)
             else:
                 mlp_out = self.mlp(x)
@@ -451,13 +470,15 @@ class LatentCoTHeader(nn.Module):
     Applies recurrent depth iterations on model hidden states to allow latent reasoning steps
     prior to final token prediction.
     """
-    def __init__(self, dim: int, reasoning_depth: int = 3):
+    def __init__(self, dim: int, reasoning_depth: int = 3, bitnet_config: Optional[BitNetConfig] = None):
         super().__init__()
         self.dim = dim
         self.reasoning_depth = reasoning_depth
         self.reasoning_norm = DynamicScaleNorm(dim)
-        self.reasoning_proj = nn.Linear(dim, dim)
-        self.gate = nn.Linear(dim * 2, dim)
+        linear_cls = BitLinear if bitnet_config and bitnet_config.enabled else nn.Linear
+        # The released checkpoint was trained with these biases.
+        self.reasoning_proj = linear_cls(dim, dim, bias=True)
+        self.gate = linear_cls(dim * 2, dim, bias=True)
 
     def forward(self, x: Tensor) -> Tensor:
         state = x
@@ -474,38 +495,59 @@ class LatentCoTHeader(nn.Module):
 class NeuroCoreModel(nn.Module):
     """Full NeuroCore language model with Multi-Token Prediction (MTP) heads and Latent Reasoning Headers."""
 
-    def __init__(self, config: NeuroCoreConfig, use_mtp: bool = True, reasoning_depth: int = 3, use_moe: bool = False):
+    def __init__(self, config: NeuroCoreConfig, use_mtp: bool = True, reasoning_depth: int = 3, use_moe: bool = False, compatibility_legacy_moe: bool = False):
         super().__init__()
         self.config = config
         self.dim = config.block.alra.dim
         self.vocab_size = config.vocab.vocab_size
         self.use_mtp = use_mtp
         self.reasoning_depth = reasoning_depth
-        self.use_moe = use_moe
+        # ``num_experts`` alone is metadata for legacy checkpoints. Only the
+        # explicit real Top-1 configuration enables token-level conditional
+        # compute; otherwise the model stays dense.
+        self.use_moe = bool(
+            use_moe
+            and getattr(config.moe, "real_top1", False)
+            and getattr(config.moe, "num_experts", 1) > 1
+        )
+        self.compatibility_legacy_moe = bool(
+            compatibility_legacy_moe
+            and use_moe
+            and not getattr(config.moe, "real_top1", False)
+            and getattr(config.moe, "num_experts", 1) > 1
+        )
 
         self.embed = nn.Embedding(self.vocab_size, self.dim)
         nn.init.normal_(self.embed.weight, std=0.02)
+
+        bitnet_config = config.bitnet if config.bitnet.enabled else None
 
         self.layers = nn.ModuleList([
             NeuroCoreBlock(
                 config.block,
                 layer_idx=i,
-                moe_config=config.moe if (use_moe or getattr(config.moe, "num_experts", 1) > 1) else None,
-                use_moe=use_moe or (getattr(config.moe, "num_experts", 1) > 1 and i % 2 == 1)
+                moe_config=config.moe if (self.use_moe or self.compatibility_legacy_moe) else None,
+                use_moe=self.use_moe,
+                bitnet_config=bitnet_config,
+                # The historical checkpoint attached its shared-MLP router
+                # to odd-numbered blocks only. Preserve that topology only
+                # in compatibility mode; real Top-1 MoE remains every block.
+                compatibility_legacy_moe=(self.compatibility_legacy_moe and i % 2 == 1),
             )
             for i in range(config.block.num_layers)
         ])
 
         self.final_norm = DynamicScaleNorm(self.dim)
-        self.latent_header = LatentCoTHeader(self.dim, reasoning_depth=reasoning_depth)
+        self.latent_header = LatentCoTHeader(self.dim, reasoning_depth=reasoning_depth, bitnet_config=bitnet_config)
         
-        # Primary head (predicts t+1)
-        self.output_proj = nn.Linear(self.dim, self.vocab_size, bias=False)
+        # Primary head (predicts t+1) - use BitLinear if quantization enabled
+        linear_cls = BitLinear if bitnet_config else nn.Linear
+        self.output_proj = linear_cls(self.dim, self.vocab_size, bias=False)
         self.output_proj.weight = self.embed.weight
 
         # Auxiliary MTP head (predicts t+2 for DeepSeek-style Multi-Token Prediction)
         if self.use_mtp:
-            self.mtp_head = nn.Linear(self.dim, self.vocab_size, bias=False)
+            self.mtp_head = linear_cls(self.dim, self.vocab_size, bias=False)
 
         self.shared_multimodal_weights: Dict[str, torch.Tensor] = {}
 
@@ -535,6 +577,7 @@ class NeuroCoreModel(nn.Module):
         dataset trains it — see :meth:`forward` for the gate interpolation.
         """
         moe_config = self.config.moe if (self.use_moe or getattr(self.config.moe, "num_experts", 1) > 1) else None
+        bitnet_config = self.config.bitnet if self.config.bitnet.enabled else None
         for category in categories:
             if not category or category in self.category_layers:
                 continue
@@ -547,6 +590,7 @@ class NeuroCoreModel(nn.Module):
                     layer_idx=clone_layer_index if clone_layer_index >= 0 else len(self.layers),
                     moe_config=moe_config,
                     use_moe=self.use_moe,
+                    bitnet_config=bitnet_config
                 )
                 if 0 <= clone_layer_index < len(self.layers):
                     with torch.no_grad():
@@ -819,6 +863,15 @@ class NeuroCoreModel(nn.Module):
         for _ in range(max_new_tokens):
             next_token_logits = torch.nan_to_num(next_token_logits, nan=-1e9, posinf=1e4, neginf=-1e9)
 
+            # A weak/early checkpoint can collapse into one token (usually a
+            # newline) forever. Do not let a decoder loop conceal all other
+            # candidates: after three identical generated tokens, force the
+            # next choice to be different. This is a decoding safeguard, not
+            # a substitute for training quality.
+            for batch_idx, history in enumerate(generated_tokens):
+                if len(history) >= 3 and history[-1] == history[-2] == history[-3]:
+                    next_token_logits[batch_idx, history[-1]] = -1e9
+
             if banned_token_ids:
                 for b_id in banned_token_ids:
                     if 0 <= b_id < next_token_logits.size(-1):
@@ -918,6 +971,9 @@ class NeuroCoreModel(nn.Module):
 
         for _ in range(max_new_tokens):
             logits = torch.nan_to_num(next_token_logits.clone(), nan=-1e9, posinf=1e4, neginf=-1e9)
+            for batch_idx, history in enumerate(generated_tokens):
+                if len(history) >= 3 and history[-1] == history[-2] == history[-3]:
+                    logits[batch_idx, history[-1]] = -1e9
             if banned_token_ids:
                 for b_id in banned_token_ids:
                     if 0 <= b_id < logits.size(-1):
@@ -987,6 +1043,9 @@ def cpu_dense_config(vocab_size: int = 32768, attention_kind: str = "alra") -> N
     cfg.block.alra.attention_kind = attention_kind
     cfg.block.sgp.dim, cfg.block.sgp.expansion, cfg.block.sgp.implementation = 512, 2, "swiglu"
     cfg.block.num_layers, cfg.moe.num_experts, cfg.moe.real_top1 = 8, 1, False
+    cfg.bitnet.enabled = True
+    cfg.bitnet.quantize_mode = "ternary"
+    cfg.bitnet.use_shadow_weights = True
     return cfg
 
 
