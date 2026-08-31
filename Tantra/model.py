@@ -161,30 +161,26 @@ class ALRAAttention(nn.Module):
             # Fast vectorized causal path (O(1) memory graph overhead on GPU/CPU)
             # NOTE: Query scaling is already applied in forward() — do NOT scale again here.
             orig_dtype = Q.dtype
-            Q_f = Q.float()
-            K_f = K.float()
-            V_f = V.float()
+            is_cuda = Q.is_cuda
 
             if gates is not None:
-                log_g = torch.log(gates.float().clamp(min=1e-4, max=1.0))
+                log_g = torch.log(gates.clamp(min=1e-4, max=1.0).to(orig_dtype))
                 cum_log_g = torch.cumsum(log_g, dim=-1)
-                diff = cum_log_g.unsqueeze(-1) - cum_log_g.unsqueeze(-2)
-                diff = diff.clamp(max=0.0, min=-30.0)
+                diff = (cum_log_g.unsqueeze(-1) - cum_log_g.unsqueeze(-2)).clamp(max=0.0, min=-30.0)
                 mask = torch.tril(torch.ones(T, T, device=Q.device, dtype=torch.bool))
-                D = torch.exp(diff) * mask.float()
+                D = torch.exp(diff) * mask.to(orig_dtype)
             else:
-                D = torch.tril(torch.ones(T, T, device=Q.device, dtype=torch.float32))
+                D = torch.tril(torch.ones(T, T, device=Q.device, dtype=orig_dtype))
                 
-            attn = torch.matmul(Q_f, K_f.transpose(-2, -1))
+            attn = torch.matmul(Q, K.transpose(-2, -1))
             if D.dim() == 4:
                 attn = attn * D
             else:
                 attn = attn * D.unsqueeze(0).unsqueeze(0)
                 
-            num = torch.matmul(attn, V_f)
-            # Standardized denominator matching chunked/sequential paths (eps-based, not clamp-based)
-            den = attn.sum(dim=-1, keepdim=True) + self.eps
-            out = torch.nan_to_num(num / den, nan=0.0, posinf=1.0, neginf=-1.0).to(orig_dtype)
+            num = torch.matmul(attn, V)
+            den = attn.sum(dim=-1, keepdim=True).clamp(min=self.eps)
+            out = num / den
             return out
 
         chunk_size = 256
