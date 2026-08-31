@@ -376,15 +376,35 @@ class JSONLDataset(IterableDataset):
 
     def __iter__(self) -> Iterator[Tuple[torch.Tensor, torch.Tensor]]:
         if not os.path.exists(self.jsonl_path):
-            log.warning(f"Dataset path does not exist: {self.jsonl_path}. Auto-generating 4-track curriculum...")
-            build_4track_curriculum(datasets_dir=os.path.dirname(self.jsonl_path) or "Datasets")
-        
+            candidates = [
+                self.jsonl_path,
+                os.path.join("Datasets", os.path.basename(self.jsonl_path)),
+                os.path.join("/kaggle/working/Datasets", os.path.basename(self.jsonl_path)),
+                os.path.join(os.path.dirname(__file__), "..", "Datasets", os.path.basename(self.jsonl_path)),
+                os.path.join("Datasets", "tantra_final_dataset.jsonl"),
+                os.path.join("Datasets", "master_corpus.jsonl"),
+                os.path.join("Datasets", "expert_general.jsonl"),
+            ]
+            for cand in candidates:
+                if cand and os.path.isfile(cand) and os.path.getsize(cand) > 0:
+                    log.info(f"📂 Resolved dataset path: {self.jsonl_path} -> {cand} ({os.path.getsize(cand)/1e6:.1f} MB)")
+                    self.jsonl_path = cand
+                    break
+
         if not os.path.exists(self.jsonl_path):
-            log.warning(f"Fallback to synthetic tokens stream for: {self.jsonl_path}")
-            while True:
-                x = torch.randint(0, min(self.tokenizer.vocab_size, 32000), (self.seq_len,))
-                y = x.clone()
-                yield x, y
+            fallback_dir = os.path.dirname(self.jsonl_path) or "Datasets"
+            log.warning(f"Dataset path does not exist: {self.jsonl_path}. Auto-generating 4-track curriculum...")
+            build_4track_curriculum(datasets_dir=fallback_dir)
+            master_cand = os.path.join(fallback_dir, "master_corpus.jsonl")
+            if os.path.exists(master_cand):
+                self.jsonl_path = master_cand
+            else:
+                gen_cands = [p for p in glob.glob(os.path.join(fallback_dir, "*.jsonl")) if "sample" not in p and "pref" not in p]
+                if gen_cands:
+                    self.jsonl_path = gen_cands[0]
+
+        if not os.path.exists(self.jsonl_path):
+            raise FileNotFoundError(f"❌ Cannot start training: No valid dataset file found at '{self.jsonl_path}' or any fallback directories.")
 
         worker_info = torch.utils.data.get_worker_info()
         worker_id = worker_info.id if worker_info is not None else 0
@@ -667,19 +687,24 @@ class TopicMixedDataset(IterableDataset):
             try:
                 x, y = next(file_iters[path])
             except StopIteration:
-                # This file is exhausted; drop it and re-normalize weights.
-                file_iters.pop(path, None)
-                topic_files[topic] = [f for f in files if f[0] != path]
-                files = topic_files[topic]
-                if not files:
-                    idx = active_topics.index(topic)
-                    active_topics.pop(idx)
-                    active_weights.pop(idx)
-                    if not active_topics:
-                        break
-                    total_w = sum(active_weights)
-                    active_weights = [w / total_w for w in active_weights]
-                continue
+                # Re-initialize the exhausted file stream so all domains cycle infinitely
+                file_iters[path] = self._file_iter(path)
+                try:
+                    x, y = next(file_iters[path])
+                except StopIteration:
+                    # Empty file — drop it safely
+                    file_iters.pop(path, None)
+                    topic_files[topic] = [f for f in files if f[0] != path]
+                    files = topic_files[topic]
+                    if not files:
+                        idx = active_topics.index(topic)
+                        active_topics.pop(idx)
+                        active_weights.pop(idx)
+                        if not active_topics:
+                            break
+                        total_w = sum(active_weights)
+                        active_weights = [w / total_w for w in active_weights]
+                    continue
 
             yield x, y
             count += 1

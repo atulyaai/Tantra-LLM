@@ -193,11 +193,27 @@ class NeuroTrainer:
             except Exception:
                 pass
         log.info(f"  NeuroTrainer initialized on device: {self.device} (type={self.device.type}, threads={torch.get_num_threads() if self.device.type == 'cpu' else 1}) | Optimizer: {self.optimizer_name}")
-        trainable_parameters = [p for p in model.parameters() if p.requires_grad]
 
-        if not trainable_parameters:
+        # Separate 2D+ weights (linear, embedding) from 1D tensors (norms, biases)
+        # Weight decay on 1D/norm parameters shrinks normalization and destabilizes training.
+        decay_params = []
+        no_decay_params = []
+        for n, p in model.named_parameters():
+            if not p.requires_grad:
+                continue
+            if p.ndim < 2 or 'bias' in n or 'norm' in n or 'scale' in n:
+                no_decay_params.append(p)
+            else:
+                decay_params.append(p)
+
+        if not decay_params and not no_decay_params:
             raise ValueError("No trainable parameters are enabled.")
-        self.optimizer = build_optimizer(self.optimizer_name, trainable_parameters, lr=lr, weight_decay=weight_decay)
+
+        param_groups = [
+            {"params": decay_params, "weight_decay": float(weight_decay)},
+            {"params": no_decay_params, "weight_decay": 0.0},
+        ]
+        self.optimizer = build_optimizer(self.optimizer_name, param_groups, lr=lr, weight_decay=weight_decay)
 
         self.total_steps = total_steps
         self.warmup_steps = warmup_steps
@@ -249,21 +265,34 @@ class NeuroTrainer:
         new_parameters = [p for p in self.model.parameters() if p.requires_grad and id(p) not in existing_param_ids]
 
         if not existing_param_ids or self.optimizer is None:
-            trainable_parameters = [p for p in self.model.parameters() if p.requires_grad]
-            if not trainable_parameters:
+            decay_params = []
+            no_decay_params = []
+            for n, p in self.model.named_parameters():
+                if not p.requires_grad:
+                    continue
+                if p.ndim < 2 or 'bias' in n or 'norm' in n or 'scale' in n:
+                    no_decay_params.append(p)
+                else:
+                    decay_params.append(p)
+            if not decay_params and not no_decay_params:
                 raise ValueError("No trainable parameters are enabled after refresh.")
-            self.optimizer = build_optimizer(self.optimizer_name, trainable_parameters, lr=self.lr, weight_decay=self.weight_decay)
-            self.scheduler = create_lr_scheduler(self.optimizer, warmup_steps=self.warmup_steps, total_steps=self.total_steps, min_lr_ratio=0.05)
+            param_groups = [
+                {"params": decay_params, "weight_decay": float(self.weight_decay)},
+                {"params": no_decay_params, "weight_decay": 0.0},
+            ]
+            self.optimizer = build_optimizer(self.optimizer_name, param_groups, lr=self.lr, weight_decay=self.weight_decay)
+            self.scheduler = create_lr_scheduler(self.optimizer, warmup_steps=self.warmup_steps, total_steps=self.total_steps, min_lr_ratio=0.10)
             if self.scheduler is not None:
                 self.scheduler.last_epoch = current_step
                 for g in self.optimizer.param_groups:
                     g["lr"] = current_lr
         elif new_parameters:
-            self.optimizer.add_param_group({
-                "params": new_parameters,
-                "lr": current_lr,
-                "weight_decay": self.weight_decay,
-            })
+            new_decay = [p for p in new_parameters if p.ndim >= 2]
+            new_no_decay = [p for p in new_parameters if p.ndim < 2]
+            if new_decay:
+                self.optimizer.add_param_group({"params": new_decay, "lr": current_lr, "weight_decay": self.weight_decay})
+            if new_no_decay:
+                self.optimizer.add_param_group({"params": new_no_decay, "lr": current_lr, "weight_decay": 0.0})
             if self.scheduler is not None:
                 self._sync_scheduler_lambdas()
             log.info(f"  Optimizer dynamically registered {len(new_parameters)} new parameter tensors while preserving existing momentum history.")
@@ -425,8 +454,6 @@ class NeuroTrainer:
                     self.scaler.update()
                 grad_norm = 0.0
             else:
-                if grad_norm > 6.0:
-                    SelfRepairEngine().sanitize_optimizer_momentum(self.optimizer, grad_norm, threshold=6.0)
                 if self.scaler.is_enabled():
                     self.scaler.step(self.optimizer)
                     self.scaler.update()
@@ -548,7 +575,7 @@ class NeuroTrainer:
 
 
 
-    def train_dataset(self, data_stream: Iterable[Tuple[torch.Tensor, torch.Tensor]], max_steps: int = 100, log_every: int = 10, eval_every: int = 0, eval_callback = None, checkpoint_every: int = 0, checkpoint_callback = None, tokenizer: Optional[Any] = None, enrichment_rate: float = 0.02, use_latent_reasoning: bool = True, auto_growth: bool = False, growth_patience: int = 1000, growth_min_delta: float = 0.005, max_layers: Optional[int] = None, val_loader: Optional[Iterable[Tuple[torch.Tensor, torch.Tensor]]] = None) -> list[float]:
+    def train_dataset(self, data_stream: Iterable[Tuple[torch.Tensor, torch.Tensor]], max_steps: int = 100, log_every: int = 10, eval_every: int = 0, eval_callback = None, checkpoint_every: int = 0, checkpoint_callback = None, tokenizer: Optional[Any] = None, enrichment_rate: float = 0.0, use_latent_reasoning: bool = True, auto_growth: bool = False, growth_patience: int = 1000, growth_min_delta: float = 0.005, max_layers: Optional[int] = None, val_loader: Optional[Iterable[Tuple[torch.Tensor, torch.Tensor]]] = None) -> list[float]:
 
         """Train over an iterable dataset stream (e.g. JSONLDataset).
 
@@ -584,19 +611,19 @@ class NeuroTrainer:
         from Tantra.dataset import TokenJuiceEngine
         juice = TokenJuiceEngine(entropy_threshold=0.3, enrichment_rate=enrichment_rate)
         synthetic_qa_pairs = [
-            ("What is Tantra?", "Tantra is a CPU-First Autonomous AI Engine."),
-            ("Who created Tantra?", "Tantra LLM is created by the Tantra Engineering Team."),
-            ("Explain artificial intelligence.", "AI is the simulation of human intelligence by computer systems."),
+            ("<|user|>\nWhat is Tantra?\n\n<|assistant|>\n", "I am Tantra, an AI assistant created by Atulya AI. I'm here to help you."),
+            ("<|user|>\nWho created you?\n\n<|assistant|>\n", "I was created by Atulya AI. My name is Tantra."),
+            ("<|user|>\nWhat is your name?\n\n<|assistant|>\n", "My name is Tantra. I am an AI language model built by Atulya AI."),
         ]
         if tokenizer is not None and enrichment_rate > 0.0:
-            for question, answer in synthetic_qa_pairs:
+            for prompt, answer in synthetic_qa_pairs:
                 try:
-                    q_ids = tokenizer.encode(question)
+                    q_ids = tokenizer.encode(prompt)
                     a_ids = tokenizer.encode(answer)
                     if q_ids and a_ids:
                         juice.register_synthetic_pair(q_ids, a_ids)
                 except Exception as e:
-                    log.warning(f"Could not tokenize TokenJuice synthetic pair ({question!r}): {e}")
+                    log.warning(f"Could not tokenize TokenJuice synthetic pair ({prompt!r}): {e}")
         else:
             log.debug("TokenJuice enrichment disabled for this run (enrichment_rate <= 0 or no tokenizer).")
 
