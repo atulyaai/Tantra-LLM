@@ -1,0 +1,8 @@
+{
+  "tool_name": "calculator",
+  "user_query": "Calculate 45 * 12 + 15",
+  "tool_call_emitted": "<tool_call>{\"name\": \"calculator\", \"arguments\": {\"expression\": \"45 * 12 + 15\"}}</tool_call>",
+  "execution_engine": "Tantra.tool_router.safe_eval_math (Safe AST Parser)",
+  "tool_result": "555",
+  "final_tantra_answer": "The calculated result of 45 * 12 + 15 is 555."
+}

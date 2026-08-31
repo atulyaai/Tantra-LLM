@@ -35,6 +35,10 @@ class VocabConfig:
     })
     megabyte_patch_size: int = 8  # bytes per megabyte patch
 
+    @property
+    def byte_vocab_size(self) -> int:
+        return self.byte_bpe_vocab
+
 
 @dataclass
 class ALRAConfig:

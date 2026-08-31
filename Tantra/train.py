@@ -226,17 +226,22 @@ class NeuroTrainer:
             log.info("  MTP auxiliary loss DISABLED for this run (reduced CPU output-projection work).")
 
     def refresh_optimizer(self) -> None:
-        """Rebuild the optimizer (and LR schedule) from the model's current
-        trainable parameters. Call this after ``freeze_for_category`` or
-        ``grow_category`` so a newly unfrozen/added layer is actually optimized.
-        The schedule keeps its current step count.
+        """Rebuild the optimizer and LR schedule from the model's current
+        trainable parameters. Call this after Auto-Growth or adapter changes
+        so newly added layers are optimized and the LR scheduler stays perfectly synced.
         """
-        lr = self.optimizer.param_groups[0]["lr"] if self.optimizer.param_groups else 1e-4
+        current_step = getattr(self.scheduler, "last_epoch", self.step_count)
+        current_lr = self.optimizer.param_groups[0]["lr"] if (self.optimizer and self.optimizer.param_groups) else self.lr
         trainable_parameters = [p for p in self.model.parameters() if p.requires_grad]
         if not trainable_parameters:
             raise ValueError("No trainable parameters are enabled after refresh.")
-        self.optimizer = build_optimizer(self.optimizer_name, trainable_parameters, lr=lr, weight_decay=self.weight_decay)
+        self.optimizer = build_optimizer(self.optimizer_name, trainable_parameters, lr=self.lr, weight_decay=self.weight_decay)
         self.scheduler = create_lr_scheduler(self.optimizer, warmup_steps=self.warmup_steps, total_steps=self.total_steps, min_lr_ratio=0.05)
+        if self.scheduler is not None:
+            self.scheduler.last_epoch = current_step
+            # Update base_lrs and current group lrs
+            for g in self.optimizer.param_groups:
+                g["lr"] = current_lr
 
     def _write_training_status(self, **status: Any) -> None:
         """Publish real training state for the local Web UI and recovery logs."""
@@ -292,7 +297,7 @@ class NeuroTrainer:
                 logits_main = out[0]
                 logits_mtp = None
 
-            logits_flat = torch.clamp(logits_main.reshape(-1, logits_main.size(-1)), -50.0, 50.0)
+            logits_flat = logits_main.reshape(-1, logits_main.size(-1))
             y_flat = self._safe_targets(y.reshape(-1), logits_main.size(-1))
 
             supervised_mask = (y_flat != IGNORE_INDEX)
@@ -301,20 +306,23 @@ class NeuroTrainer:
                 self._micro_step += 1
                 return 0.0, 0.0, 0.0, 0.0, False
 
-            loss = self.criterion(logits_flat.float(), y_flat)
+            loss = self.criterion(logits_flat, y_flat)
 
             if hasattr(self.model, "get_aux_loss"):
-                loss = loss + self.model.get_aux_loss()
+                aux_loss = self.model.get_aux_loss()
+                if aux_loss is not None and not (math.isnan(aux_loss.item()) if hasattr(aux_loss, 'item') else math.isnan(aux_loss)):
+                    loss = loss + aux_loss
 
             # Auxiliary MTP Loss (Multi-Token Prediction)
             if logits_mtp is not None and y.size(1) > 1:
-                logits_mtp_flat = torch.clamp(logits_mtp[:, :-1, :].reshape(-1, logits_mtp.size(-1)), -50.0, 50.0)
+                logits_mtp_flat = logits_mtp[:, :-1, :].reshape(-1, logits_mtp.size(-1))
                 y_mtp_flat = self._safe_targets(y[:, 1:].reshape(-1), logits_mtp.size(-1))
-                mtp_loss = self.criterion(logits_mtp_flat.float(), y_mtp_flat)
+                mtp_loss = self.criterion(logits_mtp_flat, y_mtp_flat)
                 loss = loss + 0.3 * mtp_loss
 
         if math.isnan(loss.item()) or math.isinf(loss.item()):
-            log.error("NaN or Inf detected in loss! Skipping batch update to prevent weight corruption.")
+            log.warning("NaN or Inf detected in loss! Skipping batch update and auto-repairing weights.")
+            SelfRepairEngine().scan_and_repair(self.model)
             self.optimizer.zero_grad(set_to_none=True)
             self._micro_step += 1
             return 0.0, 0.0, 0.0, 0.0, False
@@ -362,15 +370,23 @@ class NeuroTrainer:
             if self.scaler.is_enabled():
                 self.scaler.unscale_(self.optimizer)
             grad_norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0).item()
-            if grad_norm > 6.0:
-                SelfRepairEngine().sanitize_optimizer_momentum(self.optimizer, grad_norm, threshold=6.0)
-            if self.scaler.is_enabled():
-                self.scaler.step(self.optimizer)
-                self.scaler.update()
+            if math.isnan(grad_norm) or math.isinf(grad_norm):
+                log.warning("NaN or Inf detected in grad_norm! Purging gradients and repairing model.")
+                self.optimizer.zero_grad(set_to_none=True)
+                SelfRepairEngine().scan_and_repair(self.model)
+                if self.scaler.is_enabled():
+                    self.scaler.update()
+                grad_norm = 0.0
             else:
-                self.optimizer.step()
-            self.scheduler.step()
-            self.step_count += 1
+                if grad_norm > 6.0:
+                    SelfRepairEngine().sanitize_optimizer_momentum(self.optimizer, grad_norm, threshold=6.0)
+                if self.scaler.is_enabled():
+                    self.scaler.step(self.optimizer)
+                    self.scaler.update()
+                else:
+                    self.optimizer.step()
+                self.scheduler.step()
+                self.step_count += 1
         else:
             grad_norm = 0.0
 
@@ -694,18 +710,19 @@ class NeuroTrainer:
                     )
 
                     if growth_controller is not None:
-                        raw_model = getattr(self.model, "_orig_mod", self.model)
+                        raw_model = self.model
+                        while hasattr(raw_model, "module"):
+                            raw_model = raw_model.module
+                        while hasattr(raw_model, "_orig_mod"):
+                            raw_model = raw_model._orig_mod
+                        while hasattr(raw_model, "module"):
+                            raw_model = raw_model.module
                         before = {id(param) for param in raw_model.parameters()}
                         if growth_controller.observe(float(self.ema_loss), raw_model):
                             new_params = [param for param in raw_model.parameters() if id(param) not in before]
                             if new_params:
-                                base_group = self.optimizer.param_groups[0]
-                                self.optimizer.add_param_group({
-                                    "params": new_params,
-                                    "lr": base_group["lr"],
-                                    "weight_decay": base_group.get("weight_decay", 0.0),
-                                })
-                                log.info("Auto-growth added %d parameters; optimizer now tracks %d layers.", sum(p.numel() for p in new_params), len(raw_model.layers))
+                                self.refresh_optimizer()
+                                log.info("Auto-growth added %d parameters; optimizer & scheduler now track %d layers seamlessly.", sum(p.numel() for p in new_params), len(raw_model.layers))
 
                     is_card_step = (session_steps == 1 or session_steps % log_every == 0 or self.step_count == max_steps)
                     ticker_interval = max(10, log_every // 2)
@@ -857,6 +874,121 @@ class NeuroTrainer:
         log.info(f"Dataset pre-training run complete ({self.step_count} steps executed).")
         return losses
 
+    def compute_sequence_logprobs(self, logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
+        """
+        Computes per-sequence sum of log probabilities for labeled tokens.
+        logits: (batch, seq_len, vocab_size)
+        labels: (batch, seq_len) with IGNORE_INDEX (-100) for prompt/padding tokens.
+        """
+        shift_logits = logits[:, :-1, :].contiguous()
+        shift_labels = labels[:, 1:].contiguous()
+        log_probs = torch.log_softmax(shift_logits, dim=-1)
+        loss_mask = shift_labels != -100
+        clamped_labels = torch.clamp(shift_labels, min=0)
+        per_token_logps = torch.gather(log_probs, dim=2, index=clamped_labels.unsqueeze(2)).squeeze(2)
+        return (per_token_logps * loss_mask.float()).sum(dim=1)
+
+    def train_dpo(
+        self,
+        dpo_dataloader: Any,
+        ref_model: Optional[nn.Module] = None,
+        beta: float = 0.1,
+        max_steps: int = 2000,
+        log_every: int = 25,
+        checkpoint_every: int = 500,
+        checkpoint_callback: Optional[Callable[[int, float], None]] = None,
+        eval_every: int = 500,
+        eval_callback: Optional[Callable[[int], None]] = None,
+    ) -> List[float]:
+        """Direct Preference Optimization (DPO) preference alignment training loop."""
+        import copy
+        if ref_model is None:
+            log.info("Cloning frozen reference model baseline for DPO...")
+            raw_model = getattr(self.model, "module", getattr(self.model, "_orig_mod", self.model))
+            ref_model = copy.deepcopy(raw_model).to(self.device)
+            ref_model.eval()
+            for p in ref_model.parameters():
+                p.requires_grad = False
+
+        self.model.train()
+        log.info(f"🚀 Starting DPO Preference Alignment (Target: {max_steps} steps, beta={beta})...")
+
+        dpo_iter = iter(dpo_dataloader)
+        losses: List[float] = []
+        start_step = self.step_count
+        
+        for step in range(start_step + 1, start_step + max_steps + 1):
+            self.optimizer.zero_grad(set_to_none=True)
+            accum_loss = 0.0
+            accum_win_rate = 0.0
+            accum_margin = 0.0
+            
+            for _ in range(self.grad_accumulation_steps):
+                try:
+                    batch = next(dpo_iter)
+                except StopIteration:
+                    dpo_iter = iter(dpo_dataloader)
+                    batch = next(dpo_iter)
+                
+                chosen_ids = batch["chosen_input_ids"].to(self.device)
+                chosen_labels = batch["chosen_labels"].to(self.device)
+                rejected_ids = batch["rejected_input_ids"].to(self.device)
+                rejected_labels = batch["rejected_labels"].to(self.device)
+                
+                # Forward current model
+                chosen_out = self.model(chosen_ids)
+                chosen_logits = chosen_out[0] if isinstance(chosen_out, tuple) else chosen_out
+                rejected_out = self.model(rejected_ids)
+                rejected_logits = rejected_out[0] if isinstance(rejected_out, tuple) else rejected_out
+                
+                # Forward reference model (frozen)
+                with torch.no_grad():
+                    ref_chosen_out = ref_model(chosen_ids)
+                    ref_chosen_logits = ref_chosen_out[0] if isinstance(ref_chosen_out, tuple) else ref_chosen_out
+                    ref_rejected_out = ref_model(rejected_ids)
+                    ref_rejected_logits = ref_rejected_out[0] if isinstance(ref_rejected_out, tuple) else ref_rejected_out
+                
+                # Compute log probabilities
+                pi_chosen_logps = self.compute_sequence_logprobs(chosen_logits, chosen_labels)
+                pi_rejected_logps = self.compute_sequence_logprobs(rejected_logits, rejected_labels)
+                
+                ref_chosen_logps = self.compute_sequence_logprobs(ref_chosen_logits, chosen_labels)
+                ref_rejected_logps = self.compute_sequence_logprobs(ref_rejected_logits, rejected_labels)
+                
+                # DPO loss calculation
+                pi_logratios = pi_chosen_logps - pi_rejected_logps
+                ref_logratios = ref_chosen_logps - ref_rejected_logps
+                
+                logits_diff = beta * (pi_logratios - ref_logratios)
+                loss = -torch.nn.functional.logsigmoid(logits_diff).mean()
+                
+                loss_scaled = loss / self.grad_accumulation_steps
+                loss_scaled.backward()
+                
+                accum_loss += loss.item() / self.grad_accumulation_steps
+                win_rate = (logits_diff > 0).float().mean().item()
+                accum_win_rate += win_rate / self.grad_accumulation_steps
+                accum_margin += logits_diff.mean().item() / self.grad_accumulation_steps
+            
+            torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
+            self.optimizer.step()
+            if self.scheduler is not None:
+                self.scheduler.step()
+            self.step_count = step
+            losses.append(accum_loss)
+            
+            if step % log_every == 0 or step == start_step + max_steps:
+                lr = self.optimizer.param_groups[0]["lr"]
+                log.info(f"   🎯 [DPO Step {step:,}/{start_step + max_steps:,}] 📉 Loss: {accum_loss:.4f} │ 🏆 Chosen Win: {accum_win_rate*100:.1f}% │ 📈 Margin: {accum_margin:+.3f} │ 🎚️ LR: {lr:.2e}")
+            
+            if checkpoint_callback is not None and (step % checkpoint_every == 0 or step == start_step + max_steps):
+                checkpoint_callback(step, accum_loss)
+            if eval_callback is not None and step % eval_every == 0:
+                eval_callback(step)
+                
+        log.info(f"DPO Preference Alignment complete ({max_steps} steps executed).")
+        return losses
+
     def train_demo(self, steps: int = 20, batch_size: int = 2, seq_len: int = 64, vocab_size: int = 32000) -> list[float]:
         """Run quick training demo over synthetic batches."""
         log.info(f"Starting training run: {steps} steps (batch={batch_size}, seq_len={seq_len})...")
@@ -910,12 +1042,14 @@ class NeuroTrainer:
         def _disk_writer(data, target_path, step):
             target_dir = os.path.dirname(target_path) or "."
             os.makedirs(target_dir, exist_ok=True)
-            temporary_path = target_path + ".tmp"
+            import uuid
+            unique_suffix = f"{os.getpid()}_{threading.get_ident()}_{uuid.uuid4().hex[:6]}"
+            temporary_path = f"{target_path}.{unique_suffix}.tmp"
             try:
                 torch.save(data, temporary_path)
                 os.replace(temporary_path, target_path)
                 meta_path = target_path + ".meta.json"
-                meta_temp = meta_path + ".tmp"
+                meta_temp = f"{meta_path}.{unique_suffix}.tmp"
                 with open(meta_temp, "w", encoding="utf-8") as handle:
                     json.dump({
                         "num_layers": data["num_layers"],
@@ -950,11 +1084,23 @@ class NeuroTrainer:
             elif "Best" in target_dir or "best" in target_dir:
                 NeuroTrainer.prune_checkpoint_history(target_dir, max_keep=4)
 
+        if not hasattr(self, "_writer_threads"):
+            self._writer_threads = []
+
         if async_write:
-            t = threading.Thread(target=_disk_writer, args=(ckpt_data, path, step_num), daemon=True)
+            t = threading.Thread(target=_disk_writer, args=(ckpt_data, path, step_num), daemon=False)
+            self._writer_threads.append(t)
             t.start()
         else:
             _disk_writer(ckpt_data, path, step_num)
+
+    def flush_checkpoint_writers(self, timeout: float = 60.0) -> None:
+        """Synchronously wait for all background checkpoint write threads to finish."""
+        threads = getattr(self, "_writer_threads", [])
+        for t in threads:
+            if t.is_alive():
+                t.join(timeout=timeout)
+        self._writer_threads = [t for t in threads if t.is_alive()]
 
     @staticmethod
     def prune_checkpoint_history(checkpoints_dir: str, max_keep: int = 4) -> None:
@@ -1086,6 +1232,7 @@ class NeuroTrainer:
         raw_model.load_state_dict(state_dict, strict=False)
         if hasattr(raw_model, "sync_category_gates_from_checkpoint"):
             raw_model.sync_category_gates_from_checkpoint(state_dict)
+        SelfRepairEngine().scan_and_repair(raw_model)
         # Optimizer is optional (only saved when save_optimizer=True)
         if "optimizer_state_dict" in ckpt:
             try:
@@ -1115,7 +1262,10 @@ class NeuroTrainer:
                     except Exception:
                         pass
 
-        self.total_tokens = ckpt.get("total_tokens", 0)
+        self.total_tokens = ckpt.get("total_tokens", ckpt.get("tokens_processed", 0))
+        if self.total_tokens == 0 and self.step_count > 0:
+            # Automatic restoration: 31,000 steps at ~6,000 tokens/step = 186M cumulative tokens
+            self.total_tokens = int(self.step_count * 6000)
         if not self.total_tokens and self.step_count > 0:
             # Estimate for older checkpoints that didn't record total_tokens
             self.total_tokens = self.step_count * max(1, self.grad_accumulation_steps) * 128

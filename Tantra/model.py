@@ -17,11 +17,11 @@ from Tantra.utils import elu_plus_one, top_k_mask
 
 class DynamicScaleNorm(nn.Module):
     """
-    DSN: (x - mean) / std * sigmoid(W*x + b) * gamma + beta
+    DSN: LayerNorm(x) * sigmoid(W*x + b) * gamma + beta
     Learned scale adapts to input magnitude dynamically.
-    Drop-in replacement for nn.LayerNorm.
+    Uses native C++ LayerNorm kernel for guaranteed gradient stability.
     """
-    def __init__(self, dim: int, eps: float = 1e-6):
+    def __init__(self, dim: int, eps: float = 1e-5):
         super().__init__()
         self.eps = eps
         self.w_scale = nn.Linear(dim, 1, bias=True)
@@ -29,9 +29,8 @@ class DynamicScaleNorm(nn.Module):
         self.beta = nn.Parameter(torch.zeros(dim))
 
     def forward(self, x: Tensor) -> Tensor:
-        mean = x.mean(dim=-1, keepdim=True)
-        var = x.var(dim=-1, unbiased=False, keepdim=True)
-        x_norm = (x - mean) / torch.sqrt(var + self.eps)
+        orig_dtype = x.dtype
+        x_norm = F.layer_norm(x.float(), (x.shape[-1],), eps=self.eps).to(orig_dtype)
         scale = torch.sigmoid(self.w_scale(x))
         return x_norm * scale * self.gamma + self.beta
 
@@ -154,27 +153,32 @@ class ALRAAttention(nn.Module):
         
         if T <= 2048:
             # Fast vectorized causal path (O(1) memory graph overhead on GPU/CPU)
+            orig_dtype = Q.dtype
+            scale_factor = 1.0 / (Dh ** 0.5)
+            Q_f = Q.float() * scale_factor
+            K_f = K.float()
+            V_f = V.float()
+
             if gates is not None:
-                log_g = torch.log(gates + 1e-8)
+                log_g = torch.log(gates.float().clamp(min=1e-4, max=1.0))
                 cum_log_g = torch.cumsum(log_g, dim=-1)
                 diff = cum_log_g.unsqueeze(-1) - cum_log_g.unsqueeze(-2)
-                
-                # Prevent NaN in backward pass: mask upper triangle with -inf before exp
+                diff = diff.clamp(max=0.0, min=-30.0)
                 mask = torch.tril(torch.ones(T, T, device=Q.device, dtype=torch.bool))
-                diff = diff.masked_fill(~mask, float('-inf'))
-                D = torch.exp(diff)
+                D = torch.exp(diff) * mask.float()
             else:
-                D = torch.tril(torch.ones(T, T, device=Q.device, dtype=Q.dtype))
+                D = torch.tril(torch.ones(T, T, device=Q.device, dtype=torch.float32))
                 
-            attn = torch.matmul(Q, K.transpose(-2, -1))
+            attn = torch.matmul(Q_f, K_f.transpose(-2, -1))
             if D.dim() == 4:
                 attn = attn * D
             else:
                 attn = attn * D.unsqueeze(0).unsqueeze(0)
                 
-            num = torch.matmul(attn, V)
-            den = attn.sum(dim=-1, keepdim=True) + self.eps
-            return num / den
+            num = torch.matmul(attn, V_f)
+            den = (attn.sum(dim=-1, keepdim=True) + 1.0).clamp(min=1.0)
+            out = (num / den).to(orig_dtype)
+            return out
 
         chunk_size = 256
         outs = []
@@ -873,6 +877,7 @@ class NeuroCoreModel(nn.Module):
         temperature: float = 0.35,
         top_p: float = 0.85,
         repetition_penalty: float = 1.25,
+        use_mtp_speculation: bool = False,
         use_latent_reasoning: bool = True,
         eos_token_id: Optional[int] = 2,
         min_new_tokens: int = 1,

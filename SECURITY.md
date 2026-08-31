@@ -1,80 +1,64 @@
-# 🛡️ Tantra-LLM Security Policy & Bug Bounty Program
+# 🛡️ Tantra-LLM Security Policy & Responsible Disclosure
 
-Tantra-LLM is built on a **privacy-first, local-first, local-compute** security model. We take system security, numerical stability, and AI safety seriously. We welcome security researchers, AI red-teamers, and the open-source community to identify and responsibly disclose vulnerabilities.
-
----
-
-## 🎯 1. Bug Bounty Program & Scope
-
-### In-Scope Targets
-
-| Target Component | Key Surface / Asset | Scope Description |
-| :--- | :--- | :--- |
-| **Model Engine & Architecture** | `Tantra/model.py`, `Tantra/bitnet.py`, `Tantra/moe.py` | Weight corruption, gradient norm / tensor explosions, unhandled NaNs/Infs, layer state bypass. |
-| **Codec & Decompression** | `Tantra/codec.py` (`.dna`, ZSTD dictionary) | Deserialization exploits, parity check bypass, arbitrary memory allocation / decompression bombs. |
-| **Tool Router & Sandbox** | `Tantra/tool_router.py` | Remote Code Execution (RCE) escapes, unauthorized file reads, path traversal (`../`), math parser injection. |
-| **WebUI & API Server** | `webui/server.py`, FastAPI endpoints | Authentication bypass, unauthorized checkpoint/dataset manipulation, CORS/SSRF, prompt injection bypass. |
-| **Tokenizer & Data Ingestion** | `Tantra/tokenizer.py`, `Tantra/dataset.py` | Out-of-bounds token IDs, memory exhaust vectors, malformed JSONL parser crashes. |
-
-### Out-of-Scope Targets & Prohibited Actions
-- **Destructive Denial of Service (DoS)** targeting hosted demo infrastructure.
-- **Social Engineering / Phishing** against Tantra-LLM maintainers or contributors.
-- **Physical Attacks** against developer hardware.
-- **Upstream Third-Party Issues** (in PyTorch, FastAPI, etc.) that do not have direct exploitability within Tantra-LLM.
-- **Non-reproducible hallucination claims** that do not bypass explicit safety guardrails or access control.
+Tantra-LLM is engineered on a strict **local-first, privacy-by-design, zero-telemetry** paradigm. We prioritize cryptographic weight integrity, AST sandboxing, safe tensor serialization, and defensive AI alignment.
 
 ---
 
-## 🏆 2. Severity Classification & Rewards
+## 🔒 1. Core Security Guarantees
 
-Reports are evaluated under the **Common Vulnerability Scoring System (CVSS v3.1)** and our AI-specific threat matrix.
+* **Zero Remote Telemetry**: Tantra runs 100% locally on your compute hardware without phoning home or transmitting user queries, prompts, or model weights.
+* **Safe Tensor Deserialization**: All checkpoint and weight loading pipelines enforce strict PyTorch `weights_only=False` validation against malicious binary injections.
+* **Sandboxed Tool Execution**: The native XML `<tool_call>` engine defaults to safe AST mathematics evaluation, strictly blocking arbitrary operating system subprocess escapes and path traversal vectors (`../`).
+* **DNA Parity & Tamper Protection**: Neural weight compression in `Tantra/codec.py` verifies SHA-256 cryptographic parity before decompressing `.dna` binary weights.
 
-| Severity Tier | CVSS Score | Example Vulnerabilities | Recognition & Reward |
+---
+
+## 🎯 2. Bug Bounty & Vulnerability Scope
+
+### In-Scope Vulnerability Categories
+* **Remote Code Execution (RCE)**: Sandbox escapes or unauthorized shell command execution via tool routing.
+* **Deserialization Attacks**: Exploits targeting checkpoint loading or `.dna` dictionary decoding.
+* **Path Traversal & Data Leaks**: Unauthorized access to files outside the permitted workspace directory.
+* **Adversarial Weight Poisoning**: Malicious payloads designed to corrupt neural states or cause infinite gradient norm oscillations.
+* **WebUI / API Security**: Authentication bypasses, CORS vulnerabilities, or denial-of-service vectors on local endpoints (`/v1/chat/completions`, `/api/*`).
+
+### Out-of-Scope
+* Standard model hallucinations that do not bypass programmatic security guardrails.
+* Denial of Service attacks requiring direct local physical access to the machine.
+* Issues in upstream third-party dependencies (e.g., PyTorch internals) unless exploitable specifically through Tantra.
+
+---
+
+## 🏆 3. Severity Matrix & Recognition
+
+| Severity Tier | CVSS Score | Impact Description | Recognition |
 | :--- | :--- | :--- | :--- |
-| 🔴 **Critical** | 9.0 – 10.0 | • Remote Code Execution (RCE) in `tool_router` / sandbox escape<br>• Arbitrary code execution via checkpoint or `.dna` deserialization<br>• Unauthorized administrative command execution | **Hall of Fame (Tier 1)** + Lead Contributor Advisory Credit |
-| 🟠 **High** | 7.0 – 8.9 | • Path traversal reading arbitrary files outside repo boundaries<br>• Authentication bypass on administrative WebUI endpoints<br>• Model weight corruption or state poison via crafted API payload | **Hall of Fame (Tier 2)** + Security Advisory Co-Author |
-| 🟡 **Medium** | 4.0 – 6.9 | • Server crash / resource exhaustion via crafted token sequences<br>• AST evaluation bypass in safe calculator math<br>• Telemetry / local metadata exposure | **Hall of Fame (Tier 3)** + Release Note Acknowledgement |
-| 🟢 **Low** | 0.1 – 3.9 | • Non-sensitive path disclosure<br>• Minor edge-case unhandled exception with no memory corruption<br>• UI-side rendering / XSS edge-cases in local WebUI | **Project Contributor Credit** |
+| 🔴 **Critical** | 9.0 – 10.0 | Remote Code Execution (RCE), sandbox escapes, arbitrary code execution via weights | **Security Hall of Fame** + Lead Advisory Co-Author |
+| 🟠 **High** | 7.0 – 8.9 | Arbitrary file read via path traversal, authentication bypass, state corruption | **Security Hall of Fame** + Advisory Credit |
+| 🟡 **Medium** | 4.0 – 6.9 | Safe math AST injection, server crash via malformed token IDs, API resource exhaustion | **Release Note Acknowledgement** |
+| 🟢 **Low** | 0.1 – 3.9 | Minor edge-case exceptions, local WebUI rendering bugs | **Contributor Credit** |
 
 ---
 
-## 📜 3. Safe Harbor Policy
+## 📬 4. Reporting a Vulnerability
 
-We consider security research conducted under this policy to be **authorized, lawful, and in good faith**. If you adhere to these guidelines:
-1. We will **not** pursue legal action against you.
-2. We will work with you to understand and resolve the issue quickly.
-3. We will recognize your contribution publicly in our Security Hall of Fame (unless you request anonymity).
+If you discover a security vulnerability, please follow responsible disclosure guidelines:
 
-**Researcher Guidelines**:
-- Play by the rules: do not view, modify, or destroy data belonging to other users.
-- Give us reasonable time (minimum 48 hours for triage, 30 days for fix deployment) before public disclosure.
-- Act in good faith to avoid privacy violations, data destruction, and service interruption.
+1. **Do NOT disclose the issue publicly** or create a public GitHub issue.
+2. Submit a private report via **GitHub Private Vulnerability Reporting**:
+   👉 [Report Vulnerability on GitHub Advisories](https://github.com/atulyaai/Tantra-LLM/security/advisories/new)
+3. Or email our security research team directly: **security@atulya.ai**
 
----
-
-## 📬 4. Reporting a Security Vulnerability
-
-If you discover a potential vulnerability:
-
-1. **Do NOT open a public GitHub issue.**
-2. Report privately via **GitHub Security Advisories**:
-   - Navigate to the repository's **Security** tab $\rightarrow$ **Advisories** $\rightarrow$ **Report a vulnerability**.
-3. **Include the following information**:
-   - Detailed description of the vulnerability and attack vector.
-   - Exact steps or proof-of-concept (PoC) script to reproduce the issue.
-   - Impact assessment and proposed mitigation (if known).
-   - Affected system components, Python version, and OS environment.
-
-### ⏱️ SLA & Response Timelines
-- **Initial Acknowledgment**: Within **48 hours**.
-- **Triage & Severity Assessment**: Within **5 business days**.
-- **Patch Release & Advisory Publication**: Coordinated with researcher within **14–30 days**.
+### Report Contents
+* Detailed description of the vulnerability and attack vector.
+* Minimal, reproducible proof-of-concept (PoC) code or prompt payload.
+* Impact assessment and suggested remediation steps.
 
 ---
 
-## 🔒 5. Core Security Practices for Developers
+## ⏱️ Response & Disclosure Timelines
 
-- **Zero Secret Exposure**: Never commit `.env`, private keys, or API tokens.
-- **Safe Serialization**: Use `weights_only=True` for PyTorch model checkpoint loading.
-- **Strict Path Validation**: Verify all filesystem reads/writes resolve strictly within `REPO_ROOT`.
-- **Sandboxed Execution**: Keep code execution tools disabled (`TANTRA_ENABLE_SANDBOX=0`) by default unless isolated in containerized microVMs.
+* **Initial Acknowledgement**: Within **24–48 hours**.
+* **Triage & Reproduction**: Within **3–5 business days**.
+* **Patch Deployment**: Within **14–30 days** depending on severity.
+* **Public Coordinated Disclosure**: Released after the fix is verified in the main branch.

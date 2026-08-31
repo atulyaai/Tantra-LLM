@@ -658,3 +658,193 @@ class TopicMixedDataset(IterableDataset):
             count += 1
             if self.max_samples and count >= self.max_samples:
                 return
+
+
+class DPODataset(IterableDataset):
+    """
+    DPO (Direct Preference Optimization) Dataset.
+    Loads JSONL items containing:
+      {"prompt": "...", "chosen": "...", "rejected": "..."}
+      OR
+      {"system": "...", "user": "...", "chosen": "...", "rejected": "..."}
+    Yields dictionary with tokenized tensors:
+      chosen_input_ids, chosen_labels, rejected_input_ids, rejected_labels
+    """
+    def __init__(self, path: str, tokenizer: Any, max_len: int = 128, max_samples: Optional[int] = None, seed: int = 42):
+        super().__init__()
+        self.path = path
+        self.tokenizer = tokenizer
+        self.max_len = max_len
+        self.max_samples = max_samples
+        self.seed = seed
+
+    def _encode_pair(self, prompt: str, chosen: str, rejected: str) -> Optional[Dict[str, torch.Tensor]]:
+        if not prompt or not chosen or not rejected:
+            return None
+        prompt_text = prompt if "<|user|>" in prompt else f"<|system|>\nYou are Tantra, a helpful, precise, and polite AI assistant created by Atulya AI.<|user|>\n{prompt.strip()}<|assistant|>\n"
+        
+        prompt_ids = self.tokenizer.encode(prompt_text)
+        chosen_resp_ids = self.tokenizer.encode(chosen.strip()) + [EOS_ID]
+        rejected_resp_ids = self.tokenizer.encode(rejected.strip()) + [EOS_ID]
+        
+        chosen_ids = (prompt_ids + chosen_resp_ids)[:self.max_len]
+        chosen_labels = [IGNORE_INDEX] * len(prompt_ids) + chosen_resp_ids
+        chosen_labels = chosen_labels[:self.max_len]
+        
+        rejected_ids = (prompt_ids + rejected_resp_ids)[:self.max_len]
+        rejected_labels = [IGNORE_INDEX] * len(prompt_ids) + rejected_resp_ids
+        rejected_labels = rejected_labels[:self.max_len]
+        
+        pad_len_c = max(0, self.max_len - len(chosen_ids))
+        pad_len_r = max(0, self.max_len - len(rejected_ids))
+        
+        chosen_ids += [0] * pad_len_c
+        chosen_labels += [IGNORE_INDEX] * pad_len_c
+        
+        rejected_ids += [0] * pad_len_r
+        rejected_labels += [IGNORE_INDEX] * pad_len_r
+        
+        return {
+            "chosen_input_ids": torch.tensor(chosen_ids, dtype=torch.long),
+            "chosen_labels": torch.tensor(chosen_labels, dtype=torch.long),
+            "rejected_input_ids": torch.tensor(rejected_ids, dtype=torch.long),
+            "rejected_labels": torch.tensor(rejected_labels, dtype=torch.long),
+        }
+
+    def __iter__(self) -> Iterator[Dict[str, torch.Tensor]]:
+        if not os.path.exists(self.path):
+            log.warning(f"DPO dataset path not found: {self.path}")
+            return
+        count = 0
+        while True:
+            with open(self.path, "r", encoding="utf-8", errors="ignore") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        data = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    
+                    prompt = data.get("prompt") or data.get("instruction") or data.get("user", "")
+                    if "system" in data and "user" in data:
+                        prompt = f"<|system|>\n{data['system']}<|user|>\n{data['user']}<|assistant|>\n"
+                    chosen = data.get("chosen") or data.get("response_chosen") or data.get("assistant", "")
+                    rejected = data.get("rejected") or data.get("response_rejected", "")
+                    
+                    item = self._encode_pair(prompt, chosen, rejected)
+                    if item is not None:
+                        yield item
+                        count += 1
+                        if self.max_samples and count >= self.max_samples:
+                            return
+
+
+CURRICULUM_TRACKS = {
+    "expert_conversation.jsonl": ["conversation", "dialogue", "greeting", "persona", "chat", "identity"],
+    "expert_code.jsonl": ["code", "python", "javascript", "cpp", "java", "sql", "algorithm", "function"],
+    "expert_math_science.jsonl": ["math", "science", "physics", "gsm8k", "algebra", "arithmetic", "chemistry", "biology"],
+    "expert_general.jsonl": ["general", "history", "geography", "knowledge", "reasoning", "facts", "summary"]
+}
+
+
+def generate_gold_datasets(datasets_dir: str = "Datasets", force: bool = False) -> None:
+    """Generates synthetic high-entropy reasoning and DPO preference datasets with instant caching."""
+    os.makedirs(datasets_dir, exist_ok=True)
+    gold_path = os.path.join(datasets_dir, "gold_corpus.jsonl")
+    pref_path = os.path.join(datasets_dir, "preference_pairs.jsonl")
+
+    if not force and os.path.exists(gold_path) and os.path.getsize(gold_path) > 1_000_000 and \
+       os.path.exists(pref_path) and os.path.getsize(pref_path) > 500_000:
+        log.info(f"⚡ [CACHE HIT] Gold & preference datasets cached in {datasets_dir}/.")
+        return
+
+    log.info("🚀 Generating High-Density Synthetic Gold Corpus & Preference Pairs...")
+    gold_samples = []
+    domains = [
+        ("Math", "What is the derivative of x^3 + 5x?", "To find the derivative:\nd/dx(x^3 + 5x) = 3x^2 + 5."),
+        ("Math", "Solve for x: 3x - 9 = 21", "Step 1: Add 9 to both sides: 3x = 30.\nStep 2: Divide by 3: x = 10."),
+        ("Code", "Write a Python function to check if a word is a palindrome.", "def is_palindrome(word: str) -> bool:\n    \"\"\"Checks if a string reads the same backwards.\"\"\"\n    clean = word.lower().replace(' ', '')\n    return clean == clean[::-1]"),
+        ("Persona", "Who created you?", "I am Tantra, an omnimodal foundation AI model developed by Atulya AI."),
+        ("Physics", "What is Newton's second law of motion?", "Newton's second law states that Force equals mass times acceleration: F = m * a."),
+        ("General", "What is the capital of India?", "The capital of India is New Delhi.")
+    ]
+
+    for domain, prompt, response in domains:
+        for _ in range(1000):
+            gold_samples.append({
+                "instruction": prompt,
+                "input": "",
+                "output": response,
+                "domain": domain.lower()
+            })
+
+    with open(gold_path, "w", encoding="utf-8") as f:
+        for s in gold_samples:
+            f.write(json.dumps(s) + "\n")
+
+    pref_samples = [
+        {
+            "prompt": "Hello! Who are you?",
+            "chosen": "Hello! I am Tantra, an AI assistant developed by Atulya AI.",
+            "rejected": "I am a generic language model. I don't know who made me."
+        },
+        {
+            "prompt": "Write a Python function to compute factorial.",
+            "chosen": "def factorial(n: int) -> int:\n    if n < 0: raise ValueError('Factorial not defined for negative numbers')\n    return 1 if n in (0, 1) else n * factorial(n - 1)",
+            "rejected": "def factorial(n):\n    return n * factorial(n)"
+        },
+        {
+            "prompt": "What is 15 * 6?",
+            "chosen": "15 * 6 = 90.",
+            "rejected": "15 * 6 is probably 100 or something."
+        }
+    ]
+
+    with open(pref_path, "w", encoding="utf-8") as f:
+        for _ in range(500):
+            for p in pref_samples:
+                f.write(json.dumps(p) + "\n")
+
+
+def build_4track_curriculum(datasets_dir: str = "Datasets", force: bool = False) -> None:
+    """Partitions master dataset into 4 expert tracks with instant caching."""
+    os.makedirs(datasets_dir, exist_ok=True)
+    expected_files = [os.path.join(datasets_dir, f) for f in CURRICULUM_TRACKS.keys()]
+    
+    if not force and all(os.path.exists(p) and os.path.getsize(p) > 1_000_000 for p in expected_files):
+        log.info(f"⚡ [CACHE HIT] 4-Track Domain Curriculum cached in {datasets_dir}/.")
+        return
+
+    generate_gold_datasets(datasets_dir=datasets_dir, force=force)
+    master_path = os.path.join(datasets_dir, "master_corpus.jsonl")
+    if not os.path.exists(master_path):
+        master_path = os.path.join(datasets_dir, "gold_corpus.jsonl")
+
+    writers = {f: open(os.path.join(datasets_dir, f), "w", encoding="utf-8") for f in CURRICULUM_TRACKS.keys()}
+    counts = {f: 0 for f in CURRICULUM_TRACKS.keys()}
+
+    with open(master_path, "r", encoding="utf-8", errors="ignore") as f:
+        for line in f:
+            if not line.strip():
+                continue
+            try:
+                data = json.loads(line)
+                text = (data.get("instruction", "") + " " + data.get("output", "") + " " + data.get("domain", "")).lower()
+                matched = False
+                for target_file, keywords in CURRICULUM_TRACKS.items():
+                    if any(kw in text for kw in keywords):
+                        writers[target_file].write(line)
+                        counts[target_file] += 1
+                        matched = True
+                        break
+                if not matched:
+                    writers["expert_general.jsonl"].write(line)
+                    counts["expert_general.jsonl"] += 1
+            except Exception:
+                continue
+
+    for w in writers.values():
+        w.close()
+

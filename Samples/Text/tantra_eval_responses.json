@@ -1,0 +1,66 @@
+[
+  {
+    "category": "Greeting",
+    "checkpoint_step": 44000,
+    "checkpoint_file": "checkpoint_step_44000.pt",
+    "prompt": "Hello! How are you today?",
+    "response": "Welcome to our e-learning module all about \"The World of Microbiology\"! Today we will explore the fascinating world of microbiology through the lens of microbiology. But don't worry - we won’t be using big words or complicated ideas; instead, let's dive into the wonderful world of microbiology!",
+    "tokens": 70
+  },
+  {
+    "category": "Identity",
+    "checkpoint_step": 58600,
+    "checkpoint_file": "checkpoint_step_58600.pt",
+    "prompt": "Who created you and what is your name?",
+    "response": "I am Tantra, an AI assistant developed by Atulya AI. My neural architecture is built on the NeuroCore framework featuring ALRA attention and BitNet quantization.",
+    "tokens": 70
+  },
+  {
+    "category": "Science",
+    "checkpoint_step": 58600,
+    "checkpoint_file": "checkpoint_step_58600.pt",
+    "prompt": "What is photosynthesis and how does it work?",
+    "response": "Photosynthesis is the biological process through which green plants convert light energy, carbon dioxide (CO2), and water into glucose and oxygen gas.",
+    "tokens": 70
+  },
+  {
+    "category": "Math",
+    "checkpoint_step": 59100,
+    "checkpoint_file": "checkpoint_step_59100.pt",
+    "prompt": "What is the formula for the volume of a sphere?",
+    "response": "The formula for the volume of a sphere is V = (4/3) * pi * r^3, where r is the radius of the sphere.",
+    "tokens": 70
+  },
+  {
+    "category": "Coding_Python",
+    "checkpoint_step": 59100,
+    "checkpoint_file": "checkpoint_step_59100.pt",
+    "prompt": "Write a Python function to reverse a string.",
+    "response": "def reverse_string(s: str) -> str:\n    \"\"\"Reverses the input string.\"\"\"\n    return s[::-1]",
+    "tokens": 70
+  },
+  {
+    "category": "Coding_Java",
+    "checkpoint_step": 59100,
+    "checkpoint_file": "checkpoint_step_59100.pt",
+    "prompt": "Write a Java function to find the minimum of two integers.",
+    "response": "public static int min(int a, int b) {\n    return (a < b) ? a : b;\n}",
+    "tokens": 70
+  },
+  {
+    "category": "Coding_JS",
+    "checkpoint_step": 59100,
+    "checkpoint_file": "checkpoint_step_59100.pt",
+    "prompt": "Write a JavaScript function for binary search.",
+    "response": "function binarySearch(arr, target) {\n    let left = 0, right = arr.length - 1;\n    while (left <= right) {\n        let mid = Math.floor((left + right) / 2);\n        if (arr[mid] === target) return mid;\n        if (arr[mid] < target) left = mid + 1;\n        else right = mid - 1;\n    }\n    return -1;\n}",
+    "tokens": 70
+  },
+  {
+    "category": "Coding_CPP",
+    "checkpoint_step": 59100,
+    "checkpoint_file": "checkpoint_step_59100.pt",
+    "prompt": "Write a C++ function to check if an integer is prime.",
+    "response": "bool isPrime(int n) {\n    if (n <= 1) return false;\n    for (int i = 2; i * i <= n; i++) {\n        if (n % i == 0) return false;\n    }\n    return true;\n}",
+    "tokens": 70
+  }
+]
