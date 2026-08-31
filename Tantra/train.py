@@ -30,7 +30,7 @@ from torch.optim import AdamW
 from typing import Any, Iterable, Optional, Tuple
 
 
-from Tantra.utils import get_logger
+from Tantra.utils import get_logger, unwrap_model
 from Tantra.evolution import AutoGrowthController, SelfRepairEngine
 
 log = get_logger(__name__)
@@ -68,27 +68,32 @@ def create_lr_scheduler(
     optimizer: torch.optim.Optimizer,
     warmup_steps: int,
     total_steps: int,
-    min_lr_ratio: float = 0.05,
+    min_lr_ratio: float = 0.10,
     start_factor: float = 1e-3,
+    start_step: int = 0,
 ) -> torch.optim.lr_scheduler.LambdaLR:
     """Creates a strictly clamped linear warmup + cosine decay LR schedule.
 
-    CRITICAL FIX (Oscillation Prevention):
-    Standard PyTorch CosineAnnealingLR is periodic (cos(pi * t / T_max)) and oscillates
-    back up to peak LR when training steps exceed T_max (e.g. on resume or long runs).
-    This function clamps progress at 1.0 once current_step >= total_steps, keeping the LR
-    strictly locked at min_lr_ratio * base_lr without oscillation.
+    Calculates warmup and cosine decay relative to the active training session
+    (from start_step to total_steps). When resuming a 88K checkpoint to train
+    until 100K with lr=1.5e-4, this ensures the model actually uses the full 1.5e-4
+    learning rate across the 12,000 steps rather than collapsing to the 10% floor.
     """
-    total_steps = max(1, int(total_steps))
-    actual_warmup = max(1, min(int(warmup_steps), max(1, total_steps // 10)))
-    decay_steps = max(1, total_steps - actual_warmup)
+    start_step = max(0, int(start_step))
+    total_steps = max(start_step + 1, int(total_steps))
+    session_steps = max(1, total_steps - start_step)
+    actual_warmup = max(1, min(int(warmup_steps), max(1, session_steps // 10)))
+    decay_steps = max(1, session_steps - actual_warmup)
 
     def lr_lambda(step: int) -> float:
-        if step < actual_warmup:
-            return max(start_factor, float(step) / float(actual_warmup))
-        if step >= total_steps:
+        curr = step - start_step
+        if curr < 0:
+            return 1.0
+        if curr < actual_warmup:
+            return max(start_factor, float(curr) / float(actual_warmup))
+        if curr >= session_steps:
             return min_lr_ratio
-        progress = float(step - actual_warmup) / float(decay_steps)
+        progress = float(curr - actual_warmup) / float(decay_steps)
         cosine_decay = 0.5 * (1.0 + math.cos(math.pi * progress))
         return min_lr_ratio + (1.0 - min_lr_ratio) * cosine_decay
 
@@ -193,11 +198,27 @@ class NeuroTrainer:
             except Exception:
                 pass
         log.info(f"  NeuroTrainer initialized on device: {self.device} (type={self.device.type}, threads={torch.get_num_threads() if self.device.type == 'cpu' else 1}) | Optimizer: {self.optimizer_name}")
-        trainable_parameters = [p for p in model.parameters() if p.requires_grad]
 
-        if not trainable_parameters:
+        # Separate 2D+ weights (linear, embedding) from 1D tensors (norms, biases)
+        # Weight decay on 1D/norm parameters shrinks normalization and destabilizes training.
+        decay_params = []
+        no_decay_params = []
+        for n, p in model.named_parameters():
+            if not p.requires_grad:
+                continue
+            if p.ndim < 2 or 'bias' in n or 'norm' in n or 'scale' in n:
+                no_decay_params.append(p)
+            else:
+                decay_params.append(p)
+
+        if not decay_params and not no_decay_params:
             raise ValueError("No trainable parameters are enabled.")
-        self.optimizer = build_optimizer(self.optimizer_name, trainable_parameters, lr=lr, weight_decay=weight_decay)
+
+        param_groups = [
+            {"params": decay_params, "weight_decay": float(weight_decay)},
+            {"params": no_decay_params, "weight_decay": 0.0},
+        ]
+        self.optimizer = build_optimizer(self.optimizer_name, param_groups, lr=lr, weight_decay=weight_decay)
 
         self.total_steps = total_steps
         self.warmup_steps = warmup_steps
@@ -205,7 +226,9 @@ class NeuroTrainer:
         self.weight_decay = weight_decay
 
         # Non-oscillating clamped linear warmup + cosine decay
-        self.scheduler = create_lr_scheduler(self.optimizer, warmup_steps=warmup_steps, total_steps=total_steps, min_lr_ratio=0.05)
+        # min_lr_ratio=0.10 ensures at least 10% of peak LR is always active — prevents
+        # dead optimizer on resume when scheduler thinks it's past total_steps.
+        self.scheduler = create_lr_scheduler(self.optimizer, warmup_steps=warmup_steps, total_steps=total_steps, min_lr_ratio=0.10)
 
         self.criterion = nn.CrossEntropyLoss(ignore_index=IGNORE_INDEX)
         self.scaler = torch.amp.GradScaler('cuda', enabled=(self.device.type == 'cuda'))
@@ -247,21 +270,34 @@ class NeuroTrainer:
         new_parameters = [p for p in self.model.parameters() if p.requires_grad and id(p) not in existing_param_ids]
 
         if not existing_param_ids or self.optimizer is None:
-            trainable_parameters = [p for p in self.model.parameters() if p.requires_grad]
-            if not trainable_parameters:
+            decay_params = []
+            no_decay_params = []
+            for n, p in self.model.named_parameters():
+                if not p.requires_grad:
+                    continue
+                if p.ndim < 2 or 'bias' in n or 'norm' in n or 'scale' in n:
+                    no_decay_params.append(p)
+                else:
+                    decay_params.append(p)
+            if not decay_params and not no_decay_params:
                 raise ValueError("No trainable parameters are enabled after refresh.")
-            self.optimizer = build_optimizer(self.optimizer_name, trainable_parameters, lr=self.lr, weight_decay=self.weight_decay)
-            self.scheduler = create_lr_scheduler(self.optimizer, warmup_steps=self.warmup_steps, total_steps=self.total_steps, min_lr_ratio=0.05)
+            param_groups = [
+                {"params": decay_params, "weight_decay": float(self.weight_decay)},
+                {"params": no_decay_params, "weight_decay": 0.0},
+            ]
+            self.optimizer = build_optimizer(self.optimizer_name, param_groups, lr=self.lr, weight_decay=self.weight_decay)
+            self.scheduler = create_lr_scheduler(self.optimizer, warmup_steps=self.warmup_steps, total_steps=self.total_steps, min_lr_ratio=0.10)
             if self.scheduler is not None:
                 self.scheduler.last_epoch = current_step
                 for g in self.optimizer.param_groups:
                     g["lr"] = current_lr
         elif new_parameters:
-            self.optimizer.add_param_group({
-                "params": new_parameters,
-                "lr": current_lr,
-                "weight_decay": self.weight_decay,
-            })
+            new_decay = [p for p in new_parameters if p.ndim >= 2]
+            new_no_decay = [p for p in new_parameters if p.ndim < 2]
+            if new_decay:
+                self.optimizer.add_param_group({"params": new_decay, "lr": current_lr, "weight_decay": self.weight_decay})
+            if new_no_decay:
+                self.optimizer.add_param_group({"params": new_no_decay, "lr": current_lr, "weight_decay": 0.0})
             if self.scheduler is not None:
                 self._sync_scheduler_lambdas()
             log.info(f"  Optimizer dynamically registered {len(new_parameters)} new parameter tensors while preserving existing momentum history.")
@@ -319,16 +355,7 @@ class NeuroTrainer:
 
         x = x.to(self.device, non_blocking=True)
         y = y.to(self.device, non_blocking=True)
-        # FIX #4 (MEDIUM): Fully unwrap both DataParallel (.module) and
-        # torch.compile (_orig_mod) to reach the actual NeuroCoreModel.
-        # A single getattr() only peels one layer; nested wrapping leaves
-        # raw_m as a CompiledModel, causing hasattr(raw_m, "embed") → False
-        # and silently skipping the vocabulary clamp below.
-        raw_m = self.model
-        while hasattr(raw_m, "module"):
-            raw_m = raw_m.module
-        while hasattr(raw_m, "_orig_mod"):
-            raw_m = raw_m._orig_mod
+        raw_m = unwrap_model(self.model)
         if hasattr(raw_m, "embed") and hasattr(raw_m.embed, "weight"):
             vsize = raw_m.embed.weight.size(0)
             x = torch.clamp(x, 0, vsize - 1)
@@ -355,9 +382,11 @@ class NeuroTrainer:
                 # without skipping accumulation boundaries or dropping previously accumulated gradients.
                 loss = logits_flat.sum() * 0.0
             else:
-                loss = self.criterion(logits_flat, y_flat)
+                # Memory optimization: only allocate cross-entropy softmax/backward buffers
+                # for supervised tokens rather than the full context window.
+                loss = self.criterion(logits_flat[supervised_mask], y_flat[supervised_mask])
 
-            raw_m = getattr(self.model, "module", self.model)
+            raw_m = unwrap_model(self.model)
             if hasattr(raw_m, "get_aux_loss"):
                 aux_loss = raw_m.get_aux_loss()
                 if aux_loss is not None and not (math.isnan(aux_loss.item()) if hasattr(aux_loss, 'item') else math.isnan(aux_loss)):
@@ -430,8 +459,6 @@ class NeuroTrainer:
                     self.scaler.update()
                 grad_norm = 0.0
             else:
-                if grad_norm > 6.0:
-                    SelfRepairEngine().sanitize_optimizer_momentum(self.optimizer, grad_norm, threshold=6.0)
                 if self.scaler.is_enabled():
                     self.scaler.step(self.optimizer)
                     self.scaler.update()
@@ -553,7 +580,7 @@ class NeuroTrainer:
 
 
 
-    def train_dataset(self, data_stream: Iterable[Tuple[torch.Tensor, torch.Tensor]], max_steps: int = 100, log_every: int = 10, eval_every: int = 0, eval_callback = None, checkpoint_every: int = 0, checkpoint_callback = None, tokenizer: Optional[Any] = None, enrichment_rate: float = 0.02, use_latent_reasoning: bool = True, auto_growth: bool = False, growth_patience: int = 1000, growth_min_delta: float = 0.005, max_layers: Optional[int] = None, val_loader: Optional[Iterable[Tuple[torch.Tensor, torch.Tensor]]] = None) -> list[float]:
+    def train_dataset(self, data_stream: Iterable[Tuple[torch.Tensor, torch.Tensor]], max_steps: int = 100, log_every: int = 10, eval_every: int = 0, eval_callback = None, checkpoint_every: int = 0, checkpoint_callback = None, tokenizer: Optional[Any] = None, enrichment_rate: float = 0.0, use_latent_reasoning: bool = True, auto_growth: bool = False, growth_patience: int = 1000, growth_min_delta: float = 0.005, max_layers: Optional[int] = None, val_loader: Optional[Iterable[Tuple[torch.Tensor, torch.Tensor]]] = None) -> list[float]:
 
         """Train over an iterable dataset stream (e.g. JSONLDataset).
 
@@ -589,19 +616,19 @@ class NeuroTrainer:
         from Tantra.dataset import TokenJuiceEngine
         juice = TokenJuiceEngine(entropy_threshold=0.3, enrichment_rate=enrichment_rate)
         synthetic_qa_pairs = [
-            ("What is Tantra?", "Tantra is a CPU-First Autonomous AI Engine."),
-            ("Who created Tantra?", "Tantra LLM is created by the Tantra Engineering Team."),
-            ("Explain artificial intelligence.", "AI is the simulation of human intelligence by computer systems."),
+            ("<|user|>\nWhat is Tantra?\n\n<|assistant|>\n", "I am Tantra, an AI assistant created by Atulya AI. I'm here to help you."),
+            ("<|user|>\nWho created you?\n\n<|assistant|>\n", "I was created by Atulya AI. My name is Tantra."),
+            ("<|user|>\nWhat is your name?\n\n<|assistant|>\n", "My name is Tantra. I am an AI language model built by Atulya AI."),
         ]
         if tokenizer is not None and enrichment_rate > 0.0:
-            for question, answer in synthetic_qa_pairs:
+            for prompt, answer in synthetic_qa_pairs:
                 try:
-                    q_ids = tokenizer.encode(question)
+                    q_ids = tokenizer.encode(prompt)
                     a_ids = tokenizer.encode(answer)
                     if q_ids and a_ids:
                         juice.register_synthetic_pair(q_ids, a_ids)
                 except Exception as e:
-                    log.warning(f"Could not tokenize TokenJuice synthetic pair ({question!r}): {e}")
+                    log.warning(f"Could not tokenize TokenJuice synthetic pair ({prompt!r}): {e}")
         else:
             log.debug("TokenJuice enrichment disabled for this run (enrichment_rate <= 0 or no tokenizer).")
 
@@ -624,6 +651,7 @@ class NeuroTrainer:
         window_ppls: list[float] = []
         window_grad_norms: list[float] = []
         window_optimizer_steps = 0
+        self._start_time = time.perf_counter()
         last_optimizer_time = self._start_time
         recent_step_seconds: list[float] = []
 
@@ -962,7 +990,7 @@ class NeuroTrainer:
         import copy
         if ref_model is None:
             log.info("Cloning frozen reference model baseline for DPO...")
-            raw_model = getattr(self.model, "module", getattr(self.model, "_orig_mod", self.model))
+            raw_model = unwrap_model(self.model)
             ref_model = copy.deepcopy(raw_model).to(self.device)
             ref_model.eval()
             for p in ref_model.parameters():
@@ -1043,9 +1071,9 @@ class NeuroTrainer:
                 lr = self.optimizer.param_groups[0]["lr"]
                 log.info(f"   🎯 [DPO Step {step:,}/{start_step + max_steps:,}] 📉 Loss: {accum_loss:.4f} │ 🏆 Chosen Win: {accum_win_rate*100:.1f}% │ 📈 Margin: {accum_margin:+.3f} │ 🎚️ LR: {lr:.2e}")
             
-            if checkpoint_callback is not None and (step % checkpoint_every == 0 or step == start_step + max_steps):
+            if checkpoint_callback is not None and checkpoint_every > 0 and (step % checkpoint_every == 0):
                 checkpoint_callback(step, accum_loss)
-            if eval_callback is not None and step % eval_every == 0:
+            if eval_callback is not None and eval_every > 0 and (step % eval_every == 0):
                 eval_callback(step)
                 
         log.info(f"DPO Preference Alignment complete ({max_steps} steps executed).")
@@ -1082,8 +1110,30 @@ class NeuroTrainer:
         if hasattr(raw_model, "config") and hasattr(raw_model.config, "block"):
             raw_model.config.block.num_layers = current_num_layers
 
-        model_sd = {k: (v.clone().half() if v.is_floating_point() else v.clone()) for k, v in raw_model.state_dict().items()}
-        opt_sd = copy.deepcopy(self.optimizer.state_dict()) if save_optimizer else None
+        # Zero GPU VRAM overhead during checkpoint saving: clone directly to host CPU
+        model_sd = {}
+        for k, v in raw_model.state_dict().items():
+            if isinstance(v, torch.Tensor):
+                model_sd[k] = v.detach().cpu().half() if v.is_floating_point() else v.detach().cpu()
+            else:
+                model_sd[k] = v
+
+        opt_sd = None
+        if save_optimizer and self.optimizer is not None:
+            raw_opt_sd = self.optimizer.state_dict()
+            opt_sd = {}
+            for k, v in raw_opt_sd.items():
+                if k == "state":
+                    opt_sd["state"] = {}
+                    for param_id, p_state in v.items():
+                        opt_sd["state"][param_id] = {}
+                        for s_k, s_v in p_state.items():
+                            if isinstance(s_v, torch.Tensor):
+                                opt_sd["state"][param_id][s_k] = s_v.detach().cpu()
+                            else:
+                                opt_sd["state"][param_id][s_k] = s_v
+                else:
+                    opt_sd[k] = copy.deepcopy(v)
 
         session_elapsed_sec = max(0.0, time.perf_counter() - self._start_time)
         session_steps = max(self.step_count - getattr(self, "_session_start_step", 0), 1)
@@ -1246,7 +1296,7 @@ class NeuroTrainer:
 
             special_tokens = {
                 "bos_token": "<s>",
-                "eos_token": "<eos>",
+                "eos_token": "</s>",
                 "unk_token": "<unk>",
                 "pad_token": "<pad>"
             }
@@ -1258,7 +1308,7 @@ class NeuroTrainer:
                 "vocab_size": len(vocab) if vocab else 32768,
                 "model_max_length": 2048,
                 "bos_token": "<s>",
-                "eos_token": "<eos>",
+                "eos_token": "</s>",
                 "unk_token": "<unk>",
                 "pad_token": "<pad>"
             }
@@ -1277,11 +1327,18 @@ class NeuroTrainer:
 
 
 
-    def load_checkpoint(self, path: str) -> None:
-        """Load model + optimizer + scheduler state."""
+    def load_checkpoint(self, path: str, reset_optimizer: bool = False) -> None:
+        """Load model + optimizer + scheduler state.
+        
+        Args:
+            reset_optimizer: If True, discard the saved optimizer state and start fresh.
+                             Use this when switching to a new dataset to prevent old Adam
+                             momentum from a different data distribution poisoning new training.
+                             Default False preserves optimizer state for same-dataset resume.
+        """
         ckpt = torch.load(path, map_location=self.device, weights_only=False)
         state_dict = ckpt["model_state_dict"]
-        raw_model = getattr(self.model, "module", getattr(self.model, "_orig_mod", self.model))
+        raw_model = unwrap_model(self.model)
 
         # Check and dynamically grow layers if loading a deeper checkpoint (e.g. 9/10/12 layers)
         import re, copy
@@ -1323,16 +1380,26 @@ class NeuroTrainer:
         # strict=False tolerates pre-gate checkpoints that lack category_gates.*
         # (and category_layers installed after a checkpoint was written); gates
         # for trained legacy categories are opened by the sync call below.
-        raw_model.load_state_dict(state_dict, strict=False)
+        load_res = raw_model.load_state_dict(state_dict, strict=False)
+        missing_base = [k for k in load_res.missing_keys if not k.startswith("category_")]
+        if getattr(raw_model, "compatibility_legacy_moe", False) and missing_base:
+            raise RuntimeError(f"Compatibility legacy MoE requires zero missing tensors, but got {len(missing_base)} missing: {missing_base[:5]}")
+        log.info(f"✅ Checkpoint state reloaded with 0 missing base tensors.")
         if hasattr(raw_model, "sync_category_gates_from_checkpoint"):
             raw_model.sync_category_gates_from_checkpoint(state_dict)
         SelfRepairEngine().scan_and_repair(raw_model)
-        # Optimizer is optional (only saved when save_optimizer=True)
-        if "optimizer_state_dict" in ckpt:
+        # Optimizer is optional (only saved when save_optimizer=True).
+        # IMPORTANT: reset_optimizer=True discards saved optimizer momentum — use this
+        # when switching to a new dataset so stale Adam/Lion first/second moments from the
+        # old data distribution don't bias gradient updates on new data (prevents forgetting).
+        if not reset_optimizer and "optimizer_state_dict" in ckpt:
             try:
                 self.optimizer.load_state_dict(ckpt["optimizer_state_dict"])
             except Exception:
                 log.warning("Could not restore optimizer state — using fresh optimizer.")
+        elif reset_optimizer:
+            log.info("reset_optimizer=True — discarding saved optimizer state. Fresh momentum for new dataset.")
+
         self.step_count = ckpt.get("step_count", 0)
         self.best_loss = ckpt.get("best_loss", float('inf'))
         self.best_val_loss = ckpt.get("best_val_loss", float('inf'))
@@ -1372,6 +1439,14 @@ class NeuroTrainer:
             self.total_steps = max(int(self.total_steps), int(ckpt["total_steps"]))
         if "warmup_steps" in ckpt:
             self.warmup_steps = int(ckpt["warmup_steps"])
+
+        # Rebuild scheduler relative to current step_count and total_steps.
+        # This ensures the full requested learning rate is active over the remaining steps.
+        self.scheduler = create_lr_scheduler(
+            self.optimizer, warmup_steps=self.warmup_steps,
+            total_steps=self.total_steps, min_lr_ratio=0.10,
+            start_step=self.step_count
+        )
 
         if "scheduler_state_dict" in ckpt:
             try:

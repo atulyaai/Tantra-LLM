@@ -26,9 +26,11 @@ class VocabConfig:
     video_range_end: int = 31999
     special_tokens: dict = field(default_factory=lambda: {
         "<pad>": 0,
+        "<s>": 1,
+        "</s>": 2,
+        "<unk>": 3,
         "<bos>": 1,
         "<eos>": 2,
-        "<unk>": 3,
         "<audio>": 4,
         "<image>": 5,
         "<video>": 6,
@@ -57,7 +59,7 @@ class SGPConfig:
     """Sparse Gated Projection (FFN replacement) config."""
     dim: int = 512
     expansion: int = 4          # hidden = dim * expansion
-    sparsity: float = 0.10      # fraction of neurons active (brain-like)
+    sparsity: float = 0.50      # fraction of neurons active (50% active for rich gradient flow)
     activation: str = "gelu"    # "gelu" | "silu" | "relu"
     implementation: str = "sparse"  # "sparse" | "swiglu"
 

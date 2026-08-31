@@ -28,7 +28,7 @@ import torch
 import torch._dynamo
 
 from Tantra.config import NeuroCoreConfig, VocabConfig, MoEConfig, CompressionConfig
-from Tantra.utils import get_logger
+from Tantra.utils import get_logger, unwrap_model
 from Tantra.hardware import HardwareDetector, Profiler, RuntimeConfigBuilder, AdaptiveScheduler
 from Tantra.tokenizer import ByteBPETokenizer, MegabytePatcher, UnifiedTokenizer
 from Tantra.model import NeuroCoreModel, cpu_dense_config, build_cpu_model
@@ -209,7 +209,7 @@ def run_interactive_chat(model, tokenizer, device, temp=0.7, top_p=0.9, router=N
             if console and routed is not None:
                 console.print(f"[dim]→ routed to adapter: {routed}[/dim]")
 
-            formatted_input = f"<|system|>\nYou are Tantra, a helpful, polite, and intelligent AI assistant.\n<|user|>\n{user_input}\n<|assistant|>\n"
+            formatted_input = f"<|user|>\n{user_input.strip()}\n\n<|assistant|>\n"
             tokens = tokenizer.encode(formatted_input)
             prompt = torch.tensor([tokens], device=device)
 
@@ -371,21 +371,14 @@ def build_vocab(cfg: VocabConfig, corpus_file: str | None = None) -> UnifiedToke
 
 
 def init_experts(moe_cfg, model_cfg, codec):
-    log.info("== [3] EXPERT REGISTRY & LAZY LOADER =============")
+    log.info("== [3] EXPERT REGISTRY & MOE STATUS =============")
     os.makedirs(EXPERTS_DIR, exist_ok=True)
     reg = ExpertRegistry(EXPERTS_DIR, moe_cfg.num_experts)
     reg.load()
-    # Domain experts map 1:1 to the topic dataset folders in Datasets/.
-    # This lets a topic's data route to a dedicated expert for specialization.
-    DOMAIN_SPECS = [
-        "general", "code", "math", "science", "reasoning",
-        "creative_writing", "conversation", "multilingual", "instructions", "safety",
-    ]
-    if len(reg) == 0:
-        for i, spec in enumerate(DOMAIN_SPECS):
-            reg.register_new(i, spec, 2_000_000_000)
-        log.info(f"  Registered {len(reg)} domain experts: {', '.join(DOMAIN_SPECS)}")
-
+    if getattr(moe_cfg, "real_top1", False) and getattr(moe_cfg, "num_experts", 1) > 1:
+        log.info(f"  🧠 Real Top-1 MoE Architecture Active: {moe_cfg.num_experts} sub-network experts per MoE block.")
+    else:
+        log.info(f"  ⚡ Dense Architecture Active: Single unified expert (num_experts=1).")
     return reg, LazyExpertLoader(moe_cfg, model_cfg, reg, codec)
 
 
@@ -456,9 +449,16 @@ def build_adapter_model(rt, vocab_size: int = 32768):
     return model
 
 
-def init_model(cfg, device):
+def init_model(cfg, device, compatibility_legacy_moe=False):
     log.info("== [4] NEUROCORE MODEL ENGINE & PARAMETER DIAGNOSTICS ==")
-    model = NeuroCoreModel(cfg, use_mtp=getattr(cfg, "use_mtp", True))
+    is_real_moe = getattr(cfg.moe, "real_top1", False)
+    num_exp = getattr(cfg.moe, "num_experts", 1)
+    model = NeuroCoreModel(
+        cfg,
+        use_mtp=getattr(cfg, "use_mtp", True),
+        use_moe=(is_real_moe and num_exp > 1) or compatibility_legacy_moe,
+        compatibility_legacy_moe=compatibility_legacy_moe,
+    )
     
     total_params = sum(p.numel() for p in model.parameters())
     trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -467,7 +467,8 @@ def init_model(cfg, device):
     log.info(f"  Total Parameters     : {total_params:,} ({total_params/1e6:.1f}M)")
     log.info(f"  Trainable Parameters : {trainable_params:,}")
     log.info(f"  Frozen Parameters    : {frozen_params:,}")
-    log.info(f"  Model Architecture   : {cfg.block.num_layers} NeuroCore Blocks | {cfg.block.alra.dim} Embed Dim | {cfg.block.alra.num_heads} Attention Heads")
+    moe_label = f" | {num_exp} Real Top-1 MoE Experts" if (is_real_moe and num_exp > 1) else " (Dense)"
+    log.info(f"  Model Architecture   : {cfg.block.num_layers} NeuroCore Blocks | {cfg.block.alra.dim} Embed Dim | {cfg.block.alra.num_heads} Attention Heads{moe_label}")
     log.info(f"  Attention Engine     : ALRA (Adaptive Linear Resonance Attention) [O(1) Memory Scan]")
     log.info(f"  Feed-Forward Engine  : SGP (Sparse Gated Projection) + BitNet 1.58-bit Ternary Quantization")
     log.info(f"  Speculative Engine   : Multi-Token Prediction (MTP 2x Acceleration)")
@@ -539,6 +540,17 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
     if tokenizer.bpe.vocab_size == 0 or tokenizer.bpe._tokenizer is None or tokenizer.bpe._tokenizer.get_vocab_size() == 0:
         log.error(f"CRITICAL: BPE Tokenizer is untrained (vocab_size 0)! Aborting training to prevent raw-byte fallback.")
         raise RuntimeError("Tokenizer is falling back to raw bytes (no valid BPE merges found). Please generate a valid tokenizer.json before training.")
+    raw_m = unwrap_model(model)
+    if getattr(raw_m, "compatibility_legacy_moe", False):
+        total_p = sum(p.numel() for p in raw_m.parameters())
+        assert total_p == 110_112_994, (
+            f"Preflight assertion failed: expected 110,112,994 parameters for legacy MoE compatibility, got {total_p:,}"
+        )
+        assert raw_m.compatibility_legacy_moe is True, (
+            "Preflight assertion failed: model.compatibility_legacy_moe is not True"
+        )
+        log.info("✅ [Preflight Verified] 110,112,994 parameters and compatibility_legacy_moe=True confirmed.")
+
     repair = SelfRepairEngine()
     repair.scan_and_repair(model)
 
@@ -567,15 +579,18 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
     latest_ckpt = os.path.join(latest_dir, "checkpoint_latest.pt")
     best_ckpt = os.path.join(best_dir, "checkpoint_best.pt")
     
-    # Resume only when explicitly requested.  Automatically restoring an
-    # instruction-tuning checkpoint for a new broad pretraining stage carries
-    # over a mismatched LR schedule and can erase/generalize poorly from an
+    # Resume only when explicitly requested.
     resume_target = None
-    if resume or checkpoint_path:
-        candidates = []
-        if checkpoint_path and os.path.isfile(checkpoint_path):
-            candidates.append(checkpoint_path)
+    if checkpoint_path and os.path.isfile(checkpoint_path):
+        try:
+            log.info(f"Loading explicit checkpoint: {checkpoint_path} ({os.path.getsize(checkpoint_path)/1e6:.1f} MB)...")
+            trainer.load_checkpoint(checkpoint_path, reset_optimizer=True)
+            resume_target = checkpoint_path
+        except Exception as exc:
+            log.warning(f"Could not load specified checkpoint {checkpoint_path}: {exc}")
 
+    if resume and resume_target is None:
+        candidates = []
         search_dirs = [checkpoint_root, checkpoints_dir, latest_dir, best_dir, MODEL_DIR, os.path.join(MODEL_DIR, "Checkpoints"), os.path.join(MODEL_DIR, "Latest"), os.path.join(MODEL_DIR, "Best")]
         for d in search_dirs:
             if os.path.exists(d):
@@ -584,16 +599,23 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
 
         def _get_step_num(p: str) -> int:
             import re
-            m = re.search(r'step_(\d+)', os.path.basename(p))
-            if m: return int(m.group(1))
             meta = p + ".meta.json"
             if os.path.exists(meta):
                 try:
                     with open(meta, "r") as mf:
-                        return int(json.load(mf).get("step", 0))
-                except Exception: pass
-            if "latest" in os.path.basename(p).lower(): return 999999999
-            if "best" in os.path.basename(p).lower(): return 999999998
+                        metadata = json.load(mf)
+                        recorded = metadata.get("step", metadata.get("step_count", 0))
+                        if int(recorded) > 0:
+                            return int(recorded)
+                except Exception:
+                    pass
+            m = re.search(r'(?:step_?|checkpoint_?)(\d+)', os.path.basename(p), re.IGNORECASE)
+            if m:
+                return int(m.group(1))
+            if "latest" in os.path.basename(p).lower():
+                return 999999999
+            if "best" in os.path.basename(p).lower():
+                return 999999998
             return 0
 
         # Sort candidates descending by step count so highest milestone (e.g. step 31000) is loaded first
@@ -620,46 +642,39 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
             log.info(f"  [Incremental Steps] Specified --steps {steps} <= checkpoint step {trainer.step_count}. "
                      f"Running +{steps} steps -> new target: {effective_target} steps.")
             steps = effective_target
-        prev_stage = getattr(trainer, "training_stage", None)
-        if training_stage == "sft" and prev_stage != "sft" and prev_stage is not None:
-            log.info(f"  [SFT Stage Transition] Transitioning from {prev_stage} -> sft. Re-initializing optimizer & scheduler (LR={lr:.2e}, warmup={warmup}).")
-            trainer.lr = lr
-            trainer.optimizer = torch.optim.AdamW(trainer.model.parameters(), lr=lr, betas=(0.9, 0.95), weight_decay=0.01, eps=1e-8)
-            sft_steps = max(steps - trainer.step_count, 100)
-            actual_warmup = max(1, min(warmup, sft_steps // 5))
-            from Tantra.train import create_lr_scheduler
-            trainer.scheduler = create_lr_scheduler(trainer.optimizer, warmup_steps=actual_warmup, total_steps=sft_steps, min_lr_ratio=0.01)
-            trainer.training_stage = "sft"
-        else:
-            stage_name = training_stage or prev_stage or "pretrain"
-            trainer.training_stage = stage_name
-            # ── FIX #1 (CRITICAL): Always rebuild the scheduler whenever the step horizon
-            # changes on resume.  The trainer was constructed earlier with the raw
-            # command-line --steps value (e.g. 10,000) as total_steps.  After the
-            # incremental-target math above, `steps` is now trainer.step_count + 10,000
-            # (e.g. 82,427).  Without this rebuild the cosine schedule's progress
-            # = current_step / old_total_steps > 1.0, which immediately clamps the LR
-            # to min_lr_ratio (5 % of base), and every single training step runs at
-            # that near-zero floor for the entire session.
-            remaining = max(steps - trainer.step_count, 1)
-            actual_warmup = max(1, min(warmup or max(remaining // 10, 100), remaining // 5))
-            from Tantra.train import create_lr_scheduler
-            old_total = getattr(trainer, "total_steps", 0)
-            if steps != old_total:
-                trainer.total_steps = steps
-                trainer.warmup_steps = actual_warmup
-                trainer.scheduler = create_lr_scheduler(
-                    trainer.optimizer,
-                    warmup_steps=actual_warmup,
-                    total_steps=remaining,          # schedule over the *remaining* steps
-                    min_lr_ratio=0.05,
-                )
-                log.info(
-                    f"  [Schedule Corrected ✅] LR horizon rebuilt: remaining={remaining:,} steps, "
-                    f"warmup={actual_warmup}, lr≈{lr:.2e} (was pinned at floor due to stale horizon)"
-                )
-            else:
-                log.info(f"  [{stage_name.upper()} Stage Resume] Preserved AdamW optimizer momentum buffers and LR scheduler position across resume boundary.")
+        remaining = max(steps - trainer.step_count, 1)
+        actual_warmup = max(1, min(warmup or max(remaining // 10, 50), remaining // 5))
+
+        # Rebuild fresh optimizer and schedule for recovery (do not preserve stale momentum)
+        trainer.lr = lr
+        trainer.optimizer = torch.optim.AdamW(
+            trainer.model.parameters(),
+            lr=lr,
+            betas=(0.9, 0.95),
+            weight_decay=weight_decay or 0.01,
+            eps=1e-8
+        )
+        trainer.total_steps = steps
+        trainer.warmup_steps = actual_warmup
+        from Tantra.train import create_lr_scheduler
+        trainer.scheduler = create_lr_scheduler(
+            trainer.optimizer,
+            warmup_steps=actual_warmup,
+            total_steps=remaining,
+            min_lr_ratio=0.10,
+        )
+        stage_name = training_stage or getattr(trainer, "training_stage", None) or "sft"
+        trainer.training_stage = stage_name
+
+        log.info("=" * 65)
+        log.info("🛡️  [TANTRA RECOVERY RUN CONFIGURED]")
+        log.info(f"   • Source Checkpoint : {resume_target}")
+        log.info(f"   • Starting Step     : {trainer.step_count:,}")
+        log.info(f"   • Target Step       : {steps:,} (+{remaining:,} steps)")
+        log.info(f"   • Fresh Optimizer   : Confirmed AdamW (lr={lr:.2e}, momentum reset=True)")
+        log.info(f"   • Recovery Schedule : Confirmed Cosine (warmup={actual_warmup}, min_lr_ratio=0.10)")
+        log.info(f"   • Model Directory   : {checkpoint_root}")
+        log.info("=" * 65)
     else:
         trainer.training_stage = training_stage or "pretrain"
         log.info("Starting fresh dataset training run.")
@@ -686,7 +701,7 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
             ("Math",    "🔢", "<|user|>\nSolve for x in 2x + 6 = 14.\n\n<|assistant|>\n", 0.2),
             ("Science", "🔬", "<|user|>\nState Newton's First Law of Motion.\n\n<|assistant|>\n", 0.4)
         ]
-        raw_model = getattr(model, "module", getattr(model, "_orig_mod", model))
+        raw_model = unwrap_model(model)
         for domain, icon, prompt_text, temp in test_prompts:
             prompt_ids = torch.tensor([tokenizer.encode(prompt_text)], device=raw_model.embed.weight.device)
             out = raw_model.generate(prompt_ids, max_new_tokens=64, min_new_tokens=1, temperature=temp, top_p=0.9, repetition_penalty=1.15)
@@ -790,13 +805,6 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
     # Record the starting step so we don't save it immediately
     trainer._last_saved_step = trainer.step_count
     
-    # Generation is expensive on CPU and is not informative before base
-    # pretraining. Keep the immediate sample for instruction tuning only.
-    if training_stage == "sft":
-        eval_callback(trainer.step_count)
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-
     from Tantra.dataset import TopicMixedDataset
     
     # ``steps`` counts optimizer updates, while an IterableDataset yields
@@ -991,13 +999,17 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
         trainer.save_checkpoint(latest_ckpt, save_optimizer=True, async_write=False)
         log.warning("Training interrupted; recovery checkpoint saved at step %d.", trainer.step_count)
     finally:
-        # Guarantee that the exact final milestone checkpoint is written synchronously
         final_step = trainer.step_count
-        final_milestone = os.path.join(checkpoints_dir, f"checkpoint_step_{final_step}.pt")
-        trainer.save_checkpoint(final_milestone, save_optimizer=True, async_write=False)
+        ck_interval = checkpoint_every if (checkpoint_every and checkpoint_every > 0) else 500
+        # Only archive into Checkpoints/ if the step is an exact multiple (e.g. 500, 1000, 74000, 75000)
+        if final_step > 0 and final_step % ck_interval == 0:
+            final_milestone = os.path.join(checkpoints_dir, f"checkpoint_step_{final_step}.pt")
+            trainer.save_checkpoint(final_milestone, save_optimizer=True, async_write=False)
+            log.info("🏁 [MILESTONE CHECKPOINT FLUSHED] Step %d successfully written to disk: %s", final_step, final_milestone)
+        # Always write Latest/checkpoint_latest.pt for seamless resume
         trainer.save_checkpoint(latest_ckpt, save_optimizer=True, async_write=False)
         trainer.flush_checkpoint_writers()
-        log.info("🏁 [FINAL CHECKPOINT FLUSHED] Step %d successfully written to disk: %s", final_step, final_milestone)
+        log.info("🏁 [LATEST CHECKPOINT FLUSHED] Step %d successfully written to disk: %s", final_step, latest_ckpt)
 
 
 def run_dpo_training(
@@ -1037,8 +1049,10 @@ def run_dpo_training(
     )
     
     def ckpt_cb(step, loss):
-        milestone = os.path.join(checkpoints_dir, f"checkpoint_dpo_step_{step}.pt")
-        trainer.save_checkpoint(milestone, save_optimizer=True, async_write=False)
+        ck_interval = checkpoint_every if (checkpoint_every and checkpoint_every > 0) else 250
+        if step > 0 and step % ck_interval == 0:
+            milestone = os.path.join(checkpoints_dir, f"checkpoint_dpo_step_{step}.pt")
+            trainer.save_checkpoint(milestone, save_optimizer=True, async_write=False)
         trainer.save_checkpoint(latest_ckpt, save_optimizer=True, async_write=False)
         
     def eval_cb(step):
@@ -1049,7 +1063,7 @@ def run_dpo_training(
             ("Math",    "🔢", "<|user|>\nSolve for x in 2x + 6 = 14.\n\n<|assistant|>\n"),
             ("Science", "🔬", "<|user|>\nState Newton's First Law of Motion.\n\n<|assistant|>\n")
         ]
-        raw_model = getattr(model, "module", getattr(model, "_orig_mod", model))
+        raw_model = unwrap_model(model)
         for domain, icon, prompt_text in test_prompts:
             prompt_ids = torch.tensor([tokenizer.encode(prompt_text)], device=raw_model.embed.weight.device)
             out = raw_model.generate(prompt_ids, max_new_tokens=48, min_new_tokens=1, temperature=0.7, top_p=0.9, repetition_penalty=1.2)
@@ -1079,11 +1093,14 @@ def run_dpo_training(
         )
     finally:
         final_step = trainer.step_count
-        final_milestone = os.path.join(checkpoints_dir, f"checkpoint_dpo_step_{final_step}.pt")
-        trainer.save_checkpoint(final_milestone, save_optimizer=True, async_write=False)
+        ck_interval = checkpoint_every if (checkpoint_every and checkpoint_every > 0) else 250
+        if final_step > 0 and final_step % ck_interval == 0:
+            final_milestone = os.path.join(checkpoints_dir, f"checkpoint_dpo_step_{final_step}.pt")
+            trainer.save_checkpoint(final_milestone, save_optimizer=True, async_write=False)
+            log.info("🏁 [DPO MILESTONE CHECKPOINT FLUSHED] Step %d written to disk: %s", final_step, final_milestone)
         trainer.save_checkpoint(latest_ckpt, save_optimizer=True, async_write=False)
         trainer.flush_checkpoint_writers()
-        log.info("🏁 [DPO ALIGNMENT FINISHED] Checkpoint saved: %s", final_milestone)
+        log.info("🏁 [DPO LATEST CHECKPOINT FLUSHED] Step %d successfully written to disk: %s", final_step, latest_ckpt)
 
 
 def run_evaluation(model, tokenizer, dataset_path, device="cpu", max_batches=50):
@@ -1118,11 +1135,16 @@ def run_compression_benchmark(comp_cfg):
     bench.run(sample_weight, output_dir=os.path.join(MODEL_DIR, "reports"))
 
 
-def run_generation(model, tokenizer, vcfg, device, prompt_text=None, temperature=0.35, top_p=0.9, max_new_tokens=64, use_mtp=True):
+def run_generation(model, tokenizer, vcfg, device, prompt_text=None, temperature=0.35, top_p=0.9, max_new_tokens=64, repetition_penalty=1.15, use_mtp=True):
     log.info("── [TEXT GENERATION MODE (MTP Speculation)] ───────")
     if prompt_text:
         log.info(f"  Prompt: {prompt_text!r}")
-        prompt_ids = tokenizer.encode(prompt_text)
+        # Apply standard instruction tags if not already present
+        if "<|user|>" not in prompt_text:
+            formatted_prompt = f"<|user|>\n{prompt_text.strip()}\n\n<|assistant|>\n"
+        else:
+            formatted_prompt = prompt_text
+        prompt_ids = tokenizer.encode(formatted_prompt)
         if not prompt_ids:
             prompt_ids = [1]  # <bos>
         prompt_tensor = torch.tensor([prompt_ids], dtype=torch.long, device=device)
@@ -1132,7 +1154,7 @@ def run_generation(model, tokenizer, vcfg, device, prompt_text=None, temperature
 
     model.eval()
     with torch.no_grad():
-        out = model.generate(prompt_tensor, max_new_tokens=max_new_tokens, temperature=temperature, top_p=top_p, use_mtp_speculation=use_mtp)
+        out = model.generate(prompt_tensor, max_new_tokens=max_new_tokens, temperature=temperature, top_p=top_p, repetition_penalty=repetition_penalty, use_mtp_speculation=use_mtp)
 
     out_ids = out.tolist()[0]
     gen_ids = out_ids[prompt_tensor.size(1):] if prompt_text else out_ids
@@ -1167,7 +1189,7 @@ def main():
     parser.add_argument("--curriculum-phase", "--phase", dest="curriculum_phase", type=int, default=None, choices=[1, 2, 3],
                         help="Curriculum learning phase: 1=greetings & identity only, 2=short dialogues (<100 words), 3=full multi-turn dataset")
     parser.add_argument("--checkpoint", type=str, default=None, help="Path to custom .pt model checkpoint to load (for chat, eval, serve, dpo, benchmark, export)")
-    parser.add_argument("--pack-sequences", action=argparse.BooleanOptionalAction, default=True, help="Enable continuous document sequence packing (0% padding waste)")
+    parser.add_argument("--pack-sequences", action=argparse.BooleanOptionalAction, default=True, help="Enable continuous document sequence packing (zero padding waste)")
     parser.add_argument("--dataset", type=str, default=DEFAULT_DATASET, help="JSONL dataset path")
     parser.add_argument("--preference-dataset", type=str, default="Datasets/preference_pairs.jsonl", help="DPO pairwise preference dataset path")
     parser.add_argument("--dpo-beta", type=float, default=0.1, help="DPO temperature scaling hyperparameter beta (default: 0.1)")
@@ -1177,7 +1199,8 @@ def main():
     parser.add_argument("--temperature", type=float, default=0.35, help="Sampling temperature")
     parser.add_argument("--top-p", type=float, default=0.9, help="Top-p nucleus sampling")
     parser.add_argument("--port", type=int, default=8000, help="Server port (serve mode)")
-    parser.add_argument("--device", type=str, default="auto", help="Compute device: auto, cpu, cuda, mps")
+    parser.add_argument("--device", type=str, default="auto", help="Compute device: auto, cpu, cuda, cuda:0, mps")
+    parser.add_argument("--single-gpu", "--no-data-parallel", dest="single_gpu", action="store_true", default=False, help="Force single-GPU execution even if multiple GPUs are available (avoids DataParallel PCIe overhead)")
     parser.add_argument("--resume", action="store_true", help="Resume from latest checkpoint if available")
     parser.add_argument("--fresh", action="store_true", help="Start fresh on official 38.6M architecture without reading previous checkpoints")
     parser.add_argument("--eval-every", type=int, default=500, help="Run a qualitative generation sample and archive checkpoint every N steps")
@@ -1211,9 +1234,23 @@ def main():
     parser.add_argument("--dim", type=int, default=512, help="Embedding dimension (default: 512)")
     parser.add_argument("--layers", type=int, default=8, help="Number of NeuroCore layers (default: 8)")
     parser.add_argument("--heads", type=int, default=8, help="Number of attention heads (default: 8)")
+    # ── MoE Expert Configuration ──────────────────────────────────────────────
+    parser.add_argument("--num-experts", type=int, default=0,
+                        help="Number of real Top-1 MoE experts per MoE layer (0 = dense, no MoE). "
+                             "Recommended: 4 for Dual-T4 Kaggle runs. Odd layers get MoE blocks.")
+    parser.add_argument("--real-moe", action="store_true", default=False,
+                        help="Enable real Top-1 MoE routing (requires --num-experts >= 2). "
+                             "When off, the model is a dense transformer regardless of --num-experts.")
+    # ── Automatic Curriculum Sequencer ───────────────────────────────────────
+    parser.add_argument("--curriculum-order", action="store_true", default=False,
+                        help="Run the full phased curriculum in order automatically: "
+                             "chitchat-p1 -> p2 -> p3 -> math-p1 -> p2 -> p3 -> code-p1 -> p2 -> p3 -> science-p1 -> p2 -> p3. "
+                             "Each phase gets steps/12 of the total --steps budget. "
+                             "Conversation phases get 3x weight to prioritize greetings & grammar first.")
     parser.add_argument("--output", type=str, default=None, help="Output path for model export mode")
     parser.add_argument("--prompt", type=str, default=None, help="Text prompt for --mode generate")
     parser.add_argument("--max-new-tokens", type=int, default=64, help="Max new tokens to generate")
+    parser.add_argument("--repetition-penalty", type=float, default=1.15, help="Repetition penalty for generation (default: 1.15)")
     parser.add_argument("--max-grad-norm", type=float, default=1.0, help="Max gradient norm clipping threshold (default: 1.0)")
     parser.add_argument("--mtp-weight", type=float, default=0.3, help="Auxiliary MTP loss weight factor (default: 0.3)")
     parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
@@ -1230,6 +1267,23 @@ def main():
     mcfg.block.alra.num_heads = args.heads
     mcfg.block.alra.head_dim = max(1, args.dim // args.heads)
     mcfg.use_mtp = args.use_mtp
+
+    # ── Wire MoE configuration from CLI flags ─────────────────────────────────
+    # Default config has num_experts=10 but real_top1=False (dense transformer).
+    # --num-experts N --real-moe enables real Top-1 conditional compute.
+    # Without --real-moe the model stays dense regardless of --num-experts.
+    _num_experts = getattr(args, "num_experts", 0) or 0
+    _real_moe    = getattr(args, "real_moe", False)
+    if _real_moe and _num_experts >= 2:
+        mcfg.moe.num_experts = _num_experts
+        mcfg.moe.real_top1   = True
+        log.info(f"🧠 [Real MoE] Enabled: {_num_experts} Top-1 experts per MoE layer (odd layers only)")
+    else:
+        # Dense mode: num_experts=1 disables all MoE paths in NeuroCoreBlock
+        mcfg.moe.num_experts = 1
+        mcfg.moe.real_top1   = False
+        if _real_moe and _num_experts < 2:
+            log.warning("--real-moe requires --num-experts >= 2. Running dense (no MoE).")
 
     moe  = MoEConfig()
     ccfg = CompressionConfig()
@@ -1309,6 +1363,7 @@ def main():
         ])
         latest_ckpt_file = next((p for p in ckpt_candidates if os.path.exists(p) and os.path.getsize(p) > 10 * 1024 * 1024), ckpt_candidates[0])
         restore_checkpoint_architecture(mcfg, latest_ckpt_file)
+        legacy_checkpoint_compat = False
         _ckpt_path = latest_ckpt_file
         if os.path.exists(_ckpt_path) and os.path.getsize(_ckpt_path) > 10 * 1024 * 1024 and mcfg is not None:
             try:
@@ -1322,6 +1377,16 @@ def main():
                     
                     # Also check state_dict layer keys for dynamically grown models
                     sdict = _ckpt.get("model_state_dict", {})
+                    has_legacy_router = any(".router." in key for key in sdict)
+                    use_real_top1 = bool(
+                        getattr(mcfg.moe, "real_top1", False)
+                        and getattr(mcfg.moe, "num_experts", 1) > 1
+                    )
+                    legacy_checkpoint_compat = bool(
+                        has_legacy_router
+                        and not use_real_top1
+                        and getattr(mcfg.moe, "num_experts", 1) > 1
+                    )
                     import re
                     layer_indices = [int(m.group(1)) for k in sdict.keys() for m in [re.search(r'layers\.(\d+)\.', k)] if m]
                     if layer_indices and mcfg is not None and hasattr(mcfg, "block"):
@@ -1334,11 +1399,19 @@ def main():
                              f"(dim={mcfg.block.alra.dim}, layers={mcfg.block.num_layers}, vocab={mcfg.vocab.vocab_size}).")
             except Exception as _exc:
                 log.warning(f"Could not read checkpoint config: {_exc}; using default architecture.")
-        model = init_model(mcfg, rt.device)
-        dev_str = str(getattr(rt.device, "type", rt.device))
-        if torch.cuda.is_available() and torch.cuda.device_count() > 1 and dev_str.startswith("cuda") and args.mode in ("train", "dataset", "auto-pilot", "dpo"):
+        model = init_model(mcfg, rt.device, compatibility_legacy_moe=legacy_checkpoint_compat)
+        use_dp = (
+            torch.cuda.is_available()
+            and torch.cuda.device_count() > 1
+            and args.device in ("cuda", "auto")
+            and not getattr(args, "single_gpu", False)
+            and args.mode in ("train", "dataset", "auto-pilot", "dpo")
+        )
+        if use_dp:
             log.info(f"  [Multi-GPU DataParallel] Enabling {torch.cuda.device_count()}x GPUs for parallel batch execution.")
             model = torch.nn.DataParallel(model)
+        else:
+            log.info(f"  [Direct Device Execution] Running directly on {rt.device} without DataParallel wrapper.")
 
     # When a category is requested for dataset/chat/generate/serve, load the
     # MoE-2 / 32K adapter checkpoint (shared base + specialist layers) instead
@@ -1444,7 +1517,53 @@ def main():
         else:
             resolved_wd = 0.05 if resolved_optimizer == "lion" else 0.01
 
-        run_dataset_training(model, tok, args.dataset, steps=args.steps, resume=args.resume, eval_every=args.eval_every, log_every=args.log_every, checkpoint_every=args.checkpoint_every, batch_size=args.batch_size, seq_len=args.seq_len, grad_accumulation_steps=args.grad_accum, data_workers=args.data_workers, use_latent_reasoning=use_latent_reasoning, use_mtp_loss=use_mtp_loss, compile=args.compile, lr=resolved_lr, weight_decay=resolved_wd, optimizer=resolved_optimizer, warmup_steps=args.warmup, topic_weights=topic_weights, training_stage=args.training_stage, auto_growth=args.auto_growth, growth_patience=args.growth_patience, growth_min_delta=args.growth_min_delta, max_layers=args.max_layers, adapter_name=args.adapter, model_dir=(ADAPTER_ROOT if args.adapter is not None else args.model_dir), pack_sequences=args.pack_sequences, checkpoint_path=args.checkpoint, max_grad_norm=args.max_grad_norm, mtp_loss_weight=args.mtp_weight, track=args.track, curriculum_phase=args.curriculum_phase)
+        if getattr(args, "curriculum_order", False):
+            # ── AUTOMATED SEQUENTIAL CURRICULUM ORDER ──
+            # Prioritizes Conversation / Greetings / Grammar FIRST (55% total budget),
+            # followed by Code (24%), Math (21%), and Science (15% normalized).
+            curriculum_stages = [
+                ("chitchat-p1", 0.20, "💬 CONVERSATION PHASE 1: Pure Greetings, Pleasantries & Identity Reflexes"),
+                ("chitchat-p2", 0.20, "💬 CONVERSATION PHASE 2: Short Natural Turn-Taking & Conversational Grammar"),
+                ("chitchat-p3", 0.15, "💬 CONVERSATION PHASE 3: Deep Multi-Turn Conversations & Instruction Fluency"),
+                ("code-p1",     0.08, "💻 CODE PHASE 1: Python Syntax & Standard Library Primitives"),
+                ("code-p2",     0.08, "💻 CODE PHASE 2: Algorithmic Logic & Functional Implementation"),
+                ("code-p3",     0.08, "💻 CODE PHASE 3: Full Software Systems & Debugging"),
+                ("math-p1",     0.07, "🔢 MATH PHASE 1: Arithmetic & Linear Equations"),
+                ("math-p2",     0.07, "🔢 MATH PHASE 2: GSM8K Multi-Step Reasoning & Word Problems"),
+                ("math-p3",     0.07, "🔢 MATH PHASE 3: MetaMathQA Advanced Symbolic Math & Proofs"),
+                ("science-p1",  0.05, "🔬 SCIENCE PHASE 1: Fundamental Physical Laws & Core Definitions"),
+                ("science-p2",  0.05, "🔬 SCIENCE PHASE 2: Explanatory Natural Sciences & Biology/Physics"),
+                ("science-p3",  0.05, "🔬 SCIENCE PHASE 3: Advanced Multidisciplinary Science & Logic"),
+            ]
+            total_target_steps = args.steps
+            log.info("=" * 80)
+            log.info(f"🚀 [AUTO CURRICULUM SEQUENCER] Running 12-Stage Phased Curriculum ({total_target_steps:,} total steps)")
+            log.info("🎯 PRIORITY: Conversation / Greetings / Grammar (55% budget) FIRST -> Code -> Math -> Science")
+            log.info("=" * 80)
+            
+            for stage_idx, (track_name, budget_ratio, stage_desc) in enumerate(curriculum_stages, 1):
+                stage_steps = max(50, int(total_target_steps * budget_ratio))
+                log.info(f"\n▶️ [{stage_idx}/12] Launching: {stage_desc}")
+                log.info(f"   Track: '{track_name}' | Steps: +{stage_steps:,} ({budget_ratio*100:.0f}% of total budget)")
+                
+                run_dataset_training(
+                    model, tok, args.dataset, steps=stage_steps, resume=True,
+                    eval_every=args.eval_every, log_every=args.log_every,
+                    checkpoint_every=args.checkpoint_every, batch_size=args.batch_size,
+                    seq_len=args.seq_len, grad_accumulation_steps=args.grad_accum,
+                    data_workers=args.data_workers, use_latent_reasoning=use_latent_reasoning,
+                    use_mtp_loss=use_mtp_loss, compile=args.compile, lr=resolved_lr,
+                    weight_decay=resolved_wd, optimizer=resolved_optimizer, warmup_steps=args.warmup,
+                    topic_weights=topic_weights, training_stage=args.training_stage,
+                    auto_growth=args.auto_growth, growth_patience=args.growth_patience,
+                    growth_min_delta=args.growth_min_delta, max_layers=args.max_layers,
+                    adapter_name=args.adapter, model_dir=(ADAPTER_ROOT if args.adapter is not None else args.model_dir),
+                    pack_sequences=args.pack_sequences, checkpoint_path=args.checkpoint,
+                    max_grad_norm=args.max_grad_norm, mtp_loss_weight=args.mtp_weight,
+                    track=track_name, curriculum_phase=None
+                )
+        else:
+            run_dataset_training(model, tok, args.dataset, steps=args.steps, resume=args.resume, eval_every=args.eval_every, log_every=args.log_every, checkpoint_every=args.checkpoint_every, batch_size=args.batch_size, seq_len=args.seq_len, grad_accumulation_steps=args.grad_accum, data_workers=args.data_workers, use_latent_reasoning=use_latent_reasoning, use_mtp_loss=use_mtp_loss, compile=args.compile, lr=resolved_lr, weight_decay=resolved_wd, optimizer=resolved_optimizer, warmup_steps=args.warmup, topic_weights=topic_weights, training_stage=args.training_stage, auto_growth=args.auto_growth, growth_patience=args.growth_patience, growth_min_delta=args.growth_min_delta, max_layers=args.max_layers, adapter_name=args.adapter, model_dir=(ADAPTER_ROOT if args.adapter is not None else args.model_dir), pack_sequences=args.pack_sequences, checkpoint_path=args.checkpoint, max_grad_norm=args.max_grad_norm, mtp_loss_weight=args.mtp_weight, track=args.track, curriculum_phase=args.curriculum_phase)
 
     elif args.mode == "dpo":
         dpo_ckpt = args.checkpoint
@@ -1563,7 +1682,15 @@ def main():
             except Exception as e:
                 log.warning(f"Could not load checkpoint {ckpt_to_load}: {e}")
 
-        run_generation(model, tok, vcfg, rt.device, prompt_text=args.prompt, temperature=args.temperature, top_p=args.top_p, max_new_tokens=args.max_new_tokens, use_mtp=args.use_mtp)
+        run_generation(
+            model, tok, vcfg, rt.device,
+            prompt_text=args.prompt,
+            temperature=args.temperature,
+            top_p=args.top_p,
+            max_new_tokens=args.max_new_tokens,
+            repetition_penalty=args.repetition_penalty,
+            use_mtp=args.use_mtp
+        )
     elif args.mode == "serve":
         ckpt_to_load = args.checkpoint
         if ckpt_to_load is None:

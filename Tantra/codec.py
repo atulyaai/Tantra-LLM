@@ -346,7 +346,11 @@ class DNACodec:
         self.zstd_dict = zstd_dict
         self.huffman = AdaptiveHuffmanCoder()
         self.magic = b'DNAC'
-        self.version = 1
+        # Version 1 wrote one byte for each 2-bit DNA symbol, inflating every
+        # compressed byte fourfold. Version 2 stores those four symbols packed
+        # back into one byte, which preserves the DNA representation without
+        # turning a compressed checkpoint into a larger file.
+        self.version = 2
 
     def compress(self, tensor: torch.Tensor, output_path: str) -> CompressionStats:
         t0 = time.perf_counter()
@@ -366,7 +370,10 @@ class DNACodec:
             encoded = zlib.compress(original_bytes_data)
 
         codebook = {}
-        dna_packed = self._pack_to_dna(encoded)
+        # A byte already holds exactly four 2-bit DNA symbols. Keep it packed
+        # on disk; callers that need textual bases can still use
+        # ``_pack_to_dna`` for display only.
+        dna_packed = encoded
         parity = self._compute_parity(dna_packed, self.config.dna_parity_interval)
         
         magic = self.magic
@@ -434,6 +441,8 @@ class DNACodec:
                 raise ValueError("Invalid magic bytes in DNA file")
                 
             version = struct.unpack('<I', f.read(4))[0]
+            if version not in (1, 2):
+                raise ValueError(f"Unsupported DNA container version: {version}")
             orig_len = struct.unpack('<Q', f.read(8))[0]
             dtype_raw = f.read(16).rstrip(b'\0').decode('utf-8')
             
@@ -460,7 +469,12 @@ class DNACodec:
                 f"DNA parity check failed for {input_path!r} — file appears to be "
                 "corrupted. Refusing to decompress untrusted/corrupt data."
             )
-        unpacked_bytes = self._unpack_from_dna(dna_packed, data_len // 4)
+        # Version 1 stored each 2-bit symbol as its own byte. Version 2 keeps
+        # four symbols per byte, eliminating the 4x expansion.
+        unpacked_bytes = (
+            self._unpack_from_dna(dna_packed, data_len // 4)
+            if version == 1 else dna_packed
+        )
         
         if zstd is not None:
             if dict_data:
@@ -631,4 +645,3 @@ class CompressionBenchmark:
         output_path = os.path.join(output_dir, "bench_sample.dna")
         stats = codec.compress(tensor, output_path)
         return [stats]
-

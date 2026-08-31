@@ -19,6 +19,7 @@ import json
 import math
 import os
 import random
+import re
 from typing import Iterator, List, Dict, Any, Optional, Tuple
 
 
@@ -29,11 +30,8 @@ from Tantra.utils import get_logger
 
 log = get_logger(__name__)
 
-import re
-
 IGNORE_INDEX = -100
 EOS_ID = 2  # must match VocabConfig.special_tokens["<eos>"]
-_NON_LATIN_SCRIPT_REGEX = re.compile(r'[\u0400-\u04FF\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\u0900-\u0D7F\u0E00-\u0E7F\u3040-\u30FF\u4E00-\u9FFF\uAC00-\uD7AF]')
 
 
 class TokenJuiceEngine:
@@ -151,7 +149,10 @@ def build_prompt_segments(item: Dict[str, Any]) -> Optional[List[Tuple[str, bool
                 continue
             norm_role = "assistant" if role in ("assistant", "gpt", "bot", "model") else ("user" if role in ("user", "human") else "system")
             tag = f"<|{norm_role}|>\n"
-            segments.append((tag, False))
+            # Supervise the assistant tag itself so the model learns to open its own turn.
+            # User/system tags remain masked (False) — model is not trained to reproduce them.
+            tag_is_target = (norm_role == "assistant")
+            segments.append((tag, tag_is_target))
             segments.append((content, norm_role == "assistant"))
             segments.append(("\n\n", False))
         return segments if segments else None
@@ -167,6 +168,28 @@ def build_prompt_segments(item: Dict[str, Any]) -> Optional[List[Tuple[str, bool
     if instruction:
         user = f"{instruction}\n\n{input_text}".strip() if input_text else instruction
 
+    # 3. Formatted or raw text under 'text' or 'content' key
+    text_val = (item.get("text") or item.get("content") or "").strip() if isinstance(item.get("text") or item.get("content"), str) else ""
+    if text_val:
+        if "<|assistant|>" in text_val or "<|user|>" in text_val or "<|system|>" in text_val:
+            chunks = re.split(r'(<\|(?:user|assistant|system)\|>[\r\n]*)', text_val)
+            current_target = False
+            for c in chunks:
+                if not c:
+                    continue
+                if re.match(r'<\|assistant\|>', c):
+                    current_target = True
+                    segments.append((c, True))
+                elif re.match(r'<\|(?:user|system)\|>', c):
+                    current_target = False
+                    segments.append((c, False))
+                else:
+                    segments.append((c, current_target))
+            return segments if segments else None
+        else:
+            # Raw text line wrapped in {"text": "..."} — supervise all tokens
+            return [(text_val, True)]
+
     if not (system or user or assistant):
         return None
 
@@ -179,10 +202,8 @@ def build_prompt_segments(item: Dict[str, Any]) -> Optional[List[Tuple[str, bool
         segments.append((user, False))
         segments.append(("\n\n", False))
     if assistant:
-        # FIX #3 (HIGH): Supervise the <|assistant|\n> tag itself (True, not False).
-        # The model must learn to emit its own turn-opener during generation;
-        # masking it out means it only learns the words that follow, not the
-        # transition token, causing inference failures (missing/wrong turn tags).
+        # Supervise the <|assistant|\n> tag itself (True, not False).
+        # The model must learn to emit its own turn-opener during generation.
         segments.append(("<|assistant|>\n", True))
         segments.append((assistant, True))
         segments.append(("\n\n", False))
@@ -320,10 +341,6 @@ class JSONLDataset(IterableDataset):
         (True) or masked out of the loss (False). Raw / non-chat lines are
         fully supervised, matching the original (pre-masking) behavior.
         """
-        # English-Only Filter: Skip lines containing non-Latin scripts (Devanagari, CJK, Cyrillic, Arabic, Indic, etc.)
-        if _NON_LATIN_SCRIPT_REGEX.search(raw_line):
-            return [], []
-
         try:
             item = json.loads(raw_line)
             parsed_ok = True
@@ -349,29 +366,59 @@ class JSONLDataset(IterableDataset):
 
         ids: List[int] = []
         is_target: List[bool] = []
-        for text, target in segments:
+        for i, (text, target) in enumerate(segments):
             if not text:
                 continue
             seg_ids = _encode(self.tokenizer, text)
             ids.extend(seg_ids)
             is_target.extend([target] * len(seg_ids))
+            # Only append EOS after the final supervised segment of an assistant turn
+            # (i.e. the content, not the role tag). Check next segment to determine if
+            # this is the last assistant segment before a non-assistant turn or end.
             if target:
-                # Supervised assistant reply ends — append and supervise the real <eos> token
-                ids.append(EOS_ID)
-                is_target.append(True)
+                next_seg = segments[i + 1] if i + 1 < len(segments) else None
+                # next_seg is None (end of example) or is a non-target separator "\n\n"
+                # followed by a user turn — both mean the assistant turn just ended.
+                next_is_target = next_seg[1] if next_seg is not None else False
+                next_text = next_seg[0] if next_seg is not None else ""
+                if not next_is_target and next_text.strip() in ("", "\n\n"):
+                    # Append EOS only once at the true end of the assistant reply
+                    ids.append(EOS_ID)
+                    is_target.append(True)
         return ids, is_target
+
 
     def __iter__(self) -> Iterator[Tuple[torch.Tensor, torch.Tensor]]:
         if not os.path.exists(self.jsonl_path):
-            log.warning(f"Dataset path does not exist: {self.jsonl_path}. Auto-generating 4-track curriculum...")
-            build_4track_curriculum(datasets_dir=os.path.dirname(self.jsonl_path) or "Datasets")
-        
+            candidates = [
+                self.jsonl_path,
+                os.path.join("Datasets", os.path.basename(self.jsonl_path)),
+                os.path.join("/kaggle/working/Datasets", os.path.basename(self.jsonl_path)),
+                os.path.join(os.path.dirname(__file__), "..", "Datasets", os.path.basename(self.jsonl_path)),
+                os.path.join("Datasets", "tantra_final_dataset.jsonl"),
+                os.path.join("Datasets", "master_corpus.jsonl"),
+                os.path.join("Datasets", "expert_general.jsonl"),
+            ]
+            for cand in candidates:
+                if cand and os.path.isfile(cand) and os.path.getsize(cand) > 0:
+                    log.info(f"📂 Resolved dataset path: {self.jsonl_path} -> {cand} ({os.path.getsize(cand)/1e6:.1f} MB)")
+                    self.jsonl_path = cand
+                    break
+
         if not os.path.exists(self.jsonl_path):
-            log.warning(f"Fallback to synthetic tokens stream for: {self.jsonl_path}")
-            while True:
-                x = torch.randint(0, min(self.tokenizer.vocab_size, 32000), (self.seq_len,))
-                y = x.clone()
-                yield x, y
+            fallback_dir = os.path.dirname(self.jsonl_path) or "Datasets"
+            log.warning(f"Dataset path does not exist: {self.jsonl_path}. Auto-generating 4-track curriculum...")
+            build_4track_curriculum(datasets_dir=fallback_dir)
+            master_cand = os.path.join(fallback_dir, "master_corpus.jsonl")
+            if os.path.exists(master_cand):
+                self.jsonl_path = master_cand
+            else:
+                gen_cands = [p for p in glob.glob(os.path.join(fallback_dir, "*.jsonl")) if "sample" not in p and "pref" not in p]
+                if gen_cands:
+                    self.jsonl_path = gen_cands[0]
+
+        if not os.path.exists(self.jsonl_path):
+            raise FileNotFoundError(f"❌ Cannot start training: No valid dataset file found at '{self.jsonl_path}' or any fallback directories.")
 
         worker_info = torch.utils.data.get_worker_info()
         worker_id = worker_info.id if worker_info is not None else 0
@@ -654,19 +701,24 @@ class TopicMixedDataset(IterableDataset):
             try:
                 x, y = next(file_iters[path])
             except StopIteration:
-                # This file is exhausted; drop it and re-normalize weights.
-                file_iters.pop(path, None)
-                topic_files[topic] = [f for f in files if f[0] != path]
-                files = topic_files[topic]
-                if not files:
-                    idx = active_topics.index(topic)
-                    active_topics.pop(idx)
-                    active_weights.pop(idx)
-                    if not active_topics:
-                        break
-                    total_w = sum(active_weights)
-                    active_weights = [w / total_w for w in active_weights]
-                continue
+                # Re-initialize the exhausted file stream so all domains cycle infinitely
+                file_iters[path] = self._file_iter(path)
+                try:
+                    x, y = next(file_iters[path])
+                except StopIteration:
+                    # Empty file — drop it safely
+                    file_iters.pop(path, None)
+                    topic_files[topic] = [f for f in files if f[0] != path]
+                    files = topic_files[topic]
+                    if not files:
+                        idx = active_topics.index(topic)
+                        active_topics.pop(idx)
+                        active_weights.pop(idx)
+                        if not active_topics:
+                            break
+                        total_w = sum(active_weights)
+                        active_weights = [w / total_w for w in active_weights]
+                    continue
 
             yield x, y
             count += 1
@@ -1227,8 +1279,10 @@ def build_chitchat_curriculum(datasets_dir: str = "Datasets", target_samples: in
             ("I had a great day today!", "That's wonderful to hear! What was the best part of your day?"),
             ("I had a bad day", "I'm sorry to hear that. Some days can be really tough. Take it easy tonight, get some rest, and remember tomorrow is a fresh start.")
         ]
-        # Repeat greeting anchors throughout the dataset to anchor core conversational reflexes
-        for _ in range(120):
+        # Repeat greeting anchors a small number of times to anchor core conversational reflexes.
+        # 8x is enough to anchor the behavior; 120x was spending 6% of curriculum budget on
+        # 50 near-identical pairs (the exact repeat-over-diversity bug pattern).
+        for _ in range(8):
             for u, a in greetings_bank:
                 out_f.write(json.dumps({
                     "user": u,
@@ -1477,8 +1531,9 @@ def build_phased_chitchat_curriculum(datasets_dir: str = "Datasets") -> dict:
     log.info("📥 [Phase 1/3] Building pure greetings & identity dataset...")
     phase1_count = 0
     with open(phase1_path, "w", encoding="utf-8") as f:
-        # Write greeting bank repeated 200x for strong anchoring
-        for _ in range(200):
+        # 10x is enough to anchor greetings/identity at Phase 1 without
+        # wasting 90% of the file on byte-for-byte copies of 50 pairs.
+        for _ in range(10):
             for u, a in greetings_bank:
                 f.write(json.dumps({"user": u, "assistant": a, "domain": "conversation"}) + "\n")
                 phase1_count += 1
@@ -1501,8 +1556,8 @@ def build_phased_chitchat_curriculum(datasets_dir: str = "Datasets") -> dict:
     log.info("📥 [Phase 2/3] Building short conversation dataset...")
     phase2_count = 0
     with open(phase2_path, "w", encoding="utf-8") as f:
-        # Include Phase 1 data (greetings at 100x repetition to keep anchored)
-        for _ in range(100):
+        # Include Phase 1 data (greetings at 5x — dataset already has UltraChat diversity below)
+        for _ in range(5):
             for u, a in greetings_bank:
                 f.write(json.dumps({"user": u, "assistant": a, "domain": "conversation"}) + "\n")
                 phase2_count += 1
@@ -1558,8 +1613,8 @@ def build_phased_chitchat_curriculum(datasets_dir: str = "Datasets") -> dict:
     log.info("📥 [Phase 3/3] Building full conversation dataset...")
     phase3_count = 0
     with open(phase3_path, "w", encoding="utf-8") as f:
-        # Greetings at 50x (lower ratio since full dataset is large)
-        for _ in range(50):
+        # 3x — large dataset; greetings need tiny representation only
+        for _ in range(3):
             for u, a in greetings_bank:
                 f.write(json.dumps({"user": u, "assistant": a, "domain": "conversation"}) + "\n")
                 phase3_count += 1
@@ -1683,7 +1738,7 @@ def build_phased_code_curriculum(datasets_dir: str = "Datasets") -> dict:
     log.info("📥 [Code Phase 1/3] Building pure syntax & one-liner dataset...")
     p1_count = 0
     with open(p1_path, "w", encoding="utf-8") as f:
-        for _ in range(150):
+        for _ in range(8):  # 8x anchors syntax reflexes without excessive repetition
             for u, a in code_syntax_bank:
                 f.write(json.dumps({"user": u, "assistant": a, "domain": "code"}) + "\n")
                 p1_count += 1
@@ -1701,7 +1756,7 @@ def build_phased_code_curriculum(datasets_dir: str = "Datasets") -> dict:
     log.info("📥 [Code Phase 2/3] Building algorithms & data structures dataset...")
     p2_count = 0
     with open(p2_path, "w", encoding="utf-8") as f:
-        for _ in range(50):
+        for _ in range(4):  # 4x — 18K real examples below provide the diversity
             for u, a in code_syntax_bank:
                 f.write(json.dumps({"user": u, "assistant": a, "domain": "code"}) + "\n")
                 p2_count += 1
@@ -1720,7 +1775,7 @@ def build_phased_code_curriculum(datasets_dir: str = "Datasets") -> dict:
     log.info("📥 [Code Phase 3/3] Building full software engineering dataset...")
     p3_count = 0
     with open(p3_path, "w", encoding="utf-8") as f:
-        for _ in range(25):
+        for _ in range(2):  # 2x — 20K CodeAlpaca samples dominate; just light anchoring
             for u, a in code_syntax_bank:
                 f.write(json.dumps({"user": u, "assistant": a, "domain": "code"}) + "\n")
                 p3_count += 1
@@ -1785,7 +1840,7 @@ def build_phased_math_curriculum(datasets_dir: str = "Datasets") -> dict:
     log.info("📥 [Math Phase 1/3] Building arithmetic & equation reflexes...")
     p1_count = 0
     with open(p1_path, "w", encoding="utf-8") as f:
-        for _ in range(150):
+        for _ in range(8):  # 8x anchors arithmetic reflexes; GSM8K/MetaMath provide diversity
             for u, a in math_reflex_bank:
                 f.write(json.dumps({"user": u, "assistant": a, "domain": "math"}) + "\n")
                 p1_count += 1
@@ -1803,7 +1858,7 @@ def build_phased_math_curriculum(datasets_dir: str = "Datasets") -> dict:
     log.info("📥 [Math Phase 2/3] Building GSM8K word problems dataset...")
     p2_count = 0
     with open(p2_path, "w", encoding="utf-8") as f:
-        for _ in range(50):
+        for _ in range(4):  # 4x — 8K GSM8K examples below provide real diversity
             for u, a in math_reflex_bank:
                 f.write(json.dumps({"user": u, "assistant": a, "domain": "math"}) + "\n")
                 p2_count += 1
@@ -1822,7 +1877,7 @@ def build_phased_math_curriculum(datasets_dir: str = "Datasets") -> dict:
     log.info("📥 [Math Phase 3/3] Building advanced MetaMathQA reasoning dataset...")
     p3_count = 0
     with open(p3_path, "w", encoding="utf-8") as f:
-        for _ in range(25):
+        for _ in range(2):  # 2x — 50K MetaMathQA samples dominate; just light anchoring
             for u, a in math_reflex_bank:
                 f.write(json.dumps({"user": u, "assistant": a, "domain": "math"}) + "\n")
                 p3_count += 1
@@ -1885,7 +1940,7 @@ def build_phased_science_curriculum(datasets_dir: str = "Datasets") -> dict:
     log.info("📥 [Science Phase 1/3] Building fundamental science laws & definitions...")
     p1_count = 0
     with open(p1_path, "w", encoding="utf-8") as f:
-        for _ in range(150):
+        for _ in range(8):  # 8x anchors the fundamental laws; gold corpus adds domain diversity
             for u, a in science_reflex_bank:
                 f.write(json.dumps({"user": u, "assistant": a, "domain": "science"}) + "\n")
                 p1_count += 1
@@ -1903,7 +1958,7 @@ def build_phased_science_curriculum(datasets_dir: str = "Datasets") -> dict:
     log.info("📥 [Science Phase 2/3] Building explanatory science dataset...")
     p2_count = 0
     with open(p2_path, "w", encoding="utf-8") as f:
-        for _ in range(50):
+        for _ in range(4):  # 4x — 30K Cosmopedia entries provide real diversity
             for u, a in science_reflex_bank:
                 f.write(json.dumps({"user": u, "assistant": a, "domain": "science"}) + "\n")
                 p2_count += 1
@@ -1923,7 +1978,7 @@ def build_phased_science_curriculum(datasets_dir: str = "Datasets") -> dict:
     log.info("📥 [Science Phase 3/3] Building advanced scientific reasoning dataset...")
     p3_count = 0
     with open(p3_path, "w", encoding="utf-8") as f:
-        for _ in range(25):
+        for _ in range(2):  # 2x — 40K Open-Orca samples dominate; just light anchoring
             for u, a in science_reflex_bank:
                 f.write(json.dumps({"user": u, "assistant": a, "domain": "science"}) + "\n")
                 p3_count += 1

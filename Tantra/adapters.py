@@ -26,6 +26,7 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
 from Tantra.model import NeuroCoreModel
+from Tantra.config import NeuroCoreConfig
 from Tantra.utils import get_logger
 
 log = get_logger(__name__)
@@ -362,11 +363,23 @@ def build_adapter_checkpoint(base: str, target: str, vocab_size: int = 32768) ->
     if not os.path.isfile(base):
         raise FileNotFoundError(f"Base checkpoint not found: {base}")
 
-    from Tantra.model import build_cpu_model
-
     source = torch.load(base, map_location="cpu", weights_only=False)
     base_state = source.get("model_state_dict", source)
-    model = build_cpu_model("moe2", attention_kind="alra", vocab_size=vocab_size)
+    cfg = source.get("config") if isinstance(source, dict) else None
+    if cfg is None:
+        raise RuntimeError("Base checkpoint has no saved architecture config; refusing to create a shape-mismatched adapter checkpoint.")
+    if isinstance(cfg, dict):
+        cfg = NeuroCoreConfig._from_dict(cfg)
+    cfg.vocab.vocab_size = vocab_size
+    has_legacy_router = any(".router." in key for key in base_state)
+    use_real_top1 = bool(getattr(cfg.moe, "real_top1", False) and getattr(cfg.moe, "num_experts", 1) > 1)
+    use_legacy_compat = bool(has_legacy_router and not use_real_top1 and getattr(cfg.moe, "num_experts", 1) > 1)
+    model = NeuroCoreModel(
+        cfg,
+        use_mtp=getattr(cfg, "use_mtp", True),
+        use_moe=use_real_top1 or use_legacy_compat,
+        compatibility_legacy_moe=use_legacy_compat,
+    )
     model.load_state_dict(base_state, strict=False)
 
     registry = AdapterRegistry(REGISTRY_PATH)
@@ -387,6 +400,7 @@ def build_adapter_checkpoint(base: str, target: str, vocab_size: int = 32768) ->
         "total_tokens": source.get("total_tokens", 0),
         "total_steps": source.get("total_steps", 0),
         "num_layers": len(model.layers),
+        "config": cfg,
         "adapter_system": {"mode": "category_layer", "categories": registry.names(),
                            "base": os.path.abspath(base), "vocab_size": vocab_size},
     }, target)
