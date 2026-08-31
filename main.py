@@ -209,7 +209,7 @@ def run_interactive_chat(model, tokenizer, device, temp=0.7, top_p=0.9, router=N
             if console and routed is not None:
                 console.print(f"[dim]→ routed to adapter: {routed}[/dim]")
 
-            formatted_input = f"<|system|>\nYou are Tantra, a helpful, polite, and intelligent AI assistant.\n<|user|>\n{user_input}\n<|assistant|>\n"
+            formatted_input = f"<|user|>\n{user_input.strip()}\n\n<|assistant|>\n"
             tokens = tokenizer.encode(formatted_input)
             prompt = torch.tensor([tokens], device=device)
 
