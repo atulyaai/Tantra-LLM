@@ -1186,7 +1186,8 @@ def main():
     parser.add_argument("--temperature", type=float, default=0.35, help="Sampling temperature")
     parser.add_argument("--top-p", type=float, default=0.9, help="Top-p nucleus sampling")
     parser.add_argument("--port", type=int, default=8000, help="Server port (serve mode)")
-    parser.add_argument("--device", type=str, default="auto", help="Compute device: auto, cpu, cuda, mps")
+    parser.add_argument("--device", type=str, default="auto", help="Compute device: auto, cpu, cuda, cuda:0, mps")
+    parser.add_argument("--single-gpu", "--no-data-parallel", dest="single_gpu", action="store_true", default=False, help="Force single-GPU execution even if multiple GPUs are available (avoids DataParallel PCIe overhead)")
     parser.add_argument("--resume", action="store_true", help="Resume from latest checkpoint if available")
     parser.add_argument("--fresh", action="store_true", help="Start fresh on official 38.6M architecture without reading previous checkpoints")
     parser.add_argument("--eval-every", type=int, default=500, help="Run a qualitative generation sample and archive checkpoint every N steps")
@@ -1374,10 +1375,18 @@ def main():
             except Exception as _exc:
                 log.warning(f"Could not read checkpoint config: {_exc}; using default architecture.")
         model = init_model(mcfg, rt.device)
-        dev_str = str(getattr(rt.device, "type", rt.device))
-        if torch.cuda.is_available() and torch.cuda.device_count() > 1 and dev_str.startswith("cuda") and args.mode in ("train", "dataset", "auto-pilot", "dpo"):
+        use_dp = (
+            torch.cuda.is_available()
+            and torch.cuda.device_count() > 1
+            and args.device in ("cuda", "auto")
+            and not getattr(args, "single_gpu", False)
+            and args.mode in ("train", "dataset", "auto-pilot", "dpo")
+        )
+        if use_dp:
             log.info(f"  [Multi-GPU DataParallel] Enabling {torch.cuda.device_count()}x GPUs for parallel batch execution.")
             model = torch.nn.DataParallel(model)
+        else:
+            log.info(f"  [Direct Device Execution] Running directly on {rt.device} without DataParallel wrapper.")
 
     # When a category is requested for dataset/chat/generate/serve, load the
     # MoE-2 / 32K adapter checkpoint (shared base + specialist layers) instead
