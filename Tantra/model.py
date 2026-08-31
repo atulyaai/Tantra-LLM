@@ -810,7 +810,7 @@ class NeuroCoreModel(nn.Module):
 
         next_token_logits = logits_t[:, -1, :]
         generated_ids = []
-        all_seen_tokens = [row.tolist() for row in prompt_ids]
+        generated_tokens = [[] for _ in range(B)]
 
         if banned_token_ids is None:
             # Mask known pretrain DNA artifact token IDs
@@ -824,10 +824,10 @@ class NeuroCoreModel(nn.Module):
                     if 0 <= b_id < next_token_logits.size(-1):
                         next_token_logits[:, b_id] = -1e9
 
-            # Apply repetition penalty to seen tokens
+            # Apply repetition penalty ONLY to newly generated tokens (never punish prompt words)
             if repetition_penalty != 1.0:
-                for batch_idx, seen_tokens in enumerate(all_seen_tokens):
-                    for tok_id in set(seen_tokens):
+                for batch_idx, gen_tokens in enumerate(generated_tokens):
+                    for tok_id in set(gen_tokens):
                         if 0 <= tok_id < next_token_logits.size(-1):
                             val = next_token_logits[batch_idx, tok_id].item()
                             if val < 0:
@@ -856,7 +856,7 @@ class NeuroCoreModel(nn.Module):
 
             generated_ids.append(next_token)
             for batch_idx in range(B):
-                all_seen_tokens[batch_idx].append(next_token[batch_idx, 0].item())
+                generated_tokens[batch_idx].append(next_token[batch_idx, 0].item())
             # Don't stop on a single EOS token while below the minimum generation
             # length. An early-stage / lightly-trained model emits </s> (id 2) as
             # its next-token majority class almost immediately, which used to
@@ -911,7 +911,7 @@ class NeuroCoreModel(nn.Module):
             )
 
         next_token_logits = logits_t[:, -1, :]
-        all_seen_tokens = [row.tolist() for row in prompt_ids]
+        generated_tokens = [[] for _ in range(B)]
         eos_ids = set(eos_token_id) if isinstance(eos_token_id, (list, tuple, set)) else {eos_token_id}
         eos_ids.discard(None)
         n_yielded = 0
@@ -923,8 +923,8 @@ class NeuroCoreModel(nn.Module):
                     if 0 <= b_id < logits.size(-1):
                         logits[:, b_id] = -1e9
             if repetition_penalty != 1.0:
-                for batch_idx, seen_tokens in enumerate(all_seen_tokens):
-                    for tok_id in set(seen_tokens):
+                for batch_idx, gen_tokens in enumerate(generated_tokens):
+                    for tok_id in set(gen_tokens):
                         if 0 <= tok_id < logits.size(-1):
                             value = logits[batch_idx, tok_id].item()
                             logits[batch_idx, tok_id] = value * repetition_penalty if value < 0 else value / repetition_penalty
@@ -951,7 +951,7 @@ class NeuroCoreModel(nn.Module):
             yield next_token[0, 0]
             n_yielded += 1
             for batch_idx in range(B):
-                all_seen_tokens[batch_idx].append(next_token[batch_idx, 0].item())
+                generated_tokens[batch_idx].append(next_token[batch_idx, 0].item())
             # Honour EOS only after the minimum tail length (see generate() comment
             # for why an early-stage model emitting </s> id 2 immediately used to
             # truncate answers to 1-4 tokens).
