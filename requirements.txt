@@ -24,10 +24,10 @@ torchaudio>=2.2.0        # Audio processing
 torchvision>=0.17.0      # Image processing
 Pillow>=10.0.0           # Image I/O
 
-# Server (optional, inference/server.py only)
+# Web UI server (optional, webui/server.py only)
 fastapi>=0.110.0
 uvicorn>=0.29.0
-jinja2>=3.1.0            # required by Jinja2Templates in server.py — app fails to start without it
+jinja2>=3.1.0            # required by Jinja2Templates in webui/server.py
 python-multipart>=0.0.9  # required by FastAPI's Request.form()/file upload handling
 
 # Testing

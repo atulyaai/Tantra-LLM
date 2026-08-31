@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "Tantra-llm"
 version = "1.0.0"
-description = "Tantra-LLM: NeuroCore Architecture — O(n) Linear Attention, 1-Bit BitNet, DNA Weight Compression, and Unified Multimodal Fusion"
+description = "Experimental local-first CPU language-model training and inference toolkit"
 readme = "README.md"
 license = {file = "LICENSE"}
 authors = [

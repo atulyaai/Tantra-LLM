@@ -24,19 +24,43 @@ htmlcov/
 [Mm]odel/Best/*.pt
 [Mm]odel/Checkpoints/*.pt
 [Mm]odel/Latest/*.pt
-# Any checkpoint subfolder (e.g. Model/CPUMoE2_32K/checkpoint_*.pt)
+# Any checkpoint subfolder (e.g. Model/MoE2_32K/checkpoint_*.pt)
 Model/**/checkpoint_*.pt
 Model/**/checkpoint_*.dna
+Model/**/*.tmp
+[Mm]odel/Export/
+
+# Generated checkpoint sidecar metadata (written by save_checkpoint)
+Model/**/*.pt.meta.json
+
+# Regenerated expert artifacts (built by training runs)
+Model/Experts/*.dna
+Model/Experts/registry.json
 
 # Raw training data (too large for GitHub). Category folders are kept as
 # lightweight prototypes (README.md) on GitHub; the actual *.jsonl stay local.
-Download/
+# Datasets: master_train.jsonl stays local (822MB), staged_master.jsonl & manifest.json tracked on git
+Datasets/*.jsonl
 Datasets/**/*.jsonl
-Datasets/**/*manifest.json
-Datasets/_duplicates/
+!Datasets/manifest.json
+!Datasets/staged_master.jsonl
+!Datasets/master_train.jsonl
+!Datasets/conversation.jsonl
+!Datasets/math.jsonl
+!Datasets/code.jsonl
+!Datasets/multilingual.jsonl
+!Datasets/curated_seeds/*.jsonl
+
+
+!Datasets/curated_seeds/**/*.jsonl
+!Datasets/curated_sft/*.jsonl
+!Datasets/curated_sft/**/*.jsonl
+!Datasets/seeds/*.jsonl
+!Datasets/seeds/**/*.jsonl
 !Model/sample_model.pt
 Model/memory_bank.json
 Model/saved_chats.json
+Model/tokenizer.pt
 *.parquet
 *.h5
 
@@ -51,10 +75,16 @@ reports/
 *.pem
 *.key
 secrets/
+tmp_*.json
 
 # IDE & OS
 .vscode/
 .idea/
 *.swp
+*.jpg
+*.zip
+*.tar.gz
 .DS_Store
 Thumbs.db
+
+

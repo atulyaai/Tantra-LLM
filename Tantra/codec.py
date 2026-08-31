@@ -511,28 +511,18 @@ class DNACodec:
         return out[:n].tobytes()
 
     def _compute_parity(self, data: bytes, interval: int) -> bytes:
-        parity = bytearray()
-        for i in range(0, len(data), interval):
-            chunk = data[i:i+interval]
-            p = 0
-            for b in chunk:
-                p ^= b
-            parity.append(p)
-        return bytes(parity)
+        if not data:
+            return b""
+        arr = np.frombuffer(data, dtype=np.uint8)
+        pad = (interval - (len(arr) % interval)) % interval
+        if pad:
+            arr = np.pad(arr, (0, pad))
+        res = np.bitwise_xor.reduce(arr.reshape(-1, interval), axis=1)
+        return res.tobytes()
 
     def _verify_parity(self, data: bytes, parity: bytes, interval: int) -> bool:
-        idx = 0
-        for i in range(0, len(data), interval):
-            if idx >= len(parity):
-                break
-            chunk = data[i:i+interval]
-            p = 0
-            for b in chunk:
-                p ^= b
-            if p != parity[idx]:
-                return False
-            idx += 1
-        return True
+        computed = self._compute_parity(data, interval)
+        return computed == parity
 
 # ── MultimodalWeightFormatter ──
 

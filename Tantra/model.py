@@ -44,35 +44,33 @@ class RotaryPositionalEncoding:
         self.head_dim = head_dim
         self.base = base
         self.max_seq_len = max_seq_len
-        self._cos_cached = None
-        self._sin_cached = None
+        self._cache: Dict[Tuple[str, torch.dtype], Tuple[Tensor, Tensor]] = {}
 
-    def _build_cache(self, seq_len: int, device: torch.device):
+    def get_cos_sin(self, seq_len: int, device: torch.device, dtype: torch.dtype) -> Tuple[Tensor, Tensor]:
         seq_len = max(1, seq_len)
-        inv_freq = 1.0 / (self.base ** (torch.arange(0, self.head_dim, 2, device=device, dtype=torch.float32) / self.head_dim))
-        t = torch.arange(seq_len, device=device, dtype=torch.float32)
-        freqs = torch.outer(t, inv_freq)
-        emb = torch.cat((freqs, freqs), dim=-1)
-        self._cos_cached = emb.cos()
-        self._sin_cached = emb.sin()
-
-    def get_cos_sin(self, seq_len: int, device: torch.device) -> Tuple[Tensor, Tensor]:
-        seq_len = max(1, seq_len)
-        if self._cos_cached is None or seq_len > self._cos_cached.shape[0] or self._cos_cached.device != device:
+        key = (str(device), dtype)
+        cached = self._cache.get(key)
+        if cached is None or seq_len > cached[0].shape[0]:
             build_len = max(seq_len, 2048)
-            self._build_cache(build_len, device)
-        return self._cos_cached[:seq_len], self._sin_cached[:seq_len]
-
+            inv_freq = 1.0 / (self.base ** (torch.arange(0, self.head_dim, 2, device=device, dtype=torch.float32) / self.head_dim))
+            t = torch.arange(build_len, device=device, dtype=torch.float32)
+            freqs = torch.outer(t, inv_freq)
+            emb = torch.cat((freqs, freqs), dim=-1)
+            cos_c = emb.cos().to(dtype)
+            sin_c = emb.sin().to(dtype)
+            self._cache[key] = (cos_c, sin_c)
+            return cos_c[:seq_len], sin_c[:seq_len]
+        return cached[0][:seq_len], cached[1][:seq_len]
 
     def _rotate_half(self, x: Tensor) -> Tensor:
         x1 = x[..., : x.shape[-1] // 2]
         x2 = x[..., x.shape[-1] // 2 :]
         return torch.cat((-x2, x1), dim=-1)
 
-    def apply(self, q: Tensor, k: Tensor, seq_len: int) -> Tuple[Tensor, Tensor]:
-        cos, sin = self.get_cos_sin(seq_len, q.device)
-        cos = cos.unsqueeze(0).unsqueeze(0)
-        sin = sin.unsqueeze(0).unsqueeze(0)
+    def apply(self, q: Tensor, k: Tensor, seq_len: int, offset: int = 0) -> Tuple[Tensor, Tensor]:
+        cos, sin = self.get_cos_sin(offset + seq_len, q.device, q.dtype)
+        cos = cos[offset : offset + seq_len].unsqueeze(0).unsqueeze(0)
+        sin = sin[offset : offset + seq_len].unsqueeze(0).unsqueeze(0)
 
         q_rotated = (q * cos) + (self._rotate_half(q) * sin)
         k_rotated = (k * cos) + (self._rotate_half(k) * sin)
@@ -122,23 +120,26 @@ class ALRAAttention(nn.Module):
         K = self.w_k(x).view(B, T, self.num_heads, self.head_dim).transpose(1, 2)
         V = self.w_v(x).view(B, T, self.num_heads, self.head_dim).transpose(1, 2)
         
-        Q, K = self.rope.apply(Q, K, T)
-        
+        past_len = state.get("step", 0) if state is not None else 0
+        Q, K = self.rope.apply(Q, K, T, offset=past_len)
+
         Q = self._apply_kernel(Q)
         K = self._apply_kernel(K)
-        
+
         gates = None
         if self.use_forget_gate:
             gates = torch.sigmoid(self.w_gate(x)).transpose(1, 2)
-            
+
         if state is not None or T == 1:
             if state is None:
                 state = {}
             out, new_state = self._sequential_forward(Q, K, V, gates, state)
+            if new_state is not None:
+                new_state["step"] = past_len + T
         else:
             out = self._parallel_forward(Q, K, V, gates)
             new_state = None
-            
+
         out = out.transpose(1, 2).reshape(B, T, self.dim)
         out = self.w_o(out)
         return out, new_state
@@ -151,8 +152,8 @@ class ALRAAttention(nn.Module):
         """
         B, H, T, Dh = Q.shape
         
-        if T <= 256:
-            # Fast vectorized causal path
+        if T <= 2048:
+            # Fast vectorized causal path (O(1) memory graph overhead on GPU/CPU)
             if gates is not None:
                 log_g = torch.log(gates + 1e-8)
                 cum_log_g = torch.cumsum(log_g, dim=-1)
@@ -259,9 +260,33 @@ class CausalSelfAttention(nn.Module):
         q = self.w_q(x).view(batch, tokens, self.num_heads, self.head_dim).transpose(1, 2)
         k = self.w_k(x).view(batch, tokens, self.num_heads, self.head_dim).transpose(1, 2)
         v = self.w_v(x).view(batch, tokens, self.num_heads, self.head_dim).transpose(1, 2)
-        q, k = self.rope.apply(q, k, tokens)
-        out = F.scaled_dot_product_attention(q, k, v, attn_mask=None, dropout_p=0.0, is_causal=True)
-        return self.w_o(out.transpose(1, 2).reshape(batch, tokens, self.dim)), None
+
+        past_len = 0
+        if state is not None and "k" in state and state["k"] is not None:
+            past_len = state["k"].shape[2]
+
+        q, k = self.rope.apply(q, k, tokens, offset=past_len)
+
+        if state is not None:
+            if "k" in state and state["k"] is not None:
+                k = torch.cat([state["k"], k], dim=2)
+                v = torch.cat([state["v"], v], dim=2)
+            state["k"] = k
+            state["v"] = v
+
+        if past_len == 0:
+            is_causal = (tokens > 1)
+            out = F.scaled_dot_product_attention(q, k, v, attn_mask=mask, dropout_p=0.0, is_causal=is_causal)
+        else:
+            if tokens == 1:
+                out = F.scaled_dot_product_attention(q, k, v, attn_mask=None, dropout_p=0.0, is_causal=False)
+            else:
+                q_len = tokens
+                kv_len = k.shape[2]
+                causal_mask = torch.tril(torch.ones(q_len, kv_len, device=q.device, dtype=torch.bool), diagonal=kv_len - q_len)
+                out = F.scaled_dot_product_attention(q, k, v, attn_mask=causal_mask, dropout_p=0.0)
+
+        return self.w_o(out.transpose(1, 2).reshape(batch, tokens, self.dim)), state
 
 
 # ── SparseGatedProjection ──
@@ -293,15 +318,14 @@ class SparseGatedProjection(nn.Module):
         
         if self.training:
             mask_float = mask.to(x.dtype)
-            self._last_active_ratio = mask_float.mean().item()
             mask_st = mask_float.detach() - gates.detach() + gates
             up = self.act(self.w_up(x))
             hidden = up * mask_st
         else:
             mask_float = mask.to(x.dtype)
-            self._last_active_ratio = mask_float.mean().item()
             up = self.act(self.w_up(x))
             hidden = up * mask_float
+
             
         return self.w_down(hidden)
 
@@ -482,9 +506,15 @@ class NeuroCoreModel(nn.Module):
         # Unlike residual adapters that touch every block, each category owns
         # ONE transformer layer that runs once past the shared base stack. Only
         # the routed category's layer executes, keeping per-request compute at
-        # base + 1 layer. The layer is cloned from a shared base block at init,
-        # so a fresh category does not perturb the base until it is trained.
+        # base + 1 layer. Each layer's output is gate-interpolated with the base
+        # residual (zero gate = identity), so a fresh category is an exact
+        # pass-through and never perturbs the base until it is trained.
         self.category_layers = nn.ModuleDict()
+        # One scalar residual gate per specialist layer (parameter list mirrors
+        # the per-category stack length). Gates are zero-initialised so a
+        # freshly installed category is a literal identity pass-through: it
+        # does not perturb the base until its dataset actually trains it.
+        self.category_gates = nn.ModuleDict()
         self.active_category: Optional[str] = None
 
     def add_category_layers(self, categories: List[str], depth: int = 1, clone_layer_index: int = -1) -> None:
@@ -493,8 +523,9 @@ class NeuroCoreModel(nn.Module):
         ``depth`` is the initial capacity (1 = one fixed layer). The stack can
         later grow (harder categories) or shrink (idle/over-provisioned) without
         changing any tensor shapes, so checkpoints stay compatible.
-        The cloned weights mean an untrained category behaves like the shared
-        base at that depth — no behaviour shift until its dataset trains it.
+        Each layer carries a zero-initialised residual gate, so an untrained
+        category is an exact identity (output equals the base) until its
+        dataset trains it — see :meth:`forward` for the gate interpolation.
         """
         moe_config = self.config.moe if (self.use_moe or getattr(self.config.moe, "num_experts", 1) > 1) else None
         for category in categories:
@@ -515,6 +546,10 @@ class NeuroCoreModel(nn.Module):
                         layer.load_state_dict(self.layers[clone_layer_index].state_dict())
                 stack.append(layer)
             self.category_layers[category] = stack
+            self.category_gates[category] = nn.ParameterList(
+                [nn.Parameter(torch.zeros((), dtype=torch.get_default_dtype()), requires_grad=True)
+                 for _ in range(len(stack))]
+            )
 
     def grow_category(self, category: str, cap: int) -> bool:
         """Append one more specialist layer to a category (up to ``cap`` total)."""
@@ -530,6 +565,9 @@ class NeuroCoreModel(nn.Module):
             for p in new_layer.parameters():
                 p.data.add_(torch.randn_like(p.data) * 0.001)
         stack.append(new_layer)
+        self.category_gates[category].append(
+            nn.Parameter(torch.zeros((), dtype=torch.get_default_dtype()), requires_grad=True)
+        )
         return True
 
     def shrink_category(self, category: str, floor: int = 1) -> bool:
@@ -540,12 +578,37 @@ class NeuroCoreModel(nn.Module):
         if len(stack) <= floor:
             return False
         stack.pop(len(stack) - 1)
+        gates = list(self.category_gates[category])
+        self.category_gates[category] = nn.ParameterList(gates[:-1])
         return True
 
     def category_depth(self, category: str) -> int:
         if category not in self.category_layers:
             return 0
         return len(self.category_layers[category])
+
+    def sync_category_gates_from_checkpoint(self, state_dict: Dict[str, torch.Tensor]) -> None:
+        """Preserve behaviour of trained categories from older checkpoints.
+
+        Checkpoints written before residual gates existed contain
+        ``category_layers.<name>.*`` but no ``category_gates.<name>.*``.  With
+        gates defaulting to 0 those trained categories would silently become
+        no-ops, so we open the gates (1.0 = full block output, matching the
+        legacy behaviour) for any installed category that has layer weights in
+        the checkpoint but no gate tensors.
+        """
+        import re
+        layer_keys = {re.match(r"category_layers\.([^.]+)\.", k).group(1)
+                      for k in state_dict if re.match(r"category_layers\.([^.]+)\.", k)}
+        gated = {re.match(r"category_gates\.([^.]+)\.", k).group(1)
+                 for k in state_dict if re.match(r"category_gates\.([^.]+)\.", k)}
+        with torch.no_grad():
+            for name in layer_keys - gated:
+                gates = self.category_gates.get(name)
+                if gates is not None:
+                    for gate in gates:
+                        gate.fill_(1.0)
+
 
     def freeze_for_category(self, category: str) -> None:
         """Freeze the shared base and every other category; train one specialist layer only."""
@@ -554,6 +617,8 @@ class NeuroCoreModel(nn.Module):
         for parameter in self.parameters():
             parameter.requires_grad_(False)
         for parameter in self.category_layers[category].parameters():
+            parameter.requires_grad_(True)
+        for parameter in self.category_gates[category]:
             parameter.requires_grad_(True)
         self.active_category = category
 
@@ -643,8 +708,13 @@ class NeuroCoreModel(nn.Module):
                 new_states.append(new_layer_state)
 
         # Dedicated specialist layer(s): the routed category runs its stack of
-        # fixed layers past the shared base stack.  Base behaviour is preserved
-        # at init because each specialist layer is cloned from a base block.
+        # fixed layers past the shared base stack. Each layer's transform is
+        # gated: out = h + gate * (block(h) - h), with the gate zero-initialised,
+        # so an untrained category contributes nothing (identical to base).
+        # Only once a category's dataset trains it does the gate open and the
+        # specialist block's behaviour become visible. This restores the
+        # "untrained category must not perturb the base" guarantee while keeping
+        # the cloned-block architecture (base compute is untouched).
         #
         # IMPORTANT: state=None here used to be hardcoded, so every token
         # generated through a routed category layer ran ALRAAttention's
@@ -658,12 +728,18 @@ class NeuroCoreModel(nn.Module):
         # category is actually routed (base-only generation is unaffected).
         if adapter_name is not None and adapter_name in self.category_layers:
             stack = self.category_layers[adapter_name]
+            gates = self.category_gates[adapter_name] if adapter_name in self.category_gates else None
             base_len = len(self.layers)
             for j, block in enumerate(stack):
                 cat_state = None
                 if states is not None and len(states) > base_len + j:
                     cat_state = states[base_len + j]
-                x, new_cat_state = block(x, mask=mask, state=cat_state)
+                h, new_cat_state = block(x, mask=mask, state=cat_state)
+                if gates is not None and j < len(gates):
+                    gate = gates[j]
+                    x = x + gate * (h - x)
+                else:
+                    x = h
                 if new_states is not None:
                     new_states.append(new_cat_state)
 
@@ -683,14 +759,16 @@ class NeuroCoreModel(nn.Module):
     def generate(
         self,
         prompt_ids: Tensor,
-        max_new_tokens: int = 64,
-        temperature: float = 0.65,          # was 0.8 — sharper, less rambling
-        top_p: float = 0.90,               # was 0.95 — narrower nucleus
-        repetition_penalty: float = 1.25,  # was 1.15 — stronger anti-repeat
+        max_new_tokens: int = 150,
+        temperature: float = 0.35,          # Lower temp = confident, coherent, non-hallucinating
+        top_p: float = 0.85,               # Narrow nucleus = high quality vocab
+        repetition_penalty: float = 1.25,  # Strong anti-loop
         use_mtp_speculation: bool = True,
         use_latent_reasoning: bool = True,
         eos_token_id: Optional[int] = 2,
+        min_new_tokens: int = 1,
         adapter_name: Optional[str] = None,
+        banned_token_ids: Optional[List[int]] = None,
     ) -> Tensor:
         """Generate text using Multi-Token Prediction (MTP) and Latent CoT reasoning.
 
@@ -721,8 +799,17 @@ class NeuroCoreModel(nn.Module):
         generated_ids = []
         all_seen_tokens = [row.tolist() for row in prompt_ids]
 
+        if banned_token_ids is None:
+            # Mask known pretrain DNA artifact token IDs
+            banned_token_ids = [28344, 23214, 12932, 13142, 19409]
+
         for _ in range(max_new_tokens):
             next_token_logits = torch.nan_to_num(next_token_logits, nan=-1e9, posinf=1e4, neginf=-1e9)
+
+            if banned_token_ids:
+                for b_id in banned_token_ids:
+                    if 0 <= b_id < next_token_logits.size(-1):
+                        next_token_logits[:, b_id] = -1e9
 
             # Apply repetition penalty to seen tokens
             if repetition_penalty != 1.0:
@@ -735,33 +822,35 @@ class NeuroCoreModel(nn.Module):
                             else:
                                 next_token_logits[batch_idx, tok_id] = val / repetition_penalty
             if temperature > 0:
-                next_token_logits = next_token_logits / temperature
-                sorted_logits, sorted_indices = torch.sort(next_token_logits, descending=True)
+                scaled_logits = next_token_logits / max(temperature, 1e-5)
+                sorted_logits, sorted_indices = torch.sort(scaled_logits, descending=True)
                 cumulative_probs = torch.cumsum(torch.softmax(sorted_logits, dim=-1), dim=-1)
 
                 sorted_indices_to_remove = cumulative_probs > top_p
                 sorted_indices_to_remove[..., 1:] = sorted_indices_to_remove[..., :-1].clone()
-                sorted_indices_to_remove[..., 0] = 0
+                sorted_indices_to_remove[..., 0] = False
 
-                indices_to_remove = sorted_indices_to_remove.scatter(1, sorted_indices, sorted_indices_to_remove)
-                next_token_logits[indices_to_remove] = float('-inf')
+                sorted_logits[sorted_indices_to_remove] = float('-inf')
+                probs = torch.nan_to_num(torch.softmax(sorted_logits, dim=-1), nan=0.0)
 
-                probs = torch.softmax(next_token_logits, dim=-1)
-                probs = torch.nan_to_num(probs, nan=0.0)
-                # Per-row guard: any batch row that collapsed to all-zero probability
-                # mass falls back to picking token 0, without requiring the whole
-                # batch to be degenerate (fixes crash for batch_size > 1).
                 zero_rows = probs.sum(dim=-1) == 0
                 if zero_rows.any():
                     probs[zero_rows, 0] = 1.0
-                next_token = torch.multinomial(probs, num_samples=1)
+                next_sorted_idx = torch.multinomial(probs, num_samples=1)
+                next_token = sorted_indices.gather(1, next_sorted_idx)
             else:
                 next_token = torch.argmax(next_token_logits, dim=-1, keepdim=True)
 
             generated_ids.append(next_token)
             for batch_idx in range(B):
                 all_seen_tokens[batch_idx].append(next_token[batch_idx, 0].item())
-            if eos_token_id is not None:
+            # Don't stop on a single EOS token while below the minimum generation
+            # length. An early-stage / lightly-trained model emits </s> (id 2) as
+            # its next-token majority class almost immediately, which used to
+            # truncate every response after 1-2 tokens (the "token count dropped"
+            # bug). Require min_new_tokens before an EOS break is honoured.
+            n_generated = len(generated_ids)
+            if n_generated >= min_new_tokens and eos_token_id is not None:
                 if isinstance(eos_token_id, (list, tuple, set)):
                     if any((next_token == eid).all() for eid in eos_token_id):
                         break
@@ -780,28 +869,25 @@ class NeuroCoreModel(nn.Module):
     def generate_stream(
         self,
         prompt_ids: Tensor,
-        max_new_tokens: int = 64,
-        temperature: float = 0.65,
-        top_p: float = 0.90,
+        max_new_tokens: int = 150,
+        temperature: float = 0.35,
+        top_p: float = 0.85,
         repetition_penalty: float = 1.25,
         use_latent_reasoning: bool = True,
         eos_token_id: Optional[int] = 2,
+        min_new_tokens: int = 1,
         adapter_name: Optional[str] = None,
+        banned_token_ids: Optional[List[int]] = None,
     ):
-        """Yield sampled tokens one at a time without buffering a response.
-
-        This shares the sampling behaviour of :meth:`generate` while making
-        it possible for an SSE endpoint to send its first token immediately
-        after prompt prefill completes.
-
-        `adapter_name`: see generate()'s docstring -- pass explicitly rather
-        than mutating self.active_category from an async caller.
-        """
+        """Yield sampled tokens one at a time without buffering a response."""
         self.eval()
         if prompt_ids.numel() == 0 or prompt_ids.size(1) == 0:
             prompt_ids = torch.tensor([[1]], device=prompt_ids.device, dtype=torch.long)
         B, T = prompt_ids.shape
         states = [{} for _ in range(len(self.layers))]
+
+        if banned_token_ids is None:
+            banned_token_ids = [28344, 23214, 12932, 13142, 19409]
 
         for t in range(T):
             logits_t, states = self.forward(
@@ -814,9 +900,14 @@ class NeuroCoreModel(nn.Module):
         all_seen_tokens = [row.tolist() for row in prompt_ids]
         eos_ids = set(eos_token_id) if isinstance(eos_token_id, (list, tuple, set)) else {eos_token_id}
         eos_ids.discard(None)
+        n_yielded = 0
 
         for _ in range(max_new_tokens):
             logits = torch.nan_to_num(next_token_logits.clone(), nan=-1e9, posinf=1e4, neginf=-1e9)
+            if banned_token_ids:
+                for b_id in banned_token_ids:
+                    if 0 <= b_id < logits.size(-1):
+                        logits[:, b_id] = -1e9
             if repetition_penalty != 1.0:
                 for batch_idx, seen_tokens in enumerate(all_seen_tokens):
                     for tok_id in set(seen_tokens):
@@ -825,26 +916,32 @@ class NeuroCoreModel(nn.Module):
                             logits[batch_idx, tok_id] = value * repetition_penalty if value < 0 else value / repetition_penalty
 
             if temperature > 0:
-                logits = logits / temperature
-                sorted_logits, sorted_indices = torch.sort(logits, descending=True)
+                scaled_logits = logits / max(temperature, 1e-5)
+                sorted_logits, sorted_indices = torch.sort(scaled_logits, descending=True)
                 remove_sorted = torch.cumsum(torch.softmax(sorted_logits, dim=-1), dim=-1) > top_p
                 remove_sorted[..., 1:] = remove_sorted[..., :-1].clone()
                 remove_sorted[..., 0] = False
-                logits[remove_sorted.scatter(1, sorted_indices, remove_sorted)] = float("-inf")
-                probs = torch.nan_to_num(torch.softmax(logits, dim=-1), nan=0.0)
+
+                sorted_logits[remove_sorted] = float("-inf")
+                probs = torch.nan_to_num(torch.softmax(sorted_logits, dim=-1), nan=0.0)
                 zero_rows = probs.sum(dim=-1) == 0
                 if zero_rows.any():
                     probs[zero_rows, 0] = 1.0
-                next_token = torch.multinomial(probs, num_samples=1)
+                next_sorted_idx = torch.multinomial(probs, num_samples=1)
+                next_token = sorted_indices.gather(1, next_sorted_idx)
             else:
                 next_token = torch.argmax(logits, dim=-1, keepdim=True)
 
             # The web endpoint is batch-size one.  Yielding a tensor retains
             # a simple, useful API for callers that need token ids.
             yield next_token[0, 0]
+            n_yielded += 1
             for batch_idx in range(B):
                 all_seen_tokens[batch_idx].append(next_token[batch_idx, 0].item())
-            if eos_ids and all(token.item() in eos_ids for token in next_token):
+            # Honour EOS only after the minimum tail length (see generate() comment
+            # for why an early-stage model emitting </s> id 2 immediately used to
+            # truncate answers to 1-4 tokens).
+            if eos_ids and n_yielded >= min_new_tokens and all(token.item() in eos_ids for token in next_token):
                 return
 
             logits_t, states = self.forward(
@@ -864,3 +961,43 @@ class NeuroCoreModel(nn.Module):
     @property
     def num_parameters(self) -> int:
         return sum(p.numel() for p in self.parameters() if p.requires_grad)
+
+
+def cpu_dense_config(vocab_size: int = 32768, attention_kind: str = "alra") -> NeuroCoreConfig:
+    """Return the maintained compact CPU configuration."""
+    cfg = NeuroCoreConfig.small()
+    cfg.model_name = "tantra-cpu-dense-32k"
+    cfg.vocab.vocab_size = cfg.vocab.byte_bpe_vocab = vocab_size
+    cfg.vocab.text_range_end = vocab_size - 1
+    cfg.block.alra.dim, cfg.block.alra.num_heads, cfg.block.alra.head_dim = 512, 8, 64
+    cfg.block.alra.attention_kind = attention_kind
+    cfg.block.sgp.dim, cfg.block.sgp.expansion, cfg.block.sgp.implementation = 512, 2, "swiglu"
+    cfg.block.num_layers, cfg.moe.num_experts, cfg.moe.real_top1 = 8, 1, False
+    return cfg
+
+
+def cpu_top1_moe_config(vocab_size: int = 32768, experts: int = 2, attention_kind: str = "alra") -> NeuroCoreConfig:
+    """Return the real top-1 MoE CPU comparison configuration."""
+    cfg = cpu_dense_config(vocab_size, attention_kind)
+    cfg.model_name = f"tantra-cpu-top1-moe-{experts}e-32k"
+    cfg.moe.num_experts, cfg.moe.top_k, cfg.moe.real_top1 = max(2, experts), 1, True
+    return cfg
+
+
+def cpu_10m_config(vocab_size: int = 32768, attention_kind: str = "alra") -> NeuroCoreConfig:
+    """Return the compact baseline intended for CPU/distillation experiments."""
+    cfg = cpu_dense_config(vocab_size, attention_kind)
+    cfg.model_name = "tantra-cpu-10m-32k"
+    cfg.block.alra.dim, cfg.block.alra.num_heads, cfg.block.alra.head_dim = 224, 7, 32
+    cfg.block.sgp.dim, cfg.block.num_layers = 224, 4
+    return cfg
+
+
+def build_cpu_model(profile: str = "dense", attention_kind: str = "alra", vocab_size: int = 32768) -> "NeuroCoreModel":
+    if profile == "dense":
+        return NeuroCoreModel(cpu_dense_config(vocab_size, attention_kind), use_mtp=False, use_moe=False)
+    if profile == "moe2":
+        return NeuroCoreModel(cpu_top1_moe_config(vocab_size, 2, attention_kind), use_mtp=False, use_moe=True)
+    if profile == "micro10":
+        return NeuroCoreModel(cpu_10m_config(vocab_size, attention_kind), use_mtp=False, use_moe=False)
+    raise ValueError(f"Unknown CPU profile: {profile}")

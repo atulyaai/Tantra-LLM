@@ -1,50 +1,60 @@
 # Contributing to Tantra-LLM
 
-Thank you for your interest in contributing to **Tantra-LLM**! We welcome contributions from AI researchers, software engineers, and performance optimization specialists.
+Thank you for helping improve Tantra-LLM. The project is an experimental local
+LLM implementation; contributions should make its behaviour more measurable,
+reproducible, or reliable.
 
-## Code Architecture Guidelines
+## Setup
 
-We adhere strictly to a **clean, modular, low-clutter** architecture:
+```powershell
+git clone https://github.com/atulyaai/Tantra-LLM.git
+cd Tantra-LLM
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+python -m pytest Tests -q
+```
 
-1. **Keep the codebase flat**: All primary logic lives inside the `tantra/` package across 9 focused modules. Avoid creating unnecessary nested subdirectories or micro-packages.
-2. **Zero superficial stubs**: Code should be runnable, typed, and well-documented.
-3. **Hardware auto-adaptability**: Any new feature should gracefully work on CPU-only consumer systems (laptops) as well as multi-GPU desktop systems.
+## Where code belongs
 
-## Getting Started
+- Put reusable importable code in `Tantra/`.
+- Put reusable command-line workflows beside their owning `Tantra/` module;
+  keep destructive dataset actions explicit and separately named.
+- Keep `main.py` focused on coordinating public CLI modes.
+- Put tests in `Tests/` using `test_*.py` names.
 
-1. **Fork and Clone the Repository**:
-   ```bash
-   git clone https://github.com/your-username/Tantra-LLM.git
-   cd Tantra-LLM
-   ```
+Do not move a script into `Tantra/` merely for folder tidiness. Move reusable
+functions first, then keep a thin script wrapper for the CLI command.
 
-2. **Create a Virtual Environment & Install Dependencies**:
-   ```bash
-   python -m venv .venv
-   source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-   pip install -r requirements.txt
-   pip install -e .[dev]
-   ```
+## Before opening a pull request
 
-3. **Run the Test Suite**:
-   ```bash
-   pytest tests/
-   ```
+```powershell
+python -m pytest Tests -q
+python -m py_compile main.py Tantra\*.py webui\server.py
+```
 
-4. **Run the Pipeline Smoke Test**:
-   ```bash
-   python main.py --mode probe
-   python main.py
-   ```
+For training or performance changes, include:
 
-## Pull Request Process
+1. Hardware, PyTorch version, threads, batch size, sequence length, and seed.
+2. Dataset identity and held-out evaluation method (never commit private/raw
+   data).
+3. Parameter count, tokens/sec, validation loss, and a short qualitative
+   evaluation when generation is affected.
+4. A checkpoint compatibility plan if any model shape, tokenizer, or vocabulary
+   changes.
 
-1. Create a feature branch (`git checkout -b feature/amazing-feature`).
-2. Write unit tests in `tests/` covering new capabilities or bug fixes.
-3. Ensure all tests pass (`pytest tests/`).
-4. Commit your changes with clear, descriptive commit messages.
-5. Push to your branch and submit a Pull Request.
+## Rules for artifacts and safety
 
-## License
+- Do not commit checkpoints, logs, model state, caches, API keys, or raw
+  datasets. They are intentionally ignored by Git.
+- Do not claim performance or model-quality improvements without a comparable
+  measurement.
+- Preserve compatible checkpoint loading or add an explicit converter.
+- Keep WebUI and server changes local-first by default. Do not enable code
+  execution or network-facing services without clear opt-in and tests.
 
-By contributing to Tantra-LLM, you agree that your contributions will be licensed under the project's [MIT License](LICENSE).
+## Pull requests
+
+Use a focused branch, explain the problem and validation, and avoid combining
+formatting-only rewrites with functional changes. Contributions are licensed
+under the [MIT License](LICENSE).

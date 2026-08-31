@@ -27,7 +27,7 @@ if (-not (Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction Silen
     $python = Get-TantraPython
     $logDir = Join-Path $repoRoot "logs"
     New-Item -ItemType Directory -Force -Path $logDir | Out-Null
-    Start-Process -FilePath $python -ArgumentList "server.py" -WorkingDirectory $repoRoot -WindowStyle Hidden `
+    Start-Process -FilePath $python -ArgumentList "-m webui.server" -WorkingDirectory $repoRoot -WindowStyle Hidden `
         -RedirectStandardOutput (Join-Path $logDir "webui.out.log") `
         -RedirectStandardError (Join-Path $logDir "webui.err.log")
 

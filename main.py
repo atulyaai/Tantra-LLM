@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import glob
+import json
 import os
 import shutil
 import sys
@@ -29,7 +30,7 @@ from Tantra.config import NeuroCoreConfig, VocabConfig, MoEConfig, CompressionCo
 from Tantra.utils import get_logger
 from Tantra.hardware import HardwareDetector, Profiler, RuntimeConfigBuilder, AdaptiveScheduler
 from Tantra.tokenizer import ByteBPETokenizer, MegabytePatcher, UnifiedTokenizer
-from Tantra.model import NeuroCoreModel
+from Tantra.model import NeuroCoreModel, cpu_dense_config, build_cpu_model
 from Tantra.moe import ExpertRegistry, LazyExpertLoader
 from Tantra.codec import DNACodec, CompressionBenchmark
 from Tantra.train import NeuroTrainer
@@ -55,7 +56,6 @@ BEST_DIR        = os.path.join(MODEL_DIR, "Best")
 LATEST_DIR      = os.path.join(MODEL_DIR, "Latest")
 CHECKPOINTS_DIR = os.path.join(MODEL_DIR, "Checkpoints")
 EXPERTS_DIR     = os.path.join(MODEL_DIR, "Experts")
-VOCAB_PATH      = os.path.join(MODEL_DIR, "tokenizer.pt")
 _datasets_dir = os.path.join(os.path.dirname(__file__), "Datasets")
 has_topics = any(entry.is_dir() for entry in os.scandir(_datasets_dir)) if os.path.exists(_datasets_dir) else False
 
@@ -65,9 +65,14 @@ else:
     _default_cand = os.path.join(_datasets_dir, "train_pack_all_expanded_1040k.jsonl")
     if not os.path.exists(_default_cand):
         _found = glob.glob(os.path.join(_datasets_dir, "*.jsonl"))
-        DEFAULT_DATASET = _found[0] if _found else os.path.join(_datasets_dir, "tantra_master_identity_safety.jsonl")
+        if _found:
+            _found.sort(key=lambda p: os.path.getsize(p) if os.path.exists(p) else 0, reverse=True)
+            DEFAULT_DATASET = _found[0]
+        else:
+            DEFAULT_DATASET = os.path.join(_datasets_dir, "tantra_master_identity_safety.jsonl")
     else:
         DEFAULT_DATASET = _default_cand
+
 
 def print_banner():
     is_tty = getattr(sys.stdout, "isatty", lambda: False)()
@@ -142,49 +147,58 @@ def print_expert_panel(expert_reg):
         for e_id, e_info in expert_reg.experts.items():
             print(f"Expert {e_id}: {e_info}")
 
-def run_interactive_chat(model, tokenizer, device, temp=0.8, top_p=0.95, router=None):
+def run_interactive_chat(model, tokenizer, device, temp=0.7, top_p=0.9, router=None, use_mtp=False):
+    model.eval()
     if console:
-        console.print("[bold green]Tantra Interactive REPL[/bold green] (Type /help for commands, /quit to exit)")
+        console.print("[bold green]╭───────────────────────────────────────────────────╮[/bold green]")
+        console.print("[bold green]│  तन्त्र  TANTRA LLM Interactive Terminal Playground │[/bold green]")
+        console.print("[bold green]╰───────────────────────────────────────────────────╯[/bold green]")
+        console.print("[dim]Commands: /temp <float>, /mtp <on|off>, /clear, /stats, /help, /quit[/dim]\n")
     else:
-        print("Tantra Interactive REPL (Type /help for commands, /quit to exit)")
-        
+        print("== TANTRA LLM Interactive Terminal Playground ==")
+        print("Commands: /temp <float>, /mtp <on|off>, /clear, /stats, /help, /quit\n")
+
     while True:
         try:
             if console:
-                prompt_text = "[bold cyan]तन्त्र >[/bold cyan] "
-                user_input = console.input(prompt_text)
+                user_input = console.input("[bold cyan]You >[/bold cyan] ")
             else:
-                user_input = input("तन्त्र > ")
-                
+                user_input = input("You > ")
+
             if not user_input.strip():
                 continue
-                
+
             if user_input.startswith("/"):
-                cmd = user_input.split()[0].lower()
-                if cmd == "/quit":
+                parts = user_input.strip().split()
+                cmd = parts[0].lower()
+                if cmd in ("/quit", "/exit"):
                     break
                 elif cmd == "/help":
-                    msg = "Commands: /help, /status, /experts, /settings, /quit"
-                    if console: console.print(msg)
+                    msg = "Commands: /temp <float> (adjust creativity), /mtp <on|off> (speculative speedup), /stats (show parameters), /clear, /quit"
+                    if console: console.print(f"[dim]{msg}[/dim]")
                     else: print(msg)
-                elif cmd == "/settings":
-                    parts = user_input.split()
-                    if len(parts) >= 3:
-                        temp = float(parts[1])
-                        top_p = float(parts[2])
-                    msg = f"Settings: temp={temp}, top_p={top_p}"
-                    if console: console.print(msg)
-                    else: print(msg)
-                elif cmd == "/status":
-                    msg = "Run main.py --mode status for full dashboard."
-                    if console: console.print(msg)
-                    else: print(msg)
-                elif cmd == "/experts":
-                    msg = "Run main.py --mode experts for full panel."
-                    if console: console.print(msg)
-                    else: print(msg)
+                elif cmd == "/temp":
+                    if len(parts) >= 2:
+                        try:
+                            temp = max(0.0, min(2.0, float(parts[1])))
+                            if console: console.print(f"[green]Temperature set to {temp:.2f}[/green]")
+                            else: print(f"Temperature set to {temp:.2f}")
+                        except ValueError:
+                            if console: console.print("[red]Invalid temperature value[/red]")
+                elif cmd == "/mtp":
+                    if len(parts) >= 2:
+                        use_mtp = parts[1].lower() in ("on", "true", "1", "yes")
+                        if console: console.print(f"[green]MTP speculative acceleration: {'ON' if use_mtp else 'OFF'}[/green]")
+                        else: print(f"MTP speculative acceleration: {'ON' if use_mtp else 'OFF'}")
+                elif cmd == "/clear":
+                    if os.name == "nt": os.system("cls")
+                    else: os.system("clear")
+                elif cmd == "/stats":
+                    total_p = sum(p.numel() for p in model.parameters())
+                    if console: console.print(f"[magenta]Model: {total_p/1e6:.1f}M params | Device: {device} | Temp: {temp} | MTP: {use_mtp}[/magenta]")
+                    else: print(f"Model: {total_p/1e6:.1f}M params | Device: {device} | Temp: {temp} | MTP: {use_mtp}")
                 continue
-                
+
             # Request-level routing: pick ONE domain adapter, base as fallback.
             routed = None
             if router is not None:
@@ -193,27 +207,44 @@ def run_interactive_chat(model, tokenizer, device, temp=0.8, top_p=0.95, router=
                     model.active_category = routed
             if console and routed is not None:
                 console.print(f"[dim]→ routed to adapter: {routed}[/dim]")
-            elif console:
-                console.print("[dim]→ base (no adapter)[/dim]")
 
-            formatted_input = f"<s><|user|>\n{user_input}\n<|assistant|>\n"
+            formatted_input = f"<|user|>\n{user_input}\n<|assistant|>\n"
             tokens = tokenizer.encode(formatted_input)
             prompt = torch.tensor([tokens], device=device)
+
             if console:
-                console.print(f"[dim]Thinking...[/dim]")
-            with torch.no_grad():
-                out = model.generate(prompt, max_new_tokens=50, temperature=temp, use_mtp_speculation=True)
-            # generate() returns prompt + continuation concatenated; only decode
-            # the newly generated tail so the REPL doesn't echo the user's input.
-            new_tokens = out[0, prompt.shape[1]:].tolist()
-            response = tokenizer.decode(new_tokens)
-            if console:
-                console.print(f"[bold yellow]Assistant:[/bold yellow] {response}")
+                console.print("[bold yellow]Tantra >[/bold yellow] ", end="")
             else:
-                print(f"Assistant: {response}")
-                
+                print("Tantra > ", end="", flush=True)
+
+            t0 = time.perf_counter()
+            generated_tokens = []
+            with torch.no_grad():
+                for token_id in model.generate_stream(prompt, max_new_tokens=256, temperature=temp, top_p=top_p, use_mtp_speculation=use_mtp):
+                    generated_tokens.append(token_id)
+                    piece = tokenizer.decode([token_id])
+                    if console:
+                        console.print(piece, end="")
+                    else:
+                        print(piece, end="", flush=True)
+
+            elapsed = max(time.perf_counter() - t0, 1e-4)
+            tok_speed = len(generated_tokens) / elapsed
+
+            if console:
+                console.print(f"\n[dim]({len(generated_tokens)} tokens, {tok_speed:.1f} tok/s)[/dim]\n")
+            else:
+                print(f"\n({len(generated_tokens)} tokens, {tok_speed:.1f} tok/s)\n")
+
         except (KeyboardInterrupt, EOFError):
             break
+        except Exception as e:
+            if console:
+                console.print(f"[red]Error: {str(e)}[/red]")
+            else:
+                print(f"Error: {str(e)}")
+            continue
+
 
 def detect_hardware():
     log.info("== [1] HARDWARE AUTO-DETECTION & PROACTIVE HEALTH ==")
@@ -277,11 +308,6 @@ def detect_hardware():
     log.info(f"  Compression: {rt.compression_level}")
     log.info(f"  Expert Cache: {rt.expert_cache_size} in RAM | batch: {rt.batch_size}")
     
-    # Proactive Health Watchdog
-    from Tantra.health import HealthWatchdog
-    watchdog = HealthWatchdog(MODEL_DIR)
-    watchdog.audit_storage_and_compress_duplicates(threshold_mb=5000.0)
-    
     sched = AdaptiveScheduler(rt)
     sched.start()
     return rt, sched
@@ -329,11 +355,6 @@ def build_vocab(cfg: VocabConfig, corpus_file: str | None = None) -> UnifiedToke
 
     patcher = MegabytePatcher()
     tok = UnifiedTokenizer(cfg, bpe, patcher)
-    vocab_payload = {"vocab_size": cfg.vocab_size, "special_tokens": cfg.special_tokens, "real_tokenizer": True}
-
-    for vpath in [VOCAB_PATH, os.path.join(BEST_DIR, "tokenizer.pt"), os.path.join(LATEST_DIR, "tokenizer.pt"), os.path.join(CHECKPOINTS_DIR, "tokenizer.pt")]:
-        torch.save(vocab_payload, vpath)
-
     log.info(f"  Vocab Size       : {bpe.vocab_size:,} tokens")
     log.info(f"  BPE Subword Merges: {bpe.vocab_size - len(cfg.special_tokens) - 256:,} merge rules")
     log.info(f"  Special Tokens   : {len(cfg.special_tokens)} (<pad>, <unk>, <s>, </s>, <|user|>, <|assistant|>, <|system|>)")
@@ -358,23 +379,17 @@ def init_experts(moe_cfg, model_cfg, codec):
         for i, spec in enumerate(DOMAIN_SPECS):
             reg.register_new(i, spec, 2_000_000_000)
         log.info(f"  Registered {len(reg)} domain experts: {', '.join(DOMAIN_SPECS)}")
-        
-    sample_expert_weight = torch.randn(1024, 1024, dtype=torch.float32)
-    dna_path = os.path.join(EXPERTS_DIR, "expert_0.dna")
-    if not os.path.exists(dna_path):
-        codec.compress(sample_expert_weight, dna_path)
-        log.info(f"  Compressed expert_0 weight tensor -> {dna_path}")
-        
+
     return reg, LazyExpertLoader(moe_cfg, model_cfg, reg, codec)
 
 
-ADAPTER_ROOT = os.path.join(MODEL_DIR, "CPUMoE2_32K")
+ADAPTER_ROOT = os.path.join(MODEL_DIR, "MoE2_32K")
 ADAPTER_CHECKPOINT = os.path.join(ADAPTER_ROOT, "checkpoint_adapters.pt")
 
 
 def run_adapter_mode(action: str, name: str | None = None, description: str = "", topics: str | None = None, rank: int = 32, keywords: str | None = None) -> None:
     """Manage routeable adapter categories (add/list/remove/init)."""
-    from tools.init_adapter_checkpoint import build_adapter_checkpoint
+    from Tantra.adapters import build_adapter_checkpoint
     registry = AdapterRegistry()
     registry.seed_defaults()
 
@@ -405,7 +420,7 @@ def run_adapter_mode(action: str, name: str | None = None, description: str = ""
 
     if action == "init":
         if not os.path.exists(os.path.join(ADAPTER_ROOT, "checkpoint_init.pt")):
-            raise FileNotFoundError("Base checkpoint Model/CPUMoE2_32K/checkpoint_init.pt not found. Run the profile converter first.")
+            raise FileNotFoundError("Base checkpoint Model/MoE2_32K/checkpoint_init.pt not found. Run the profile converter first.")
         result = build_adapter_checkpoint(
             os.path.join(ADAPTER_ROOT, "checkpoint_init.pt"),
             ADAPTER_CHECKPOINT,
@@ -419,7 +434,7 @@ def run_adapter_mode(action: str, name: str | None = None, description: str = ""
 
 def build_adapter_model(rt, vocab_size: int = 32768):
     """Load the MoE-2 / 32K base with installed specialist layers."""
-    from Tantra.cpu_profiles import build_cpu_model
+    from Tantra.model import build_cpu_model
     if not os.path.exists(ADAPTER_CHECKPOINT):
         raise FileNotFoundError(f"Adapter checkpoint not found: {ADAPTER_CHECKPOINT}. Run: python main.py --mode adapter init")
     model = build_cpu_model("moe2", attention_kind="alra", vocab_size=vocab_size)
@@ -430,6 +445,7 @@ def build_adapter_model(rt, vocab_size: int = 32768):
     model.add_category_layers([c.name for c in registry.all()], clone_layer_index=model.config.adapter.clone_layer_index)
     ckpt = torch.load(ADAPTER_CHECKPOINT, map_location="cpu", weights_only=False)
     model.load_state_dict(ckpt["model_state_dict"], strict=False)
+    model.sync_category_gates_from_checkpoint(ckpt["model_state_dict"])
     model = model.to(rt.device)
     return model
 
@@ -496,13 +512,24 @@ def run_training(model, vcfg, steps=30, resume=False):
     trainer.save_checkpoint(latest_ckpt, save_optimizer=True)
 
 
-def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False, eval_every=1000, log_every=50, checkpoint_every=500, batch_size=1, seq_len=128, grad_accumulation_steps=1, data_workers=0, use_latent_reasoning=True, use_mtp_loss=True, compile=False, lr=1e-4, warmup_steps=None, topic_weights=None, training_stage="sft", auto_growth=False, growth_patience=1000, growth_min_delta=0.005, max_layers=None, model_dir=None, adapter_name=None):
+def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False, eval_every=1000, log_every=50, checkpoint_every=500, batch_size=1, seq_len=128, grad_accumulation_steps=1, data_workers=0, use_latent_reasoning=True, use_mtp_loss=True, compile=False, lr=1e-4, weight_decay=0.01, optimizer="adamw", warmup_steps=None, topic_weights=None, training_stage="sft", auto_growth=False, growth_patience=1000, growth_min_delta=0.005, max_layers=None, model_dir=None, adapter_name=None, archive_checkpoints=True, pack_sequences=True):
+
     log.info("== [DATASET PRE-TRAINING MODE] =====================")
     if training_stage not in {"pretrain", "sft"}:
         raise ValueError(f"Unknown training stage: {training_stage}")
     mask_non_assistant = training_stage == "sft"
     stage_label = "full-token pretraining" if not mask_non_assistant else "assistant-only instruction tuning"
     log.info(f"Loading real dataset from: {dataset_path} ({stage_label})")
+    if os.path.isfile(dataset_path):
+        try:
+            with open(dataset_path, "r", encoding="utf-8", errors="ignore") as _f:
+                _line_count = sum(1 for _ in _f)
+            log.info(f"Dataset '{os.path.basename(dataset_path)}' loaded with {_line_count:,} items.")
+            if _line_count < 1000:
+                log.warning(f"[STUB DATASET WARNING] '{os.path.basename(dataset_path)}' contains only {_line_count} lines! Small dataset runs loop every {max(1, _line_count // 8)} steps. Ensure full corpus is used for production training.")
+        except Exception:
+            pass
+
     if tokenizer.bpe.vocab_size == 0 or tokenizer.bpe._tokenizer is None or tokenizer.bpe._tokenizer.get_vocab_size() == 0:
         log.error(f"CRITICAL: BPE Tokenizer is untrained (vocab_size 0)! Aborting training to prevent raw-byte fallback.")
         raise RuntimeError("Tokenizer is falling back to raw bytes (no valid BPE merges found). Please generate a valid tokenizer.json before training.")
@@ -522,8 +549,8 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
         auto_growth = False  # handled per-category below, not on the frozen base
 
     warmup = warmup_steps if warmup_steps is not None else max(50, steps // 10)
-    log.info(f"Learning rate: {lr:.2e}  |  Warmup steps: {warmup}")
-    trainer = NeuroTrainer(model, lr=lr, total_steps=steps, warmup_steps=warmup, grad_accumulation_steps=grad_accumulation_steps, use_latent_reasoning=use_latent_reasoning, use_mtp_loss=use_mtp_loss)
+    log.info(f"Optimizer: {optimizer.upper()}  |  Learning rate: {lr:.2e}  |  Warmup steps: {warmup}")
+    trainer = NeuroTrainer(model, lr=lr, weight_decay=weight_decay, optimizer_name=optimizer, total_steps=steps, warmup_steps=warmup, grad_accumulation_steps=grad_accumulation_steps, use_latent_reasoning=use_latent_reasoning, use_mtp_loss=use_mtp_loss)
 
     checkpoint_root = os.path.abspath(model_dir or MODEL_DIR)
     latest_dir = os.path.join(checkpoint_root, "Latest")
@@ -545,25 +572,48 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
             key=os.path.getmtime,
             reverse=True,
         )
-        candidates = [latest_ckpt, *step_checkpoints, best_ckpt]
+        local_latest = os.path.join(MODEL_DIR, "Latest", "checkpoint_latest.pt")
+        local_root = os.path.join(MODEL_DIR, "checkpoint_latest.pt")
+        root_ckpt = os.path.join(checkpoint_root, "checkpoint_latest.pt")
+        candidates = [local_latest, local_root, latest_ckpt, root_ckpt, *step_checkpoints, best_ckpt]
         seen = set()
         for candidate in candidates:
             if candidate in seen or not os.path.isfile(candidate):
                 continue
             seen.add(candidate)
             try:
-                log.info(f"Trying recovery checkpoint: {candidate}")
+                log.info(f"Loading recovery checkpoint: {candidate} ({os.path.getsize(candidate)/1e6:.1f} MB)...")
                 trainer.load_checkpoint(candidate)
                 resume_target = candidate
                 break
             except Exception as exc:
                 log.warning(f"Skipping unreadable checkpoint {candidate}: {exc}")
         if resume_target is None:
-            raise RuntimeError("--resume was requested, but no readable checkpoint was found. Refusing to silently start from scratch.")
+            log.warning("--resume was requested, but no readable checkpoint was found in Model/. Starting fresh training run from step 1.")
 
     if resume_target:
         log.info(f"RESUMING training from recovered checkpoint: {resume_target}")
+        if steps <= trainer.step_count:
+            effective_target = trainer.step_count + steps
+            log.info(f"  [Incremental Steps] Specified --steps {steps} <= checkpoint step {trainer.step_count}. "
+                     f"Running +{steps} steps -> new target: {effective_target} steps.")
+            steps = effective_target
+        prev_stage = getattr(trainer, "training_stage", None)
+        if training_stage == "sft" and prev_stage != "sft" and prev_stage is not None:
+            log.info(f"  [SFT Stage Transition] Transitioning from {prev_stage} -> sft. Re-initializing optimizer & scheduler (LR={lr:.2e}, warmup={warmup}).")
+            trainer.lr = lr
+            trainer.optimizer = torch.optim.AdamW(trainer.model.parameters(), lr=lr, betas=(0.9, 0.95), weight_decay=0.01, eps=1e-8)
+            sft_steps = max(steps - trainer.step_count, 100)
+            actual_warmup = max(1, min(warmup, sft_steps // 5))
+            from Tantra.train import create_lr_scheduler
+            trainer.scheduler = create_lr_scheduler(trainer.optimizer, warmup_steps=actual_warmup, total_steps=sft_steps, min_lr_ratio=0.01)
+            trainer.training_stage = "sft"
+        else:
+            stage_name = training_stage or prev_stage or "pretrain"
+            trainer.training_stage = stage_name
+            log.info(f"  [{stage_name.upper()} Stage Resume] Preserved AdamW optimizer momentum buffers and LR scheduler position across resume boundary.")
     else:
+        trainer.training_stage = training_stage or "pretrain"
         log.info("Starting fresh dataset training run.")
 
     if compile:
@@ -580,17 +630,34 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
                 log.warning(f"  torch.compile failed ({e}), continuing uncompiled.")
 
     def eval_callback(step):
-        # This is a qualitative generation sample, not a held-out benchmark.
-        log.info("\n--- [ SAMPLE GENERATION @ Step %d ] ---" % step)
-        prompt_text = "User: What is Tantra?\nAssistant:"
-        log.info("Prompt: %s" % prompt_text)
-        prompt_ids = torch.tensor([tokenizer.encode(prompt_text)], device=model.embed.weight.device)
-        out = model.generate(prompt_ids, max_new_tokens=32, temperature=0.7, use_mtp_speculation=True)
-        # Only decode the newly generated continuation, not the echoed prompt.
-        new_tokens = out[0, prompt_ids.shape[1]:].tolist()
-        response = tokenizer.decode(new_tokens)
-        log.info("Output: %s" % response)
-        log.info("----------------------------------\n")
+        # Evaluates 4 diverse domain prompts to monitor multi-skill emergence
+        log.info(f"┌── 🌐 [ MULTI-DOMAIN & ZERO-SHOT WORLD BENCHMARK @ Step {step:,} ] " + "─" * 20)
+        test_prompts = [
+            ("General", "💬", "<|user|>\nWhat is Tantra LLM?\n\n<|assistant|>\n"),
+            ("Coding",  "💻", "<|user|>\nWrite a Python function to reverse a string.\n\n<|assistant|>\n"),
+            ("Math",    "🔢", "<|user|>\nSolve for x in 2x + 6 = 14.\n\n<|assistant|>\n"),
+            ("Science", "🔬", "<|user|>\nState Newton's First Law of Motion.\n\n<|assistant|>\n")
+        ]
+        raw_model = getattr(model, "module", getattr(model, "_orig_mod", model))
+        for domain, icon, prompt_text in test_prompts:
+            prompt_ids = torch.tensor([tokenizer.encode(prompt_text)], device=raw_model.embed.weight.device)
+            out = raw_model.generate(prompt_ids, max_new_tokens=48, min_new_tokens=1, temperature=0.7, top_p=0.9, repetition_penalty=1.2)
+            new_tokens = out[0, prompt_ids.shape[1]:].tolist()
+            response = tokenizer.decode(new_tokens).strip().replace("\n", " ")
+            log.info(f"│ {icon} [{domain:7s}]: {response[:90]}")
+        
+        # Zero-Shot World Knowledge MMLU Benchmark Evaluation
+        try:
+            from Tantra.world_eval import evaluate_zero_shot_world_knowledge
+            world_res = evaluate_zero_shot_world_knowledge(raw_model, tokenizer)
+            if world_res:
+                log.info(f"│ 🌍 [World MMLU]: 🏆 {world_res['world_mmlu_accuracy']:.1f}% Zero-Shot Accuracy ({world_res['correct_samples']}/{world_res['total_samples']} correct)")
+        except Exception:
+            pass
+        log.info("└" + "─" * 80)
+
+
+
 
         # Bidirectional per-category growth (adapter training only). During a
         # single-category run every token routes to this category, so usage is
@@ -625,18 +692,25 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
         # Avoid saving immediately upon resuming (step == trainer.step_count when just loaded)
         # We only save if we have actually progressed.
         if step > 0:
-            # Save to Latest (full state with optimizer for seamless resume)
-            trainer.save_checkpoint(latest_ckpt, save_optimizer=True)
+            # Save to Latest asynchronously (full state with optimizer for seamless resume)
+            trainer.save_checkpoint(latest_ckpt, save_optimizer=True, async_write=True)
             
-            # Save side-by-side step checkpoint in Checkpoints/ folder
-            step_ckpt = os.path.join(checkpoints_dir, f"checkpoint_step_{step}.pt")
-            trainer.save_checkpoint(step_ckpt, save_optimizer=True)
-            
-            # Save to Best folder if EMA loss improved or milestone step
-            if (trainer.ema_loss is not None and trainer.ema_loss <= trainer.best_loss) or step % (eval_every * 4) == 0 or step == steps:
-                version_name = f"Tantra_v1_step_{step}.pt"
-                trainer.save_checkpoint(os.path.join(best_dir, version_name), save_optimizer=False)
-                trainer.save_checkpoint(best_ckpt, save_optimizer=False)
+            if archive_checkpoints:
+                # Optional archive copies; CPU profiles use only Latest by
+                # default to avoid spending disk on repeated optimizer state.
+                step_ckpt = os.path.join(checkpoints_dir, f"checkpoint_step_{step}.pt")
+                trainer.save_checkpoint(step_ckpt, save_optimizer=True, async_write=True)
+                if getattr(trainer, "is_new_best", False):
+                    trainer.save_checkpoint(best_ckpt, save_optimizer=False, async_write=True)
+                    log.info(f"🏆 [NEW BEST CHECKPOINT] Val Loss: {trainer.best_val_loss:.4f} -> {os.path.basename(best_ckpt)}")
+                    trainer.is_new_best = False
+
+
+                if step % (eval_every * 4) == 0 or step == steps:
+                    version_name = f"Tantra_v1_step_{step}.pt"
+                    trainer.save_checkpoint(os.path.join(best_dir, version_name), save_optimizer=False, async_write=True)
+
+
             
             trainer._last_saved_step = step
 
@@ -646,9 +720,9 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
             # The evaluation callback has just created the same exact latest
             # recovery state. Do not write another multi-gigabyte file.
             return
-        trainer.save_checkpoint(latest_ckpt, save_optimizer=True)
+        trainer.save_checkpoint(latest_ckpt, save_optimizer=True, async_write=True)
         trainer._last_saved_step = step
-        log.info("Recovery checkpoint saved at step %d.", step)
+        log.info("Recovery checkpoint queued at step %d.", step)
 
     # Record the starting step so we don't save it immediately
     trainer._last_saved_step = trainer.step_count
@@ -724,10 +798,10 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
             fallback = glob.glob(os.path.join(dataset_path, "*.jsonl"))
             if fallback:
                 dataset = JSONLDataset(fallback[0], tokenizer, seq_len=seq_len,
-                                      max_samples=max_samples, mask_non_assistant=mask_non_assistant)
+                                      max_samples=max_samples, mask_non_assistant=mask_non_assistant, pack_sequences=pack_sequences)
             else:
                 dataset = JSONLDataset(dataset_path, tokenizer, seq_len=seq_len,
-                                      max_samples=max_samples, mask_non_assistant=mask_non_assistant)
+                                      max_samples=max_samples, mask_non_assistant=mask_non_assistant, pack_sequences=pack_sequences)
     else:
         bin_cache = find_bin_cache(dataset_path)
         if bin_cache:
@@ -737,14 +811,24 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
                                              mask_non_assistant=mask_non_assistant)
         else:
             dataset = JSONLDataset(dataset_path, tokenizer, seq_len=seq_len,
-                                  max_samples=max_samples, mask_non_assistant=mask_non_assistant)
-    
+                                  max_samples=max_samples, mask_non_assistant=mask_non_assistant, pack_sequences=pack_sequences)
+
+    val_loader = None
+    if os.path.isfile(dataset_path):
+        val_dataset = JSONLDataset(dataset_path, tokenizer, seq_len=seq_len, max_samples=100, mask_non_assistant=mask_non_assistant, split="val", val_ratio=0.05, pack_sequences=pack_sequences)
+        val_loader = torch.utils.data.DataLoader(val_dataset, batch_size=batch_size, num_workers=0)
+
+
+
     dataloader = torch.utils.data.DataLoader(
         dataset, batch_size=batch_size, num_workers=data_workers,
+        pin_memory=torch.cuda.is_available(),
         persistent_workers=data_workers > 0, prefetch_factor=4 if data_workers > 0 else None,
     )
+    enrichment = 0.0 if training_stage == "sft" else 0.02
     try:
-        trainer.train_dataset(dataloader, max_steps=steps, log_every=log_every, eval_every=eval_every, eval_callback=eval_callback, checkpoint_every=checkpoint_every, checkpoint_callback=checkpoint_callback, tokenizer=tokenizer, use_latent_reasoning=use_latent_reasoning, auto_growth=auto_growth, growth_patience=growth_patience, growth_min_delta=growth_min_delta, max_layers=max_layers)
+        trainer.train_dataset(dataloader, max_steps=steps, log_every=log_every, eval_every=eval_every, eval_callback=eval_callback, checkpoint_every=checkpoint_every, checkpoint_callback=checkpoint_callback, tokenizer=tokenizer, enrichment_rate=enrichment, use_latent_reasoning=use_latent_reasoning, auto_growth=auto_growth, growth_patience=growth_patience, growth_min_delta=growth_min_delta, max_layers=max_layers, val_loader=val_loader)
+
     except KeyboardInterrupt:
         # Ctrl+C happens after an optimizer boundary in many practical runs.
         # Save that completed state before allowing the process to stop.
@@ -783,7 +867,7 @@ def serve(model, tokenizer, port=8000, expert_dir=None):
     log.info("== [PRODUCTION WEB SERVER & DASHBOARD MODE] =========")
     log.info(f"  Launching Interactive Web UI & OpenAI REST API on http://localhost:{port}")
     try:
-        from server import start_server
+        from webui.server import start_server
         start_server(host="0.0.0.0", port=port)
     except Exception as e:
         log.error(f"Failed to start Tantra web server: {e}")
@@ -796,20 +880,25 @@ def main():
     parser.add_argument("--mode", default="full",
                         choices=["full", "probe", "vocab", "train", "dataset", "eval", "compress", "generate", "serve", "status", "experts", "chat", "adapter"],
                         help="Execution mode")
+    parser.add_argument("--checkpoint", type=str, default=None, help="Path to custom .pt model checkpoint to load (for chat, eval, serve)")
+    parser.add_argument("--pack-sequences", action=argparse.BooleanOptionalAction, default=True, help="Enable continuous document sequence packing (0% padding waste)")
     parser.add_argument("--dataset", type=str, default=DEFAULT_DATASET, help="JSONL dataset path")
     parser.add_argument("--steps", type=int, default=30, help="Training steps")
     parser.add_argument("--seq-len", type=int, default=128, help="Context sequence length window")
     parser.add_argument("--use-mtp", action=argparse.BooleanOptionalAction, default=True, help="Enable/disable Multi-Token Prediction (MTP)")
-    parser.add_argument("--temperature", type=float, default=0.8, help="Sampling temperature")
-    parser.add_argument("--top-p", type=float, default=0.95, help="Top-p nucleus sampling")
+    parser.add_argument("--temperature", type=float, default=0.7, help="Sampling temperature")
+    parser.add_argument("--top-p", type=float, default=0.9, help="Top-p nucleus sampling")
     parser.add_argument("--port", type=int, default=8000, help="Server port (serve mode)")
+    parser.add_argument("--device", type=str, default="auto", help="Compute device: auto, cpu, cuda, mps")
     parser.add_argument("--resume", action="store_true", help="Resume from latest checkpoint if available")
-    parser.add_argument("--eval-every", type=int, default=1000, help="Run a qualitative generation sample and archive checkpoint every N steps")
-    parser.add_argument("--log-every", type=int, default=10, help="Print a rolling training summary every N optimizer steps")
+    parser.add_argument("--fresh", action="store_true", help="Start fresh on official 38.6M architecture without reading previous checkpoints")
+    parser.add_argument("--eval-every", type=int, default=500, help="Run a qualitative generation sample and archive checkpoint every N steps")
+    parser.add_argument("--log-every", type=int, default=50, help="Print a rolling training summary every N optimizer steps")
     parser.add_argument("--checkpoint-every", type=int, default=500, help="Save a resumable recovery checkpoint every N optimizer steps (0 disables; default 500 minimizes I/O overhead)")
     parser.add_argument("--batch-size", type=int, default=1, help="Batch size for training")
     parser.add_argument("--grad-accum", type=int, default=1, help="Gradient accumulation steps (larger effective batch without more RAM; 1 = off)")
     parser.add_argument("--data-workers", type=int, default=0, help="Parallel data-loading/tokenization workers (overlaps tokenization with training compute; 0 = synchronous/main-thread, as before)")
+
     parser.add_argument("--training-stage", choices=["pretrain", "sft"], default="sft", help="pretrain uses full-token loss; sft supervises assistant replies only")
     parser.add_argument("--latent-reasoning", action=argparse.BooleanOptionalAction, default=None, help="Enable/disable latent reasoning. Defaults off for pretraining and on for SFT.")
     parser.add_argument("--mtp-loss", action=argparse.BooleanOptionalAction, default=None, help="Train the MTP auxiliary head. Defaults off for pretraining and on for SFT.")
@@ -818,22 +907,36 @@ def main():
     parser.add_argument("--growth-min-delta", type=float, default=0.005, help="Minimum EMA-loss improvement required to avoid auto-growth")
     parser.add_argument("--max-layers", type=int, default=None, help="Hard maximum depth when --auto-growth is enabled")
     parser.add_argument("--compile", action="store_true", help="Compile model with torch.compile(backend='inductor') for CPU/GPU kernel fusion")
-    parser.add_argument("--device", type=str, default="auto", help="Target device (auto, cuda, cpu, mps)")
-    parser.add_argument("--lr", type=float, default=1e-4, help="Learning rate (default: 1e-4; use 5e-5 or lower for fine-tuning)")
+    parser.add_argument("--optimizer", type=str, choices=["adamw", "adam", "lion", "sgd"], default="adamw", help="Optimizer choice (default: adamw)")
+    parser.add_argument("--lr", type=float, default=None, help="Learning rate (default: 1e-4 for AdamW, 5e-5 for Lion)")
+    parser.add_argument("--weight-decay", type=float, default=None, help="Weight decay (default: 0.01 for AdamW, 0.05 for Lion)")
     parser.add_argument("--warmup", type=int, default=None, help="LR warmup steps (default: steps // 10)")
     parser.add_argument("--topic-weights", type=str, default=None, help="JSON dict of topic weights, e.g. '{\"general\":40,\"code\":15}'")
+    parser.add_argument("--model-dir", type=str, default=None, help="Custom root directory for model checkpoints (e.g. Google Drive)")
     parser.add_argument("--adapter-action", default="list", choices=["list", "add", "remove", "init"],
                         help="--mode adapter sub-action")
     parser.add_argument("--adapter", type=str, default=None,
                         help="Category to train (dataset mode) or force for chat/generate. None routes per-request.")
     parser.add_argument("--adapter-desc", type=str, default="", help="Description when adding a category")
     parser.add_argument("--adapter-topics", type=str, default=None, help="Comma list of Datasets/<topic> folders for a new category")
-    parser.add_argument("--adapter-keywords", type=str, default=None, help="Comma list of routing keywords for a new category")
+    parser.add_argument("--dim", type=int, default=512, help="Embedding dimension (default: 512)")
+    parser.add_argument("--layers", type=int, default=8, help="Number of NeuroCore layers (default: 8)")
+    parser.add_argument("--heads", type=int, default=8, help="Number of attention heads (default: 8)")
+    parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
     args = parser.parse_args()
 
+    from Tantra.utils import set_seed
+    set_seed(args.seed)
+
     vcfg = VocabConfig()
-    mcfg = NeuroCoreConfig.small()
+    mcfg = NeuroCoreConfig()
+    mcfg.block.alra.dim = args.dim
+    mcfg.block.sgp.dim = args.dim
+    mcfg.block.num_layers = args.layers
+    mcfg.block.alra.num_heads = args.heads
+    mcfg.block.alra.head_dim = max(1, args.dim // args.heads)
     mcfg.use_mtp = args.use_mtp
+
     moe  = MoEConfig()
     ccfg = CompressionConfig()
 
@@ -896,8 +999,38 @@ def main():
     # fail on every router tensor.
     if len(reg) > 0:
         mcfg.moe.num_experts = len(reg)
-    restore_checkpoint_architecture(mcfg, os.path.join(LATEST_DIR, "checkpoint_latest.pt"))
-    model = init_model(mcfg, rt.device)
+    if getattr(args, "fresh", False):
+        mcfg = cpu_dense_config(vocab_size=vcfg.vocab_size, attention_kind="causal")
+        model = build_cpu_model("dense", attention_kind="causal", vocab_size=vcfg.vocab_size)
+        log.info(f"Initialized fresh official 38.6M CPU profile model ({model.num_parameters:,} parameters).")
+    else:
+        ckpt_candidates = [
+            os.path.join(MODEL_DIR, "Latest", "checkpoint_latest.pt"),
+            os.path.join(MODEL_DIR, "checkpoint_latest.pt"),
+            os.path.join(args.model_dir or MODEL_DIR, "Latest", "checkpoint_latest.pt"),
+            os.path.join(args.model_dir or MODEL_DIR, "checkpoint_latest.pt"),
+        ]
+        latest_ckpt_file = next((p for p in ckpt_candidates if os.path.exists(p) and os.path.getsize(p) > 10 * 1024 * 1024), ckpt_candidates[0])
+        restore_checkpoint_architecture(mcfg, latest_ckpt_file)
+        _ckpt_path = latest_ckpt_file
+        if os.path.exists(_ckpt_path) and os.path.getsize(_ckpt_path) > 10 * 1024 * 1024 and mcfg is not None:
+            try:
+                log.info(f"Reading model config from checkpoint: {_ckpt_path} ({os.path.getsize(_ckpt_path)/1e6:.1f} MB)...")
+                _ckpt = torch.load(_ckpt_path, map_location="cpu", weights_only=False)
+                if isinstance(_ckpt, dict):
+                    _ckpt_cfg = _ckpt.get("config", None)
+                    if _ckpt_cfg is not None:
+                        _ckpt_cfg.vocab.vocab_size = vcfg.vocab_size
+                        mcfg = _ckpt_cfg
+                        log.info("Rebuilt model architecture from checkpoint config "
+                                 f"(dim={_ckpt_cfg.block.alra.dim}, layers={_ckpt_cfg.block.num_layers}, vocab={_ckpt_cfg.vocab.vocab_size}).")
+            except Exception as _exc:
+                log.warning(f"Could not read checkpoint config: {_exc}; using default architecture.")
+        model = init_model(mcfg, rt.device)
+        dev_str = str(getattr(rt.device, "type", rt.device))
+        if torch.cuda.is_available() and torch.cuda.device_count() > 1 and dev_str.startswith("cuda") and args.mode in ("train", "dataset"):
+            log.info(f"  [Multi-GPU DataParallel] Enabling {torch.cuda.device_count()}x GPUs for parallel batch execution.")
+            model = torch.nn.DataParallel(model)
 
     # When a category is requested for dataset/chat/generate/serve, load the
     # MoE-2 / 32K adapter checkpoint (shared base + specialist layers) instead
@@ -908,15 +1041,13 @@ def main():
     trainer = NeuroTrainer(model, lr=1e-4)
     # Check if a checkpoint exists for status — use LATEST_DIR constant (capital L)
     # not the literal "latest" path which never matches on Windows.
-    latest_ckpt_status = os.path.join(LATEST_DIR, "checkpoint_latest.pt")
-    if os.path.exists(latest_ckpt_status):
-        try:
-            trainer.load_checkpoint(latest_ckpt_status)
-        except Exception as e:
-            log.warning(f"Could not load latest checkpoint: {e}")
-
-
     if args.mode == "status":
+        latest_ckpt_status = os.path.join(args.model_dir or MODEL_DIR, "Latest", "checkpoint_latest.pt")
+        if os.path.exists(latest_ckpt_status):
+            try:
+                trainer.load_checkpoint(latest_ckpt_status)
+            except Exception as e:
+                log.warning(f"Could not load latest checkpoint for status: {e}")
         print_status_dashboard(model, trainer, reg, rt)
         sched.stop()
         return
@@ -927,6 +1058,23 @@ def main():
         return
         
     if args.mode == "chat":
+        # Load custom checkpoint if passed or automatically load Best / Latest
+        ckpt_to_load = args.checkpoint
+        if ckpt_to_load is None:
+            for cand in [
+                os.path.join(MODEL_DIR, "Best", "checkpoint_best.pt"),
+                os.path.join(MODEL_DIR, "Latest", "checkpoint_latest.pt"),
+            ]:
+                if os.path.exists(cand):
+                    ckpt_to_load = cand
+                    break
+        if ckpt_to_load and os.path.exists(ckpt_to_load):
+            try:
+                trainer.load_checkpoint(ckpt_to_load)
+                log.info(f"Loaded checkpoint for chat: {ckpt_to_load}")
+            except Exception as e:
+                log.warning(f"Could not load checkpoint {ckpt_to_load}: {e}")
+
         if args.adapter is not None:
             if args.adapter not in model.category_layers:
                 log.warning(f"Category '{args.adapter}' not in adapter checkpoint; ignoring --adapter.")
@@ -935,9 +1083,10 @@ def main():
         else:
             router = RequestRouter(AdapterRegistry())
             router._model = model  # allow per-request routing to set active category
-            run_interactive_chat(model, tok, rt.device, args.temperature, args.top_p, router=router)
+            run_interactive_chat(model, tok, rt.device, args.temperature, args.top_p, router=router, use_mtp=args.use_mtp)
         sched.stop()
         return
+
 
     if args.mode == "train":
         run_training(model, vcfg, steps=args.steps, resume=args.resume)
@@ -955,7 +1104,21 @@ def main():
         use_mtp_loss = args.mtp_loss
         if use_mtp_loss is None:
             use_mtp_loss = args.training_stage == "sft"
-        run_dataset_training(model, tok, args.dataset, steps=args.steps, resume=args.resume, eval_every=args.eval_every, log_every=args.log_every, checkpoint_every=args.checkpoint_every, batch_size=args.batch_size, seq_len=args.seq_len, grad_accumulation_steps=args.grad_accum, data_workers=args.data_workers, use_latent_reasoning=use_latent_reasoning, use_mtp_loss=use_mtp_loss, compile=args.compile, lr=args.lr, warmup_steps=args.warmup, topic_weights=topic_weights, training_stage=args.training_stage, auto_growth=args.auto_growth, growth_patience=args.growth_patience, growth_min_delta=args.growth_min_delta, max_layers=args.max_layers, adapter_name=args.adapter, model_dir=(ADAPTER_ROOT if args.adapter is not None else None))
+
+        # Optimizer-specific hyperparameter defaults
+        resolved_optimizer = (args.optimizer or "adamw").lower().strip()
+        if args.lr is not None:
+            resolved_lr = args.lr
+        else:
+            resolved_lr = 5e-5 if resolved_optimizer == "lion" else 1e-4
+
+        if args.weight_decay is not None:
+            resolved_wd = args.weight_decay
+        else:
+            resolved_wd = 0.05 if resolved_optimizer == "lion" else 0.01
+
+        run_dataset_training(model, tok, args.dataset, steps=args.steps, resume=args.resume, eval_every=args.eval_every, log_every=args.log_every, checkpoint_every=args.checkpoint_every, batch_size=args.batch_size, seq_len=args.seq_len, grad_accumulation_steps=args.grad_accum, data_workers=args.data_workers, use_latent_reasoning=use_latent_reasoning, use_mtp_loss=use_mtp_loss, compile=args.compile, lr=resolved_lr, weight_decay=resolved_wd, optimizer=resolved_optimizer, warmup_steps=args.warmup, topic_weights=topic_weights, training_stage=args.training_stage, auto_growth=args.auto_growth, growth_patience=args.growth_patience, growth_min_delta=args.growth_min_delta, max_layers=args.max_layers, adapter_name=args.adapter, model_dir=(ADAPTER_ROOT if args.adapter is not None else args.model_dir), pack_sequences=args.pack_sequences)
+
     elif args.mode == "eval":
         run_evaluation(model, tok, args.dataset)
     elif args.mode == "generate":

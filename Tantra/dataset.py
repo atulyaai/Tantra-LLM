@@ -14,10 +14,13 @@ silently straddle two unrelated documents/examples.
 """
 from __future__ import annotations
 
+import hashlib
 import json
+import math
 import os
 import random
 from typing import Iterator, List, Dict, Any, Optional, Tuple
+
 
 import torch
 from torch.utils.data import IterableDataset, DataLoader
@@ -26,8 +29,72 @@ from Tantra.utils import get_logger
 
 log = get_logger(__name__)
 
+import re
+
 IGNORE_INDEX = -100
 EOS_ID = 2  # must match VocabConfig.special_tokens["<eos>"]
+_NON_LATIN_SCRIPT_REGEX = re.compile(r'[\u0400-\u04FF\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\u0900-\u0D7F\u0E00-\u0E7F\u3040-\u30FF\u4E00-\u9FFF\uAC00-\uD7AF]')
+
+
+class TokenJuiceEngine:
+    """Dataset signal filtering, optional synthetic enrichment, and weighting."""
+
+    def __init__(self, entropy_threshold: float = 0.5, enrichment_rate: float = 0.1):
+        self.entropy_threshold, self.enrichment_rate = entropy_threshold, enrichment_rate
+        self.synthetic_pool: List[Tuple[List[int], List[int]]] = []
+
+    def register_synthetic_pair(self, input_ids: List[int], target_ids: List[int]) -> None:
+        if isinstance(input_ids, list) and isinstance(target_ids, list) and all(isinstance(t, int) for t in input_ids + target_ids):
+            self.synthetic_pool.append((input_ids, target_ids))
+
+    def compute_token_entropy(self, token_ids: List[int], vocab_size: int = 32768) -> float:
+        if not token_ids:
+            return 0.0
+        counts: Dict[int, int] = {}
+        for token in token_ids:
+            counts[token] = counts.get(token, 0) + 1
+        entropy = -sum((count / len(token_ids)) * math.log2(count / len(token_ids)) for count in counts.values())
+        return entropy / max(math.log2(vocab_size), 1.0)
+
+    def squeeze_tokens(self, token_ids: List[int], vocab_size: int = 32768) -> List[int]:
+        if len(token_ids) < 4:
+            return token_ids
+        kept = [chunk for index in range(0, len(token_ids), 8) if (chunk := token_ids[index:index + 8]) and (index == 0 or self.compute_token_entropy(chunk, vocab_size) >= self.entropy_threshold)]
+        return [token for chunk in kept for token in chunk] or token_ids
+
+    @staticmethod
+    def _fit_to_length(ids: List[int], length: int) -> List[int]:
+        return ids[:length] + [0] * max(0, length - len(ids))
+
+    def enrich_batch(self, x: torch.Tensor, y: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        if not self.synthetic_pool or random.random() > self.enrichment_rate:
+            return x, y
+        input_ids, target_ids = random.choice(self.synthetic_pool)
+        full_ids = input_ids + target_ids
+        length = x.shape[-1]
+        pad_len = max(0, length + 1 - len(full_ids))
+        sample_ids = (full_ids + [0] * pad_len)[: length + 1]
+
+        prompt_len = len(input_ids)
+        ans_len = len(target_ids)
+        target_mask = [False] * prompt_len + [True] * ans_len + [False] * pad_len
+        target_mask = target_mask[: length + 1]
+
+        x_syn = torch.tensor(sample_ids[:-1], dtype=x.dtype, device=x.device)
+        y_syn = torch.tensor(sample_ids[1:], dtype=y.dtype, device=y.device)
+        y_mask = torch.tensor(target_mask[1:], dtype=torch.bool, device=y.device)
+        y_syn = torch.where(y_mask, y_syn, torch.full_like(y_syn, IGNORE_INDEX))
+
+        x[-1:] = x_syn.unsqueeze(0)
+        y[-1:] = y_syn.unsqueeze(0)
+        return x, y
+
+    @staticmethod
+    def compute_dynamic_loss_weights(targets: torch.Tensor, high_priority_ids: List[int]) -> torch.Tensor:
+        weights = torch.ones_like(targets, dtype=torch.float32)
+        if high_priority_ids:
+            weights[torch.isin(targets, torch.tensor(high_priority_ids, device=targets.device))] = 2.5
+        return weights
 
 
 def format_jsonl_prompt(item: Dict[str, Any]) -> str:
@@ -65,28 +132,40 @@ def format_jsonl_prompt(item: Dict[str, Any]) -> str:
 def build_prompt_segments(item: Dict[str, Any]) -> Optional[List[Tuple[str, bool]]]:
     """Split a chat-formatted item into (text, is_target) segments.
 
-    Returns None if `item` doesn't look like a structured chat record (no
-    `messages` list and no system/user/assistant fields) — callers should
-    fall back to treating the whole line as fully-supervised raw text.
+    Supports:
+      - messages: [{"role": "...", "content": "..."}]
+      - conversations: [{"from": "human/gpt", "value": "..."}]
+      - system / user / assistant
+      - instruction / input / output (Alpaca format)
+      - prompt / response or prompt / completion
     """
     segments: List[Tuple[str, bool]] = []
 
-    messages = item.get("messages")
+    # 1. Standard OpenAI chat messages format
+    messages = item.get("messages") or item.get("conversations")
     if messages and isinstance(messages, list):
         for msg in messages:
-            role = msg.get("role", "").strip()
-            content = msg.get("content", "").strip()
+            role = (msg.get("role") or msg.get("from") or "").strip()
+            content = (msg.get("content") or msg.get("value") or "").strip()
             if not (role and content):
                 continue
-            tag = f"<|{'system' if role == 'system' else role}|>\n"
+            norm_role = "assistant" if role in ("assistant", "gpt", "bot", "model") else ("user" if role in ("user", "human") else "system")
+            tag = f"<|{norm_role}|>\n"
             segments.append((tag, False))
-            segments.append((content, role == "assistant"))
+            segments.append((content, norm_role == "assistant"))
             segments.append(("\n\n", False))
         return segments if segments else None
 
-    system = item.get("system", "").strip() if isinstance(item.get("system", ""), str) else ""
-    user = item.get("user", "").strip() if isinstance(item.get("user", ""), str) else ""
-    assistant = item.get("assistant", "").strip() if isinstance(item.get("assistant", ""), str) else ""
+    # 2. Extract flat system, user, assistant fields (including Alpaca & prompt/response aliases)
+    system = (item.get("system") or item.get("system_prompt") or "").strip()
+    user = (item.get("user") or item.get("prompt") or item.get("query") or "").strip()
+    assistant = (item.get("assistant") or item.get("response") or item.get("completion") or item.get("output") or "").strip()
+
+    # If Alpaca-style instruction (+ optional input):
+    instruction = item.get("instruction", "").strip() if isinstance(item.get("instruction", ""), str) else ""
+    input_text = item.get("input", "").strip() if isinstance(item.get("input", ""), str) else ""
+    if instruction:
+        user = f"{instruction}\n\n{input_text}".strip() if input_text else instruction
 
     if not (system or user or assistant):
         return None
@@ -116,7 +195,7 @@ def _encode(tokenizer: Any, text: str) -> List[int]:
 class PretokenizedBinDataset(IterableDataset):
     """
     Streaming IterableDataset over a pre-tokenized .bin cache produced by
-    tools/prepare_dataset.py --dump-bin (a {"tokens": IntTensor, "masks":
+    Tantra/prepare_dataset.py --dump-bin (a {"tokens": IntTensor, "masks":
     BoolTensor} file). Skips BPE encode() entirely at train time — the
     whole point of building the cache — by slicing directly out of the
     already-tokenized tensor instead of re-tokenizing JSONL text.
@@ -181,13 +260,23 @@ class PretokenizedBinDataset(IterableDataset):
 
 def find_bin_cache(dataset_path: str) -> Optional[str]:
     """Return the sibling .bin cache path for a JSONL dataset if it exists
-    (tools/prepare_dataset.py --dump-bin writes <name>.bin next to
+    (Tantra/prepare_dataset.py --dump-bin writes <name>.bin next to
     <name>.jsonl), else None."""
     candidate = os.path.splitext(dataset_path)[0] + ".bin"
     return candidate if os.path.exists(candidate) else None
 
 
+def is_val_line(raw_line: str, val_ratio: float = 0.05) -> bool:
+
+    """Return True if raw_line falls into the held-out validation split based on content hash."""
+    if val_ratio <= 0:
+        return False
+    h = int(hashlib.md5(raw_line.encode("utf-8", errors="ignore")).hexdigest()[:8], 16)
+    return (h % 100) < int(val_ratio * 100)
+
+
 class JSONLDataset(IterableDataset):
+
     """
     Streaming IterableDataset for JSONL files.
     Reads large dataset files line-by-line without loading entire files into RAM.
@@ -195,24 +284,42 @@ class JSONLDataset(IterableDataset):
 
     def __init__(self, jsonl_path: str, tokenizer: Any, seq_len: int = 128,
                  max_samples: Optional[int] = None, mask_non_assistant: bool = True,
-                 insert_doc_boundaries: bool = True):
+                 insert_doc_boundaries: bool = True, shuffle: bool = True,
+                 shuffle_buf_size: int = 2000, seed: int = 42,
+                 val_ratio: float = 0.05, split: str = "train",
+                 pack_sequences: bool = True):
         super().__init__()
         self.jsonl_path = jsonl_path
         self.tokenizer = tokenizer
         self.seq_len = max(1, seq_len)
         self.max_samples = max_samples
-        self.vocab_size = getattr(tokenizer, "vocab_size", 32000)
+        self.vocab_size = getattr(tokenizer, "vocab_size", 32768)
         self.mask_non_assistant = mask_non_assistant
         self.insert_doc_boundaries = insert_doc_boundaries
+        self.shuffle = shuffle if split == "train" else False
+        self.shuffle_buf_size = max(1, shuffle_buf_size)
+        self.seed = seed
+        self.val_ratio = max(0.0, min(0.5, val_ratio))
+        self.split = split.lower().strip()
+        self.pack_sequences = pack_sequences
         self._unrecognized_json = 0
 
+
+    def __bool__(self) -> bool:
+        return True
+
     def _tokenize_item(self, raw_line: str) -> Tuple[List[int], List[bool]]:
+
         """Return (token_ids, is_target) for one JSONL line.
 
         is_target[i] tells the caller whether token i should be supervised
         (True) or masked out of the loss (False). Raw / non-chat lines are
         fully supervised, matching the original (pre-masking) behavior.
         """
+        # English-Only Filter: Skip lines containing non-Latin scripts (Devanagari, CJK, Cyrillic, Arabic, Indic, etc.)
+        if _NON_LATIN_SCRIPT_REGEX.search(raw_line):
+            return [], []
+
         try:
             item = json.loads(raw_line)
             parsed_ok = True
@@ -244,6 +351,10 @@ class JSONLDataset(IterableDataset):
             seg_ids = _encode(self.tokenizer, text)
             ids.extend(seg_ids)
             is_target.extend([target] * len(seg_ids))
+            if target:
+                # Supervised assistant reply ends — append and supervise the real <eos> token
+                ids.append(EOS_ID)
+                is_target.append(True)
         return ids, is_target
 
     def __iter__(self) -> Iterator[Tuple[torch.Tensor, torch.Tensor]]:
@@ -260,58 +371,88 @@ class JSONLDataset(IterableDataset):
         line_idx = -1
         token_buffer: List[int] = []
         mask_buffer: List[bool] = []
+        epoch = 0
 
-        with open(self.jsonl_path, "r", encoding="utf-8", errors="ignore") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                line_idx += 1
-                # Shard lines across DataLoader workers so num_workers > 1
-                # actually covers more data per wall-clock second instead of
-                # every worker re-reading the same file from the start.
-                if num_workers > 1 and (line_idx % num_workers) != worker_id:
-                    continue
-                lines_seen += 1
+        def _process_line(raw_line: str) -> List[Tuple[torch.Tensor, torch.Tensor]]:
+            nonlocal lines_seen, line_idx, token_buffer, mask_buffer
+            line_idx += 1
+            if num_workers > 1 and (line_idx % num_workers) != worker_id:
+                return []
+            lines_seen += 1
 
-                ids, is_target = self._tokenize_item(line)
+            ids, is_target = self._tokenize_item(raw_line)
 
-                # Warn loudly (once) if most lines are valid JSON we can't
-                # recognize a schema for -- this usually means the dataset
-                # uses field names (e.g. "prompt"/"response") that
-                # build_prompt_segments()/format_jsonl_prompt() don't handle
-                # yet, and the run would otherwise silently train on very
-                # little real data.
-                if lines_seen == 500 and self._unrecognized_json / lines_seen > 0.3:
-                    log.warning(
-                        f"{self._unrecognized_json}/{lines_seen} lines so far are valid JSON with an "
-                        f"unrecognized schema (not 'messages' or 'system'/'user'/'assistant') and are "
-                        f"being SKIPPED, not trained on. Check {self.jsonl_path}'s actual field names "
-                        f"against Tantra/dataset.py:build_prompt_segments()."
-                    )
+            if lines_seen == 500 and self._unrecognized_json / lines_seen > 0.3:
+                log.warning(
+                    f"{self._unrecognized_json}/{lines_seen} lines so far are valid JSON with an "
+                    f"unrecognized schema (not 'messages' or 'system'/'user'/'assistant') and are "
+                    f"being SKIPPED, not trained on. Check {self.jsonl_path}'s actual field names "
+                    f"against Tantra/dataset.py:build_prompt_segments()."
+                )
 
-                if not ids:
-                    continue
+            if not ids:
+                return []
 
-                clamped = torch.tensor(ids, dtype=torch.long).clamp_(0, self.vocab_size - 1).tolist()
+            clamped = torch.tensor(ids, dtype=torch.long).clamp_(0, self.vocab_size - 1).tolist()
+            samples = []
+
+            if self.pack_sequences:
                 token_buffer.extend(clamped)
-                if self.mask_non_assistant:
-                    mask_buffer.extend(is_target)
-                else:
-                    mask_buffer.extend([True] * len(clamped))
-
+                mask_buffer.extend(is_target if self.mask_non_assistant else [True] * len(clamped))
                 if self.insert_doc_boundaries:
                     token_buffer.append(EOS_ID)
                     mask_buffer.append(True)
 
-                # Compute effective_max once per outer line (not per inner chunk) to avoid
-                # redundant division on every sample when workers > 1.
-                effective_max = self.max_samples
-                if effective_max and num_workers > 1:
-                    effective_max = max(1, effective_max // num_workers)
+                while len(token_buffer) >= self.seq_len + 1:
+                    chunk_ids = token_buffer[: self.seq_len + 1]
+                    chunk_mask = mask_buffer[: self.seq_len + 1]
+                    token_buffer = token_buffer[self.seq_len:]
+                    mask_buffer = mask_buffer[self.seq_len:]
+
+                    # Only emit chunks that have at least one supervised target token
+                    if self.mask_non_assistant and not any(chunk_mask[1:]):
+                        continue
+
+                    x = torch.tensor(chunk_ids[:-1], dtype=torch.long)
+                    y = torch.tensor(chunk_ids[1:], dtype=torch.long)
+                    y_is_target = torch.tensor(chunk_mask[1:], dtype=torch.bool)
+                    y = torch.where(y_is_target, y, torch.full_like(y, IGNORE_INDEX))
+                    samples.append((x, y))
+
+            elif self.mask_non_assistant:
+                if len(clamped) >= 2:
+                    # Multi-chunk sliding window: guarantees 100% of the assistant answer is supervised
+                    stride = max(1, self.seq_len // 2) if len(clamped) > self.seq_len + 1 else self.seq_len
+                    for start_idx in range(0, len(clamped), stride):
+                        end_idx = start_idx + self.seq_len + 1
+                        chunk_ids = clamped[start_idx:end_idx]
+                        chunk_mask = is_target[start_idx:end_idx]
+
+                        # Skip chunks that have no supervised assistant tokens (e.g. pure prompt prefix)
+                        if not any(chunk_mask):
+                            continue
+
+                        pad_len = max(0, (self.seq_len + 1) - len(chunk_ids))
+                        sample_ids = (chunk_ids + [0] * pad_len)[: self.seq_len + 1]
+                        sample_mask = (chunk_mask + [False] * pad_len)[: self.seq_len + 1]
+
+                        x = torch.tensor(sample_ids[:-1], dtype=torch.long)
+                        y = torch.tensor(sample_ids[1:], dtype=torch.long)
+                        y_is_target = torch.tensor(sample_mask[1:], dtype=torch.bool)
+                        y = torch.where(y_is_target, y, torch.full_like(y, IGNORE_INDEX))
+                        samples.append((x, y))
+
+                        if end_idx >= len(clamped):
+                            break
+
+            else:
+                token_buffer.extend(clamped)
+                mask_buffer.extend([True] * len(clamped))
+                if self.insert_doc_boundaries:
+                    token_buffer.append(EOS_ID)
+                    mask_buffer.append(True)
 
                 while len(token_buffer) >= self.seq_len + 1:
-
                     chunk_ids = token_buffer[: self.seq_len + 1]
                     chunk_mask = mask_buffer[: self.seq_len + 1]
                     token_buffer = token_buffer[self.seq_len:]
@@ -319,16 +460,71 @@ class JSONLDataset(IterableDataset):
 
                     x = torch.tensor(chunk_ids[:-1], dtype=torch.long)
                     y = torch.tensor(chunk_ids[1:], dtype=torch.long)
-                    # Target at position i predicts token i+1; only supervise
-                    # it if that *next* token belongs to an assistant turn
-                    # (or masking is disabled / this is raw text).
                     y_is_target = torch.tensor(chunk_mask[1:], dtype=torch.bool)
                     y = torch.where(y_is_target, y, torch.full_like(y, IGNORE_INDEX))
+                    samples.append((x, y))
 
-                    yield x, y
-                    count += 1
-                    if effective_max and count >= effective_max:
-                        return
+
+            return samples
+
+        while True:
+            file_had_lines = False
+            rng = random.Random(self.seed + epoch)
+            shuffle_buffer: List[str] = []
+
+            with open(self.jsonl_path, "r", encoding="utf-8", errors="ignore") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    file_had_lines = True
+                    if self.val_ratio > 0:
+                        is_val = is_val_line(line, self.val_ratio)
+                        if self.split == "val" and not is_val:
+                            continue
+                        elif self.split == "train" and is_val:
+                            continue
+
+                    if self.shuffle and self.shuffle_buf_size > 1:
+
+                        shuffle_buffer.append(line)
+                        if len(shuffle_buffer) >= self.shuffle_buf_size:
+                            idx = rng.randrange(len(shuffle_buffer))
+                            popped = shuffle_buffer.pop(idx)
+                            for x, y in _process_line(popped):
+                                yield x, y
+                                count += 1
+                                effective_max = self.max_samples
+                                if effective_max and num_workers > 1:
+                                    effective_max = max(1, effective_max // num_workers)
+                                if effective_max and count >= effective_max:
+                                    return
+                    else:
+                        for x, y in _process_line(line):
+                            yield x, y
+                            count += 1
+                            effective_max = self.max_samples
+                            if effective_max and num_workers > 1:
+                                effective_max = max(1, effective_max // num_workers)
+                            if effective_max and count >= effective_max:
+                                return
+
+            if self.shuffle and shuffle_buffer:
+                rng.shuffle(shuffle_buffer)
+                for line in shuffle_buffer:
+                    for x, y in _process_line(line):
+                        yield x, y
+                        count += 1
+                        effective_max = self.max_samples
+                        if effective_max and num_workers > 1:
+                            effective_max = max(1, effective_max // num_workers)
+                        if effective_max and count >= effective_max:
+                            return
+                shuffle_buffer.clear()
+
+            if not file_had_lines:
+                break
+            epoch += 1
 
 
 def extract_corpus_sample(jsonl_path: str, output_txt_path: str, max_lines: int = 2000) -> str:
