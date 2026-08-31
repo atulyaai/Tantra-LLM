@@ -1127,11 +1127,16 @@ def run_compression_benchmark(comp_cfg):
     bench.run(sample_weight, output_dir=os.path.join(MODEL_DIR, "reports"))
 
 
-def run_generation(model, tokenizer, vcfg, device, prompt_text=None, temperature=0.35, top_p=0.9, max_new_tokens=64, use_mtp=True):
+def run_generation(model, tokenizer, vcfg, device, prompt_text=None, temperature=0.35, top_p=0.9, max_new_tokens=64, repetition_penalty=1.15, use_mtp=True):
     log.info("── [TEXT GENERATION MODE (MTP Speculation)] ───────")
     if prompt_text:
         log.info(f"  Prompt: {prompt_text!r}")
-        prompt_ids = tokenizer.encode(prompt_text)
+        # Apply standard instruction tags if not already present
+        if "<|user|>" not in prompt_text:
+            formatted_prompt = f"<|user|>\n{prompt_text.strip()}\n\n<|assistant|>\n"
+        else:
+            formatted_prompt = prompt_text
+        prompt_ids = tokenizer.encode(formatted_prompt)
         if not prompt_ids:
             prompt_ids = [1]  # <bos>
         prompt_tensor = torch.tensor([prompt_ids], dtype=torch.long, device=device)
@@ -1141,7 +1146,7 @@ def run_generation(model, tokenizer, vcfg, device, prompt_text=None, temperature
 
     model.eval()
     with torch.no_grad():
-        out = model.generate(prompt_tensor, max_new_tokens=max_new_tokens, temperature=temperature, top_p=top_p, use_mtp_speculation=use_mtp)
+        out = model.generate(prompt_tensor, max_new_tokens=max_new_tokens, temperature=temperature, top_p=top_p, repetition_penalty=repetition_penalty, use_mtp_speculation=use_mtp)
 
     out_ids = out.tolist()[0]
     gen_ids = out_ids[prompt_tensor.size(1):] if prompt_text else out_ids
@@ -1237,6 +1242,7 @@ def main():
     parser.add_argument("--output", type=str, default=None, help="Output path for model export mode")
     parser.add_argument("--prompt", type=str, default=None, help="Text prompt for --mode generate")
     parser.add_argument("--max-new-tokens", type=int, default=64, help="Max new tokens to generate")
+    parser.add_argument("--repetition-penalty", type=float, default=1.15, help="Repetition penalty for generation (default: 1.15)")
     parser.add_argument("--max-grad-norm", type=float, default=1.0, help="Max gradient norm clipping threshold (default: 1.0)")
     parser.add_argument("--mtp-weight", type=float, default=0.3, help="Auxiliary MTP loss weight factor (default: 0.3)")
     parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
@@ -1657,7 +1663,15 @@ def main():
             except Exception as e:
                 log.warning(f"Could not load checkpoint {ckpt_to_load}: {e}")
 
-        run_generation(model, tok, vcfg, rt.device, prompt_text=args.prompt, temperature=args.temperature, top_p=args.top_p, max_new_tokens=args.max_new_tokens, use_mtp=args.use_mtp)
+        run_generation(
+            model, tok, vcfg, rt.device,
+            prompt_text=args.prompt,
+            temperature=args.temperature,
+            top_p=args.top_p,
+            max_new_tokens=args.max_new_tokens,
+            repetition_penalty=args.repetition_penalty,
+            use_mtp=args.use_mtp
+        )
     elif args.mode == "serve":
         ckpt_to_load = args.checkpoint
         if ckpt_to_load is None:
