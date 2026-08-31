@@ -1,0 +1,40 @@
+# Tantra-LLM — Python Dependencies
+# Install: pip install -r requirements.txt
+
+# Core deep learning
+torch>=2.2.0
+numpy>=1.26.0
+
+# Tokenization
+tokenizers>=0.19.0       # HuggingFace fast BPE
+sentencepiece>=0.2.0     # SentencePiece fallback
+morfessor>=2.0.6         # Morphological segmentation
+
+# Compression
+zstandard>=0.22.0        # ZSTD compression
+brotli>=1.1.0            # Brotli fallback
+
+# Hardware detection
+psutil>=5.9.0            # RAM / CPU info
+py-cpuinfo>=9.0.0        # Detailed CPU features (AVX2/512)
+gpustat>=1.1.1           # GPU stats (optional, graceful fallback)
+
+# Audio / Vision (for multimodal fusion)
+torchaudio>=2.2.0        # Audio processing
+torchvision>=0.17.0      # Image processing
+Pillow>=10.0.0           # Image I/O
+
+# Server (optional, inference/server.py only)
+fastapi>=0.110.0
+uvicorn>=0.29.0
+jinja2>=3.1.0            # required by Jinja2Templates in server.py — app fails to start without it
+python-multipart>=0.0.9  # required by FastAPI's Request.form()/file upload handling
+
+# Testing
+pytest>=8.0.0
+pytest-benchmark>=4.0.0
+
+# Utilities
+tqdm>=4.66.0
+rich>=13.7.0             # Pretty terminal output
+dataclasses-json>=0.6.0  # Config serialization

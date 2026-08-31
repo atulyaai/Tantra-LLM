@@ -1,0 +1,64 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "Tantra-llm"
+version = "1.0.0"
+description = "Tantra-LLM: NeuroCore Architecture — O(n) Linear Attention, 1-Bit BitNet, DNA Weight Compression, and Unified Multimodal Fusion"
+readme = "README.md"
+license = {file = "LICENSE"}
+authors = [
+    {name = "Tantra-LLM Project Contributors"}
+]
+keywords = [
+    "deep-learning", "multimodal", "bitnet", "moe", "compression", "linear-attention", "pytorch"
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+requires-python = ">=3.10"
+dependencies = [
+    "torch>=2.2.0",
+    "numpy>=1.26.0",
+    "tokenizers>=0.19.0",
+    "zstandard>=0.22.0",
+    "psutil>=5.9.0",
+    "py-cpuinfo>=9.0.0",
+    "torchaudio>=2.2.0",
+    "torchvision>=0.17.0",
+    "Pillow>=10.0.0",
+    "rich>=13.7.0",
+    "tqdm>=4.66.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-cov>=4.0.0",
+    "ruff>=0.3.0",
+    "mypy>=1.8.0",
+]
+server = [
+    "fastapi>=0.110.0",
+    "uvicorn>=0.29.0",
+]
+
+[project.scripts]
+Tantra = "main:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["Tantra*"]
+
+[tool.pytest.ini_options]
+testpaths = ["Tests"]
+python_files = ["test_*.py"]
