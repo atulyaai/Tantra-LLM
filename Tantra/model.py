@@ -775,9 +775,9 @@ class NeuroCoreModel(nn.Module):
         max_new_tokens: int = 150,
         temperature: float = 0.35,          # Lower temp = confident, coherent, non-hallucinating
         top_p: float = 0.85,               # Narrow nucleus = high quality vocab
-        repetition_penalty: float = 1.25,  # Strong anti-loop
-        use_mtp_speculation: bool = True,
-        use_latent_reasoning: bool = True,
+        repetition_penalty: float = 1.15,  # Anti-loop on generated tokens
+        use_mtp_speculation: bool = False,
+        use_latent_reasoning: bool = False,
         eos_token_id: Optional[int] = 2,
         min_new_tokens: int = 1,
         adapter_name: Optional[str] = None,
@@ -885,9 +885,9 @@ class NeuroCoreModel(nn.Module):
         max_new_tokens: int = 150,
         temperature: float = 0.35,
         top_p: float = 0.85,
-        repetition_penalty: float = 1.25,
+        repetition_penalty: float = 1.15,
         use_mtp_speculation: bool = False,
-        use_latent_reasoning: bool = True,
+        use_latent_reasoning: bool = False,
         eos_token_id: Optional[int] = 2,
         min_new_tokens: int = 1,
         adapter_name: Optional[str] = None,
