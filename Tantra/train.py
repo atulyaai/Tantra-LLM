@@ -205,7 +205,9 @@ class NeuroTrainer:
         self.weight_decay = weight_decay
 
         # Non-oscillating clamped linear warmup + cosine decay
-        self.scheduler = create_lr_scheduler(self.optimizer, warmup_steps=warmup_steps, total_steps=total_steps, min_lr_ratio=0.05)
+        # min_lr_ratio=0.10 ensures at least 10% of peak LR is always active — prevents
+        # dead optimizer on resume when scheduler thinks it's past total_steps.
+        self.scheduler = create_lr_scheduler(self.optimizer, warmup_steps=warmup_steps, total_steps=total_steps, min_lr_ratio=0.10)
 
         self.criterion = nn.CrossEntropyLoss(ignore_index=IGNORE_INDEX)
         self.scaler = torch.amp.GradScaler('cuda', enabled=(self.device.type == 'cuda'))
@@ -1293,8 +1295,15 @@ class NeuroTrainer:
 
 
 
-    def load_checkpoint(self, path: str) -> None:
-        """Load model + optimizer + scheduler state."""
+    def load_checkpoint(self, path: str, reset_optimizer: bool = False) -> None:
+        """Load model + optimizer + scheduler state.
+        
+        Args:
+            reset_optimizer: If True, discard the saved optimizer state and start fresh.
+                             Use this when switching to a new dataset to prevent old Adam
+                             momentum from a different data distribution poisoning new training.
+                             Default False preserves optimizer state for same-dataset resume.
+        """
         ckpt = torch.load(path, map_location=self.device, weights_only=False)
         state_dict = ckpt["model_state_dict"]
         raw_model = unwrap_model(self.model)
@@ -1343,12 +1352,18 @@ class NeuroTrainer:
         if hasattr(raw_model, "sync_category_gates_from_checkpoint"):
             raw_model.sync_category_gates_from_checkpoint(state_dict)
         SelfRepairEngine().scan_and_repair(raw_model)
-        # Optimizer is optional (only saved when save_optimizer=True)
-        if "optimizer_state_dict" in ckpt:
+        # Optimizer is optional (only saved when save_optimizer=True).
+        # IMPORTANT: reset_optimizer=True discards saved optimizer momentum — use this
+        # when switching to a new dataset so stale Adam/Lion first/second moments from the
+        # old data distribution don't bias gradient updates on new data (prevents forgetting).
+        if not reset_optimizer and "optimizer_state_dict" in ckpt:
             try:
                 self.optimizer.load_state_dict(ckpt["optimizer_state_dict"])
             except Exception:
                 log.warning("Could not restore optimizer state — using fresh optimizer.")
+        elif reset_optimizer:
+            log.info("reset_optimizer=True — discarding saved optimizer state. Fresh momentum for new dataset.")
+
         self.step_count = ckpt.get("step_count", 0)
         self.best_loss = ckpt.get("best_loss", float('inf'))
         self.best_val_loss = ckpt.get("best_val_loss", float('inf'))
@@ -1388,6 +1403,14 @@ class NeuroTrainer:
             self.total_steps = max(int(self.total_steps), int(ckpt["total_steps"]))
         if "warmup_steps" in ckpt:
             self.warmup_steps = int(ckpt["warmup_steps"])
+
+        # CRITICAL: Rebuild scheduler with the final total_steps/warmup_steps before
+        # loading its state_dict. Without this, the LR lambda closure still captures
+        # the old total_steps and decays LR to min_lr immediately on resume.
+        self.scheduler = create_lr_scheduler(
+            self.optimizer, warmup_steps=self.warmup_steps,
+            total_steps=self.total_steps, min_lr_ratio=0.10
+        )
 
         if "scheduler_state_dict" in ckpt:
             try:

@@ -151,7 +151,10 @@ def build_prompt_segments(item: Dict[str, Any]) -> Optional[List[Tuple[str, bool
                 continue
             norm_role = "assistant" if role in ("assistant", "gpt", "bot", "model") else ("user" if role in ("user", "human") else "system")
             tag = f"<|{norm_role}|>\n"
-            segments.append((tag, False))
+            # Supervise the assistant tag itself so the model learns to open its own turn.
+            # User/system tags remain masked (False) — model is not trained to reproduce them.
+            tag_is_target = (norm_role == "assistant")
+            segments.append((tag, tag_is_target))
             segments.append((content, norm_role == "assistant"))
             segments.append(("\n\n", False))
         return segments if segments else None
@@ -349,17 +352,27 @@ class JSONLDataset(IterableDataset):
 
         ids: List[int] = []
         is_target: List[bool] = []
-        for text, target in segments:
+        for i, (text, target) in enumerate(segments):
             if not text:
                 continue
             seg_ids = _encode(self.tokenizer, text)
             ids.extend(seg_ids)
             is_target.extend([target] * len(seg_ids))
+            # Only append EOS after the final supervised segment of an assistant turn
+            # (i.e. the content, not the role tag). Check next segment to determine if
+            # this is the last assistant segment before a non-assistant turn or end.
             if target:
-                # Supervised assistant reply ends — append and supervise the real <eos> token
-                ids.append(EOS_ID)
-                is_target.append(True)
+                next_seg = segments[i + 1] if i + 1 < len(segments) else None
+                # next_seg is None (end of example) or is a non-target separator "\n\n"
+                # followed by a user turn — both mean the assistant turn just ended.
+                next_is_target = next_seg[1] if next_seg is not None else False
+                next_text = next_seg[0] if next_seg is not None else ""
+                if not next_is_target and next_text.strip() in ("", "\n\n"):
+                    # Append EOS only once at the true end of the assistant reply
+                    ids.append(EOS_ID)
+                    is_target.append(True)
         return ids, is_target
+
 
     def __iter__(self) -> Iterator[Tuple[torch.Tensor, torch.Tensor]]:
         if not os.path.exists(self.jsonl_path):
