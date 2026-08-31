@@ -170,6 +170,28 @@ def build_prompt_segments(item: Dict[str, Any]) -> Optional[List[Tuple[str, bool
     if instruction:
         user = f"{instruction}\n\n{input_text}".strip() if input_text else instruction
 
+    # 3. Formatted or raw text under 'text' or 'content' key
+    text_val = (item.get("text") or item.get("content") or "").strip() if isinstance(item.get("text") or item.get("content"), str) else ""
+    if text_val:
+        if "<|assistant|>" in text_val or "<|user|>" in text_val or "<|system|>" in text_val:
+            chunks = re.split(r'(<\|(?:user|assistant|system)\|>[\r\n]*)', text_val)
+            current_target = False
+            for c in chunks:
+                if not c:
+                    continue
+                if re.match(r'<\|assistant\|>', c):
+                    current_target = True
+                    segments.append((c, True))
+                elif re.match(r'<\|(?:user|system)\|>', c):
+                    current_target = False
+                    segments.append((c, False))
+                else:
+                    segments.append((c, current_target))
+            return segments if segments else None
+        else:
+            # Raw text line wrapped in {"text": "..."} — supervise all tokens
+            return [(text_val, True)]
+
     if not (system or user or assistant):
         return None
 
@@ -182,10 +204,8 @@ def build_prompt_segments(item: Dict[str, Any]) -> Optional[List[Tuple[str, bool
         segments.append((user, False))
         segments.append(("\n\n", False))
     if assistant:
-        # FIX #3 (HIGH): Supervise the <|assistant|\n> tag itself (True, not False).
-        # The model must learn to emit its own turn-opener during generation;
-        # masking it out means it only learns the words that follow, not the
-        # transition token, causing inference failures (missing/wrong turn tags).
+        # Supervise the <|assistant|\n> tag itself (True, not False).
+        # The model must learn to emit its own turn-opener during generation.
         segments.append(("<|assistant|>\n", True))
         segments.append((assistant, True))
         segments.append(("\n\n", False))
