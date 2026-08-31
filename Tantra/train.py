@@ -68,27 +68,32 @@ def create_lr_scheduler(
     optimizer: torch.optim.Optimizer,
     warmup_steps: int,
     total_steps: int,
-    min_lr_ratio: float = 0.05,
+    min_lr_ratio: float = 0.10,
     start_factor: float = 1e-3,
+    start_step: int = 0,
 ) -> torch.optim.lr_scheduler.LambdaLR:
     """Creates a strictly clamped linear warmup + cosine decay LR schedule.
 
-    CRITICAL FIX (Oscillation Prevention):
-    Standard PyTorch CosineAnnealingLR is periodic (cos(pi * t / T_max)) and oscillates
-    back up to peak LR when training steps exceed T_max (e.g. on resume or long runs).
-    This function clamps progress at 1.0 once current_step >= total_steps, keeping the LR
-    strictly locked at min_lr_ratio * base_lr without oscillation.
+    Calculates warmup and cosine decay relative to the active training session
+    (from start_step to total_steps). When resuming a 88K checkpoint to train
+    until 100K with lr=1.5e-4, this ensures the model actually uses the full 1.5e-4
+    learning rate across the 12,000 steps rather than collapsing to the 10% floor.
     """
-    total_steps = max(1, int(total_steps))
-    actual_warmup = max(1, min(int(warmup_steps), max(1, total_steps // 10)))
-    decay_steps = max(1, total_steps - actual_warmup)
+    start_step = max(0, int(start_step))
+    total_steps = max(start_step + 1, int(total_steps))
+    session_steps = max(1, total_steps - start_step)
+    actual_warmup = max(1, min(int(warmup_steps), max(1, session_steps // 10)))
+    decay_steps = max(1, session_steps - actual_warmup)
 
     def lr_lambda(step: int) -> float:
-        if step < actual_warmup:
-            return max(start_factor, float(step) / float(actual_warmup))
-        if step >= total_steps:
+        curr = step - start_step
+        if curr < 0:
+            return 1.0
+        if curr < actual_warmup:
+            return max(start_factor, float(curr) / float(actual_warmup))
+        if curr >= session_steps:
             return min_lr_ratio
-        progress = float(step - actual_warmup) / float(decay_steps)
+        progress = float(curr - actual_warmup) / float(decay_steps)
         cosine_decay = 0.5 * (1.0 + math.cos(math.pi * progress))
         return min_lr_ratio + (1.0 - min_lr_ratio) * cosine_decay
 
@@ -1431,12 +1436,12 @@ class NeuroTrainer:
         if "warmup_steps" in ckpt:
             self.warmup_steps = int(ckpt["warmup_steps"])
 
-        # CRITICAL: Rebuild scheduler with the final total_steps/warmup_steps before
-        # loading its state_dict. Without this, the LR lambda closure still captures
-        # the old total_steps and decays LR to min_lr immediately on resume.
+        # Rebuild scheduler relative to current step_count and total_steps.
+        # This ensures the full requested learning rate is active over the remaining steps.
         self.scheduler = create_lr_scheduler(
             self.optimizer, warmup_steps=self.warmup_steps,
-            total_steps=self.total_steps, min_lr_ratio=0.10
+            total_steps=self.total_steps, min_lr_ratio=0.10,
+            start_step=self.step_count
         )
 
         if "scheduler_state_dict" in ckpt:

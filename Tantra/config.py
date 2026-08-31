@@ -59,7 +59,7 @@ class SGPConfig:
     """Sparse Gated Projection (FFN replacement) config."""
     dim: int = 512
     expansion: int = 4          # hidden = dim * expansion
-    sparsity: float = 0.10      # fraction of neurons active (brain-like)
+    sparsity: float = 0.50      # fraction of neurons active (50% active for rich gradient flow)
     activation: str = "gelu"    # "gelu" | "silu" | "relu"
     implementation: str = "sparse"  # "sparse" | "swiglu"
 
