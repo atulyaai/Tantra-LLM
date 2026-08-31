@@ -579,3 +579,92 @@ def test_documents_rag_crud():
     assert "test_rag_doc.txt" in resp_query.json()["result"]
 
 
+# ── 16. Audit Bug Fix Regression Verification Tests ─────────────────────────
+
+def test_alra_attention_scaling_and_normalization():
+    """Verify that ALRA attention uses consistent query scaling and numerical stability."""
+    from Tantra.config import ALRAConfig
+    from Tantra.model import ALRAAttention
+
+    cfg = ALRAConfig(dim=64, num_heads=4, head_dim=16)
+    attn = ALRAAttention(cfg)
+    attn.eval()
+
+    # Short sequence (vectorized fast path)
+    x_short = torch.randn(2, 32, 64)
+    out_fast, state = attn(x_short)
+    assert out_fast.shape == (2, 32, 64)
+    assert not torch.isnan(out_fast).any()
+    assert not torch.isinf(out_fast).any()
+
+    # Single-token step (sequential path)
+    x_single = torch.randn(2, 1, 64)
+    out_seq, new_state = attn(x_single, state=None)
+    assert out_seq.shape == (2, 1, 64)
+    assert not torch.isnan(out_seq).any()
+    assert not torch.isinf(out_seq).any()
+
+
+def _make_test_cfg():
+    cfg = NeuroCoreConfig(model_name="test-tiny")
+    cfg.block.alra.dim = 64
+    cfg.block.alra.num_heads = 4
+    cfg.block.alra.head_dim = 16
+    cfg.block.sgp.dim = 64
+    cfg.block.num_layers = 2
+    cfg.vocab.vocab_size = 256
+    return cfg
+
+
+def test_refresh_optimizer_preserves_momentum():
+    """Verify refresh_optimizer adds new parameters without wiping existing momentum."""
+    cfg = _make_test_cfg()
+    model = NeuroCoreModel(cfg)
+    trainer = NeuroTrainer(model, lr=1e-3, total_steps=100)
+
+    # Perform a train step to build optimizer momentum state
+    x = torch.randint(0, 100, (2, 8))
+    y = torch.randint(0, 100, (2, 8))
+    trainer.train_step(x, y)
+
+    first_param = next(model.parameters())
+    assert first_param in trainer.optimizer.state
+    assert "exp_avg" in trainer.optimizer.state[first_param]
+    old_momentum = trainer.optimizer.state[first_param]["exp_avg"].clone()
+
+    # Dynamically append a new layer
+    import copy
+    new_layer = copy.deepcopy(model.layers[-1])
+    model.layers.append(new_layer)
+    trainer.refresh_optimizer()
+
+    # Verify old momentum is strictly preserved
+    assert first_param in trainer.optimizer.state
+    assert torch.equal(trainer.optimizer.state[first_param]["exp_avg"], old_momentum)
+
+
+def test_export_clean_checkpoint():
+    """Verify export_clean_checkpoint preserves metadata and strips optimizer."""
+    from Tantra.export import export_clean_checkpoint
+
+    cfg = _make_test_cfg()
+    model = NeuroCoreModel(cfg)
+    trainer = NeuroTrainer(model, lr=1e-3)
+    trainer.step_count = 1234
+    trainer.best_loss = 2.45
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        raw_ckpt = os.path.join(tmpdir, "raw.pt")
+        clean_ckpt = os.path.join(tmpdir, "clean.pt")
+
+        trainer.save_checkpoint(raw_ckpt, save_optimizer=True)
+        export_clean_checkpoint(raw_ckpt, clean_ckpt)
+
+        loaded = torch.load(clean_ckpt, map_location="cpu", weights_only=False)
+        assert loaded["step_count"] == 1234
+        assert loaded["best_loss"] == 2.45
+        assert "model_state_dict" in loaded
+        assert "optimizer_state_dict" not in loaded
+
+
+

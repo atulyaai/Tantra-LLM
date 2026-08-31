@@ -818,10 +818,16 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
             dataset = TopicMixedDataset(topic_paths, weights, tokenizer, seq_len=seq_len,
                                         max_samples=max_samples, mask_non_assistant=mask_non_assistant)
         else:
-            # Fallback to single file if no subdirectories with jsonl found
-            fallback = glob.glob(os.path.join(dataset_path, "*.jsonl"))
-            if fallback:
-                dataset = JSONLDataset(fallback[0], tokenizer, seq_len=seq_len,
+            # Multiple jsonl files directly under dataset_path
+            direct_jsonls = [p for p in glob.glob(os.path.join(dataset_path, "*.jsonl")) if "preference" not in p and "sample" not in p]
+            if len(direct_jsonls) > 1:
+                topic_paths = {os.path.splitext(os.path.basename(p))[0].replace("expert_", ""): [p] for p in direct_jsonls}
+                log.info(f"  Multi-track datasets detected: {list(topic_paths.keys())}")
+                weights = {t: 1.0 for t in topic_paths.keys()}
+                dataset = TopicMixedDataset(topic_paths, weights, tokenizer, seq_len=seq_len,
+                                            max_samples=max_samples, mask_non_assistant=mask_non_assistant)
+            elif len(direct_jsonls) == 1:
+                dataset = JSONLDataset(direct_jsonls[0], tokenizer, seq_len=seq_len,
                                       max_samples=max_samples, mask_non_assistant=mask_non_assistant, pack_sequences=pack_sequences)
             else:
                 dataset = JSONLDataset(dataset_path, tokenizer, seq_len=seq_len,
@@ -1040,6 +1046,7 @@ def main():
     parser.add_argument("--dim", type=int, default=512, help="Embedding dimension (default: 512)")
     parser.add_argument("--layers", type=int, default=8, help="Number of NeuroCore layers (default: 8)")
     parser.add_argument("--heads", type=int, default=8, help="Number of attention heads (default: 8)")
+    parser.add_argument("--output", type=str, default=None, help="Output path for model export mode")
     parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
     args = parser.parse_args()
 
@@ -1122,12 +1129,15 @@ def main():
         model = build_cpu_model("dense", attention_kind="causal", vocab_size=vcfg.vocab_size)
         log.info(f"Initialized fresh official 38.6M CPU profile model ({model.num_parameters:,} parameters).")
     else:
-        ckpt_candidates = [
-            os.path.join(MODEL_DIR, "Latest", "checkpoint_latest.pt"),
-            os.path.join(MODEL_DIR, "checkpoint_latest.pt"),
+        ckpt_candidates = []
+        if args.checkpoint and os.path.exists(args.checkpoint):
+            ckpt_candidates.append(args.checkpoint)
+        ckpt_candidates.extend([
             os.path.join(args.model_dir or MODEL_DIR, "Latest", "checkpoint_latest.pt"),
             os.path.join(args.model_dir or MODEL_DIR, "checkpoint_latest.pt"),
-        ]
+            os.path.join(MODEL_DIR, "Latest", "checkpoint_latest.pt"),
+            os.path.join(MODEL_DIR, "checkpoint_latest.pt"),
+        ])
         latest_ckpt_file = next((p for p in ckpt_candidates if os.path.exists(p) and os.path.getsize(p) > 10 * 1024 * 1024), ckpt_candidates[0])
         restore_checkpoint_architecture(mcfg, latest_ckpt_file)
         _ckpt_path = latest_ckpt_file
@@ -1140,8 +1150,19 @@ def main():
                     if _ckpt_cfg is not None:
                         _ckpt_cfg.vocab.vocab_size = vcfg.vocab_size
                         mcfg = _ckpt_cfg
-                        log.info("Rebuilt model architecture from checkpoint config "
-                                 f"(dim={_ckpt_cfg.block.alra.dim}, layers={_ckpt_cfg.block.num_layers}, vocab={_ckpt_cfg.vocab.vocab_size}).")
+                    
+                    # Also check state_dict layer keys for dynamically grown models
+                    sdict = _ckpt.get("model_state_dict", {})
+                    import re
+                    layer_indices = [int(m.group(1)) for k in sdict.keys() for m in [re.search(r'layers\.(\d+)\.', k)] if m]
+                    if layer_indices and mcfg is not None and hasattr(mcfg, "block"):
+                        ckpt_num_layers = max(layer_indices) + 1
+                        if ckpt_num_layers != mcfg.block.num_layers:
+                            mcfg.block.num_layers = ckpt_num_layers
+                            log.info(f"Detected {ckpt_num_layers} layers in checkpoint weights; initialized architecture accordingly.")
+
+                    log.info("Rebuilt model architecture from checkpoint "
+                             f"(dim={mcfg.block.alra.dim}, layers={mcfg.block.num_layers}, vocab={mcfg.vocab.vocab_size}).")
             except Exception as _exc:
                 log.warning(f"Could not read checkpoint config: {_exc}; using default architecture.")
         model = init_model(mcfg, rt.device)
@@ -1240,7 +1261,7 @@ def main():
             use_latent_reasoning = args.training_stage == "sft"
         use_mtp_loss = args.mtp_loss
         if use_mtp_loss is None:
-            use_mtp_loss = args.training_stage == "sft"
+            use_mtp_loss = True  # Enable MTP multi-token speculative loss for both pretrain and SFT
 
         # Optimizer-specific hyperparameter defaults
         resolved_optimizer = (args.optimizer or "adamw").lower().strip()
@@ -1285,6 +1306,15 @@ def main():
         log.info(f"🚀 [AUTO-PILOT PIPELINE] Total: {total_steps:,} Steps │ Phase 1 (SFT + Auto-Growth): {sft_steps:,} Steps │ Phase 2 (DPO Preference Alignment): {dpo_steps:,} Steps")
         log.info("=" * 80)
         
+        # Ensure datasets are ready
+        from Tantra.dataset import build_4track_curriculum, generate_gold_datasets
+        if not os.path.exists(args.dataset):
+            log.info(f"Dataset {args.dataset} not found locally. Auto-building 4-Track Domain Curriculum...")
+            build_4track_curriculum(datasets_dir=os.path.dirname(args.dataset) or "Datasets")
+        if args.preference_dataset and not os.path.exists(args.preference_dataset):
+            log.info(f"Preference dataset {args.preference_dataset} not found. Auto-generating DPO pairs...")
+            generate_gold_datasets(datasets_dir=os.path.dirname(args.preference_dataset) or "Datasets")
+
         # Phase 1: High-Density SFT with Dynamic Auto-Growth
         log.info("▶️ [AUTO-PILOT PHASE 1/2] Starting High-Density SFT & Auto-Growth...")
         resolved_optimizer = (args.optimizer or "adamw").lower().strip()
@@ -1325,7 +1355,7 @@ def main():
         run_benchmarks(args.checkpoint, str(rt.device))
     elif args.mode == "export":
         from Tantra.export import export_clean_checkpoint
-        export_clean_checkpoint(args.checkpoint, args.model_dir or "Model/Export/checkpoint_clean.pt")
+        export_clean_checkpoint(args.checkpoint, args.output or args.model_dir or "Model/Export/checkpoint_clean.pt")
     elif args.mode == "eval":
         run_evaluation(model, tok, args.dataset)
     elif args.mode == "generate":

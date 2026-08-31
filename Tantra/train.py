@@ -176,11 +176,14 @@ class NeuroTrainer:
                  optimizer_name: str = "adamw",
                  total_steps: int = 100000, warmup_steps: int = 1000,
                  grad_accumulation_steps: int = 1, use_latent_reasoning: bool = True,
-                 use_mtp_loss: bool = True):
+                 use_mtp_loss: bool = True, mtp_loss_weight: float = 0.3,
+                 max_grad_norm: float = 1.0):
         self.model = model
         self.optimizer_name = optimizer_name.lower().strip()
         self.use_latent_reasoning = use_latent_reasoning
         self.use_mtp_loss = use_mtp_loss
+        self.mtp_loss_weight = float(mtp_loss_weight)
+        self.max_grad_norm = float(max_grad_norm)
         self.device = next(model.parameters()).device if list(model.parameters()) else torch.device("cpu")
         if self.device.type == "cpu":
             num_threads = min(8, max(4, (os.cpu_count() or 4)))
@@ -226,22 +229,41 @@ class NeuroTrainer:
             log.info("  MTP auxiliary loss DISABLED for this run (reduced CPU output-projection work).")
 
     def refresh_optimizer(self) -> None:
-        """Rebuild the optimizer and LR schedule from the model's current
-        trainable parameters. Call this after Auto-Growth or adapter changes
-        so newly added layers are optimized and the LR scheduler stays perfectly synced.
+        """Rebuild/update the optimizer and LR schedule from the model's current
+        trainable parameters. Preserves momentum buffers for all existing parameters.
         """
         current_step = getattr(self.scheduler, "last_epoch", self.step_count)
         current_lr = self.optimizer.param_groups[0]["lr"] if (self.optimizer and self.optimizer.param_groups) else self.lr
-        trainable_parameters = [p for p in self.model.parameters() if p.requires_grad]
-        if not trainable_parameters:
-            raise ValueError("No trainable parameters are enabled after refresh.")
-        self.optimizer = build_optimizer(self.optimizer_name, trainable_parameters, lr=self.lr, weight_decay=self.weight_decay)
-        self.scheduler = create_lr_scheduler(self.optimizer, warmup_steps=self.warmup_steps, total_steps=self.total_steps, min_lr_ratio=0.05)
-        if self.scheduler is not None:
-            self.scheduler.last_epoch = current_step
-            # Update base_lrs and current group lrs
-            for g in self.optimizer.param_groups:
-                g["lr"] = current_lr
+
+        # Collect existing param object ids already in the optimizer
+        existing_param_ids = set()
+        if self.optimizer is not None:
+            for group in self.optimizer.param_groups:
+                for p in group.get("params", []):
+                    existing_param_ids.add(id(p))
+
+        # Find new trainable parameters that are not yet tracked
+        new_parameters = [p for p in self.model.parameters() if p.requires_grad and id(p) not in existing_param_ids]
+
+        if not existing_param_ids or self.optimizer is None:
+            trainable_parameters = [p for p in self.model.parameters() if p.requires_grad]
+            if not trainable_parameters:
+                raise ValueError("No trainable parameters are enabled after refresh.")
+            self.optimizer = build_optimizer(self.optimizer_name, trainable_parameters, lr=self.lr, weight_decay=self.weight_decay)
+            self.scheduler = create_lr_scheduler(self.optimizer, warmup_steps=self.warmup_steps, total_steps=self.total_steps, min_lr_ratio=0.05)
+            if self.scheduler is not None:
+                self.scheduler.last_epoch = current_step
+                for g in self.optimizer.param_groups:
+                    g["lr"] = current_lr
+        elif new_parameters:
+            self.optimizer.add_param_group({
+                "params": new_parameters,
+                "lr": current_lr,
+                "weight_decay": self.weight_decay,
+            })
+            if self.scheduler is not None and hasattr(self.scheduler, "base_lrs"):
+                self.scheduler.base_lrs.append(self.lr)
+            log.info(f"  Optimizer dynamically registered {len(new_parameters)} new parameter tensors while preserving existing momentum history.")
 
     def _write_training_status(self, **status: Any) -> None:
         """Publish real training state for the local Web UI and recovery logs."""
@@ -302,23 +324,26 @@ class NeuroTrainer:
 
             supervised_mask = (y_flat != IGNORE_INDEX)
             if not supervised_mask.any():
-                # Micro-batch contains only prompt/pad tokens and no assistant targets
-                self._micro_step += 1
-                return 0.0, 0.0, 0.0, 0.0, False
-
-            loss = self.criterion(logits_flat, y_flat)
+                # Micro-batch contains only prompt/pad tokens and no assistant targets.
+                # Use zero loss so backprop / grad accumulation step can proceed correctly
+                # without skipping accumulation boundaries or dropping previously accumulated gradients.
+                loss = logits_flat.sum() * 0.0
+            else:
+                loss = self.criterion(logits_flat, y_flat)
 
             if hasattr(self.model, "get_aux_loss"):
                 aux_loss = self.model.get_aux_loss()
                 if aux_loss is not None and not (math.isnan(aux_loss.item()) if hasattr(aux_loss, 'item') else math.isnan(aux_loss)):
                     loss = loss + aux_loss
 
-            # Auxiliary MTP Loss (Multi-Token Prediction)
-            if logits_mtp is not None and y.size(1) > 1:
+            # Auxiliary MTP Loss (Multi-Token Prediction) — Memory-Efficient Supervised Slicing
+            if logits_mtp is not None and y.size(1) > 1 and self.mtp_loss_weight > 0:
                 logits_mtp_flat = logits_mtp[:, :-1, :].reshape(-1, logits_mtp.size(-1))
                 y_mtp_flat = self._safe_targets(y[:, 1:].reshape(-1), logits_mtp.size(-1))
-                mtp_loss = self.criterion(logits_mtp_flat, y_mtp_flat)
-                loss = loss + 0.3 * mtp_loss
+                mtp_mask = (y_mtp_flat != IGNORE_INDEX)
+                if mtp_mask.any():
+                    mtp_loss = self.criterion(logits_mtp_flat[mtp_mask], y_mtp_flat[mtp_mask])
+                    loss = loss + self.mtp_loss_weight * mtp_loss
 
         if math.isnan(loss.item()) or math.isinf(loss.item()):
             log.warning("NaN or Inf detected in loss! Skipping batch update and auto-repairing weights.")
@@ -369,7 +394,7 @@ class NeuroTrainer:
         if at_boundary:
             if self.scaler.is_enabled():
                 self.scaler.unscale_(self.optimizer)
-            grad_norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0).item()
+            grad_norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.max_grad_norm).item()
             if math.isnan(grad_norm) or math.isinf(grad_norm):
                 log.warning("NaN or Inf detected in grad_norm! Purging gradients and repairing model.")
                 self.optimizer.zero_grad(set_to_none=True)
@@ -928,7 +953,11 @@ class NeuroTrainer:
                     batch = next(dpo_iter)
                 except StopIteration:
                     dpo_iter = iter(dpo_dataloader)
-                    batch = next(dpo_iter)
+                    try:
+                        batch = next(dpo_iter)
+                    except StopIteration:
+                        log.warning("DPO dataloader is empty or exhausted. Concluding DPO phase safely.")
+                        break
                 
                 chosen_ids = batch["chosen_input_ids"].to(self.device)
                 chosen_labels = batch["chosen_labels"].to(self.device)
@@ -1008,7 +1037,18 @@ class NeuroTrainer:
 
     def save_checkpoint(self, path: str, save_optimizer: bool = True, async_write: bool = False) -> None:
         """Save model checkpoint with self-contained tokenizer and max 2 checkpoint history cleanup."""
-        raw_model = getattr(self.model, "module", getattr(self.model, "_orig_mod", self.model))
+        raw_model = self.model
+        while hasattr(raw_model, "module"):
+            raw_model = raw_model.module
+        while hasattr(raw_model, "_orig_mod"):
+            raw_model = raw_model._orig_mod
+        while hasattr(raw_model, "module"):
+            raw_model = raw_model.module
+
+        current_num_layers = len(raw_model.layers) if hasattr(raw_model, "layers") else 8
+        if hasattr(raw_model, "config") and hasattr(raw_model.config, "block"):
+            raw_model.config.block.num_layers = current_num_layers
+
         model_sd = {k: (v.clone().half() if v.is_floating_point() else v.clone()) for k, v in raw_model.state_dict().items()}
         opt_sd = copy.deepcopy(self.optimizer.state_dict()) if save_optimizer else None
 
@@ -1019,7 +1059,7 @@ class NeuroTrainer:
 
         ckpt_data = {
             "model_state_dict": model_sd,
-            "config": getattr(self.model, "config", None),
+            "config": copy.deepcopy(getattr(raw_model, "config", None)),
             "step_count": self.step_count,
             "best_loss": getattr(self, "best_loss", float('inf')),
             "best_val_loss": getattr(self, "best_val_loss", float('inf')),
@@ -1032,7 +1072,7 @@ class NeuroTrainer:
             "scheduler_state_dict": copy.deepcopy(self.scheduler.state_dict()),
             "total_steps": self.total_steps,
             "training_stage": getattr(self, "training_stage", "pretrain"),
-            "num_layers": len(getattr(getattr(self.model, "_orig_mod", self.model), "layers", [])),
+            "num_layers": current_num_layers,
         }
         if opt_sd is not None:
             ckpt_data["optimizer_state_dict"] = opt_sd
@@ -1209,6 +1249,27 @@ class NeuroTrainer:
         ckpt = torch.load(path, map_location=self.device, weights_only=False)
         state_dict = ckpt["model_state_dict"]
         raw_model = getattr(self.model, "module", getattr(self.model, "_orig_mod", self.model))
+
+        # Check and dynamically grow layers if loading a deeper checkpoint (e.g. 9/10/12 layers)
+        import re, copy
+        layer_indices = set()
+        for k in state_dict.keys():
+            m = re.search(r'layers\.(\d+)\.', k)
+            if m:
+                layer_indices.add(int(m.group(1)))
+        
+        if layer_indices and hasattr(raw_model, "layers") and isinstance(raw_model.layers, torch.nn.ModuleList):
+            ckpt_layers = max(layer_indices) + 1
+            current_layers = len(raw_model.layers)
+            if ckpt_layers > current_layers:
+                log.info(f"Dynamically growing model architecture from {current_layers} -> {ckpt_layers} layers to match checkpoint.")
+                while len(raw_model.layers) < ckpt_layers:
+                    new_l = copy.deepcopy(raw_model.layers[-1])
+                    raw_model.layers.append(new_l)
+                if hasattr(raw_model, "config") and hasattr(raw_model.config, "block"):
+                    raw_model.config.block.num_layers = len(raw_model.layers)
+                self.refresh_optimizer()
+
         model_state = raw_model.state_dict()
 
         # Auto-align vocabulary shape mismatches (e.g. checkpoint saved at 32000, model configured for 65536)

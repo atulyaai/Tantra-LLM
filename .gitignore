@@ -39,17 +39,12 @@ Model/Experts/registry.json
 
 # Raw training data (too large for GitHub). Category folders are kept as
 # lightweight prototypes (README.md) on GitHub; the actual *.jsonl stay local.
-# Datasets: master_train.jsonl stays local (822MB), staged_master.jsonl & manifest.json tracked on git
+# Datasets: Master datasets stay local; seed gold corpus & preference pairs tracked
 Datasets/*.jsonl
 Datasets/**/*.jsonl
 !Datasets/manifest.json
-!Datasets/staged_master.jsonl
-!Datasets/master_train.jsonl
-!Datasets/conversation.jsonl
-!Datasets/math.jsonl
-!Datasets/code.jsonl
-!Datasets/multilingual.jsonl
-!Datasets/curated_seeds/*.jsonl
+!Datasets/gold_corpus.jsonl
+!Datasets/preference_pairs.jsonl
 
 
 !Datasets/curated_seeds/**/*.jsonl

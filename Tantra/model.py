@@ -125,6 +125,10 @@ class ALRAAttention(nn.Module):
         Q = self._apply_kernel(Q)
         K = self._apply_kernel(K)
 
+        # Scale queries ONCE here so all 3 code paths (fast, chunked, sequential)
+        # use identical attention math during both training and inference.
+        Q = Q * (1.0 / (self.head_dim ** 0.5))
+
         gates = None
         if self.use_forget_gate:
             gates = torch.sigmoid(self.w_gate(x)).transpose(1, 2)
@@ -153,9 +157,9 @@ class ALRAAttention(nn.Module):
         
         if T <= 2048:
             # Fast vectorized causal path (O(1) memory graph overhead on GPU/CPU)
+            # NOTE: Query scaling is already applied in forward() — do NOT scale again here.
             orig_dtype = Q.dtype
-            scale_factor = 1.0 / (Dh ** 0.5)
-            Q_f = Q.float() * scale_factor
+            Q_f = Q.float()
             K_f = K.float()
             V_f = V.float()
 
@@ -176,8 +180,9 @@ class ALRAAttention(nn.Module):
                 attn = attn * D.unsqueeze(0).unsqueeze(0)
                 
             num = torch.matmul(attn, V_f)
-            den = (attn.sum(dim=-1, keepdim=True) + 1.0).clamp(min=1.0)
-            out = (num / den).to(orig_dtype)
+            # Standardized denominator matching chunked/sequential paths (eps-based, not clamp-based)
+            den = attn.sum(dim=-1, keepdim=True) + self.eps
+            out = torch.nan_to_num(num / den, nan=0.0, posinf=1.0, neginf=-1.0).to(orig_dtype)
             return out
 
         chunk_size = 256
