@@ -464,43 +464,81 @@ async function loadRAGDocuments() {
 
 // ── 7. Knowledge Graph & Datasets ───────────────────────────────────────────
 
-function renderKnowledgeGraph() {
+async function renderKnowledgeGraph() {
     const canvas = document.getElementById('kgCanvas');
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
-    canvas.width = canvas.parentElement.clientWidth;
-    canvas.height = canvas.parentElement.clientHeight;
-
-    const nodes = [
-        { id: 'Tantra', x: canvas.width / 2, y: canvas.height / 2, r: 24, color: '#00f5ff' },
-        { id: 'ALRA O(1)', x: canvas.width / 2 - 140, y: canvas.height / 2 - 80, r: 16, color: '#00ff88' },
-        { id: 'BitNet 1.58b', x: canvas.width / 2 + 140, y: canvas.height / 2 - 80, r: 16, color: '#ff007f' },
-        { id: 'MTP Speculation', x: canvas.width / 2 - 120, y: canvas.height / 2 + 100, r: 16, color: '#7928ca' },
-        { id: '4-Track Gold', x: canvas.width / 2 + 120, y: canvas.height / 2 + 100, r: 16, color: '#ffd700' }
-    ];
+    canvas.width = canvas.parentElement.clientWidth || 800;
+    canvas.height = canvas.parentElement.clientHeight || 500;
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    let nodes = [];
+    let links = [];
+
+    try {
+        const res = await fetch('/api/knowledge_graph');
+        const data = await res.json();
+        if (data && data.nodes && data.nodes.length > 0) {
+            nodes = data.nodes;
+            links = data.links || [];
+        }
+    } catch(err) {
+        console.error("Error fetching knowledge graph:", err);
+    }
+
+    if (nodes.length === 0) {
+        nodes = [
+            { id: 'Tantra', label: 'Tantra NeuroCore', x: canvas.width / 2, y: canvas.height / 2, r: 24, color: '#00f5ff' },
+            { id: 'ALRA', label: 'ALRA O(1)', x: canvas.width / 2 - 140, y: canvas.height / 2 - 80, r: 16, color: '#00ff88' },
+            { id: 'BitNet', label: 'BitNet 1.58b', x: canvas.width / 2 + 140, y: canvas.height / 2 - 80, r: 16, color: '#ff007f' },
+            { id: 'MTP', label: 'MTP Speculation', x: canvas.width / 2 - 120, y: canvas.height / 2 + 100, r: 16, color: '#7928ca' },
+            { id: 'Gold', label: '4-Track Gold', x: canvas.width / 2 + 120, y: canvas.height / 2 + 100, r: 16, color: '#ffd700' }
+        ];
+        links = [
+            { source: 'Tantra', target: 'ALRA' },
+            { source: 'Tantra', target: 'BitNet' },
+            { source: 'Tantra', target: 'MTP' },
+            { source: 'Tantra', target: 'Gold' }
+        ];
+    }
+
+    const nodeMap = {};
+    const scaleX = canvas.width / 800;
+    const scaleY = canvas.height / 500;
+
+    nodes.forEach(n => {
+        const posX = (n.x != null) ? n.x * scaleX : Math.random() * (canvas.width - 100) + 50;
+        const posY = (n.y != null) ? n.y * scaleY : Math.random() * (canvas.height - 100) + 50;
+        const radius = n.r || (n.type === 'core' ? 24 : 16);
+        nodeMap[n.id] = { ...n, px: posX, py: posY, radius };
+    });
+
     // Draw links
     ctx.strokeStyle = 'rgba(255,255,255,0.15)';
     ctx.lineWidth = 1.5;
-    nodes.slice(1).forEach(n => {
-        ctx.beginPath();
-        ctx.moveTo(nodes[0].x, nodes[0].y);
-        ctx.lineTo(n.x, n.y);
-        ctx.stroke();
+    links.forEach(l => {
+        const src = nodeMap[l.source];
+        const tgt = nodeMap[l.target];
+        if (src && tgt) {
+            ctx.beginPath();
+            ctx.moveTo(src.px, src.py);
+            ctx.lineTo(tgt.px, tgt.py);
+            ctx.stroke();
+        }
     });
 
     // Draw nodes
-    nodes.forEach(n => {
-        ctx.fillStyle = n.color;
+    Object.values(nodeMap).forEach(n => {
+        ctx.fillStyle = n.color || '#00f5ff';
         ctx.beginPath();
-        ctx.arc(n.x, n.y, n.r, 0, Math.PI * 2);
+        ctx.arc(n.px, n.py, n.radius, 0, Math.PI * 2);
         ctx.fill();
 
         ctx.fillStyle = '#fff';
-        ctx.font = '12px Plus Jakarta Sans';
+        ctx.font = '11px Plus Jakarta Sans';
         ctx.textAlign = 'center';
-        ctx.fillText(n.id, n.x, n.y + n.r + 16);
+        ctx.fillText(n.label || n.id, n.px, n.py + n.radius + 14);
     });
 }
 window.renderKnowledgeGraph = renderKnowledgeGraph;
@@ -637,4 +675,8 @@ window.adminSwitchCheckpoint = adminSwitchCheckpoint;
 window.addEventListener('DOMContentLoaded', () => {
     loadSessions();
     loadRAGDocuments();
+    const chatInput = document.getElementById('chat-input-field');
+    if (chatInput) {
+        chatInput.addEventListener('keydown', handleChatKey);
+    }
 });

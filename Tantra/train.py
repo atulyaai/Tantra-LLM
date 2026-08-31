@@ -213,6 +213,7 @@ class NeuroTrainer:
         self.best_loss = float('inf')
         self.best_val_loss = float('inf')
         self.ema_loss = None
+        self.ema_alignment: Optional[float] = None
 
         self.total_tokens = 0
         self._session_tokens = 0   # tokens in THIS training run only
@@ -261,9 +262,25 @@ class NeuroTrainer:
                 "lr": current_lr,
                 "weight_decay": self.weight_decay,
             })
-            if self.scheduler is not None and hasattr(self.scheduler, "base_lrs"):
-                self.scheduler.base_lrs.append(self.lr)
+            if self.scheduler is not None:
+                self._sync_scheduler_lambdas()
             log.info(f"  Optimizer dynamically registered {len(new_parameters)} new parameter tensors while preserving existing momentum history.")
+
+    def _sync_scheduler_lambdas(self) -> None:
+        """Guarantees LambdaLR lr_lambdas and base_lrs lengths strictly match optimizer.param_groups."""
+        if self.scheduler is not None and self.optimizer is not None:
+            target_len = len(self.optimizer.param_groups)
+            if hasattr(self.scheduler, "base_lrs"):
+                if len(self.scheduler.base_lrs) > target_len:
+                    self.scheduler.base_lrs = self.scheduler.base_lrs[:target_len]
+                while len(self.scheduler.base_lrs) < target_len:
+                    self.scheduler.base_lrs.append(self.lr)
+            if hasattr(self.scheduler, "lr_lambdas") and self.scheduler.lr_lambdas:
+                first_lambda = self.scheduler.lr_lambdas[0]
+                if len(self.scheduler.lr_lambdas) > target_len:
+                    self.scheduler.lr_lambdas = self.scheduler.lr_lambdas[:target_len]
+                while len(self.scheduler.lr_lambdas) < target_len:
+                    self.scheduler.lr_lambdas.append(first_lambda)
 
     def _write_training_status(self, **status: Any) -> None:
         """Publish real training state for the local Web UI and recovery logs."""
@@ -302,7 +319,16 @@ class NeuroTrainer:
 
         x = x.to(self.device, non_blocking=True)
         y = y.to(self.device, non_blocking=True)
-        raw_m = getattr(self.model, "module", getattr(self.model, "_orig_mod", self.model))
+        # FIX #4 (MEDIUM): Fully unwrap both DataParallel (.module) and
+        # torch.compile (_orig_mod) to reach the actual NeuroCoreModel.
+        # A single getattr() only peels one layer; nested wrapping leaves
+        # raw_m as a CompiledModel, causing hasattr(raw_m, "embed") → False
+        # and silently skipping the vocabulary clamp below.
+        raw_m = self.model
+        while hasattr(raw_m, "module"):
+            raw_m = raw_m.module
+        while hasattr(raw_m, "_orig_mod"):
+            raw_m = raw_m._orig_mod
         if hasattr(raw_m, "embed") and hasattr(raw_m.embed, "weight"):
             vsize = raw_m.embed.weight.size(0)
             x = torch.clamp(x, 0, vsize - 1)
@@ -331,8 +357,9 @@ class NeuroTrainer:
             else:
                 loss = self.criterion(logits_flat, y_flat)
 
-            if hasattr(self.model, "get_aux_loss"):
-                aux_loss = self.model.get_aux_loss()
+            raw_m = getattr(self.model, "module", self.model)
+            if hasattr(raw_m, "get_aux_loss"):
+                aux_loss = raw_m.get_aux_loss()
                 if aux_loss is not None and not (math.isnan(aux_loss.item()) if hasattr(aux_loss, 'item') else math.isnan(aux_loss)):
                     loss = loss + aux_loss
 
@@ -410,6 +437,7 @@ class NeuroTrainer:
                     self.scaler.update()
                 else:
                     self.optimizer.step()
+                self._sync_scheduler_lambdas()
                 self.scheduler.step()
                 self.step_count += 1
         else:
@@ -804,8 +832,12 @@ class NeuroTrainer:
                         if asst_snippet and model_snippet:
                             t_words = {w for w in asst_snippet.lower().split() if len(w) > 2}
                             m_words = {w for w in model_snippet.lower().split() if len(w) > 2}
-                            if t_words:
+                            if len(t_words) >= 2:
                                 match_score = len(t_words & m_words) / len(t_words) * 100.0
+                                if self.ema_alignment is None:
+                                    self.ema_alignment = match_score
+                                else:
+                                    self.ema_alignment = 0.85 * self.ema_alignment + 0.15 * match_score
 
                         header = f"🚀 [Step {self.step_count:,}/{max_steps:,} ({pct:.1f}%)]"
                         metrics_line1 = f"📉 Loss: {avg_loss:.4f} {loss_arrow} │ 🎯 Top-1: {avg_acc:.1f}% │ 🌟 Top-5: {avg_top5_acc:.1f}% {acc_arrow} │ 🔮 PPL: {avg_ppl:.1f}"
@@ -826,7 +858,8 @@ class NeuroTrainer:
                         if model_snippet:
                             log.info(f"│ 🤖 [Predicted] : {model_snippet}")
                         if match_score > 0:
-                            log.info(f"│ 🎯 [Alignment] : {match_score:.1f}% (Key concept overlap)")
+                            smoothed_str = f" │ Smoothed: {self.ema_alignment:.1f}%" if self.ema_alignment is not None else ""
+                            log.info(f"│ 🎯 [Alignment] : {match_score:.1f}%{smoothed_str} (Key concept overlap)")
                         log.info(f"└── 📦 Streamed: {self._session_tokens/1000:.1f}K session tokens │ 🌐 Cumulative: {self.total_tokens/1e6:.2f}M tokens " + "─" * 15)
 
 
@@ -1343,6 +1376,7 @@ class NeuroTrainer:
         if "scheduler_state_dict" in ckpt:
             try:
                 self.scheduler.load_state_dict(ckpt["scheduler_state_dict"])
+                self._sync_scheduler_lambdas()
                 log.info("LR scheduler state restored — resuming at correct point in warmup/cosine schedule.")
             except Exception as e:
                 log.warning(f"Could not restore scheduler state ({e}); fast-forwarding by step_count instead.")

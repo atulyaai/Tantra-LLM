@@ -555,8 +555,12 @@ async def get_experts():
     num_experts = getattr(moe_cfg, "num_experts", 8) if moe_cfg else 8
     top_k = getattr(moe_cfg, "num_experts_per_tok", 2) if moe_cfg else 2
 
-    # Real expert domains
-    expert_names = [
+    # Check for real expert registry on disk
+    expert_dir = os.path.join(REPO_ROOT, "Model", "Experts")
+    registry_file = os.path.join(expert_dir, "registry.json")
+    reg_data = load_json_file(registry_file, {})
+
+    expert_domains = [
         ("Language & Reasoning", "🧠"),
         ("Python Systems Code", "💻"),
         ("Mathematics & Proofs", "🧮"),
@@ -567,16 +571,27 @@ async def get_experts():
         ("Core System Logic", "🛠️")
     ]
 
+    total_usage = sum(e.get("usage_count", 0) for e in reg_data.values()) if isinstance(reg_data, dict) else 0
+
     experts = []
     for i in range(num_experts):
-        name, icon = expert_names[i % len(expert_names)]
-        # Dynamically compute load based on index and active model parameters
-        load_val = int((hash(f"{ACTIVE_CHECKPOINT}_{i}") % 45) + 40)
+        def_name, icon = expert_domains[i % len(expert_domains)]
+        exp_meta = reg_data.get(str(i), reg_data.get(i, {})) if isinstance(reg_data, dict) else {}
+        name = exp_meta.get("specialization", def_name)
+        usage = exp_meta.get("usage_count", 0)
+        
+        if total_usage > 0:
+            load_pct = round((usage / total_usage) * 100.0, 1)
+        else:
+            # Dynamic balanced load across active top-k
+            load_pct = round(100.0 / max(1, num_experts), 1)
+
         experts.append({
             "id": i,
             "name": f"Expert #{i+1}: {name}",
             "specialization": name,
-            "load_percentage": load_val,
+            "load_percentage": load_pct,
+            "usage_count": usage,
             "status": "online",
             "icon": icon,
             "active": i < top_k

@@ -518,7 +518,7 @@ def run_training(model, vcfg, steps=30, resume=False):
     trainer.save_checkpoint(latest_ckpt, save_optimizer=True)
 
 
-def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False, eval_every=1000, log_every=50, checkpoint_every=500, batch_size=1, seq_len=128, grad_accumulation_steps=1, data_workers=0, use_latent_reasoning=True, use_mtp_loss=True, compile=False, lr=1e-4, weight_decay=0.01, optimizer="adamw", warmup_steps=None, topic_weights=None, training_stage="sft", auto_growth=False, growth_patience=1000, growth_min_delta=0.005, max_layers=None, model_dir=None, adapter_name=None, archive_checkpoints=True, pack_sequences=True, checkpoint_path=None):
+def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False, eval_every=1000, log_every=50, checkpoint_every=500, batch_size=1, seq_len=128, grad_accumulation_steps=1, data_workers=0, use_latent_reasoning=True, use_mtp_loss=True, compile=False, lr=1e-4, weight_decay=0.01, optimizer="adamw", warmup_steps=None, topic_weights=None, training_stage="sft", auto_growth=False, growth_patience=1000, growth_min_delta=0.005, max_layers=None, model_dir=None, adapter_name=None, archive_checkpoints=True, pack_sequences=True, checkpoint_path=None, max_grad_norm=1.0, mtp_loss_weight=0.3, track=None, curriculum_phase=None):
 
     log.info("== [DATASET PRE-TRAINING MODE] =====================")
     if training_stage not in {"pretrain", "sft"}:
@@ -555,8 +555,8 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
         auto_growth = False  # handled per-category below, not on the frozen base
 
     warmup = warmup_steps if warmup_steps is not None else max(50, steps // 10)
-    log.info(f"Optimizer: {optimizer.upper()}  |  Learning rate: {lr:.2e}  |  Warmup steps: {warmup}")
-    trainer = NeuroTrainer(model, lr=lr, weight_decay=weight_decay, optimizer_name=optimizer, total_steps=steps, warmup_steps=warmup, grad_accumulation_steps=grad_accumulation_steps, use_latent_reasoning=use_latent_reasoning, use_mtp_loss=use_mtp_loss)
+    log.info(f"Optimizer: {optimizer.upper()}  |  Learning rate: {lr:.2e}  |  Warmup steps: {warmup}  |  Grad clip: {max_grad_norm}  |  MTP weight: {mtp_loss_weight}")
+    trainer = NeuroTrainer(model, lr=lr, weight_decay=weight_decay, optimizer_name=optimizer, total_steps=steps, warmup_steps=warmup, grad_accumulation_steps=grad_accumulation_steps, use_latent_reasoning=use_latent_reasoning, use_mtp_loss=use_mtp_loss, mtp_loss_weight=mtp_loss_weight, max_grad_norm=max_grad_norm)
 
     checkpoint_root = os.path.abspath(model_dir or MODEL_DIR)
     latest_dir = os.path.join(checkpoint_root, "Latest")
@@ -633,7 +633,33 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
         else:
             stage_name = training_stage or prev_stage or "pretrain"
             trainer.training_stage = stage_name
-            log.info(f"  [{stage_name.upper()} Stage Resume] Preserved AdamW optimizer momentum buffers and LR scheduler position across resume boundary.")
+            # ── FIX #1 (CRITICAL): Always rebuild the scheduler whenever the step horizon
+            # changes on resume.  The trainer was constructed earlier with the raw
+            # command-line --steps value (e.g. 10,000) as total_steps.  After the
+            # incremental-target math above, `steps` is now trainer.step_count + 10,000
+            # (e.g. 82,427).  Without this rebuild the cosine schedule's progress
+            # = current_step / old_total_steps > 1.0, which immediately clamps the LR
+            # to min_lr_ratio (5 % of base), and every single training step runs at
+            # that near-zero floor for the entire session.
+            remaining = max(steps - trainer.step_count, 1)
+            actual_warmup = max(1, min(warmup or max(remaining // 10, 100), remaining // 5))
+            from Tantra.train import create_lr_scheduler
+            old_total = getattr(trainer, "total_steps", 0)
+            if steps != old_total:
+                trainer.total_steps = steps
+                trainer.warmup_steps = actual_warmup
+                trainer.scheduler = create_lr_scheduler(
+                    trainer.optimizer,
+                    warmup_steps=actual_warmup,
+                    total_steps=remaining,          # schedule over the *remaining* steps
+                    min_lr_ratio=0.05,
+                )
+                log.info(
+                    f"  [Schedule Corrected ✅] LR horizon rebuilt: remaining={remaining:,} steps, "
+                    f"warmup={actual_warmup}, lr≈{lr:.2e} (was pinned at floor due to stale horizon)"
+                )
+            else:
+                log.info(f"  [{stage_name.upper()} Stage Resume] Preserved AdamW optimizer momentum buffers and LR scheduler position across resume boundary.")
     else:
         trainer.training_stage = training_stage or "pretrain"
         log.info("Starting fresh dataset training run.")
@@ -655,18 +681,33 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
         # Evaluates 4 diverse domain prompts to monitor multi-skill emergence
         log.info(f"┌── 🌐 [ MULTI-DOMAIN & ZERO-SHOT WORLD BENCHMARK @ Step {step:,} ] " + "─" * 20)
         test_prompts = [
-            ("General", "💬", "<|user|>\nWhat is Tantra LLM?\n\n<|assistant|>\n"),
-            ("Coding",  "💻", "<|user|>\nWrite a Python function to reverse a string.\n\n<|assistant|>\n"),
-            ("Math",    "🔢", "<|user|>\nSolve for x in 2x + 6 = 14.\n\n<|assistant|>\n"),
-            ("Science", "🔬", "<|user|>\nState Newton's First Law of Motion.\n\n<|assistant|>\n")
+            ("General", "💬", "<|user|>\nWhat is Tantra LLM?\n\n<|assistant|>\n", 0.4),
+            ("Coding",  "💻", "<|user|>\nWrite a Python function to reverse a string.\n\n<|assistant|>\n```python\n", 0.2),
+            ("Math",    "🔢", "<|user|>\nSolve for x in 2x + 6 = 14.\n\n<|assistant|>\n", 0.2),
+            ("Science", "🔬", "<|user|>\nState Newton's First Law of Motion.\n\n<|assistant|>\n", 0.4)
         ]
         raw_model = getattr(model, "module", getattr(model, "_orig_mod", model))
-        for domain, icon, prompt_text in test_prompts:
+        for domain, icon, prompt_text, temp in test_prompts:
             prompt_ids = torch.tensor([tokenizer.encode(prompt_text)], device=raw_model.embed.weight.device)
-            out = raw_model.generate(prompt_ids, max_new_tokens=48, min_new_tokens=1, temperature=0.7, top_p=0.9, repetition_penalty=1.2)
+            out = raw_model.generate(prompt_ids, max_new_tokens=64, min_new_tokens=1, temperature=temp, top_p=0.9, repetition_penalty=1.15)
             new_tokens = out[0, prompt_ids.shape[1]:].tolist()
-            response = tokenizer.decode(new_tokens).strip().replace("\n", " ")
-            log.info(f"│ {icon} [{domain:7s}]: {response[:90]}")
+            response = tokenizer.decode(new_tokens).strip()
+
+            extra_tag = ""
+            if domain == "Coding":
+                import ast
+                code_cand = response.replace("```python", "").replace("```", "").strip()
+                try:
+                    ast.parse(code_cand)
+                    extra_tag = " (✅ Valid Python AST)"
+                except Exception:
+                    pass
+            elif domain == "Math":
+                if "x = 4" in response or "x=4" in response or "= 4" in response:
+                    extra_tag = " (✅ Solved: x = 4)"
+
+            clean_disp = response.replace("\n", " ")[:90]
+            log.info(f"│ {icon} [{domain:7s}]: {clean_disp}{extra_tag}")
         
         # Zero-Shot World Knowledge MMLU Benchmark Evaluation
         try:
@@ -764,7 +805,74 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
     # was above one.
     max_samples = steps * batch_size * max(1, grad_accumulation_steps)
 
-    if os.path.isdir(dataset_path):
+    dataset = None
+    if track and track.lower() not in ("all", "none"):
+        t_norm = track.lower().strip()
+        log.info(f"🎯 [EXPERT TRACK OVERRIDE] Training exclusively on '{t_norm}' category...")
+        track_map = {
+            "chitchat": ["chitchat_phase1_greetings.jsonl", "expert_conversation.jsonl"] if curriculum_phase == 1 else (["chitchat_phase2_short.jsonl", "expert_conversation.jsonl"] if curriculum_phase == 2 else ["chitchat_phase3_full.jsonl", "expert_conversation.jsonl", "conversation.jsonl"]),
+            "chitchat-p1": ["chitchat_phase1_greetings.jsonl"],
+            "chitchat-p2": ["chitchat_phase2_short.jsonl"],
+            "chitchat-p3": ["chitchat_phase3_full.jsonl", "expert_conversation.jsonl"],
+            "greetings": ["chitchat_phase1_greetings.jsonl"],
+            "conversation": ["chitchat_phase3_full.jsonl", "expert_conversation.jsonl", "conversation.jsonl"],
+            "chat": ["chitchat_phase3_full.jsonl", "expert_conversation.jsonl", "conversation.jsonl"],
+            "identity": ["chitchat_phase1_greetings.jsonl", "gold_corpus.jsonl", "expert_conversation.jsonl"],
+            "math": ["math_phase1_arithmetic.jsonl", "expert_math_science.jsonl"] if curriculum_phase == 1 else (["math_phase2_wordproblems.jsonl", "expert_math_science.jsonl"] if curriculum_phase == 2 else ["math_phase3_advanced.jsonl", "expert_math_science.jsonl", "math.jsonl"]),
+            "math-p1": ["math_phase1_arithmetic.jsonl"],
+            "math-p2": ["math_phase2_wordproblems.jsonl"],
+            "math-p3": ["math_phase3_advanced.jsonl", "expert_math_science.jsonl"],
+            "code": ["code_phase1_syntax.jsonl", "expert_code.jsonl"] if curriculum_phase == 1 else (["code_phase2_algorithms.jsonl", "expert_code.jsonl"] if curriculum_phase == 2 else ["code_phase3_systems.jsonl", "expert_code.jsonl", "code.jsonl"]),
+            "code-p1": ["code_phase1_syntax.jsonl"],
+            "code-p2": ["code_phase2_algorithms.jsonl"],
+            "code-p3": ["code_phase3_systems.jsonl", "expert_code.jsonl"],
+            "science": ["science_phase1_fundamentals.jsonl", "expert_math_science.jsonl"] if curriculum_phase == 1 else (["science_phase2_explanations.jsonl", "expert_math_science.jsonl"] if curriculum_phase == 2 else ["science_phase3_advanced.jsonl", "expert_math_science.jsonl", "science.jsonl"]),
+            "science-p1": ["science_phase1_fundamentals.jsonl"],
+            "science-p2": ["science_phase2_explanations.jsonl"],
+            "science-p3": ["science_phase3_advanced.jsonl", "expert_math_science.jsonl"],
+            "general": ["expert_general.jsonl", "general.jsonl"],
+            "gold": ["gold_corpus.jsonl"]
+        }
+        cand_names = track_map.get(t_norm, [f"expert_{t_norm}.jsonl", f"{t_norm}.jsonl"])
+        base_dir = dataset_path if os.path.isdir(dataset_path) else (os.path.dirname(dataset_path) or "Datasets")
+        selected_file = None
+        for c in cand_names:
+            c_path = os.path.join(base_dir, c)
+            if os.path.isfile(c_path) and os.path.getsize(c_path) > 0:
+                selected_file = c_path
+                break
+        
+        # On-demand builder for specific domains
+        if selected_file is None:
+            if "code" in t_norm:
+                from Tantra.dataset import build_phased_code_curriculum
+                build_phased_code_curriculum(base_dir)
+            elif "math" in t_norm:
+                from Tantra.dataset import build_phased_math_curriculum
+                build_phased_math_curriculum(base_dir)
+            elif "science" in t_norm:
+                from Tantra.dataset import build_phased_science_curriculum
+                build_phased_science_curriculum(base_dir)
+            elif t_norm in ("chitchat", "conversation", "chat", "identity", "chitchat-p1", "chitchat-p2", "chitchat-p3", "greetings"):
+                from Tantra.dataset import build_phased_chitchat_curriculum
+                build_phased_chitchat_curriculum(base_dir)
+            
+            for c in cand_names:
+                c_path = os.path.join(base_dir, c)
+                if os.path.isfile(c_path) and os.path.getsize(c_path) > 0:
+                    selected_file = c_path
+                    break
+
+        if selected_file and os.path.isfile(selected_file):
+            log.info(f"📂 Routing to Expert Track File: {selected_file} ({os.path.getsize(selected_file)/1e6:.1f} MB)")
+            dataset = JSONLDataset(selected_file, tokenizer, seq_len=seq_len,
+                                  max_samples=max_samples, mask_non_assistant=mask_non_assistant, pack_sequences=pack_sequences)
+        else:
+            log.warning(f"Could not find track file for '{track}' under {base_dir}; falling back to multi-track.")
+
+    if dataset is not None:
+        pass
+    elif os.path.isdir(dataset_path):
         # Scan for topic subdirectories
         topic_paths = {}
         for entry in os.scandir(dataset_path):
@@ -844,9 +952,27 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
                                   max_samples=max_samples, mask_non_assistant=mask_non_assistant, pack_sequences=pack_sequences)
 
     val_loader = None
-    if os.path.isfile(dataset_path):
-        val_dataset = JSONLDataset(dataset_path, tokenizer, seq_len=seq_len, max_samples=100, mask_non_assistant=mask_non_assistant, split="val", val_ratio=0.05, pack_sequences=pack_sequences)
-        val_loader = torch.utils.data.DataLoader(val_dataset, batch_size=batch_size, num_workers=0)
+    target_val_file = dataset_path if os.path.isfile(dataset_path) else None
+    if target_val_file is None and os.path.isdir(dataset_path):
+        candidates = [
+            os.path.join(dataset_path, "master_corpus.jsonl"),
+            os.path.join(dataset_path, "expert_general.jsonl"),
+            os.path.join(dataset_path, "expert_conversation.jsonl"),
+        ] + glob.glob(os.path.join(dataset_path, "**/*.jsonl"), recursive=True)
+        for c in candidates:
+            if os.path.isfile(c) and os.path.getsize(c) > 100:
+                target_val_file = c
+                break
+
+    if target_val_file and os.path.isfile(target_val_file):
+        try:
+            val_dataset = JSONLDataset(target_val_file, tokenizer, seq_len=seq_len, max_samples=100,
+                                       mask_non_assistant=mask_non_assistant, split="val", val_ratio=0.05,
+                                       pack_sequences=pack_sequences)
+            val_loader = torch.utils.data.DataLoader(val_dataset, batch_size=batch_size, num_workers=0)
+            log.info(f"  Held-out validation stream active from: {os.path.basename(target_val_file)}")
+        except Exception as e:
+            log.debug(f"Could not build validation dataset: {e}")
 
 
 
@@ -960,12 +1086,29 @@ def run_dpo_training(
         log.info("🏁 [DPO ALIGNMENT FINISHED] Checkpoint saved: %s", final_milestone)
 
 
-def run_evaluation(model, tokenizer, dataset_path):
+def run_evaluation(model, tokenizer, dataset_path, device="cpu", max_batches=50):
     log.info("== [MODEL EVALUATION & BENCHMARK MODE] =============")
-    engine = EvaluationEngine(model)
-    dataset = JSONLDataset(dataset_path, tokenizer, seq_len=128, max_samples=20) if os.path.exists(dataset_path) else None
-    report = engine.print_benchmark_report(dataset, vocab_size=tokenizer.vocab_size)
-    return report
+    engine = EvaluationEngine(model, device=str(device))
+    if os.path.isdir(dataset_path):
+        from Tantra.dataset import TopicMixedDataset
+        dataset = TopicMixedDataset(dataset_path, tokenizer, seq_len=128, max_samples=500)
+    else:
+        dataset = JSONLDataset(dataset_path, tokenizer, seq_len=128, max_samples=500) if os.path.exists(dataset_path) else None
+
+    if dataset is None:
+        log.warning(f"Could not load evaluation dataset from: {dataset_path}")
+        return {}
+
+    from torch.utils.data import DataLoader
+    loader = DataLoader(dataset, batch_size=4, shuffle=False)
+    metrics = engine.evaluate_metrics(loader, max_batches=max_batches)
+    print("\n" + "=" * 65)
+    print(f"📊 EVALUATION METRICS REPORT ({dataset_path})")
+    print("=" * 65)
+    for k, v in metrics.items():
+        print(f"  • {k:20s}: {v:.4f}")
+    print("=" * 65 + "\n")
+    return metrics
 
 
 def run_compression_benchmark(comp_cfg):
@@ -975,13 +1118,30 @@ def run_compression_benchmark(comp_cfg):
     bench.run(sample_weight, output_dir=os.path.join(MODEL_DIR, "reports"))
 
 
-def run_generation(model, vcfg, device):
+def run_generation(model, tokenizer, vcfg, device, prompt_text=None, temperature=0.35, top_p=0.9, max_new_tokens=64, use_mtp=True):
     log.info("── [TEXT GENERATION MODE (MTP Speculation)] ───────")
-    prompt = torch.randint(0, vcfg.vocab_size, (1, 4), device=device)
-    log.info(f"  Prompt tokens: {prompt.tolist()[0]}")
+    if prompt_text:
+        log.info(f"  Prompt: {prompt_text!r}")
+        prompt_ids = tokenizer.encode(prompt_text)
+        if not prompt_ids:
+            prompt_ids = [1]  # <bos>
+        prompt_tensor = torch.tensor([prompt_ids], dtype=torch.long, device=device)
+    else:
+        prompt_tensor = torch.randint(0, vcfg.vocab_size, (1, 4), device=device)
+        log.info(f"  Random Prompt tokens: {prompt_tensor.tolist()[0]}")
+
+    model.eval()
     with torch.no_grad():
-        out = model.generate(prompt, max_new_tokens=10, temperature=0.8, use_mtp_speculation=True)
-    log.info(f"  Generated sequence tokens: {out.tolist()[0]}  ✓")
+        out = model.generate(prompt_tensor, max_new_tokens=max_new_tokens, temperature=temperature, top_p=top_p, use_mtp_speculation=use_mtp)
+
+    out_ids = out.tolist()[0]
+    gen_ids = out_ids[prompt_tensor.size(1):] if prompt_text else out_ids
+    decoded = tokenizer.decode(gen_ids)
+    print("\n" + "=" * 60)
+    print(f"🤖 [TANTRA RESPONSE]:\n{decoded}")
+    print("=" * 60 + "\n")
+    log.info(f"  Generated Tokens Count: {len(gen_ids)} ✓")
+    return decoded
 
 
 def serve(model, tokenizer, port=8000, expert_dir=None):
@@ -1001,6 +1161,11 @@ def main():
     parser.add_argument("--mode", default="full",
                         choices=["full", "probe", "vocab", "train", "dataset", "eval", "compress", "generate", "serve", "status", "experts", "chat", "adapter", "dpo", "auto-pilot", "benchmark", "export"],
                         help="Execution mode")
+    parser.add_argument("--track", "--expert", "--domain", dest="track", type=str, default=None,
+                        choices=["all", "chitchat", "conversation", "chat", "identity", "chitchat-p1", "chitchat-p2", "chitchat-p3", "greetings", "math", "math-p1", "math-p2", "math-p3", "code", "code-p1", "code-p2", "code-p3", "science", "science-p1", "science-p2", "science-p3", "general", "gold"],
+                        help="Select specific expert track for focused training (e.g. --track chitchat-p1, --track code-p1, --track math-p1, --track science-p1)")
+    parser.add_argument("--curriculum-phase", "--phase", dest="curriculum_phase", type=int, default=None, choices=[1, 2, 3],
+                        help="Curriculum learning phase: 1=greetings & identity only, 2=short dialogues (<100 words), 3=full multi-turn dataset")
     parser.add_argument("--checkpoint", type=str, default=None, help="Path to custom .pt model checkpoint to load (for chat, eval, serve, dpo, benchmark, export)")
     parser.add_argument("--pack-sequences", action=argparse.BooleanOptionalAction, default=True, help="Enable continuous document sequence packing (0% padding waste)")
     parser.add_argument("--dataset", type=str, default=DEFAULT_DATASET, help="JSONL dataset path")
@@ -1033,7 +1198,7 @@ def main():
     parser.add_argument("--optimizer", type=str, choices=["adamw", "adam", "lion", "sgd"], default="adamw", help="Optimizer choice (default: adamw)")
     parser.add_argument("--lr", type=float, default=None, help="Learning rate (default: 1e-4 for AdamW, 5e-5 for Lion)")
     parser.add_argument("--weight-decay", type=float, default=None, help="Weight decay (default: 0.01 for AdamW, 0.05 for Lion)")
-    parser.add_argument("--warmup", type=int, default=None, help="LR warmup steps (default: steps // 10)")
+    parser.add_argument("--warmup", "--warmup-steps", dest="warmup", type=int, default=None, help="LR warmup steps (default: steps // 10)")
     parser.add_argument("--topic-weights", type=str, default=None, help="JSON dict of topic weights, e.g. '{\"general\":40,\"code\":15}'")
     parser.add_argument("--model-dir", "--checkpoint-dir", dest="model_dir", type=str, default=None, help="Custom root directory for model checkpoints (e.g. Kaggle/Google Drive)")
     parser.add_argument("--mask-non-assistant", action="store_true", default=None, help="Supervise assistant replies only during training")
@@ -1047,6 +1212,10 @@ def main():
     parser.add_argument("--layers", type=int, default=8, help="Number of NeuroCore layers (default: 8)")
     parser.add_argument("--heads", type=int, default=8, help="Number of attention heads (default: 8)")
     parser.add_argument("--output", type=str, default=None, help="Output path for model export mode")
+    parser.add_argument("--prompt", type=str, default=None, help="Text prompt for --mode generate")
+    parser.add_argument("--max-new-tokens", type=int, default=64, help="Max new tokens to generate")
+    parser.add_argument("--max-grad-norm", type=float, default=1.0, help="Max gradient norm clipping threshold (default: 1.0)")
+    parser.add_argument("--mtp-weight", type=float, default=0.3, help="Auxiliary MTP loss weight factor (default: 0.3)")
     parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
     args = parser.parse_args()
 
@@ -1275,7 +1444,7 @@ def main():
         else:
             resolved_wd = 0.05 if resolved_optimizer == "lion" else 0.01
 
-        run_dataset_training(model, tok, args.dataset, steps=args.steps, resume=args.resume, eval_every=args.eval_every, log_every=args.log_every, checkpoint_every=args.checkpoint_every, batch_size=args.batch_size, seq_len=args.seq_len, grad_accumulation_steps=args.grad_accum, data_workers=args.data_workers, use_latent_reasoning=use_latent_reasoning, use_mtp_loss=use_mtp_loss, compile=args.compile, lr=resolved_lr, weight_decay=resolved_wd, optimizer=resolved_optimizer, warmup_steps=args.warmup, topic_weights=topic_weights, training_stage=args.training_stage, auto_growth=args.auto_growth, growth_patience=args.growth_patience, growth_min_delta=args.growth_min_delta, max_layers=args.max_layers, adapter_name=args.adapter, model_dir=(ADAPTER_ROOT if args.adapter is not None else args.model_dir), pack_sequences=args.pack_sequences, checkpoint_path=args.checkpoint)
+        run_dataset_training(model, tok, args.dataset, steps=args.steps, resume=args.resume, eval_every=args.eval_every, log_every=args.log_every, checkpoint_every=args.checkpoint_every, batch_size=args.batch_size, seq_len=args.seq_len, grad_accumulation_steps=args.grad_accum, data_workers=args.data_workers, use_latent_reasoning=use_latent_reasoning, use_mtp_loss=use_mtp_loss, compile=args.compile, lr=resolved_lr, weight_decay=resolved_wd, optimizer=resolved_optimizer, warmup_steps=args.warmup, topic_weights=topic_weights, training_stage=args.training_stage, auto_growth=args.auto_growth, growth_patience=args.growth_patience, growth_min_delta=args.growth_min_delta, max_layers=args.max_layers, adapter_name=args.adapter, model_dir=(ADAPTER_ROOT if args.adapter is not None else args.model_dir), pack_sequences=args.pack_sequences, checkpoint_path=args.checkpoint, max_grad_norm=args.max_grad_norm, mtp_loss_weight=args.mtp_weight, track=args.track, curriculum_phase=args.curriculum_phase)
 
     elif args.mode == "dpo":
         dpo_ckpt = args.checkpoint
@@ -1334,7 +1503,9 @@ def main():
             training_stage="sft", auto_growth=args.auto_growth,
             growth_patience=args.growth_patience, growth_min_delta=args.growth_min_delta,
             max_layers=args.max_layers, model_dir=args.model_dir,
-            pack_sequences=args.pack_sequences, checkpoint_path=args.checkpoint
+            pack_sequences=args.pack_sequences, checkpoint_path=args.checkpoint,
+            max_grad_norm=args.max_grad_norm, mtp_loss_weight=args.mtp_weight,
+            track=args.track
         )
         
         # Phase 2: DPO Alignment
@@ -1357,9 +1528,42 @@ def main():
         from Tantra.export import export_clean_checkpoint
         export_clean_checkpoint(args.checkpoint, args.output or args.model_dir or "Model/Export/checkpoint_clean.pt")
     elif args.mode == "eval":
-        run_evaluation(model, tok, args.dataset)
+        ckpt_to_load = args.checkpoint
+        if ckpt_to_load is None:
+            cand_list = []
+            for d in [os.path.join(MODEL_DIR, "Checkpoints"), os.path.join(MODEL_DIR, "Best"), os.path.join(MODEL_DIR, "Latest")]:
+                if os.path.exists(d):
+                    cand_list.extend(glob.glob(os.path.join(d, "*.pt")))
+            if cand_list:
+                import re
+                ckpt_to_load = max([p for p in cand_list if "sample" not in p], key=lambda p: int(re.search(r'step_(\d+)', p).group(1)) if re.search(r'step_(\d+)', p) else 0)
+
+        if ckpt_to_load and os.path.exists(ckpt_to_load):
+            try:
+                trainer.load_checkpoint(ckpt_to_load)
+                log.info(f"Loaded checkpoint for evaluation: {ckpt_to_load}")
+            except Exception as e:
+                log.warning(f"Could not load checkpoint {ckpt_to_load}: {e}")
+        run_evaluation(model, tok, args.dataset, device=rt.device)
     elif args.mode == "generate":
-        run_generation(model, vcfg, rt.device)
+        ckpt_to_load = args.checkpoint
+        if ckpt_to_load is None:
+            cand_list = []
+            for d in [os.path.join(MODEL_DIR, "Checkpoints"), os.path.join(MODEL_DIR, "Best"), os.path.join(MODEL_DIR, "Latest")]:
+                if os.path.exists(d):
+                    cand_list.extend(glob.glob(os.path.join(d, "*.pt")))
+            if cand_list:
+                import re
+                ckpt_to_load = max([p for p in cand_list if "sample" not in p], key=lambda p: int(re.search(r'step_(\d+)', p).group(1)) if re.search(r'step_(\d+)', p) else 0)
+
+        if ckpt_to_load and os.path.exists(ckpt_to_load):
+            try:
+                trainer.load_checkpoint(ckpt_to_load)
+                log.info(f"Loaded checkpoint for generation: {ckpt_to_load}")
+            except Exception as e:
+                log.warning(f"Could not load checkpoint {ckpt_to_load}: {e}")
+
+        run_generation(model, tok, vcfg, rt.device, prompt_text=args.prompt, temperature=args.temperature, top_p=args.top_p, max_new_tokens=args.max_new_tokens, use_mtp=args.use_mtp)
     elif args.mode == "serve":
         ckpt_to_load = args.checkpoint
         if ckpt_to_load is None:

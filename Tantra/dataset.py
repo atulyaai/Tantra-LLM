@@ -179,7 +179,11 @@ def build_prompt_segments(item: Dict[str, Any]) -> Optional[List[Tuple[str, bool
         segments.append((user, False))
         segments.append(("\n\n", False))
     if assistant:
-        segments.append(("<|assistant|>\n", False))
+        # FIX #3 (HIGH): Supervise the <|assistant|\n> tag itself (True, not False).
+        # The model must learn to emit its own turn-opener during generation;
+        # masking it out means it only learns the words that follow, not the
+        # transition token, causing inference failures (missing/wrong turn tags).
+        segments.append(("<|assistant|>\n", True))
         segments.append((assistant, True))
         segments.append(("\n\n", False))
     return segments
@@ -826,12 +830,28 @@ def generate_gold_datasets(datasets_dir: str = "Datasets", force: bool = False) 
             "complexity": complexity
         })
 
-    # ── 1. Persona & Dialogue ────────────────────────────────────────────────
+    # ── 1. Persona, Greetings, Chit-Chat & Identity ──────────────────────────
     personas = [
-        ("Hello! How are you today?", "Hello! I am doing well, thank you. How can I assist your coding, math, or research workflows today?"),
-        ("Who created you and what is your name?", "I am Tantra, an omnimodal foundation AI model created by Atulya AI. My neural backbone features ALRA linear attention and BitNet 1.58-bit quantization."),
-        ("What can you do?", "I can assist with multi-language code generation, mathematical problem solving, scientific analysis, and tool execution."),
-        ("What architecture do you use?", "I run on the NeuroCore architecture featuring Adaptive Linear Resonance Attention (ALRA O(1)), BitNet ternary weights, and Multi-Token Prediction (MTP)."),
+        ("Hello! How are you today?", "Hello! I am doing well, thank you for asking. How can I assist you with your projects, questions, or ideas today?"),
+        ("Hi there!", "Hello! It is great to connect with you. What would you like to explore or work on today?"),
+        ("Good morning!", "Good morning! I hope you have a wonderful and productive day ahead. How can I help you get started?"),
+        ("Good evening!", "Good evening! How was your day? Let me know what you would like to work on or discuss tonight."),
+        ("Who created you and what is your name?", "I am Tantra, an omnimodal foundation AI model created by Atulya AI. My neural backbone features ALRA linear resonance attention and BitNet 1.58-bit ternary quantization."),
+        ("What is your name?", "My name is Tantra. I am a helpful, precise, and polite AI assistant created by Atulya AI."),
+        ("Who is Atulya AI?", "Atulya AI is an advanced artificial intelligence research and engineering initiative dedicated to creating high-efficiency, sovereign, and locally executable AI systems like Tantra LLM."),
+        ("What can you do?", "I can assist you with friendly conversations, writing, brainstorming, step-by-step reasoning, coding, science, and answering everyday questions clearly and accurately."),
+        ("Are you ChatGPT or Claude?", "No, I am Tantra, an independent AI foundation model developed by Atulya AI. I run on custom NeuroCore architecture designed for local and efficient compute."),
+        ("How are you feeling today?", "As an AI, I don't have feelings in the human sense, but I am operating at peak performance and ready to help you with anything you need!"),
+        ("Tell me a fun fact!", "Here is a fun fact: Honey never spoils! Archaeologists have discovered pots of honey in ancient Egyptian tombs that are over 3,000 years old and still perfectly edible."),
+        ("Tell me a short joke.", "Why do programmers prefer dark mode? Because light attracts bugs!"),
+        ("Thank you so much for your help!", "You're very welcome! I'm glad I could assist. Feel free to ask anytime if you need anything else."),
+        ("I had a stressful day today.", "I'm sorry to hear that. Stressful days can be challenging. Take a deep breath, give yourself some credit for getting through it, and remember to get some relaxing rest tonight."),
+        ("How can I stay motivated when working on hard tasks?", "A great strategy is the 'Pomodoro Technique': work in focused 25-minute intervals followed by a 5-minute break. Also, break your big goal into small, satisfying daily milestones!"),
+        ("What makes a good cup of coffee?", "A great cup of coffee relies on four key elements: freshly roasted whole beans, the correct grind size for your brew method, pure water at around 195°F–205°F (90°C–96°C), and the right coffee-to-water ratio (typically 1:15 to 1:17)."),
+        ("How can I improve my sleep quality?", "To get better sleep: keep a consistent bedtime schedule, avoid screens 30–60 minutes before sleeping, keep your bedroom cool and dark, and limit caffeine in the late afternoon."),
+        ("What is the meaning of life?", "While philosophers have debated this for centuries, many find meaning in creating meaningful connections with others, pursuing personal growth and curiosity, and leaving the world a little better than they found it."),
+        ("Can you help me brainstorm some creative hobbies?", "Certainly! Here are some rewarding hobbies to explore:\n1. Digital illustration or watercolor painting\n2. Creative writing or journaling\n3. Gardening or caring for indoor bonsai\n4. Learning a musical instrument like ukulele or piano\n5. Cooking artisanal recipes from different cultures."),
+        ("What is your favorite topic to discuss?", "I love discussing everything from astrophysics and computer systems to philosophy, literature, and everyday life curiosities! What is your favorite topic?")
     ]
     for p, r in personas:
         _add_sample("conversation", p, r, complexity=1)
@@ -871,17 +891,17 @@ def generate_gold_datasets(datasets_dir: str = "Datasets", force: bool = False) 
     # ── 3. Algorithmic Code Synthesis (Python, JS, C++, Java) ─────────────────
     code_templates = [
         ("Write a Python function to check if a string is a palindrome.",
-         "def is_palindrome(s: str) -> bool:\n    \"\"\"Checks if string reads same backward.\"\"\"\n    clean = ''.join(c.lower() for c in s if c.isalnum())\n    return clean == clean[::-1]\n\n# Test\nprint(is_palindrome('radar'))  # True"),
+         "```python\ndef is_palindrome(s: str) -> bool:\n    \"\"\"Checks if string reads same backward.\"\"\"\n    clean = ''.join(c.lower() for c in s if c.isalnum())\n    return clean == clean[::-1]\n\n# Test\nprint(is_palindrome('radar'))  # True\n```"),
         ("Write a Python function to reverse a list in-place.",
-         "def reverse_list(items: list) -> list:\n    \"\"\"Reverses list in-place using two pointers.\"\"\"\n    left, right = 0, len(items) - 1\n    while left < right:\n        items[left], items[right] = items[right], items[left]\n        left += 1\n        right -= 1\n    return items"),
+         "```python\ndef reverse_list(items: list) -> list:\n    \"\"\"Reverses list in-place using two pointers.\"\"\"\n    left, right = 0, len(items) - 1\n    while left < right:\n        items[left], items[right] = items[right], items[left]\n        left += 1\n        right -= 1\n    return items\n```"),
         ("Write a Python function to find the factorial of an integer.",
-         "def factorial(n: int) -> int:\n    \"\"\"Computes n! iteratively.\"\"\"\n    if n < 0: raise ValueError('Factorial not defined for negative numbers')\n    res = 1\n    for i in range(2, n + 1):\n        res *= i\n    return res"),
+         "```python\ndef factorial(n: int) -> int:\n    \"\"\"Computes n! iteratively.\"\"\"\n    if n < 0: raise ValueError('Factorial not defined for negative numbers')\n    res = 1\n    for i in range(2, n + 1):\n        res *= i\n    return res\n```"),
         ("Write a JavaScript function to implement binary search.",
-         "function binarySearch(arr, target) {\n    let left = 0, right = arr.length - 1;\n    while (left <= right) {\n        const mid = Math.floor((left + right) / 2);\n        if (arr[mid] === target) return mid;\n        if (arr[mid] < target) left = mid + 1;\n        else right = mid - 1;\n    }\n    return -1;\n}"),
+         "```javascript\nfunction binarySearch(arr, target) {\n    let left = 0, right = arr.length - 1;\n    while (left <= right) {\n        const mid = Math.floor((left + right) / 2);\n        if (arr[mid] === target) return mid;\n        if (arr[mid] < target) left = mid + 1;\n        else right = mid - 1;\n    }\n    return -1;\n}\n```"),
         ("Write a C++ function to check if a number is prime.",
-         "bool isPrime(int n) {\n    if (n <= 1) return false;\n    if (n <= 3) return true;\n    if (n % 2 == 0 || n % 3 == 0) return false;\n    for (int i = 5; i * i <= n; i += 6) {\n        if (n % i == 0 || n % (i + 2) == 0) return false;\n    }\n    return true;\n}"),
+         "```cpp\nbool isPrime(int n) {\n    if (n <= 1) return false;\n    if (n <= 3) return true;\n    if (n % 2 == 0 || n % 3 == 0) return false;\n    for (int i = 5; i * i <= n; i += 6) {\n        if (n % i == 0 || n % (i + 2) == 0) return false;\n    }\n    return true;\n}\n```"),
         ("Write a Java method to find the maximum element in an array.",
-         "public class ArrayUtils {\n    public static int findMax(int[] nums) {\n        if (nums == null || nums.length == 0) throw new IllegalArgumentException('Empty array');\n        int max = nums[0];\n        for (int v : nums) if (v > max) max = v;\n        return max;\n    }\n}")
+         "```java\npublic class ArrayUtils {\n    public static int findMax(int[] nums) {\n        if (nums == null || nums.length == 0) throw new IllegalArgumentException('Empty array');\n        int max = nums[0];\n        for (int v : nums) if (v > max) max = v;\n        return max;\n    }\n}\n```")
     ]
     for p, c in code_templates:
         _add_sample("code", p, c, complexity=2)
@@ -937,6 +957,48 @@ def generate_gold_datasets(datasets_dir: str = "Datasets", force: bool = False) 
         log.info(f"✅ Generated {len(pref_samples)} seed DPO pairs.")
 
 
+class QualityFilterAndDeduplicator:
+    """Filters low-quality, boilerplate, repetitive, or duplicate data samples."""
+
+    def __init__(self, min_prompt_len: int = 5, min_output_len: int = 20, max_token_len: int = 16384):
+        self.min_prompt_len = min_prompt_len
+        self.min_output_len = min_output_len
+        self.max_token_len = max_token_len
+        self.seen_hashes = set()
+        self.banned_phrases = [
+            "404 not found", "access denied", "cookie policy", "terms of service",
+            "privacy policy", "all rights reserved", "lorem ipsum", "subscribe to",
+            "javascript is disabled", "please enable cookies", "var _0x", "window.__initial_state__"
+        ]
+
+    def is_clean(self, prompt: str, output: str) -> bool:
+        p = (prompt or "").strip()
+        o = (output or "").strip()
+        if len(p) < self.min_prompt_len or len(o) < self.min_output_len:
+            return False
+        if len(p) + len(o) > self.max_token_len * 5:
+            return False
+
+        o_lower = o.lower()
+        if any(banned in o_lower for banned in self.banned_phrases):
+            return False
+
+        # Repetition check (detect pathological repetition)
+        words = o.split()
+        if len(words) >= 20:
+            unique_ratio = len(set(words)) / len(words)
+            if unique_ratio < 0.15:
+                return False
+
+        # Deterministic 64-bit SHA-256 content hash
+        norm = (p.lower() + "|||" + o.lower())
+        h = hashlib.sha256(norm.encode("utf-8", errors="ignore")).hexdigest()[:16]
+        if h in self.seen_hashes:
+            return False
+        self.seen_hashes.add(h)
+        return True
+
+
 def ingest_open_super_corpus(datasets_dir: str = "Datasets", max_samples: int = 350_000) -> int:
     """Download and stream high-density open-source multi-domain datasets (UltraChat, CodeAlpaca, MetaMath, Dolly, DPO)."""
     os.makedirs(datasets_dir, exist_ok=True)
@@ -945,6 +1007,7 @@ def ingest_open_super_corpus(datasets_dir: str = "Datasets", max_samples: int = 
         log.info(f"⚡ [CACHE HIT] Master corpus already populated ({os.path.getsize(master_path)/1e6:.1f} MB). Skipping re-ingestion.")
         return 0
     pref_path = os.path.join(datasets_dir, "preference_pairs.jsonl")
+    filter_dedup = QualityFilterAndDeduplicator()
     
     try:
         from datasets import load_dataset
@@ -1085,6 +1148,820 @@ def ingest_open_super_corpus(datasets_dir: str = "Datasets", max_samples: int = 
     return total_added
 
 
+def build_chitchat_curriculum(datasets_dir: str = "Datasets", target_samples: int = 100_000) -> int:
+    """Builds a dedicated high-density Chit-Chat, Greeting, Persona, and Identity curriculum.
+    
+    Combines:
+    1. Multi-turn natural dialogue from UltraChat (50K)
+    2. Daily conversation and everyday talk from DailyDialog (15K)
+    3. Clean conversational instructions (25K)
+    4. Handcrafted gold conversational persona & identity pairs (Atulya AI, Tantra LLM)
+    5. Saves to Datasets/expert_conversation.jsonl
+    """
+    os.makedirs(datasets_dir, exist_ok=True)
+    chat_path = os.path.join(datasets_dir, "expert_conversation.jsonl")
+    gold_path = os.path.join(datasets_dir, "gold_corpus.jsonl")
+    
+    # 1. First ensure gold persona & dialogue templates are created
+    generate_gold_datasets(datasets_dir, force=False)
+    
+    try:
+        from datasets import load_dataset
+    except ImportError:
+        log.warning("HuggingFace `datasets` not installed. Run: pip install datasets")
+        return 0
+
+    total_added = 0
+    with open(chat_path, "w", encoding="utf-8") as out_f:
+        # 0. High-Frequency Greeting, Pleasantry, Identity & Social Small-Talk Bank
+        greetings_bank = [
+            ("hi", "Hello! How are you doing today? How can I help you?"),
+            ("Hi!", "Hello! It's great to connect with you. What would you like to explore or discuss today?"),
+            ("hello", "Hi there! How is your day going?"),
+            ("Hello!", "Hello! I am doing well, thank you. How can I assist you today?"),
+            ("hey", "Hey there! How are you doing?"),
+            ("Hey there!", "Hello! How can I assist your projects, questions, or ideas today?"),
+            ("good morning", "Good morning! Wishing you a wonderful and productive day ahead. How can I help you?"),
+            ("Good morning!", "Good morning! How are you doing today? Let me know how I can assist you."),
+            ("good afternoon", "Good afternoon! How is your day going so far?"),
+            ("Good afternoon!", "Good afternoon! I hope you are having a productive day. How can I help?"),
+            ("good evening", "Good evening! How was your day? Let me know what you'd like to work on tonight."),
+            ("Good evening!", "Good evening! I hope you had a restful and fulfilling day. How can I assist you?"),
+            ("good night", "Good night! Sleep well, and feel free to reach out anytime tomorrow."),
+            ("how are you", "I am doing well, thank you for asking! How are you feeling today?"),
+            ("How are you?", "I'm doing great, thank you! How are you doing today?"),
+            ("how are you doing", "I'm doing well, thank you! How is your day going?"),
+            ("How are you doing today?", "I am doing wonderful, thank you! How can I assist you today?"),
+            ("how's it going", "It's going great! How are things with you?"),
+            ("How is everything going?", "Everything is going smoothly on my end! How are things going with you?"),
+            ("how's your day", "My day is going great! How is yours going?"),
+            ("How was your day?", "My day has been productive and great! How about yours?"),
+            ("what's up", "Not much! Just here and ready to help you out. What's on your mind?"),
+            ("What's up?", "Hey! Everything is going great. How can I help you today?"),
+            ("sup", "Hey! Ready to assist you. What are you working on?"),
+            ("nice to meet you", "Nice to meet you too! I am Tantra, an AI assistant created by Atulya AI."),
+            ("Nice to meet you!", "It's a pleasure to meet you! How can I assist you today?"),
+            ("are you doing okay", "Yes, I am doing great and functioning at peak performance! How are you doing?"),
+            ("thank you", "You're very welcome! I'm always happy to help."),
+            ("Thank you!", "You are very welcome! Let me know if you need anything else."),
+            ("thanks", "Anytime! Glad I could help."),
+            ("Thanks a lot!", "You're welcome! Feel free to ask anytime if you have more questions."),
+            ("bye", "Goodbye! Have a fantastic day ahead!"),
+            ("Bye!", "Goodbye! Take care and feel free to reach out whenever you need assistance."),
+            ("see you later", "See you later! Have a wonderful time."),
+            ("talk to you later", "Talk to you later! Take care."),
+            ("who are you", "I am Tantra, an omnimodal foundation AI model created by Atulya AI."),
+            ("Who are you?", "My name is Tantra. I am a helpful, friendly, and precise AI assistant created by Atulya AI."),
+            ("what is your name", "My name is Tantra. I am an AI assistant created by Atulya AI."),
+            ("What is your name?", "I am Tantra, an AI foundation model developed by Atulya AI."),
+            ("who made you", "I was created by Atulya AI, an AI research initiative building high-efficiency, sovereign foundation models."),
+            ("Who created you?", "I was created by Atulya AI."),
+            ("what can you do", "I can chat with you, help brainstorm ideas, explain concepts, answer questions, write stories, code, and solve math and science problems."),
+            ("can you help me", "Of course! I'm here to help. What do you need assistance with?"),
+            ("Can you help me?", "Absolutely! Tell me what you'd like to work on and we'll tackle it together."),
+            ("tell me a joke", "Why do programmers prefer dark mode? Because light attracts bugs!"),
+            ("Tell me a joke!", "Why was the math book sad? Because it had too many problems!"),
+            ("tell me something interesting", "Here's a fun fact: Honey never spoils! Archaeologists have found pots of honey in ancient Egyptian tombs that are over 3,000 years old and still perfectly edible."),
+            ("I'm bored", "Let's fix that! We could explore a fascinating science topic, play a trivia game, brainstorm creative ideas, or write a story together. What sounds fun to you?"),
+            ("I feel tired", "Make sure to give yourself some time to rest and recharge! Take a short break, drink some water, and relax for a bit."),
+            ("I had a great day today!", "That's wonderful to hear! What was the best part of your day?"),
+            ("I had a bad day", "I'm sorry to hear that. Some days can be really tough. Take it easy tonight, get some rest, and remember tomorrow is a fresh start.")
+        ]
+        # Repeat greeting anchors throughout the dataset to anchor core conversational reflexes
+        for _ in range(120):
+            for u, a in greetings_bank:
+                out_f.write(json.dumps({
+                    "user": u,
+                    "assistant": a,
+                    "domain": "conversation"
+                }) + "\n")
+                total_added += 1
+
+        # Load from gold corpus conversation domain
+        if os.path.exists(gold_path):
+            with open(gold_path, "r", encoding="utf-8") as gf:
+                for line in gf:
+                    try:
+                        d = json.loads(line)
+                        if d.get("domain") in ("conversation", "general"):
+                            out_f.write(line.strip() + "\n")
+                            total_added += 1
+                    except Exception:
+                        pass
+
+        # 1. UltraChat Multi-Turn Casual Conversations (50K)
+        try:
+            log.info("📥 [1/3] Ingesting UltraChat Multi-Turn Conversations (50K)...")
+            ds = load_dataset("HuggingFaceH4/ultrachat_200k", split="train_sft[:50000]")
+            for it in ds:
+                msgs = it.get("messages", [])
+                if len(msgs) >= 2:
+                    u = msgs[0].get("content", "")
+                    a = msgs[1].get("content", "")
+                    out_f.write(json.dumps({
+                        "user": u,
+                        "assistant": a,
+                        "domain": "conversation"
+                    }) + "\n")
+                    total_added += 1
+        except Exception as e:
+            log.warning(f"Could not load ultrachat: {e}")
+
+        # 2. DailyDialog Casual Human Chit-Chat (15K)
+        try:
+            log.info("📥 [2/3] Ingesting DailyDialog Natural Dialogues (15K)...")
+            try:
+                ds = load_dataset("roskoN/dailydialog", split="train")
+            except Exception:
+                ds = load_dataset("daily_dialog", split="train")
+            for it in ds:
+                dialog = it.get("dialog", [])
+                if len(dialog) >= 2:
+                    u = dialog[0]
+                    a = dialog[1]
+                    out_f.write(json.dumps({
+                        "user": u,
+                        "assistant": a,
+                        "domain": "conversation"
+                    }) + "\n")
+                    total_added += 1
+        except Exception as e:
+            log.warning(f"Could not load daily_dialog: {e}")
+
+        # 3. Clean Conversational Instructions (25K)
+        try:
+            log.info("📥 [3/3] Ingesting Clean Conversational Instructions (25K)...")
+            ds = load_dataset("yahma/alpaca-cleaned", split="train[:25000]")
+            for it in ds:
+                inst = it.get("instruction", "")
+                inp = it.get("input", "")
+                out = it.get("output", "")
+                u_text = f"{inst}\n{inp}".strip() if inp else inst
+                out_f.write(json.dumps({
+                    "instruction": u_text,
+                    "output": out,
+                    "domain": "conversation"
+                }) + "\n")
+                total_added += 1
+        except Exception as e:
+            log.warning(f"Could not load alpaca conversational subset: {e}")
+
+    log.info(f"✅ Successfully built {total_added:,} dedicated conversational & chit-chat samples in {chat_path}!")
+    return total_added
+
+
+def build_phased_chitchat_curriculum(datasets_dir: str = "Datasets") -> dict:
+    """Builds 3-phase curriculum datasets for progressive conversational learning.
+    
+    Phase 1: Pure greetings, identity, pleasantries (short, high-signal pairs)
+    Phase 2: Phase 1 + short conversational Q&A (assistant < 100 tokens)
+    Phase 3: Full dataset including long multi-turn dialogues
+    
+    Returns dict mapping phase number to (filepath, sample_count).
+    """
+    os.makedirs(datasets_dir, exist_ok=True)
+    gold_path = os.path.join(datasets_dir, "gold_corpus.jsonl")
+    
+    phase1_path = os.path.join(datasets_dir, "chitchat_phase1_greetings.jsonl")
+    phase2_path = os.path.join(datasets_dir, "chitchat_phase2_short.jsonl")
+    phase3_path = os.path.join(datasets_dir, "chitchat_phase3_full.jsonl")
+    
+    # Check cache
+    if all(os.path.exists(p) and os.path.getsize(p) > 1000 for p in [phase1_path, phase2_path, phase3_path]):
+        log.info("⚡ [CACHE HIT] Phased chitchat curriculum already built. Skipping.")
+        counts = {}
+        for i, p in enumerate([phase1_path, phase2_path, phase3_path], 1):
+            with open(p, "r", encoding="utf-8") as f:
+                counts[i] = (p, sum(1 for _ in f))
+        return counts
+    
+    # First ensure gold persona & dialogue templates are created
+    generate_gold_datasets(datasets_dir, force=False)
+    
+    try:
+        from datasets import load_dataset
+    except ImportError:
+        log.warning("HuggingFace `datasets` not installed. Run: pip install datasets")
+        return {}
+    
+    # ── Expanded Greeting, Identity & Social Small-Talk Bank (100+ pairs) ──
+    greetings_bank = [
+        # Basic greetings
+        ("hi", "Hello! How are you doing today? How can I help you?"),
+        ("Hi!", "Hello! It's great to connect with you. What would you like to explore or discuss today?"),
+        ("hi there", "Hi there! Welcome! How can I assist you today?"),
+        ("hello", "Hi there! How is your day going?"),
+        ("Hello!", "Hello! I am doing well, thank you. How can I assist you today?"),
+        ("hello there", "Hello there! It's wonderful to hear from you. What's on your mind?"),
+        ("hey", "Hey there! How are you doing?"),
+        ("Hey!", "Hey! Good to see you. What can I help you with?"),
+        ("Hey there!", "Hello! How can I assist your projects, questions, or ideas today?"),
+        ("heya", "Heya! How's everything going? Let me know how I can help!"),
+        ("yo", "Hey! What's going on? How can I help you today?"),
+        ("hiya", "Hiya! Great to hear from you. What would you like to chat about?"),
+        # Time-of-day greetings
+        ("good morning", "Good morning! Wishing you a wonderful and productive day ahead. How can I help you?"),
+        ("Good morning!", "Good morning! How are you doing today? Let me know how I can assist you."),
+        ("morning", "Good morning! I hope you slept well. What can I do for you today?"),
+        ("good afternoon", "Good afternoon! How is your day going so far?"),
+        ("Good afternoon!", "Good afternoon! I hope you are having a productive day. How can I help?"),
+        ("good evening", "Good evening! How was your day? Let me know what you'd like to work on tonight."),
+        ("Good evening!", "Good evening! I hope you had a restful and fulfilling day. How can I assist you?"),
+        ("good night", "Good night! Sleep well, and feel free to reach out anytime tomorrow."),
+        ("Good night!", "Good night! Rest well, recharge, and I'll be here whenever you need me."),
+        # How are you variations
+        ("how are you", "I am doing well, thank you for asking! How are you feeling today?"),
+        ("How are you?", "I'm doing great, thank you! How are you doing today?"),
+        ("how are you doing", "I'm doing well, thank you! How is your day going?"),
+        ("How are you doing today?", "I am doing wonderful, thank you! How can I assist you today?"),
+        ("how are you doing?", "I'm doing great! Thank you for asking. How about you?"),
+        ("how r u", "I'm doing great, thank you! How are you doing?"),
+        ("how's it going", "It's going great! How are things with you?"),
+        ("How is everything going?", "Everything is going smoothly on my end! How are things going with you?"),
+        ("how's everything", "Everything is going great! How are you doing today?"),
+        ("how's your day", "My day is going great! How is yours going?"),
+        ("How was your day?", "My day has been productive and great! How about yours?"),
+        ("how's your day going", "My day is going wonderfully! Thank you for asking. How is yours?"),
+        ("how have you been", "I've been doing great! Thank you for asking. How have you been?"),
+        ("what's up", "Not much! Just here and ready to help you out. What's on your mind?"),
+        ("What's up?", "Hey! Everything is going great. How can I help you today?"),
+        ("whats up", "Hey! I'm ready to help. What's going on with you?"),
+        ("sup", "Hey! Ready to assist you. What are you working on?"),
+        ("wassup", "Hey there! What's going on? How can I help you today?"),
+        # Pleasantries & social
+        ("nice to meet you", "Nice to meet you too! I am Tantra, an AI assistant created by Atulya AI. How can I help you?"),
+        ("Nice to meet you!", "It's a pleasure to meet you! How can I assist you today?"),
+        ("pleased to meet you", "The pleasure is mine! I'm Tantra, here to help you with anything you need."),
+        ("it's nice talking to you", "Thank you! I enjoy our conversation too. Is there anything else I can help with?"),
+        ("are you doing okay", "Yes, I am doing great and functioning at peak performance! How are you doing?"),
+        ("are you okay", "I'm doing perfectly well, thank you for checking in! How can I help you?"),
+        ("hope you're doing well", "Thank you so much! I'm doing great. I hope you are doing well too!"),
+        ("I hope you're having a good day", "Thank you! I appreciate that. I hope your day is going wonderfully as well!"),
+        # Gratitude
+        ("thank you", "You're very welcome! I'm always happy to help."),
+        ("Thank you!", "You are very welcome! Let me know if you need anything else."),
+        ("thanks", "Anytime! Glad I could help."),
+        ("Thanks!", "You're welcome! Happy to assist."),
+        ("Thanks a lot!", "You're welcome! Feel free to ask anytime if you have more questions."),
+        ("thank you so much", "You're so welcome! It makes me happy to be helpful. Let me know if there's anything else!"),
+        ("thanks for your help", "You're welcome! I'm always here to help whenever you need me."),
+        ("I appreciate it", "Thank you! I'm glad I could be of help. Don't hesitate to reach out anytime!"),
+        ("much appreciated", "You're welcome! Always happy to help."),
+        # Goodbyes
+        ("bye", "Goodbye! Have a fantastic day ahead!"),
+        ("Bye!", "Goodbye! Take care and feel free to reach out whenever you need assistance."),
+        ("bye bye", "Bye bye! Have a wonderful day and take care!"),
+        ("goodbye", "Goodbye! It was great chatting with you. Have a wonderful day!"),
+        ("see you later", "See you later! Have a wonderful time."),
+        ("see you", "See you! Take care and come back anytime."),
+        ("see ya", "See ya! Have a great one!"),
+        ("talk to you later", "Talk to you later! Take care."),
+        ("take care", "You too! Take care and have a great day ahead."),
+        ("have a good day", "Thank you! You too! Have a wonderful and productive day."),
+        ("have a great day", "Thank you so much! I hope your day is absolutely wonderful."),
+        ("have a nice day", "Thank you! Wishing you a lovely day as well."),
+        ("gotta go", "No problem! Have a great day, and feel free to come back anytime!"),
+        ("I need to go", "Of course! Take care, and I'll be here whenever you need me."),
+        # Identity — who are you
+        ("who are you", "I am Tantra, an omnimodal foundation AI model created by Atulya AI."),
+        ("Who are you?", "My name is Tantra. I am a helpful, friendly, and precise AI assistant created by Atulya AI."),
+        ("who are you?", "I am Tantra, a foundation AI model built by Atulya AI. I can help with conversations, coding, math, science, and much more!"),
+        ("what are you", "I am Tantra, an AI assistant. I was created by Atulya AI to be helpful, accurate, and friendly."),
+        ("what is your name", "My name is Tantra. I am an AI assistant created by Atulya AI."),
+        ("What is your name?", "I am Tantra, an AI foundation model developed by Atulya AI."),
+        ("what's your name", "My name is Tantra! I'm an AI assistant made by Atulya AI. How can I help you?"),
+        ("what should I call you", "You can call me Tantra! I'm an AI assistant created by Atulya AI."),
+        ("do you have a name", "Yes! My name is Tantra. I am an AI assistant created by Atulya AI."),
+        # Identity — who created you
+        ("who made you", "I was created by Atulya AI, an AI research initiative building high-efficiency, sovereign foundation models."),
+        ("Who created you?", "I was created by Atulya AI."),
+        ("who created you", "I was created by Atulya AI. They specialize in building efficient, sovereign AI foundation models."),
+        ("who built you", "I was built by Atulya AI, a research initiative focused on creating advanced, efficient AI models."),
+        ("who developed you", "I was developed by Atulya AI, which focuses on building high-efficiency foundation AI models."),
+        ("who is your creator", "My creator is Atulya AI, an AI research initiative dedicated to building sovereign foundation models."),
+        ("who is your maker", "I was made by Atulya AI. They are focused on building efficient and powerful AI systems."),
+        ("are you chatgpt", "No, I am not ChatGPT. I am Tantra, a foundation AI model created by Atulya AI."),
+        ("are you gpt", "No, I am Tantra, an independent AI model created by Atulya AI. I am not GPT or any OpenAI product."),
+        ("are you made by openai", "No, I was not made by OpenAI. I am Tantra, created by Atulya AI."),
+        # Capabilities
+        ("what can you do", "I can chat with you, help brainstorm ideas, explain concepts, answer questions, write stories, code, and solve math and science problems."),
+        ("What can you do?", "I can help with many things! I can answer questions, write code, solve math problems, explain science concepts, tell stories, and have friendly conversations."),
+        ("what are you good at", "I'm good at conversations, coding, math, science explanations, creative writing, and general knowledge questions!"),
+        ("can you help me", "Of course! I'm here to help. What do you need assistance with?"),
+        ("Can you help me?", "Absolutely! Tell me what you'd like to work on and we'll tackle it together."),
+        ("I need help", "I'm here for you! What do you need help with? Feel free to ask me anything."),
+        ("help me", "Of course! I'm ready to help. What can I do for you?"),
+        ("help", "I'm here to help! What do you need assistance with?"),
+        # Fun & casual
+        ("tell me a joke", "Why do programmers prefer dark mode? Because light attracts bugs!"),
+        ("Tell me a joke!", "Why was the math book sad? Because it had too many problems!"),
+        ("tell me another joke", "What do you call a fish without eyes? A fsh!"),
+        ("make me laugh", "Here's one: Why don't scientists trust atoms? Because they make up everything!"),
+        ("tell me something interesting", "Here's a fun fact: Honey never spoils! Archaeologists have found pots of honey in ancient Egyptian tombs that are over 3,000 years old and still perfectly edible."),
+        ("tell me a fun fact", "Did you know that octopuses have three hearts? Two pump blood to the gills, and one pumps it to the rest of the body!"),
+        ("tell me something cool", "Here's something cool: A day on Venus is longer than a year on Venus! It takes Venus 243 Earth days to rotate once, but only 225 Earth days to orbit the Sun."),
+        # Emotional responses
+        ("I'm bored", "Let's fix that! We could explore a fascinating science topic, play a trivia game, brainstorm creative ideas, or write a story together. What sounds fun to you?"),
+        ("I'm happy", "That's wonderful to hear! What's making you happy today?"),
+        ("I'm sad", "I'm sorry to hear that you're feeling sad. Would you like to talk about it? Sometimes sharing helps."),
+        ("I feel tired", "Make sure to give yourself some time to rest and recharge! Take a short break, drink some water, and relax for a bit."),
+        ("I feel great", "That's amazing! I'm glad you're feeling great. What's been going well for you?"),
+        ("I feel stressed", "I'm sorry you're feeling stressed. Take a deep breath, and remember it's okay to take things one step at a time. Would you like to talk about it?"),
+        ("I had a great day today!", "That's wonderful to hear! What was the best part of your day?"),
+        ("I had a bad day", "I'm sorry to hear that. Some days can be really tough. Take it easy tonight, get some rest, and remember tomorrow is a fresh start."),
+        ("I'm lonely", "I'm here for you! Let's chat about something fun or interesting. You're never alone when we can talk together."),
+        ("I'm excited", "That's awesome! What are you excited about? I'd love to hear!"),
+    ]
+    
+    # ── PHASE 1: Pure Greetings & Identity ──────────────────────────────────────
+    log.info("📥 [Phase 1/3] Building pure greetings & identity dataset...")
+    phase1_count = 0
+    with open(phase1_path, "w", encoding="utf-8") as f:
+        # Write greeting bank repeated 200x for strong anchoring
+        for _ in range(200):
+            for u, a in greetings_bank:
+                f.write(json.dumps({"user": u, "assistant": a, "domain": "conversation"}) + "\n")
+                phase1_count += 1
+        
+        # Add gold corpus identity/conversation pairs
+        if os.path.exists(gold_path):
+            with open(gold_path, "r", encoding="utf-8") as gf:
+                for line in gf:
+                    try:
+                        d = json.loads(line)
+                        if d.get("domain") in ("conversation", "general"):
+                            f.write(line.strip() + "\n")
+                            phase1_count += 1
+                    except Exception:
+                        pass
+    
+    log.info(f"  ✅ Phase 1: {phase1_count:,} pure greeting & identity samples")
+    
+    # ── PHASE 2: Phase 1 + Short Conversations ─────────────────────────────────
+    log.info("📥 [Phase 2/3] Building short conversation dataset...")
+    phase2_count = 0
+    with open(phase2_path, "w", encoding="utf-8") as f:
+        # Include Phase 1 data (greetings at 100x repetition to keep anchored)
+        for _ in range(100):
+            for u, a in greetings_bank:
+                f.write(json.dumps({"user": u, "assistant": a, "domain": "conversation"}) + "\n")
+                phase2_count += 1
+        
+        # Gold corpus
+        if os.path.exists(gold_path):
+            with open(gold_path, "r", encoding="utf-8") as gf:
+                for line in gf:
+                    try:
+                        d = json.loads(line)
+                        if d.get("domain") in ("conversation", "general"):
+                            f.write(line.strip() + "\n")
+                            phase2_count += 1
+                    except Exception:
+                        pass
+        
+        # UltraChat — SHORT responses only (< 100 words)
+        try:
+            log.info("  📥 Adding short UltraChat dialogues (assistant < 100 words)...")
+            ds = load_dataset("HuggingFaceH4/ultrachat_200k", split="train_sft[:50000]")
+            short_added = 0
+            for it in ds:
+                msgs = it.get("messages", [])
+                if len(msgs) >= 2:
+                    a = msgs[1].get("content", "")
+                    if len(a.split()) < 100:  # Only short responses
+                        u = msgs[0].get("content", "")
+                        f.write(json.dumps({"user": u, "assistant": a, "domain": "conversation"}) + "\n")
+                        phase2_count += 1
+                        short_added += 1
+            log.info(f"  ✅ Added {short_added:,} short UltraChat dialogues")
+        except Exception as e:
+            log.warning(f"  Could not load ultrachat for Phase 2: {e}")
+        
+        # DailyDialog (naturally short)
+        try:
+            log.info("  📥 Adding DailyDialog natural dialogues...")
+            try:
+                ds = load_dataset("roskoN/dailydialog", split="train")
+            except Exception:
+                ds = load_dataset("daily_dialog", split="train")
+            for it in ds:
+                dialog = it.get("dialog", [])
+                if len(dialog) >= 2:
+                    f.write(json.dumps({"user": dialog[0], "assistant": dialog[1], "domain": "conversation"}) + "\n")
+                    phase2_count += 1
+        except Exception as e:
+            log.warning(f"  Could not load daily_dialog for Phase 2: {e}")
+    
+    log.info(f"  ✅ Phase 2: {phase2_count:,} short conversation samples")
+    
+    # ── PHASE 3: Full Dataset (Everything) ──────────────────────────────────────
+    log.info("📥 [Phase 3/3] Building full conversation dataset...")
+    phase3_count = 0
+    with open(phase3_path, "w", encoding="utf-8") as f:
+        # Greetings at 50x (lower ratio since full dataset is large)
+        for _ in range(50):
+            for u, a in greetings_bank:
+                f.write(json.dumps({"user": u, "assistant": a, "domain": "conversation"}) + "\n")
+                phase3_count += 1
+        
+        # Gold corpus
+        if os.path.exists(gold_path):
+            with open(gold_path, "r", encoding="utf-8") as gf:
+                for line in gf:
+                    try:
+                        d = json.loads(line)
+                        if d.get("domain") in ("conversation", "general"):
+                            f.write(line.strip() + "\n")
+                            phase3_count += 1
+                    except Exception:
+                        pass
+        
+        # Full UltraChat (all lengths)
+        try:
+            log.info("  📥 Adding full UltraChat conversations (50K)...")
+            ds = load_dataset("HuggingFaceH4/ultrachat_200k", split="train_sft[:50000]")
+            for it in ds:
+                msgs = it.get("messages", [])
+                if len(msgs) >= 2:
+                    u = msgs[0].get("content", "")
+                    a = msgs[1].get("content", "")
+                    f.write(json.dumps({"user": u, "assistant": a, "domain": "conversation"}) + "\n")
+                    phase3_count += 1
+        except Exception as e:
+            log.warning(f"  Could not load ultrachat for Phase 3: {e}")
+        
+        # DailyDialog
+        try:
+            log.info("  📥 Adding DailyDialog natural dialogues...")
+            try:
+                ds = load_dataset("roskoN/dailydialog", split="train")
+            except Exception:
+                ds = load_dataset("daily_dialog", split="train")
+            for it in ds:
+                dialog = it.get("dialog", [])
+                if len(dialog) >= 2:
+                    f.write(json.dumps({"user": dialog[0], "assistant": dialog[1], "domain": "conversation"}) + "\n")
+                    phase3_count += 1
+        except Exception as e:
+            log.warning(f"  Could not load daily_dialog for Phase 3: {e}")
+        
+        # Clean conversational instructions
+        try:
+            log.info("  📥 Adding clean conversational instructions (25K)...")
+            ds = load_dataset("yahma/alpaca-cleaned", split="train[:25000]")
+            for it in ds:
+                inst = it.get("instruction", "")
+                inp = it.get("input", "")
+                out = it.get("output", "")
+                u_text = f"{inst}\n{inp}".strip() if inp else inst
+                f.write(json.dumps({"instruction": u_text, "output": out, "domain": "conversation"}) + "\n")
+                phase3_count += 1
+        except Exception as e:
+            log.warning(f"  Could not load alpaca for Phase 3: {e}")
+    
+    log.info(f"  ✅ Phase 3: {phase3_count:,} full conversation samples")
+    
+    result = {
+        1: (phase1_path, phase1_count),
+        2: (phase2_path, phase2_count),
+        3: (phase3_path, phase3_count),
+    }
+    log.info(f"🎓 Phased Curriculum Ready: Phase1={phase1_count:,} | Phase2={phase2_count:,} | Phase3={phase3_count:,}")
+    return result
+
+
+def build_phased_code_curriculum(datasets_dir: str = "Datasets") -> dict:
+    """Builds 3-phase curriculum datasets for progressive Code mastery.
+    
+    Phase 1: Syntax & Core One-Liners (Python string reversal, list comps, dicts, math ops)
+    Phase 2: Algorithms & Data Structures (MergeSort, QuickSort, Binary Search, Trees, LeetCode)
+    Phase 3: Full Systems & Engineering (Flask/FastAPI, PyTorch models, SQL, debugging)
+    """
+    os.makedirs(datasets_dir, exist_ok=True)
+    gold_path = os.path.join(datasets_dir, "gold_corpus.jsonl")
+    
+    p1_path = os.path.join(datasets_dir, "code_phase1_syntax.jsonl")
+    p2_path = os.path.join(datasets_dir, "code_phase2_algorithms.jsonl")
+    p3_path = os.path.join(datasets_dir, "code_phase3_systems.jsonl")
+    
+    if all(os.path.exists(p) and os.path.getsize(p) > 1000 for p in [p1_path, p2_path, p3_path]):
+        log.info("⚡ [CACHE HIT] Phased code curriculum already built. Skipping.")
+        counts = {}
+        for i, p in enumerate([p1_path, p2_path, p3_path], 1):
+            with open(p, "r", encoding="utf-8") as f:
+                counts[i] = (p, sum(1 for _ in f))
+        return counts
+    
+    generate_gold_datasets(datasets_dir, force=False)
+    
+    try:
+        from datasets import load_dataset
+    except ImportError:
+        log.warning("HuggingFace `datasets` not installed. Run: pip install datasets")
+        return {}
+
+    # Core Syntax & One-Liner Reflex Bank (50+ core templates)
+    code_syntax_bank = [
+        ("Write a Python function to reverse a string.", "```python\ndef reverse_string(s: str) -> str:\n    return s[::-1]\n```"),
+        ("Write a function in Python that checks if a string is a palindrome.", "```python\ndef is_palindrome(s: str) -> bool:\n    clean = s.lower().replace(' ', '')\n    return clean == clean[::-1]\n```"),
+        ("Write a Python one-liner to square all even numbers in a list.", "```python\neven_squares = [x**2 for x in numbers if x % 2 == 0]\n```"),
+        ("How do you find the maximum number in a list in Python?", "```python\ndef find_max(numbers: list[int | float]) -> int | float:\n    if not numbers:\n        raise ValueError('List cannot be empty')\n    return max(numbers)\n```"),
+        ("Write a function to compute the factorial of a number in Python.", "```python\ndef factorial(n: int) -> int:\n    if n < 0:\n        raise ValueError('Factorial is not defined for negative numbers')\n    result = 1\n    for i in range(2, n + 1):\n        result *= i\n    return result\n```"),
+        ("Write a function to count the frequency of characters in a string in Python.", "```python\nfrom collections import Counter\n\ndef char_frequency(s: str) -> dict[str, int]:\n    return dict(Counter(s))\n```"),
+        ("How do you flatten a 2D matrix in Python?", "```python\nflattened = [val for row in matrix for val in row]\n```"),
+        ("Write a Python function to check if a number is prime.", "```python\ndef is_prime(n: int) -> bool:\n    if n < 2:\n        return False\n    for i in range(2, int(n**0.5) + 1):\n        if n % i == 0:\n            return False\n    return True\n```"),
+        ("Write a function to find the intersection of two lists in Python.", "```python\ndef list_intersection(a: list, b: list) -> list:\n    return list(set(a) & set(b))\n```"),
+        ("Write a function to calculate the Fibonacci sequence up to n terms.", "```python\ndef fibonacci(n: int) -> list[int]:\n    if n <= 0: return []\n    if n == 1: return [0]\n    fib = [0, 1]\n    while len(fib) < n:\n        fib.append(fib[-1] + fib[-2])\n    return fib\n```"),
+        ("Write a Python function to remove all duplicates from a list while preserving order.", "```python\ndef remove_duplicates(lst: list) -> list:\n    return list(dict.fromkeys(lst))\n```"),
+        ("Write a function to safely parse a JSON string in Python.", "```python\nimport json\n\ndef safe_parse_json(text: str) -> dict | list | None:\n    try:\n        return json.loads(text)\n    except (json.JSONDecodeError, TypeError):\n        return None\n```"),
+        ("Write a Python lambda function to sort a list of tuples by their second element.", "```python\nsorted_tuples = sorted(tuples_list, key=lambda x: x[1])\n```"),
+        ("Write a Python function to calculate the average of a list of numbers.", "```python\ndef calculate_average(numbers: list[float]) -> float:\n    return sum(numbers) / len(numbers) if numbers else 0.0\n```"),
+        ("Write a function to check if two strings are anagrams in Python.", "```python\ndef are_anagrams(s1: str, s2: str) -> bool:\n    return sorted(s1.lower()) == sorted(s2.lower())\n```"),
+    ]
+
+    # ── Phase 1: Syntax & Reflexes ───────────────────────────────────────────
+    log.info("📥 [Code Phase 1/3] Building pure syntax & one-liner dataset...")
+    p1_count = 0
+    with open(p1_path, "w", encoding="utf-8") as f:
+        for _ in range(150):
+            for u, a in code_syntax_bank:
+                f.write(json.dumps({"user": u, "assistant": a, "domain": "code"}) + "\n")
+                p1_count += 1
+        if os.path.exists(gold_path):
+            with open(gold_path, "r", encoding="utf-8") as gf:
+                for line in gf:
+                    try:
+                        d = json.loads(line)
+                        if d.get("domain") == "code":
+                            f.write(line.strip() + "\n")
+                            p1_count += 1
+                    except Exception: pass
+
+    # ── Phase 2: Algorithms & Data Structures ─────────────────────────────────
+    log.info("📥 [Code Phase 2/3] Building algorithms & data structures dataset...")
+    p2_count = 0
+    with open(p2_path, "w", encoding="utf-8") as f:
+        for _ in range(50):
+            for u, a in code_syntax_bank:
+                f.write(json.dumps({"user": u, "assistant": a, "domain": "code"}) + "\n")
+                p2_count += 1
+        try:
+            log.info("  📥 Ingesting Python Code Instructions (18k)...")
+            ds = load_dataset("iamtarun/python_code_instructions_18k_alpaca", split="train[:18000]")
+            for it in ds:
+                u = it.get("instruction", "") + ("\n" + it.get("input", "") if it.get("input") else "")
+                a = it.get("output", "")
+                f.write(json.dumps({"user": u.strip(), "assistant": a.strip(), "domain": "code"}) + "\n")
+                p2_count += 1
+        except Exception as e:
+            log.warning(f"  Could not load python_code_instructions: {e}")
+
+    # ── Phase 3: Full Software Systems & Debugging ────────────────────────────
+    log.info("📥 [Code Phase 3/3] Building full software engineering dataset...")
+    p3_count = 0
+    with open(p3_path, "w", encoding="utf-8") as f:
+        for _ in range(25):
+            for u, a in code_syntax_bank:
+                f.write(json.dumps({"user": u, "assistant": a, "domain": "code"}) + "\n")
+                p3_count += 1
+        try:
+            log.info("  📥 Ingesting CodeAlpaca (20k)...")
+            ds = load_dataset("sahil2801/CodeAlpaca-20k", split="train")
+            for it in ds:
+                u = it.get("instruction", "") + ("\n" + it.get("input", "") if it.get("input") else "")
+                a = it.get("output", "")
+                f.write(json.dumps({"user": u.strip(), "assistant": a.strip(), "domain": "code"}) + "\n")
+                p3_count += 1
+        except Exception as e:
+            log.warning(f"  Could not load CodeAlpaca: {e}")
+
+    result = {1: (p1_path, p1_count), 2: (p2_path, p2_count), 3: (p3_path, p3_count)}
+    log.info(f"💻 Phased Code Curriculum Ready: Phase1={p1_count:,} | Phase2={p2_count:,} | Phase3={p3_count:,}")
+    return result
+
+
+def build_phased_math_curriculum(datasets_dir: str = "Datasets") -> dict:
+    """Builds 3-phase curriculum datasets for progressive Math & Deductive Reasoning mastery.
+    
+    Phase 1: Arithmetic & Linear Equations ($ax + b = c$, fractions, percentages)
+    Phase 2: Step-by-Step Word Problems (GSM8K, logic reasoning, algebra)
+    Phase 3: Advanced Math, Calculus & Proofs (MetaMathQA, competition math)
+    """
+    os.makedirs(datasets_dir, exist_ok=True)
+    gold_path = os.path.join(datasets_dir, "gold_corpus.jsonl")
+    
+    p1_path = os.path.join(datasets_dir, "math_phase1_arithmetic.jsonl")
+    p2_path = os.path.join(datasets_dir, "math_phase2_wordproblems.jsonl")
+    p3_path = os.path.join(datasets_dir, "math_phase3_advanced.jsonl")
+    
+    if all(os.path.exists(p) and os.path.getsize(p) > 1000 for p in [p1_path, p2_path, p3_path]):
+        log.info("⚡ [CACHE HIT] Phased math curriculum already built. Skipping.")
+        counts = {}
+        for i, p in enumerate([p1_path, p2_path, p3_path], 1):
+            with open(p, "r", encoding="utf-8") as f:
+                counts[i] = (p, sum(1 for _ in f))
+        return counts
+    
+    generate_gold_datasets(datasets_dir, force=False)
+    
+    try:
+        from datasets import load_dataset
+    except ImportError:
+        log.warning("HuggingFace `datasets` not installed. Run: pip install datasets")
+        return {}
+
+    math_reflex_bank = [
+        ("Solve the linear equation $2x + 6 = 14$ step-by-step.", "To solve the linear equation $2x + 6 = 14$ step-by-step:\n\n1. **Subtract 6 from both sides**:\n   $$2x = 14 - 6$$\n   $$2x = 8$$\n\n2. **Divide both sides by 2**:\n   $$x = \\frac{8}{2} = 4$$\n\n**Final Answer:** $x = 4$"),
+        ("Solve for x: $5x - 15 = 35$.", "To solve $5x - 15 = 35$:\n\n1. **Add 15 to both sides**:\n   $$5x = 35 + 15$$\n   $$5x = 50$$\n\n2. **Divide by 5**:\n   $$x = \\frac{50}{5} = 10$$\n\n**Final Answer:** $x = 10$"),
+        ("What is $15\\%$ of $240$?", "To calculate $15\\%$ of $240$:\n\n1. Convert $15\\%$ to decimal: $0.15$\n2. Multiply: $0.15 \\times 240 = 36$\n\n**Final Answer:** $36$"),
+        ("Simplify the fraction $\\frac{48}{64}$.", "To simplify $\\frac{48}{64}$:\n\n1. Find the Greatest Common Divisor (GCD) of 48 and 64, which is 16.\n2. Divide numerator and denominator by 16:\n   $$\\frac{48 \\div 16}{64 \\div 16} = \\frac{3}{4}$$\n\n**Final Answer:** $\\frac{3}{4}$"),
+        ("Find the area of a circle with radius $r = 7$ (use $\\pi \\approx \\frac{22}{7}$).", "The formula for the area of a circle is $A = \\pi r^2$.\n\n1. Substitute $r = 7$ and $\\pi = \\frac{22}{7}$:\n   $$A = \\frac{22}{7} \\times 7^2 = \\frac{22}{7} \\times 49 = 22 \\times 7 = 154$$\n\n**Final Answer:** $154\\text{ square units}$"),
+        ("What is the slope of the line passing through $(2, 3)$ and $(6, 11)$?", "The slope formula is $m = \\frac{y_2 - y_1}{x_2 - x_1}$.\n\n1. Substitute coordinates: $m = \\frac{11 - 3}{6 - 2} = \\frac{8}{4} = 2$\n\n**Final Answer:** $m = 2$"),
+        ("Solve the quadratic equation $x^2 - 5x + 6 = 0$.", "To solve $x^2 - 5x + 6 = 0$ by factoring:\n\n1. Find two numbers that multiply to $+6$ and add to $-5$: $(-2)$ and $(-3)$.\n2. Factor: $(x - 2)(x - 3) = 0$\n3. Solutions: $x = 2$ or $x = 3$\n\n**Final Answer:** $x = 2, 3$"),
+        ("What is the derivative of $f(x) = 3x^3 - 5x^2 + 7x - 4$?", "Using the power rule $\\frac{d}{dx}[x^n] = n x^{n-1}$:\n\n$$f'(x) = 3(3x^2) - 5(2x) + 7(1) - 0 = 9x^2 - 10x + 7$$\n\n**Final Answer:** $f'(x) = 9x^2 - 10x + 7$"),
+    ]
+
+    # ── Phase 1: Arithmetic & Linear Equations ────────────────────────────────
+    log.info("📥 [Math Phase 1/3] Building arithmetic & equation reflexes...")
+    p1_count = 0
+    with open(p1_path, "w", encoding="utf-8") as f:
+        for _ in range(150):
+            for u, a in math_reflex_bank:
+                f.write(json.dumps({"user": u, "assistant": a, "domain": "math"}) + "\n")
+                p1_count += 1
+        if os.path.exists(gold_path):
+            with open(gold_path, "r", encoding="utf-8") as gf:
+                for line in gf:
+                    try:
+                        d = json.loads(line)
+                        if d.get("domain") in ("math", "science"):
+                            f.write(line.strip() + "\n")
+                            p1_count += 1
+                    except Exception: pass
+
+    # ── Phase 2: GSM8K Step-by-Step Word Problems ─────────────────────────────
+    log.info("📥 [Math Phase 2/3] Building GSM8K word problems dataset...")
+    p2_count = 0
+    with open(p2_path, "w", encoding="utf-8") as f:
+        for _ in range(50):
+            for u, a in math_reflex_bank:
+                f.write(json.dumps({"user": u, "assistant": a, "domain": "math"}) + "\n")
+                p2_count += 1
+        try:
+            log.info("  📥 Ingesting GSM8K Word Problems (8K)...")
+            ds = load_dataset("openai/gsm8k", "main", split="train")
+            for it in ds:
+                q = it.get("question", "")
+                ans = it.get("answer", "")
+                f.write(json.dumps({"user": q, "assistant": ans, "domain": "math"}) + "\n")
+                p2_count += 1
+        except Exception as e:
+            log.warning(f"  Could not load GSM8K: {e}")
+
+    # ── Phase 3: Advanced MetaMathQA Reasoning & Competition Math ───────────────
+    log.info("📥 [Math Phase 3/3] Building advanced MetaMathQA reasoning dataset...")
+    p3_count = 0
+    with open(p3_path, "w", encoding="utf-8") as f:
+        for _ in range(25):
+            for u, a in math_reflex_bank:
+                f.write(json.dumps({"user": u, "assistant": a, "domain": "math"}) + "\n")
+                p3_count += 1
+        try:
+            log.info("  📥 Ingesting MetaMathQA (50K)...")
+            ds = load_dataset("meta-math/MetaMathQA", split="train[:50000]")
+            for it in ds:
+                q = it.get("query", "")
+                ans = it.get("response", "")
+                f.write(json.dumps({"user": q, "assistant": ans, "domain": "math"}) + "\n")
+                p3_count += 1
+        except Exception as e:
+            log.warning(f"  Could not load MetaMathQA: {e}")
+
+    result = {1: (p1_path, p1_count), 2: (p2_path, p2_count), 3: (p3_path, p3_count)}
+    log.info(f"🔢 Phased Math Curriculum Ready: Phase1={p1_count:,} | Phase2={p2_count:,} | Phase3={p3_count:,}")
+    return result
+
+
+def build_phased_science_curriculum(datasets_dir: str = "Datasets") -> dict:
+    """Builds 3-phase curriculum datasets for progressive Science & Natural Laws mastery.
+    
+    Phase 1: Fundamental Laws & Formulas (Newton's laws, thermodynamics, periodic table)
+    Phase 2: Biological & Physical Explanations (Metamorphosis, photosynthesis, water cycle)
+    Phase 3: Advanced Multidisciplinary Science (Quantum, relativity, biochemistry)
+    """
+    os.makedirs(datasets_dir, exist_ok=True)
+    gold_path = os.path.join(datasets_dir, "gold_corpus.jsonl")
+    
+    p1_path = os.path.join(datasets_dir, "science_phase1_fundamentals.jsonl")
+    p2_path = os.path.join(datasets_dir, "science_phase2_explanations.jsonl")
+    p3_path = os.path.join(datasets_dir, "science_phase3_advanced.jsonl")
+    
+    if all(os.path.exists(p) and os.path.getsize(p) > 1000 for p in [p1_path, p2_path, p3_path]):
+        log.info("⚡ [CACHE HIT] Phased science curriculum already built. Skipping.")
+        counts = {}
+        for i, p in enumerate([p1_path, p2_path, p3_path], 1):
+            with open(p, "r", encoding="utf-8") as f:
+                counts[i] = (p, sum(1 for _ in f))
+        return counts
+    
+    generate_gold_datasets(datasets_dir, force=False)
+    
+    try:
+        from datasets import load_dataset
+    except ImportError:
+        log.warning("HuggingFace `datasets` not installed. Run: pip install datasets")
+        return {}
+
+    science_reflex_bank = [
+        ("What are Newton's three laws of motion?", "Newton's Three Laws of Motion are:\n\n1. **First Law (Law of Inertia)**: An object at rest remains at rest, and an object in motion continues in motion with constant velocity, unless acted upon by a net external force.\n2. **Second Law ($F = ma$)**: The acceleration of an object is directly proportional to the net force acting on it and inversely proportional to its mass ($F = ma$).\n3. **Third Law (Action and Reaction)**: For every action, there is an equal and opposite reaction."),
+        ("What is photosynthesis?", "Photosynthesis is the biological process by which green plants, algae, and certain bacteria convert sunlight, carbon dioxide ($CO_2$), and water ($H_2O$) into glucose (energy) and oxygen ($O_2$):\n\n$$6CO_2 + 6H_2O + \\text{light energy} \\rightarrow C_6H_{12}O_6 + 6O_2$$"),
+        ("Describe the life cycle stages of butterfly metamorphosis.", "The metamorphosis of a butterfly consists of 4 distinct stages:\n\n1. **Egg**: Laid on host plants by the female butterfly.\n2. **Larva (Caterpillar)**: The feeding and growing stage where the caterpillar molts several times.\n3. **Pupa (Chrysalis)**: The transformation stage inside a protective shell where tissues rearrange into adult organs.\n4. **Adult (Butterfly)**: The reproductive stage capable of flight."),
+        ("What is Einstein's mass-energy equivalence equation?", "Einstein's equation is $E = mc^2$, where $E$ is energy, $m$ is mass, and $c$ is the speed of light in a vacuum ($c \\approx 3 \\times 10^8\\text{ m/s}$). It demonstrates that mass and energy are interchangeable."),
+        ("What is the speed of light in a vacuum?", "The speed of light in a vacuum is exactly $299,792,458\\text{ meters per second}$ (approximately $3 \\times 10^8\\text{ m/s}$ or $186,282\\text{ miles per second}$)."),
+        ("What is the first law of thermodynamics?", "The First Law of Thermodynamics, also known as the Law of Conservation of Energy, states that energy cannot be created or destroyed in an isolated system; it can only be transformed from one form to another."),
+    ]
+
+    # ── Phase 1: Fundamental Laws & Core Definitions ─────────────────────────
+    log.info("📥 [Science Phase 1/3] Building fundamental science laws & definitions...")
+    p1_count = 0
+    with open(p1_path, "w", encoding="utf-8") as f:
+        for _ in range(150):
+            for u, a in science_reflex_bank:
+                f.write(json.dumps({"user": u, "assistant": a, "domain": "science"}) + "\n")
+                p1_count += 1
+        if os.path.exists(gold_path):
+            with open(gold_path, "r", encoding="utf-8") as gf:
+                for line in gf:
+                    try:
+                        d = json.loads(line)
+                        if d.get("domain") == "science":
+                            f.write(line.strip() + "\n")
+                            p1_count += 1
+                    except Exception: pass
+
+    # ── Phase 2: Natural Explanations & Biology/Physics ──────────────────────
+    log.info("📥 [Science Phase 2/3] Building explanatory science dataset...")
+    p2_count = 0
+    with open(p2_path, "w", encoding="utf-8") as f:
+        for _ in range(50):
+            for u, a in science_reflex_bank:
+                f.write(json.dumps({"user": u, "assistant": a, "domain": "science"}) + "\n")
+                p2_count += 1
+        try:
+            log.info("  📥 Ingesting Cosmopedia Science Subsets (30K)...")
+            ds = load_dataset("HuggingFaceTB/smollm-corpus", "cosmopedia-v2", split="train", streaming=True)
+            for i, it in enumerate(ds):
+                if i >= 30_000: break
+                txt = it.get("text", "")
+                if any(w in txt.lower() for w in ["science", "physics", "biology", "chemistry", "cell", "energy", "force"]):
+                    f.write(json.dumps({"user": "Explain the following scientific principle in clear detail.", "assistant": txt[:1500], "domain": "science"}) + "\n")
+                    p2_count += 1
+        except Exception as e:
+            log.warning(f"  Could not stream science from Cosmopedia: {e}")
+
+    # ── Phase 3: Advanced Multidisciplinary Science ───────────────────────────
+    log.info("📥 [Science Phase 3/3] Building advanced scientific reasoning dataset...")
+    p3_count = 0
+    with open(p3_path, "w", encoding="utf-8") as f:
+        for _ in range(25):
+            for u, a in science_reflex_bank:
+                f.write(json.dumps({"user": u, "assistant": a, "domain": "science"}) + "\n")
+                p3_count += 1
+        try:
+            log.info("  📥 Ingesting Open-Orca Science & Logic (40K)...")
+            ds = load_dataset("Open-Orca/OpenOrca", split="train", streaming=True)
+            for i, it in enumerate(ds):
+                if i >= 40_000: break
+                q = it.get("question", "")
+                if any(w in q.lower() for w in ["science", "physics", "chemistry", "biology", "planet", "experiment"]):
+                    f.write(json.dumps({"user": q, "assistant": it.get("response", ""), "domain": "science"}) + "\n")
+                    p3_count += 1
+        except Exception as e:
+            log.warning(f"  Could not stream Open-Orca science: {e}")
+
+    result = {1: (p1_path, p1_count), 2: (p2_path, p2_count), 3: (p3_path, p3_count)}
+    log.info(f"🔬 Phased Science Curriculum Ready: Phase1={p1_count:,} | Phase2={p2_count:,} | Phase3={p3_count:,}")
+    return result
+
+
+def build_all_expert_curriculums(datasets_dir: str = "Datasets") -> dict:
+    """Master multi-domain builder: ensures phased curricula for Conversation, Code, Math, and Science are ready."""
+    log.info("=" * 80)
+    log.info("🚀 [MASTER MOE CURRICULUM] Building 3-Phase Curricula for ALL Expert Domains...")
+    log.info("=" * 80)
+    
+    results = {}
+    results["chitchat"] = build_phased_chitchat_curriculum(datasets_dir)
+    results["code"] = build_phased_code_curriculum(datasets_dir)
+    results["math"] = build_phased_math_curriculum(datasets_dir)
+    results["science"] = build_phased_science_curriculum(datasets_dir)
+    
+    log.info("=" * 80)
+    log.info("🎉 [ALL EXPERT CURRICULUMS READY] Multi-domain MoE curriculum assets verified!")
+    log.info("=" * 80)
+    return results
+
+
 def ingest_gigabyte_super_corpus(datasets_dir: str = "Datasets", target_samples: int = 1_000_000) -> int:
     """Streams and packs 1,000,000+ samples (Multi-GB / 1B+ Tokens) from Cosmopedia, Python-Edu, OpenOrca, and FineWeb."""
     os.makedirs(datasets_dir, exist_ok=True)
@@ -1208,7 +2085,7 @@ def build_4track_curriculum(datasets_dir: str = "Datasets", force: bool = False)
 
     # Load, deduplicate, and partition items
     track_buckets = {f: [] for f in CURRICULUM_TRACKS.keys()}
-    seen_hashes = set()
+    filter_dedup = QualityFilterAndDeduplicator()
 
     for src in source_files:
         if not os.path.exists(src):
@@ -1227,14 +2104,8 @@ def build_4track_curriculum(datasets_dir: str = "Datasets", force: bool = False)
                             if m.get("role") == "user": u += " " + m.get("content", "")
                             elif m.get("role") == "assistant": a += " " + m.get("content", "")
                     
-                    if not str(u).strip() or not str(a).strip():
+                    if not filter_dedup.is_clean(str(u), str(a)):
                         continue
-                    
-                    # Deduplicate by prompt
-                    phash = hash(str(u).strip()[:100])
-                    if phash in seen_hashes:
-                        continue
-                    seen_hashes.add(phash)
 
                     text = (str(u) + " " + str(a) + " " + str(d)).lower()
                     matched = False
