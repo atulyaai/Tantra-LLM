@@ -617,6 +617,7 @@ class NeuroTrainer:
         window_ppls: list[float] = []
         window_grad_norms: list[float] = []
         window_optimizer_steps = 0
+        self._start_time = time.perf_counter()
         last_optimizer_time = self._start_time
         recent_step_seconds: list[float] = []
 
