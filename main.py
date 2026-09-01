@@ -693,18 +693,62 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
                 log.warning(f"  torch.compile failed ({e}), continuing uncompiled.")
 
     def eval_callback(step):
-        # Standard Fixed Benchmark Suite: Pure Mathematical Equations, Coding, and Hard Science
-        log.info(f"┌── 🌐 [ FIXED CAPABILITY BENCHMARK (MATH • CODE • SCIENCE) @ Step {step:,} ] " + "─" * 10)
-        test_prompts = [
-            ("Math Eq 1",   "🔢", "<|user|>\nSolve for x in 3x + 12 = 36.\n\n<|assistant|>\n", 0.1),
-            ("Math Eq 2",   "📐", "<|user|>\nSolve for x in 5x - 15 = 20.\n\n<|assistant|>\n", 0.1),
-            ("Code (Prime)","💻", "<|user|>\nWrite a Python function to check if a number is prime.\n\n<|assistant|>\n```python\n", 0.1),
-            ("Code (Rev)",  "💻", "<|user|>\nWrite a Python function to reverse a string.\n\n<|assistant|>\n```python\n", 0.1),
-            ("Physics",     "🔬", "<|user|>\nState Newton's Second Law of Motion.\n\n<|assistant|>\n", 0.2),
-            ("Chemistry",   "🧪", "<|user|>\nWhat is the chemical formula for water?\n\n<|assistant|>\n", 0.1)
+        # 5-Domain Dynamic Benchmark Suite: Evaluates 5 randomized capability questions every time
+        import random
+        import ast
+
+        math_pool = [
+            ("Math Eq", "🔢", "<|user|>\nSolve for x in 3x + 12 = 36.\n\n<|assistant|>\n", 0.1, "x = 8"),
+            ("Math Eq", "🔢", "<|user|>\nSolve for x in 5x - 15 = 20.\n\n<|assistant|>\n", 0.1, "x = 7"),
+            ("Math Eq", "🔢", "<|user|>\nSolve for x in 4x + 8 = 32.\n\n<|assistant|>\n", 0.1, "x = 6"),
+            ("Math Eq", "🔢", "<|user|>\nSolve for x in 7x - 14 = 35.\n\n<|assistant|>\n", 0.1, "x = 7"),
+            ("Math Eq", "🔢", "<|user|>\nSolve for x in 2x + 18 = 40.\n\n<|assistant|>\n", 0.1, "x = 11"),
+            ("Math Pct", "🔢", "<|user|>\nWhat is 15% of 800?\n\n<|assistant|>\n", 0.1, "120"),
+            ("Math Pct", "🔢", "<|user|>\nWhat is 20% of 450?\n\n<|assistant|>\n", 0.1, "90")
         ]
+
+        code_pool = [
+            ("Code", "💻", "<|user|>\nWrite a Python function to check if a number is prime.\n\n<|assistant|>\n```python\n", 0.1, "is_prime"),
+            ("Code", "💻", "<|user|>\nWrite a Python function to reverse a string.\n\n<|assistant|>\n```python\n", 0.1, "reverse_string"),
+            ("Code", "💻", "<|user|>\nWrite a Python function to compute the factorial of a number.\n\n<|assistant|>\n```python\n", 0.1, "factorial"),
+            ("Code", "💻", "<|user|>\nWrite a Python function to check if a word is a palindrome.\n\n<|assistant|>\n```python\n", 0.1, "is_palindrome"),
+            ("Code", "💻", "<|user|>\nWrite a Python function to merge two dictionaries.\n\n<|assistant|>\n```python\n", 0.1, "merge_dicts"),
+            ("Code", "💻", "<|user|>\nWrite a Python function to remove duplicates from a list.\n\n<|assistant|>\n```python\n", 0.1, "remove_duplicates")
+        ]
+
+        physics_pool = [
+            ("Physics", "🔬", "<|user|>\nState Newton's First Law of Motion.\n\n<|assistant|>\n", 0.2, "inertia"),
+            ("Physics", "🔬", "<|user|>\nState Newton's Second Law of Motion.\n\n<|assistant|>\n", 0.2, "F = ma"),
+            ("Physics", "🔬", "<|user|>\nState Newton's Third Law of Motion.\n\n<|assistant|>\n", 0.2, "action"),
+            ("Physics", "🔬", "<|user|>\nWhat is the speed of light in a vacuum?\n\n<|assistant|>\n", 0.2, "299,792,458")
+        ]
+
+        chem_bio_pool = [
+            ("Chemistry", "🧪", "<|user|>\nWhat is the chemical formula for water?\n\n<|assistant|>\n", 0.1, "H2O"),
+            ("Chemistry", "🧪", "<|user|>\nWhat is the chemical formula for carbon dioxide?\n\n<|assistant|>\n", 0.1, "CO2"),
+            ("Biology",   "🧬", "<|user|>\nWhat is DNA?\n\n<|assistant|>\n", 0.2, "deoxyribonucleic"),
+            ("Biology",   "🧬", "<|user|>\nWhat is known as the powerhouse of the cell?\n\n<|assistant|>\n", 0.1, "mitochondri")
+        ]
+
+        conv_pool = [
+            ("Identity",   "🤖", "<|user|>\nWho created you and what is your name?\n\n<|assistant|>\n", 0.3, "Tantra"),
+            ("Greeting",   "👋", "<|user|>\nGood morning! How are you doing today?\n\n<|assistant|>\n", 0.3, "help"),
+            ("Chat",       "💬", "<|user|>\nThank you so much for your help!\n\n<|assistant|>\n", 0.3, "welcome"),
+            ("Capability", "⚡", "<|user|>\nWhat can you do as an AI assistant?\n\n<|assistant|>\n", 0.3, "code")
+        ]
+
+        # Pick 1 random question from each of the 5 domains (Total 5 questions per eval)
+        selected_tests = [
+            random.choice(math_pool),
+            random.choice(code_pool),
+            random.choice(physics_pool),
+            random.choice(chem_bio_pool),
+            random.choice(conv_pool)
+        ]
+
+        log.info(f"┌── 🌐 [ DYNAMIC 5-DOMAIN BENCHMARK (RANDOMIZED QUESTIONS) @ Step {step:,} ] " + "─" * 5)
         raw_model = unwrap_model(model)
-        for domain, icon, prompt_text, temp in test_prompts:
+        for domain, icon, prompt_text, temp, expected_key in selected_tests:
             prompt_ids = torch.tensor([tokenizer.encode(prompt_text)], device=raw_model.embed.weight.device)
             out = raw_model.generate(prompt_ids, max_new_tokens=64, min_new_tokens=1, temperature=temp, top_p=0.9, repetition_penalty=1.15)
             new_tokens = out[0, prompt_ids.shape[1]:].tolist()
@@ -712,44 +756,17 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
 
             extra_tag = ""
             if "Code" in domain:
-                import ast
                 code_cand = response.replace("```python", "").replace("```", "").strip()
                 try:
                     ast.parse(code_cand)
                     extra_tag = " (✅ Valid Python AST)"
                 except Exception:
                     pass
-            elif domain == "Math Eq 1":
-                if "x = 8" in response or "x=8" in response or "= 8" in response:
-                    extra_tag = " (✅ Correct: x = 8)"
-            elif domain == "Math Eq 2":
-                if "x = 7" in response or "x=7" in response or "= 7" in response:
-                    extra_tag = " (✅ Correct: x = 7)"
-            elif domain == "Physics":
-                if "f = ma" in response.lower() or "force" in response.lower() and "acceleration" in response.lower():
-                    extra_tag = " (✅ Correct: F = ma)"
-            elif domain == "Chemistry":
-                if "h2o" in response.lower():
-                    extra_tag = " (✅ Correct: H2O)"
+            elif expected_key.lower() in response.lower().replace(" ", "") or expected_key.lower() in response.lower():
+                extra_tag = f" (✅ Key Matched: {expected_key})"
 
             clean_disp = response.replace("\n", " ")[:90]
-            log.info(f"│ {icon} [{domain:12s}]: {clean_disp}{extra_tag}")
-
-        # Part B: Random Conversational & Identity Spot-Check
-        import random
-        conv_pool = [
-            ("Identity",   "🤖", "<|user|>\nWho created you and what is your name?\n\n<|assistant|>\n", 0.4),
-            ("Greeting",   "👋", "<|user|>\nGood morning! How are you doing today?\n\n<|assistant|>\n", 0.4),
-            ("Chat",       "💬", "<|user|>\nThank you so much for your help!\n\n<|assistant|>\n", 0.4),
-            ("Capability", "⚡", "<|user|>\nWhat can you do as an AI assistant?\n\n<|assistant|>\n", 0.4)
-        ]
-        sample_conv = random.choice(conv_pool)
-        prompt_ids = torch.tensor([tokenizer.encode(sample_conv[2])], device=raw_model.embed.weight.device)
-        out = raw_model.generate(prompt_ids, max_new_tokens=64, min_new_tokens=1, temperature=sample_conv[3], top_p=0.9, repetition_penalty=1.15)
-        new_tokens = out[0, prompt_ids.shape[1]:].tolist()
-        response = tokenizer.decode(new_tokens).strip()
-        clean_disp = response.replace("\n", " ")[:90]
-        log.info(f"│ {sample_conv[1]} [{sample_conv[0]:12s}]: {clean_disp} (🎲 Random Conversation Check)")
+            log.info(f"│ {icon} [{domain:10s}]: {clean_disp}{extra_tag}")
 
         log.info("└" + "─" * 80)
 
