@@ -230,8 +230,8 @@ class NeuroTrainer:
         # dead optimizer on resume when scheduler thinks it's past total_steps.
         self.scheduler = create_lr_scheduler(self.optimizer, warmup_steps=warmup_steps, total_steps=total_steps, min_lr_ratio=0.10)
 
-        self.criterion = nn.CrossEntropyLoss(ignore_index=IGNORE_INDEX)
-        self.scaler = torch.amp.GradScaler('cuda', enabled=(self.device.type == 'cuda'))
+        use_amp = (self.device.type == 'cuda' and torch.cuda.is_bf16_supported())
+        self.scaler = torch.amp.GradScaler('cuda', enabled=False)
         self.step_count = 0
         self.best_loss = float('inf')
         self.best_val_loss = float('inf')
@@ -361,9 +361,8 @@ class NeuroTrainer:
             x = torch.clamp(x, 0, vsize - 1)
 
         device_type = self.device.type if self.device.type in ('cuda', 'mps') else 'cpu'
-
-        autocast_enabled = device_type != 'cpu'
-        amp_dtype = torch.bfloat16 if (self.device.type == 'cuda' and torch.cuda.is_bf16_supported()) else torch.float16
+        autocast_enabled = (self.device.type == 'cuda' and torch.cuda.is_bf16_supported())
+        amp_dtype = torch.bfloat16 if autocast_enabled else torch.float32
         with torch.autocast(device_type=device_type, dtype=amp_dtype, enabled=autocast_enabled):
             out = self.model(x, return_mtp=self.use_mtp_loss, use_latent_reasoning=use_latent_reasoning)
             if isinstance(out[0], tuple):

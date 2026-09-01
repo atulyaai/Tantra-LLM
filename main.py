@@ -519,7 +519,7 @@ def run_training(model, vcfg, steps=30, resume=False):
     trainer.save_checkpoint(latest_ckpt, save_optimizer=True)
 
 
-def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False, eval_every=1000, log_every=50, checkpoint_every=500, batch_size=1, seq_len=128, grad_accumulation_steps=1, data_workers=0, use_latent_reasoning=True, use_mtp_loss=True, compile=False, lr=1e-4, weight_decay=0.01, optimizer="adamw", warmup_steps=None, topic_weights=None, training_stage="sft", auto_growth=False, growth_patience=1000, growth_min_delta=0.005, max_layers=None, model_dir=None, adapter_name=None, archive_checkpoints=True, pack_sequences=True, checkpoint_path=None, max_grad_norm=1.0, mtp_loss_weight=0.3, track=None, curriculum_phase=None):
+def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False, eval_every=1000, log_every=50, checkpoint_every=500, batch_size=1, seq_len=128, grad_accumulation_steps=1, data_workers=0, use_latent_reasoning=True, use_mtp_loss=True, compile=False, lr=1e-4, weight_decay=0.01, optimizer="adamw", warmup_steps=None, topic_weights=None, training_stage="sft", auto_growth=False, growth_patience=1000, growth_min_delta=0.005, max_layers=None, model_dir=None, adapter_name=None, archive_checkpoints=True, pack_sequences=True, checkpoint_path=None, max_grad_norm=1.0, mtp_loss_weight=0.3, track=None, curriculum_phase=None, validation_dataset=None):
 
     log.info("== [DATASET PRE-TRAINING MODE] =====================")
     if training_stage not in {"pretrain", "sft"}:
@@ -942,7 +942,7 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
     if os.path.isfile(dataset_path):
         train_file = dataset_path
         base_dir = os.path.dirname(dataset_path) or "Datasets"
-        val_cand = os.path.join(base_dir, "tantra_val.jsonl")
+        val_cand = validation_dataset or os.path.join(base_dir, "tantra_val.jsonl")
         if not os.path.exists(val_cand):
             val_cand = dataset_path.replace("_train.jsonl", "_val.jsonl")
         if os.path.exists(val_cand) and os.path.isfile(val_cand) and os.path.abspath(val_cand) != os.path.abspath(dataset_path):
@@ -1226,6 +1226,7 @@ def main():
     parser.add_argument("--checkpoint", type=str, default=None, help="Path to custom .pt model checkpoint to load (for chat, eval, serve, dpo, benchmark, export)")
     parser.add_argument("--pack-sequences", action=argparse.BooleanOptionalAction, default=True, help="Enable continuous document sequence packing (zero padding waste)")
     parser.add_argument("--dataset", type=str, default=DEFAULT_DATASET, help="JSONL dataset path")
+    parser.add_argument("--val-dataset", type=str, default=None, help="Explicit held-out JSONL validation dataset; never hash-split this file")
     parser.add_argument("--preference-dataset", type=str, default="Datasets/preference_pairs.jsonl", help="DPO pairwise preference dataset path")
     parser.add_argument("--dpo-beta", type=float, default=0.1, help="DPO temperature scaling hyperparameter beta (default: 0.1)")
     parser.add_argument("--steps", type=int, default=30, help="Training steps")
@@ -1593,12 +1594,12 @@ def main():
                     auto_growth=args.auto_growth, growth_patience=args.growth_patience,
                     growth_min_delta=args.growth_min_delta, max_layers=args.max_layers,
                     adapter_name=args.adapter, model_dir=(ADAPTER_ROOT if args.adapter is not None else args.model_dir),
-                    pack_sequences=args.pack_sequences, checkpoint_path=args.checkpoint,
+                    pack_sequences=args.pack_sequences, checkpoint_path=args.checkpoint, validation_dataset=args.val_dataset,
                     max_grad_norm=args.max_grad_norm, mtp_loss_weight=args.mtp_weight,
                     track=track_name, curriculum_phase=None
                 )
         else:
-            run_dataset_training(model, tok, args.dataset, steps=args.steps, resume=args.resume, eval_every=args.eval_every, log_every=args.log_every, checkpoint_every=args.checkpoint_every, batch_size=args.batch_size, seq_len=args.seq_len, grad_accumulation_steps=args.grad_accum, data_workers=args.data_workers, use_latent_reasoning=use_latent_reasoning, use_mtp_loss=use_mtp_loss, compile=args.compile, lr=resolved_lr, weight_decay=resolved_wd, optimizer=resolved_optimizer, warmup_steps=args.warmup, topic_weights=topic_weights, training_stage=args.training_stage, auto_growth=args.auto_growth, growth_patience=args.growth_patience, growth_min_delta=args.growth_min_delta, max_layers=args.max_layers, adapter_name=args.adapter, model_dir=(ADAPTER_ROOT if args.adapter is not None else args.model_dir), pack_sequences=args.pack_sequences, checkpoint_path=args.checkpoint, max_grad_norm=args.max_grad_norm, mtp_loss_weight=args.mtp_weight, track=args.track, curriculum_phase=args.curriculum_phase)
+            run_dataset_training(model, tok, args.dataset, steps=args.steps, resume=args.resume, eval_every=args.eval_every, log_every=args.log_every, checkpoint_every=args.checkpoint_every, batch_size=args.batch_size, seq_len=args.seq_len, grad_accumulation_steps=args.grad_accum, data_workers=args.data_workers, use_latent_reasoning=use_latent_reasoning, use_mtp_loss=use_mtp_loss, compile=args.compile, lr=resolved_lr, weight_decay=resolved_wd, optimizer=resolved_optimizer, warmup_steps=args.warmup, topic_weights=topic_weights, training_stage=args.training_stage, auto_growth=args.auto_growth, growth_patience=args.growth_patience, growth_min_delta=args.growth_min_delta, max_layers=args.max_layers, adapter_name=args.adapter, model_dir=(ADAPTER_ROOT if args.adapter is not None else args.model_dir), pack_sequences=args.pack_sequences, checkpoint_path=args.checkpoint, max_grad_norm=args.max_grad_norm, mtp_loss_weight=args.mtp_weight, track=args.track, curriculum_phase=args.curriculum_phase, validation_dataset=args.val_dataset)
 
     elif args.mode == "dpo":
         dpo_ckpt = args.checkpoint
@@ -1657,7 +1658,7 @@ def main():
             training_stage="sft", auto_growth=args.auto_growth,
             growth_patience=args.growth_patience, growth_min_delta=args.growth_min_delta,
             max_layers=args.max_layers, model_dir=args.model_dir,
-            pack_sequences=args.pack_sequences, checkpoint_path=args.checkpoint,
+            pack_sequences=args.pack_sequences, checkpoint_path=args.checkpoint, validation_dataset=args.val_dataset,
             max_grad_norm=args.max_grad_norm, mtp_loss_weight=args.mtp_weight,
             track=args.track
         )

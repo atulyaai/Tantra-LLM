@@ -1,1 +1,0 @@
-Tantra NeuroCore features 1.58-bit BitNet quantization and ALRA attention.

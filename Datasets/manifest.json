@@ -1,9 +1,0 @@
-{
-  "dataset_name": "Tantra SFT Real Conversational Corpus",
-  "version": "5.0-Cleaned",
-  "total_samples": 47397,
-  "total_size_mb": 36.63,
-  "format": "ChatML (<|user|>, <|assistant|>)",
-  "primary_file": "Datasets/conversation.jsonl",
-  "benchmark_file": "Datasets/benchmarks/world_mmlu.jsonl"
-}
