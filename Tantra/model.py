@@ -805,9 +805,12 @@ class NeuroCoreModel(nn.Module):
             x = self.final_norm(x)
 
         logits_main = self.output_proj(x)
+        # Logit soft-capping (Gemma-2 style) to [-30.0, 30.0] to permanently prevent softmax overflow / NaNs
+        logits_main = 30.0 * torch.tanh(logits_main / 30.0)
 
         if return_mtp and self.use_mtp:
             logits_mtp = self.mtp_head(x)
+            logits_mtp = 30.0 * torch.tanh(logits_mtp / 30.0)
             return (logits_main, logits_mtp), new_states
 
         return logits_main, new_states

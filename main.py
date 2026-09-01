@@ -994,7 +994,9 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
             max_samples=max_samples, mask_non_assistant=mask_non_assistant,
             split="all" if is_discrete_sft else "train",
             val_ratio=0.0 if is_discrete_sft else 0.05,
-            pack_sequences=False if training_stage == "sft" else pack_sequences
+            pack_sequences=False if training_stage == "sft" else pack_sequences,
+            shuffle=True,
+            shuffle_buf_size=2000
         )
 
         if target_val_file and os.path.isfile(target_val_file):
