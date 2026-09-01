@@ -16,6 +16,7 @@ from pathlib import Path
 import torch
 
 from Tantra.config import VocabConfig
+from Tantra.bitnet import BitLinear
 from Tantra.model import NeuroCoreModel
 from Tantra.tokenizer import ByteBPETokenizer, MegabytePatcher, UnifiedTokenizer
 
@@ -70,6 +71,14 @@ def load_checkpoint_model(checkpoint_path: Path) -> tuple[NeuroCoreModel, Unifie
             f"missing={incompatible.missing_keys[:8]}, unexpected={incompatible.unexpected_keys[:8]}"
         )
     model.eval()
+    # Checkpoints contain trainable FP32 shadow weights.  Benchmarks must not
+    # quantize those 110M weights once per generated token; convert each
+    # BitLinear exactly once and reuse its cached ternary matrix.
+    bitlinear_count = 0
+    for module in model.modules():
+        if isinstance(module, BitLinear):
+            module.to_inference_mode()
+            bitlinear_count += 1
 
     vocab_config = VocabConfig()
     tokenizer_path = checkpoint_path.parent / "tokenizer.json"
@@ -77,7 +86,7 @@ def load_checkpoint_model(checkpoint_path: Path) -> tuple[NeuroCoreModel, Unifie
         tokenizer_path = Path("Model/tokenizer.json")
     bpe = ByteBPETokenizer.load(str(tokenizer_path), vocab_config)
     tokenizer = UnifiedTokenizer(vocab_config, bpe, MegabytePatcher())
-    print(f"Loaded {checkpoint_path}: {sum(p.numel() for p in model.parameters()):,} parameters; legacy_compat={legacy_compat}; zero incompatible tensors.")
+    print(f"Loaded {checkpoint_path}: legacy_compat={legacy_compat}; zero incompatible tensors; cached {bitlinear_count} BitLinear layers for inference.")
     return model, tokenizer
 
 
