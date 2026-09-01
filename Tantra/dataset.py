@@ -149,10 +149,7 @@ def build_prompt_segments(item: Dict[str, Any]) -> Optional[List[Tuple[str, bool
                 continue
             norm_role = "assistant" if role in ("assistant", "gpt", "bot", "model") else ("user" if role in ("user", "human") else "system")
             tag = f"<|{norm_role}|>\n"
-            # Supervise the assistant tag itself so the model learns to open its own turn.
-            # User/system tags remain masked (False) — model is not trained to reproduce them.
-            tag_is_target = (norm_role == "assistant")
-            segments.append((tag, tag_is_target))
+            segments.append((tag, False))
             segments.append((content, norm_role == "assistant"))
             segments.append(("\n\n", False))
         return segments if segments else None
@@ -179,7 +176,7 @@ def build_prompt_segments(item: Dict[str, Any]) -> Optional[List[Tuple[str, bool
                     continue
                 if re.match(r'<\|assistant\|>', c):
                     current_target = True
-                    segments.append((c, True))
+                    segments.append((c, False))
                 elif re.match(r'<\|(?:user|system)\|>', c):
                     current_target = False
                     segments.append((c, False))
@@ -202,9 +199,7 @@ def build_prompt_segments(item: Dict[str, Any]) -> Optional[List[Tuple[str, bool
         segments.append((user, False))
         segments.append(("\n\n", False))
     if assistant:
-        # Supervise the <|assistant|\n> tag itself (True, not False).
-        # The model must learn to emit its own turn-opener during generation.
-        segments.append(("<|assistant|>\n", True))
+        segments.append(("<|assistant|>\n", False))
         segments.append((assistant, True))
         segments.append(("\n\n", False))
     return segments
@@ -328,6 +323,9 @@ class JSONLDataset(IterableDataset):
         self.split = split.lower().strip()
         self.pack_sequences = pack_sequences
         self._unrecognized_json = 0
+        self.skipped_overlength_prompts = 0
+        self.truncated_assistant_tokens = 0
+        self.total_conversations_processed = 0
 
 
     def __bool__(self) -> bool:
@@ -454,9 +452,51 @@ class JSONLDataset(IterableDataset):
             clamped = torch.tensor(ids, dtype=torch.long).clamp_(0, self.vocab_size - 1).tolist()
             samples = []
 
-            if self.pack_sequences:
+            if self.mask_non_assistant:
+                # Document-level conversation instance (No cross-document chunking/packing)
+                if not ids or not any(is_target):
+                    return []
+
+                # The first supervised token marks the end of the prompt.  Do
+                # not count separators after an earlier assistant turn: a
+                # multi-turn conversation still needs to retain its complete
+                # context up to the current answer.
+                assistant_start = next(i for i, target in enumerate(is_target) if target)
+                if assistant_start >= self.seq_len:
+                    # Prompt alone exceeds sequence limit -> skip and count example
+                    self.skipped_overlength_prompts += 1
+                    return []
+
+                self.total_conversations_processed += 1
+
+                # Each conversation starts at token 0 with the prompt context.
+                # If total length exceeds seq_len + 1, truncate trailing tokens from the assistant reply only.
+                max_tokens = self.seq_len + 1
+                if len(clamped) > max_tokens:
+                    # The prompt was already proven to fit.  Everything beyond
+                    # this boundary is therefore an assistant-tail truncation.
+                    self.truncated_assistant_tokens += len(clamped) - max_tokens
+                seq_ids = clamped[:max_tokens]
+                seq_mask = is_target[:max_tokens]
+
+                if not any(seq_mask[1:]):
+                    # No supervised assistant tokens within the sequence length window
+                    self.skipped_overlength_prompts += 1
+                    return []
+
+                pad_len = max(0, (self.seq_len + 1) - len(seq_ids))
+                sample_ids = (seq_ids + [0] * pad_len)[: self.seq_len + 1]
+                sample_mask = (seq_mask + [False] * pad_len)[: self.seq_len + 1]
+
+                x = torch.tensor(sample_ids[:-1], dtype=torch.long)
+                y = torch.tensor(sample_ids[1:], dtype=torch.long)
+                y_is_target = torch.tensor(sample_mask[1:], dtype=torch.bool)
+                y = torch.where(y_is_target, y, torch.full_like(y, IGNORE_INDEX))
+                samples.append((x, y))
+
+            elif self.pack_sequences:
                 token_buffer.extend(clamped)
-                mask_buffer.extend(is_target if self.mask_non_assistant else [True] * len(clamped))
+                mask_buffer.extend([True] * len(clamped))
                 if self.insert_doc_boundaries:
                     if not token_buffer or token_buffer[-1] != EOS_ID:
                         token_buffer.append(EOS_ID)
@@ -468,41 +508,11 @@ class JSONLDataset(IterableDataset):
                     token_buffer = token_buffer[self.seq_len:]
                     mask_buffer = mask_buffer[self.seq_len:]
 
-                    # Only emit chunks that have at least one supervised target token
-                    if self.mask_non_assistant and not any(chunk_mask[1:]):
-                        continue
-
                     x = torch.tensor(chunk_ids[:-1], dtype=torch.long)
                     y = torch.tensor(chunk_ids[1:], dtype=torch.long)
                     y_is_target = torch.tensor(chunk_mask[1:], dtype=torch.bool)
                     y = torch.where(y_is_target, y, torch.full_like(y, IGNORE_INDEX))
                     samples.append((x, y))
-
-            elif self.mask_non_assistant:
-                if len(clamped) >= 2:
-                    # Multi-chunk sliding window: guarantees 100% of the assistant answer is supervised
-                    stride = max(1, self.seq_len // 2) if len(clamped) > self.seq_len + 1 else self.seq_len
-                    for start_idx in range(0, len(clamped), stride):
-                        end_idx = start_idx + self.seq_len + 1
-                        chunk_ids = clamped[start_idx:end_idx]
-                        chunk_mask = is_target[start_idx:end_idx]
-
-                        # Skip chunks that have no supervised assistant tokens (e.g. pure prompt prefix)
-                        if not any(chunk_mask):
-                            continue
-
-                        pad_len = max(0, (self.seq_len + 1) - len(chunk_ids))
-                        sample_ids = (chunk_ids + [0] * pad_len)[: self.seq_len + 1]
-                        sample_mask = (chunk_mask + [False] * pad_len)[: self.seq_len + 1]
-
-                        x = torch.tensor(sample_ids[:-1], dtype=torch.long)
-                        y = torch.tensor(sample_ids[1:], dtype=torch.long)
-                        y_is_target = torch.tensor(sample_mask[1:], dtype=torch.bool)
-                        y = torch.where(y_is_target, y, torch.full_like(y, IGNORE_INDEX))
-                        samples.append((x, y))
-
-                        if end_idx >= len(clamped):
-                            break
 
             else:
                 token_buffer.extend(clamped)
@@ -529,6 +539,7 @@ class JSONLDataset(IterableDataset):
 
         while True:
             file_had_lines = False
+            emitted_at_epoch_start = count
             rng = random.Random(self.seed + epoch)
             shuffle_buffer: List[str] = []
 
@@ -582,7 +593,14 @@ class JSONLDataset(IterableDataset):
                             return
                 shuffle_buffer.clear()
 
-            if not file_had_lines:
+            if not file_had_lines or self.split in ("val", "eval", "test") or getattr(self, "infinite", True) is False:
+                break
+            if self.mask_non_assistant and count == emitted_at_epoch_start:
+                log.warning(
+                    "No valid SFT examples were emitted from %s. Stopping the stream "
+                    "instead of repeating skipped/overlength documents forever.",
+                    self.jsonl_path,
+                )
                 break
             epoch += 1
 
@@ -748,28 +766,28 @@ class DPODataset(IterableDataset):
         if not prompt or not chosen or not rejected:
             return None
         prompt_text = prompt if "<|user|>" in prompt else f"<|system|>\nYou are Tantra, a helpful, precise, and polite AI assistant created by Atulya AI.<|user|>\n{prompt.strip()}<|assistant|>\n"
-        
+
         prompt_ids = self.tokenizer.encode(prompt_text)
         chosen_resp_ids = self.tokenizer.encode(chosen.strip()) + [EOS_ID]
         rejected_resp_ids = self.tokenizer.encode(rejected.strip()) + [EOS_ID]
-        
+
         chosen_ids = (prompt_ids + chosen_resp_ids)[:self.max_len]
         chosen_labels = [IGNORE_INDEX] * len(prompt_ids) + chosen_resp_ids
         chosen_labels = chosen_labels[:self.max_len]
-        
+
         rejected_ids = (prompt_ids + rejected_resp_ids)[:self.max_len]
         rejected_labels = [IGNORE_INDEX] * len(prompt_ids) + rejected_resp_ids
         rejected_labels = rejected_labels[:self.max_len]
-        
+
         pad_len_c = max(0, self.max_len - len(chosen_ids))
         pad_len_r = max(0, self.max_len - len(rejected_ids))
-        
+
         chosen_ids += [0] * pad_len_c
         chosen_labels += [IGNORE_INDEX] * pad_len_c
-        
+
         rejected_ids += [0] * pad_len_r
         rejected_labels += [IGNORE_INDEX] * pad_len_r
-        
+
         return {
             "chosen_input_ids": torch.tensor(chosen_ids, dtype=torch.long),
             "chosen_labels": torch.tensor(chosen_labels, dtype=torch.long),
@@ -805,13 +823,13 @@ class DPODataset(IterableDataset):
                         data = json.loads(line)
                     except json.JSONDecodeError:
                         continue
-                    
+
                     prompt = data.get("prompt") or data.get("instruction") or data.get("user", "")
                     if "system" in data and "user" in data:
                         prompt = f"<|system|>\n{data['system']}<|user|>\n{data['user']}<|assistant|>\n"
                     chosen = data.get("chosen") or data.get("response_chosen") or data.get("assistant", "")
                     rejected = data.get("rejected") or data.get("response_rejected", "")
-                    
+
                     item = self._encode_pair(prompt, chosen, rejected)
                     if item is not None:
                         yield item
@@ -1060,7 +1078,7 @@ def ingest_open_super_corpus(datasets_dir: str = "Datasets", max_samples: int = 
         return 0
     pref_path = os.path.join(datasets_dir, "preference_pairs.jsonl")
     filter_dedup = QualityFilterAndDeduplicator()
-    
+
     try:
         from datasets import load_dataset
     except ImportError:
@@ -1202,7 +1220,7 @@ def ingest_open_super_corpus(datasets_dir: str = "Datasets", max_samples: int = 
 
 def build_chitchat_curriculum(datasets_dir: str = "Datasets", target_samples: int = 100_000) -> int:
     """Builds a dedicated high-density Chit-Chat, Greeting, Persona, and Identity curriculum.
-    
+
     Combines:
     1. Multi-turn natural dialogue from UltraChat (50K)
     2. Daily conversation and everyday talk from DailyDialog (15K)
@@ -1213,10 +1231,10 @@ def build_chitchat_curriculum(datasets_dir: str = "Datasets", target_samples: in
     os.makedirs(datasets_dir, exist_ok=True)
     chat_path = os.path.join(datasets_dir, "expert_conversation.jsonl")
     gold_path = os.path.join(datasets_dir, "gold_corpus.jsonl")
-    
+
     # 1. First ensure gold persona & dialogue templates are created
     generate_gold_datasets(datasets_dir, force=False)
-    
+
     try:
         from datasets import load_dataset
     except ImportError:
@@ -1366,20 +1384,20 @@ def build_chitchat_curriculum(datasets_dir: str = "Datasets", target_samples: in
 
 def build_phased_chitchat_curriculum(datasets_dir: str = "Datasets") -> dict:
     """Builds 3-phase curriculum datasets for progressive conversational learning.
-    
+
     Phase 1: Pure greetings, identity, pleasantries (short, high-signal pairs)
     Phase 2: Phase 1 + short conversational Q&A (assistant < 100 tokens)
     Phase 3: Full dataset including long multi-turn dialogues
-    
+
     Returns dict mapping phase number to (filepath, sample_count).
     """
     os.makedirs(datasets_dir, exist_ok=True)
     gold_path = os.path.join(datasets_dir, "gold_corpus.jsonl")
-    
+
     phase1_path = os.path.join(datasets_dir, "chitchat_phase1_greetings.jsonl")
     phase2_path = os.path.join(datasets_dir, "chitchat_phase2_short.jsonl")
     phase3_path = os.path.join(datasets_dir, "chitchat_phase3_full.jsonl")
-    
+
     # Check cache
     if all(os.path.exists(p) and os.path.getsize(p) > 1000 for p in [phase1_path, phase2_path, phase3_path]):
         log.info("⚡ [CACHE HIT] Phased chitchat curriculum already built. Skipping.")
@@ -1388,16 +1406,16 @@ def build_phased_chitchat_curriculum(datasets_dir: str = "Datasets") -> dict:
             with open(p, "r", encoding="utf-8") as f:
                 counts[i] = (p, sum(1 for _ in f))
         return counts
-    
+
     # First ensure gold persona & dialogue templates are created
     generate_gold_datasets(datasets_dir, force=False)
-    
+
     try:
         from datasets import load_dataset
     except ImportError:
         log.warning("HuggingFace `datasets` not installed. Run: pip install datasets")
         return {}
-    
+
     # ── Expanded Greeting, Identity & Social Small-Talk Bank (100+ pairs) ──
     greetings_bank = [
         # Basic greetings
@@ -1526,7 +1544,7 @@ def build_phased_chitchat_curriculum(datasets_dir: str = "Datasets") -> dict:
         ("I'm lonely", "I'm here for you! Let's chat about something fun or interesting. You're never alone when we can talk together."),
         ("I'm excited", "That's awesome! What are you excited about? I'd love to hear!"),
     ]
-    
+
     # ── PHASE 1: Pure Greetings & Identity ──────────────────────────────────────
     log.info("📥 [Phase 1/3] Building pure greetings & identity dataset...")
     phase1_count = 0
@@ -1537,7 +1555,7 @@ def build_phased_chitchat_curriculum(datasets_dir: str = "Datasets") -> dict:
             for u, a in greetings_bank:
                 f.write(json.dumps({"user": u, "assistant": a, "domain": "conversation"}) + "\n")
                 phase1_count += 1
-        
+
         # Add gold corpus identity/conversation pairs
         if os.path.exists(gold_path):
             with open(gold_path, "r", encoding="utf-8") as gf:
@@ -1549,9 +1567,9 @@ def build_phased_chitchat_curriculum(datasets_dir: str = "Datasets") -> dict:
                             phase1_count += 1
                     except Exception:
                         pass
-    
+
     log.info(f"  ✅ Phase 1: {phase1_count:,} pure greeting & identity samples")
-    
+
     # ── PHASE 2: Phase 1 + Short Conversations ─────────────────────────────────
     log.info("📥 [Phase 2/3] Building short conversation dataset...")
     phase2_count = 0
@@ -1561,7 +1579,7 @@ def build_phased_chitchat_curriculum(datasets_dir: str = "Datasets") -> dict:
             for u, a in greetings_bank:
                 f.write(json.dumps({"user": u, "assistant": a, "domain": "conversation"}) + "\n")
                 phase2_count += 1
-        
+
         # Gold corpus
         if os.path.exists(gold_path):
             with open(gold_path, "r", encoding="utf-8") as gf:
@@ -1573,7 +1591,7 @@ def build_phased_chitchat_curriculum(datasets_dir: str = "Datasets") -> dict:
                             phase2_count += 1
                     except Exception:
                         pass
-        
+
         # UltraChat — SHORT responses only (< 100 words)
         try:
             log.info("  📥 Adding short UltraChat dialogues (assistant < 100 words)...")
@@ -1591,7 +1609,7 @@ def build_phased_chitchat_curriculum(datasets_dir: str = "Datasets") -> dict:
             log.info(f"  ✅ Added {short_added:,} short UltraChat dialogues")
         except Exception as e:
             log.warning(f"  Could not load ultrachat for Phase 2: {e}")
-        
+
         # DailyDialog (naturally short)
         try:
             log.info("  📥 Adding DailyDialog natural dialogues...")
@@ -1606,9 +1624,9 @@ def build_phased_chitchat_curriculum(datasets_dir: str = "Datasets") -> dict:
                     phase2_count += 1
         except Exception as e:
             log.warning(f"  Could not load daily_dialog for Phase 2: {e}")
-    
+
     log.info(f"  ✅ Phase 2: {phase2_count:,} short conversation samples")
-    
+
     # ── PHASE 3: Full Dataset (Everything) ──────────────────────────────────────
     log.info("📥 [Phase 3/3] Building full conversation dataset...")
     phase3_count = 0
@@ -1618,7 +1636,7 @@ def build_phased_chitchat_curriculum(datasets_dir: str = "Datasets") -> dict:
             for u, a in greetings_bank:
                 f.write(json.dumps({"user": u, "assistant": a, "domain": "conversation"}) + "\n")
                 phase3_count += 1
-        
+
         # Gold corpus
         if os.path.exists(gold_path):
             with open(gold_path, "r", encoding="utf-8") as gf:
@@ -1630,7 +1648,7 @@ def build_phased_chitchat_curriculum(datasets_dir: str = "Datasets") -> dict:
                             phase3_count += 1
                     except Exception:
                         pass
-        
+
         # Full UltraChat (all lengths)
         try:
             log.info("  📥 Adding full UltraChat conversations (50K)...")
@@ -1644,7 +1662,7 @@ def build_phased_chitchat_curriculum(datasets_dir: str = "Datasets") -> dict:
                     phase3_count += 1
         except Exception as e:
             log.warning(f"  Could not load ultrachat for Phase 3: {e}")
-        
+
         # DailyDialog
         try:
             log.info("  📥 Adding DailyDialog natural dialogues...")
@@ -1659,7 +1677,7 @@ def build_phased_chitchat_curriculum(datasets_dir: str = "Datasets") -> dict:
                     phase3_count += 1
         except Exception as e:
             log.warning(f"  Could not load daily_dialog for Phase 3: {e}")
-        
+
         # Clean conversational instructions
         try:
             log.info("  📥 Adding clean conversational instructions (25K)...")
@@ -1673,9 +1691,9 @@ def build_phased_chitchat_curriculum(datasets_dir: str = "Datasets") -> dict:
                 phase3_count += 1
         except Exception as e:
             log.warning(f"  Could not load alpaca for Phase 3: {e}")
-    
+
     log.info(f"  ✅ Phase 3: {phase3_count:,} full conversation samples")
-    
+
     result = {
         1: (phase1_path, phase1_count),
         2: (phase2_path, phase2_count),
@@ -1687,18 +1705,18 @@ def build_phased_chitchat_curriculum(datasets_dir: str = "Datasets") -> dict:
 
 def build_phased_code_curriculum(datasets_dir: str = "Datasets") -> dict:
     """Builds 3-phase curriculum datasets for progressive Code mastery.
-    
+
     Phase 1: Syntax & Core One-Liners (Python string reversal, list comps, dicts, math ops)
     Phase 2: Algorithms & Data Structures (MergeSort, QuickSort, Binary Search, Trees, LeetCode)
     Phase 3: Full Systems & Engineering (Flask/FastAPI, PyTorch models, SQL, debugging)
     """
     os.makedirs(datasets_dir, exist_ok=True)
     gold_path = os.path.join(datasets_dir, "gold_corpus.jsonl")
-    
+
     p1_path = os.path.join(datasets_dir, "code_phase1_syntax.jsonl")
     p2_path = os.path.join(datasets_dir, "code_phase2_algorithms.jsonl")
     p3_path = os.path.join(datasets_dir, "code_phase3_systems.jsonl")
-    
+
     if all(os.path.exists(p) and os.path.getsize(p) > 1000 for p in [p1_path, p2_path, p3_path]):
         log.info("⚡ [CACHE HIT] Phased code curriculum already built. Skipping.")
         counts = {}
@@ -1706,9 +1724,9 @@ def build_phased_code_curriculum(datasets_dir: str = "Datasets") -> dict:
             with open(p, "r", encoding="utf-8") as f:
                 counts[i] = (p, sum(1 for _ in f))
         return counts
-    
+
     generate_gold_datasets(datasets_dir, force=False)
-    
+
     try:
         from datasets import load_dataset
     except ImportError:
@@ -1797,18 +1815,18 @@ def build_phased_code_curriculum(datasets_dir: str = "Datasets") -> dict:
 
 def build_phased_math_curriculum(datasets_dir: str = "Datasets") -> dict:
     """Builds 3-phase curriculum datasets for progressive Math & Deductive Reasoning mastery.
-    
+
     Phase 1: Arithmetic & Linear Equations ($ax + b = c$, fractions, percentages)
     Phase 2: Step-by-Step Word Problems (GSM8K, logic reasoning, algebra)
     Phase 3: Advanced Math, Calculus & Proofs (MetaMathQA, competition math)
     """
     os.makedirs(datasets_dir, exist_ok=True)
     gold_path = os.path.join(datasets_dir, "gold_corpus.jsonl")
-    
+
     p1_path = os.path.join(datasets_dir, "math_phase1_arithmetic.jsonl")
     p2_path = os.path.join(datasets_dir, "math_phase2_wordproblems.jsonl")
     p3_path = os.path.join(datasets_dir, "math_phase3_advanced.jsonl")
-    
+
     if all(os.path.exists(p) and os.path.getsize(p) > 1000 for p in [p1_path, p2_path, p3_path]):
         log.info("⚡ [CACHE HIT] Phased math curriculum already built. Skipping.")
         counts = {}
@@ -1816,9 +1834,9 @@ def build_phased_math_curriculum(datasets_dir: str = "Datasets") -> dict:
             with open(p, "r", encoding="utf-8") as f:
                 counts[i] = (p, sum(1 for _ in f))
         return counts
-    
+
     generate_gold_datasets(datasets_dir, force=False)
-    
+
     try:
         from datasets import load_dataset
     except ImportError:
@@ -1899,18 +1917,18 @@ def build_phased_math_curriculum(datasets_dir: str = "Datasets") -> dict:
 
 def build_phased_science_curriculum(datasets_dir: str = "Datasets") -> dict:
     """Builds 3-phase curriculum datasets for progressive Science & Natural Laws mastery.
-    
+
     Phase 1: Fundamental Laws & Formulas (Newton's laws, thermodynamics, periodic table)
     Phase 2: Biological & Physical Explanations (Metamorphosis, photosynthesis, water cycle)
     Phase 3: Advanced Multidisciplinary Science (Quantum, relativity, biochemistry)
     """
     os.makedirs(datasets_dir, exist_ok=True)
     gold_path = os.path.join(datasets_dir, "gold_corpus.jsonl")
-    
+
     p1_path = os.path.join(datasets_dir, "science_phase1_fundamentals.jsonl")
     p2_path = os.path.join(datasets_dir, "science_phase2_explanations.jsonl")
     p3_path = os.path.join(datasets_dir, "science_phase3_advanced.jsonl")
-    
+
     if all(os.path.exists(p) and os.path.getsize(p) > 1000 for p in [p1_path, p2_path, p3_path]):
         log.info("⚡ [CACHE HIT] Phased science curriculum already built. Skipping.")
         counts = {}
@@ -1918,9 +1936,9 @@ def build_phased_science_curriculum(datasets_dir: str = "Datasets") -> dict:
             with open(p, "r", encoding="utf-8") as f:
                 counts[i] = (p, sum(1 for _ in f))
         return counts
-    
+
     generate_gold_datasets(datasets_dir, force=False)
-    
+
     try:
         from datasets import load_dataset
     except ImportError:
@@ -2004,13 +2022,13 @@ def build_all_expert_curriculums(datasets_dir: str = "Datasets") -> dict:
     log.info("=" * 80)
     log.info("🚀 [MASTER MOE CURRICULUM] Building 3-Phase Curricula for ALL Expert Domains...")
     log.info("=" * 80)
-    
+
     results = {}
     results["chitchat"] = build_phased_chitchat_curriculum(datasets_dir)
     results["code"] = build_phased_code_curriculum(datasets_dir)
     results["math"] = build_phased_math_curriculum(datasets_dir)
     results["science"] = build_phased_science_curriculum(datasets_dir)
-    
+
     log.info("=" * 80)
     log.info("🎉 [ALL EXPERT CURRICULUMS READY] Multi-domain MoE curriculum assets verified!")
     log.info("=" * 80)
@@ -2024,7 +2042,7 @@ def ingest_gigabyte_super_corpus(datasets_dir: str = "Datasets", target_samples:
     if os.path.exists(master_path) and os.path.getsize(master_path) > 1_000_000:
         log.info(f"⚡ [CACHE HIT] Master corpus already populated ({os.path.getsize(master_path)/1e6:.1f} MB). Skipping re-ingestion.")
         return 0
-    
+
     try:
         from datasets import load_dataset
     except ImportError:
@@ -2119,13 +2137,13 @@ def build_4track_curriculum(datasets_dir: str = "Datasets", force: bool = False)
     """Partitions all available master and gold datasets into 4 expert tracks ordered by curriculum complexity."""
     os.makedirs(datasets_dir, exist_ok=True)
     expected_files = [os.path.join(datasets_dir, f) for f in CURRICULUM_TRACKS.keys()]
-    
+
     if not force and all(os.path.exists(p) and os.path.getsize(p) > 50_000 for p in expected_files):
         log.info(f"⚡ [CACHE HIT] 4-Track Domain Curriculum cached in {datasets_dir}/.")
         return
 
     generate_gold_datasets(datasets_dir=datasets_dir, force=force)
-    
+
     # Collect all candidate source JSONL files (excluding the target partitioned files)
     target_filenames = set(CURRICULUM_TRACKS.keys())
     source_files = []
@@ -2158,7 +2176,7 @@ def build_4track_curriculum(datasets_dir: str = "Datasets", force: bool = False)
                         for m in data["messages"]:
                             if m.get("role") == "user": u += " " + m.get("content", "")
                             elif m.get("role") == "assistant": a += " " + m.get("content", "")
-                    
+
                     if not filter_dedup.is_clean(str(u), str(a)):
                         continue
 
@@ -2184,6 +2202,6 @@ def build_4track_curriculum(datasets_dir: str = "Datasets", force: bool = False)
                 f.write(json.dumps(it) + "\n")
         total_samples += len(sorted_items)
         log.info(f"  • {target_file}: {len(sorted_items):,} curriculum-ordered samples written.")
-    
+
     log.info(f"🎯 Total Master Dataset Partitioned: {total_samples:,} samples across 4 tracks.")
 

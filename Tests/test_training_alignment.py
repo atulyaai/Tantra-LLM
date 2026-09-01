@@ -44,14 +44,14 @@ def test_topic_mixed_dataset_multi_file():
             {"general": [os.path.join(tmp, f"shard{i}.jsonl") for i in range(3)]},
             {"general": 1.0},
             _StubTokenizer(),
-            seq_len=16,
+            seq_len=128,
             max_samples=50,
             seed=1,
         )
         got = [x for x, _ in ds]
         assert len(got) == 50
         for x in got:
-            assert x.shape == (16,)
+            assert x.shape == (128,)
             assert x.dtype == torch.long
 
 
@@ -66,7 +66,7 @@ def test_topic_mixed_dataset_weighted_topics():
             {"general": [gen], "code": [code]},
             {"general": 5.0, "code": 1.0},
             _StubTokenizer(),
-            seq_len=8,
+            seq_len=128,
             max_samples=300,
             seed=3,
         )
@@ -136,15 +136,15 @@ def test_jsonl_dataset_shuffling():
     with tempfile.TemporaryDirectory() as tmp:
         path = os.path.join(tmp, "test_shuffle.jsonl")
         _write_chat_jsonl(path, 100, prefix="item")
-        
+
         # Non-shuffled dataset
         ds_noshuffle = JSONLDataset(path, _StubTokenizer(), seq_len=128, max_samples=100, shuffle=False)
         items_noshuffle = [x.tolist() for x, _ in ds_noshuffle]
-        
+
         # Shuffled dataset
         ds_shuffle = JSONLDataset(path, _StubTokenizer(), seq_len=128, max_samples=100, shuffle=True, shuffle_buf_size=50, seed=42)
         items_shuffle = [x.tolist() for x, _ in ds_shuffle]
-        
+
         assert len(items_noshuffle) == 100
         assert len(items_shuffle) == 100
         # Line order must differ when shuffle=True
@@ -156,10 +156,10 @@ def test_jsonl_dataset_epoch_reshuffling():
     with tempfile.TemporaryDirectory() as tmp:
         path = os.path.join(tmp, "test_epoch.jsonl")
         _write_chat_jsonl(path, 30, prefix="ep")
-        
+
         ds = JSONLDataset(path, _StubTokenizer(), seq_len=128, max_samples=60, shuffle=True, shuffle_buf_size=20, seed=123)
         all_samples = [x.tolist() for x, _ in ds]
-        
+
         assert len(all_samples) == 60
         epoch_1 = all_samples[:30]
         epoch_2 = all_samples[30:]
@@ -215,7 +215,7 @@ def test_neurotrainer_evaluate_validation():
 
 
 def test_continuous_sequence_packing():
-    """Continuous sequence packing must pack multiple documents with zero padding tokens."""
+    """Continuous sequence packing is retained for pretraining only."""
     with tempfile.TemporaryDirectory() as tmp:
         path = os.path.join(tmp, "packed_test.jsonl")
         with open(path, "w", encoding="utf-8") as f:
@@ -226,16 +226,62 @@ def test_continuous_sequence_packing():
                 }) + "\n")
 
         tok = _StubTokenizer()
-        ds_packed = JSONLDataset(path, tok, seq_len=32, max_samples=10, pack_sequences=True, mask_non_assistant=True)
+        ds_packed = JSONLDataset(path, tok, seq_len=32, max_samples=10, pack_sequences=True, mask_non_assistant=False)
         samples = [s for s in ds_packed]
         assert len(samples) > 0
         for x, y in samples:
             assert x.shape == (32,)
             assert y.shape == (32,)
-            # Verify that supervised assistant tokens exist in the packed chunk
-            assert (y != IGNORE_INDEX).any()
+            assert torch.all(y != IGNORE_INDEX)
             # Verify x has no zero padding tokens at the tail
             assert not (x[-4:] == 0).all()
+
+
+def test_sft_document_sample_masks_prompt_padding_and_keeps_eos():
+    """SFT must supervise only assistant content/EOS in one padded document."""
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "conversation.jsonl")
+        item = {"user": "Question", "assistant": "Answer"}
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(json.dumps(item) + "\n")
+
+        tok = _StubTokenizer()
+        ds = JSONLDataset(path, tok, seq_len=64, max_samples=1, shuffle=False,
+                          mask_non_assistant=True, pack_sequences=True,
+                          split="all", val_ratio=0.0)
+        x, y = next(iter(ds))
+        prompt = "<|user|>\nQuestion\n\n<|assistant|>\n"
+        prompt_len = len(tok.encode(prompt))
+
+        # y[i] predicts original token i+1, so labels through the prompt are masked.
+        assert torch.all(y[:prompt_len - 1] == IGNORE_INDEX)
+        assert y[prompt_len - 1] != IGNORE_INDEX
+        assert (y != IGNORE_INDEX).sum().item() == len(tok.encode("Answer")) + 1
+        assert torch.all(y[len(tok.encode(prompt + "Answer")):] == IGNORE_INDEX)
+
+
+def test_sft_truncates_only_answer_tail_and_skips_overlength_prompt():
+    with tempfile.TemporaryDirectory() as tmp:
+        tok = _StubTokenizer()
+        long_answer = os.path.join(tmp, "long_answer.jsonl")
+        with open(long_answer, "w", encoding="utf-8") as f:
+            f.write(json.dumps({"user": "Short", "assistant": "A" * 400}) + "\n")
+        ds = JSONLDataset(long_answer, tok, seq_len=64, max_samples=1, shuffle=False,
+                          mask_non_assistant=True, split="all", val_ratio=0.0)
+        x, y = next(iter(ds))
+        prompt_ids = tok.encode("<|user|>\nShort\n\n<|assistant|>\n")
+        assert x.tolist()[:len(prompt_ids)] == prompt_ids
+        assert (y != IGNORE_INDEX).sum().item() > 0
+        assert ds.truncated_assistant_tokens > 0
+
+        long_prompt = os.path.join(tmp, "long_prompt.jsonl")
+        with open(long_prompt, "w", encoding="utf-8") as f:
+            f.write(json.dumps({"user": "Q" * 400, "assistant": "Answer"}) + "\n")
+        skipped = JSONLDataset(long_prompt, tok, seq_len=64, max_samples=1, shuffle=False,
+                               mask_non_assistant=True, split="all", val_ratio=0.0)
+        # The stream is intentionally empty instead of emitting a fragment.
+        assert list(iter(skipped)) == []
+        assert skipped.skipped_overlength_prompts == 1
 
 
 
@@ -262,7 +308,7 @@ from torch.utils.data import DataLoader
 def test_dpo_dataset_and_training_step(tmp_path):
     # 1. Create a dummy tokenizer
     tok = ByteBPETokenizer(VocabConfig())
-    
+
     # 2. Create small sample preference pairs JSONL
     dpo_file = tmp_path / "pref_pairs.jsonl"
     dpo_file.write_text(
@@ -270,17 +316,17 @@ def test_dpo_dataset_and_training_step(tmp_path):
         '{"prompt": "What is Python?", "chosen": "Python is a programming language.", "rejected": "python python"}\n',
         encoding="utf-8"
     )
-    
+
     dataset = DPODataset(str(dpo_file), tok, max_len=32)
     loader = DataLoader(dataset, batch_size=2)
-    
+
     batch = next(iter(loader))
     assert "chosen_input_ids" in batch
     assert "chosen_labels" in batch
     assert "rejected_input_ids" in batch
     assert "rejected_labels" in batch
     assert batch["chosen_input_ids"].shape == (2, 32)
-    
+
     # 3. Create tiny model & trainer
     cfg = NeuroCoreConfig()
     cfg.block.alra.dim = 64
@@ -289,11 +335,11 @@ def test_dpo_dataset_and_training_step(tmp_path):
     cfg.block.alra.num_heads = 2
     cfg.block.alra.head_dim = 32
     cfg.vocab.vocab_size = 32768
-    
+
     model = NeuroCoreModel(cfg)
     trainer = NeuroTrainer(model, lr=1e-4, grad_accumulation_steps=1)
     trainer.device = torch.device("cpu")
-    
+
     # 4. Run DPO training for 3 steps
     losses = trainer.train_dpo(loader, max_steps=3, log_every=1, beta=0.1)
     assert len(losses) == 3
@@ -334,11 +380,11 @@ def test_lion_math_correctness_and_buffer_isolation():
     """Verify exact numerical formulation of Lion (Chen et al. 2023)."""
     p = torch.nn.Parameter(torch.tensor([1.0, -2.0], dtype=torch.float32))
     opt = Lion([p], lr=0.1, betas=(0.9, 0.99), weight_decay=0.0)
-    
+
     # Step 1: grad = [0.5, -0.5]
     p.grad = torch.tensor([0.5, -0.5], dtype=torch.float32)
     opt.step()
-    
+
     # Expected update:
     # m_0 = 0
     # update = sign(0.9 * 0 + 0.1 * [0.5, -0.5]) = sign([0.05, -0.05]) = [1.0, -1.0]
@@ -385,11 +431,11 @@ def test_lion_memory_footprint_vs_adamw():
 def test_lion_step_execution():
     model = build_cpu_model("micro10", attention_kind="causal")
     trainer = NeuroTrainer(model, lr=3e-5, weight_decay=0.05, optimizer_name="lion", total_steps=5)
-    
+
     x = torch.randint(0, 32768, (1, 16))
     y = torch.randint(0, 32768, (1, 16))
     loss, acc, ppl, grad_norm, at_boundary = trainer.train_step(x, y)
-    
+
     assert loss > 0
     assert ppl > 0
     assert at_boundary is True

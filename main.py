@@ -98,10 +98,10 @@ def print_status_dashboard(model, trainer, expert_reg, rt):
         table = Table(title="Tantra-LLM Status Dashboard", show_header=False)
         table.add_column("Property", style="cyan", no_wrap=True)
         table.add_column("Value", style="magenta")
-        
+
         total_params = sum(p.numel() for p in model.parameters())
         status = "FRESH" if trainer.step_count == 0 else f"RESUMING (Step {trainer.step_count})"
-        
+
         table.add_row("Model", f"NeuroCore ({total_params/1e6:.1f}M params)")
         table.add_row("Device", f"{rt.device} | dtype: {rt.dtype}")
         table.add_row("Training Status", status)
@@ -109,7 +109,7 @@ def print_status_dashboard(model, trainer, expert_reg, rt):
         table.add_row("Total Tokens", f"{trainer.total_tokens:,}")
         table.add_row("Experts", f"{len(expert_reg)} registered")
         table.add_row("Hardware", f"{rt.offload_strategy} | Batch: {rt.batch_size}")
-        
+
         console.print(table)
     else:
         print("== TANTRA-LLM STATUS ==")
@@ -125,14 +125,14 @@ def print_expert_panel(expert_reg):
         table.add_column("Usage")
         table.add_column("Status")
         table.add_column("DNA File")
-        
+
         for e_id, e_info in expert_reg.experts.items():
             spec = e_info.get("specialization", "unknown")
             emoji = "🧠"
             if "language" in spec: emoji = "💬"
             elif "code" in spec: emoji = "💻"
             elif "math" in spec: emoji = "🔢"
-            
+
             table.add_row(
                 str(e_id),
                 e_info.get("name", f"expert_{e_id}"),
@@ -254,17 +254,17 @@ def run_interactive_chat(model, tokenizer, device, temp=0.7, top_p=0.9, router=N
 
 def detect_hardware():
     log.info("== [1] HARDWARE AUTO-DETECTION & PROACTIVE HEALTH ==")
-    
-    is_colab = ('google.colab' in sys.modules 
+
+    is_colab = ('google.colab' in sys.modules
                 or os.environ.get('COLAB_RELEASE_TAG') is not None
                 or os.environ.get('COLAB_GPU') is not None
                 or os.path.exists('/content'))
     is_non_tty = not getattr(sys.stdout, "isatty", lambda: False)()
-    
+
     if is_colab or is_non_tty:
         log.info("  [INFO] Running in Container/Non-TTY mode. Skipping benchmarks for instant startup.")
         from Tantra.hardware import GPUInfo, RuntimeConfig
-        
+
         # Check for GPU without blocking
         has_cuda = False
         gpus = []
@@ -275,10 +275,10 @@ def detect_hardware():
                 gpus = [GPUInfo(0, torch.cuda.get_device_name(0), torch.cuda.get_device_properties(0).total_memory // (1024*1024), "8.0", "cuda")]
         except Exception:
             pass
-            
+
         device = 'cuda:0' if gpus else 'cpu'
         log.info(f"  Detected Device: {device} | strategy: {'full_gpu' if gpus else 'cpu_only'}")
-        
+
         rt = RuntimeConfig(
             device=device,
             dtype='bfloat16' if gpus else 'int8',
@@ -297,11 +297,11 @@ def detect_hardware():
             prefill_chunk_size=512,
             profile_name="COLAB-GPU" if gpus else "COLAB-CPU"
         )
-        
+
         class FastScheduler:
             def start(self): pass
             def stop(self): pass
-            
+
         return rt, FastScheduler()
 
     hw = HardwareDetector()
@@ -313,7 +313,7 @@ def detect_hardware():
     log.info(f"  Device     : {rt.device} | dtype: {rt.dtype}")
     log.info(f"  Compression: {rt.compression_level}")
     log.info(f"  Expert Cache: {rt.expert_cache_size} in RAM | batch: {rt.batch_size}")
-    
+
     sched = AdaptiveScheduler(rt)
     sched.start()
     return rt, sched
@@ -459,11 +459,11 @@ def init_model(cfg, device, compatibility_legacy_moe=False):
         use_moe=(is_real_moe and num_exp > 1) or compatibility_legacy_moe,
         compatibility_legacy_moe=compatibility_legacy_moe,
     )
-    
+
     total_params = sum(p.numel() for p in model.parameters())
     trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     frozen_params = total_params - trainable_params
-    
+
     log.info(f"  Total Parameters     : {total_params:,} ({total_params/1e6:.1f}M)")
     log.info(f"  Trainable Parameters : {trainable_params:,}")
     log.info(f"  Frozen Parameters    : {frozen_params:,}")
@@ -508,7 +508,7 @@ def run_training(model, vcfg, steps=30, resume=False):
     log.info("== [SYNTHETIC BENCHMARK TRAINING] ==================")
     trainer = NeuroTrainer(model, lr=1e-4, total_steps=steps)
     latest_ckpt = os.path.join(LATEST_DIR, "checkpoint_latest.pt")
-    
+
     if resume and os.path.exists(latest_ckpt):
         log.info(f"RESUMING training from existing checkpoint: {latest_ckpt}")
         trainer.load_checkpoint(latest_ckpt)
@@ -578,7 +578,7 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
         os.makedirs(directory, exist_ok=True)
     latest_ckpt = os.path.join(latest_dir, "checkpoint_latest.pt")
     best_ckpt = os.path.join(best_dir, "checkpoint_best.pt")
-    
+
     # Resume only when explicitly requested.
     resume_target = None
     if checkpoint_path and os.path.isfile(checkpoint_path):
@@ -723,7 +723,7 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
 
             clean_disp = response.replace("\n", " ")[:90]
             log.info(f"│ {icon} [{domain:7s}]: {clean_disp}{extra_tag}")
-        
+
         # Zero-Shot World Knowledge MMLU Benchmark Evaluation
         try:
             from Tantra.world_eval import evaluate_zero_shot_world_knowledge
@@ -766,13 +766,13 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
                 reg.update_depth(adapter_name, new_depth, new_params)
                 reg.save()
                 log.info(f"[CategoryGrowth] Shrank '{adapter_name}' to depth {new_depth} (params={new_params}).")
-        
+
         # Avoid saving immediately upon resuming (step == trainer.step_count when just loaded)
         # We only save if we have actually progressed.
         if step > 0:
             # Save to Latest asynchronously (full state with optimizer for seamless resume)
             trainer.save_checkpoint(latest_ckpt, save_optimizer=True, async_write=True)
-            
+
             if archive_checkpoints:
                 # Optional archive copies; CPU profiles use only Latest by
                 # default to avoid spending disk on repeated optimizer state.
@@ -789,7 +789,7 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
                     trainer.save_checkpoint(os.path.join(best_dir, version_name), save_optimizer=False, async_write=True)
 
 
-            
+
             trainer._last_saved_step = step
 
     def checkpoint_callback(step):
@@ -804,9 +804,9 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
 
     # Record the starting step so we don't save it immediately
     trainer._last_saved_step = trainer.step_count
-    
+
     from Tantra.dataset import TopicMixedDataset
-    
+
     # ``steps`` counts optimizer updates, while an IterableDataset yields
     # individual samples.  Gradient accumulation consumes multiple complete
     # batches per update, so the old cap stopped runs early when --grad-accum
@@ -849,7 +849,7 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
             if os.path.isfile(c_path) and os.path.getsize(c_path) > 0:
                 selected_file = c_path
                 break
-        
+
         # On-demand builder for specific domains
         if selected_file is None:
             if "code" in t_norm:
@@ -864,7 +864,7 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
             elif t_norm in ("chitchat", "conversation", "chat", "identity", "chitchat-p1", "chitchat-p2", "chitchat-p3", "greetings"):
                 from Tantra.dataset import build_phased_chitchat_curriculum
                 build_phased_chitchat_curriculum(base_dir)
-            
+
             for c in cand_names:
                 c_path = os.path.join(base_dir, c)
                 if os.path.isfile(c_path) and os.path.getsize(c_path) > 0:
@@ -889,7 +889,7 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
                 jsonls = glob.glob(os.path.join(entry.path, "*.jsonl"))
                 if jsonls:
                     topic_paths[topic] = jsonls
-        
+
         if topic_paths:
             log.info(f"  Topic directories found: {list(topic_paths.keys())}")
             # When training a single category, restrict to that category's
@@ -936,6 +936,56 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
         else:
             # Multiple jsonl files directly under dataset_path
             direct_jsonls = [p for p in glob.glob(os.path.join(dataset_path, "*.jsonl")) if "preference" not in p and "sample" not in p]
+    val_loader = None
+    target_val_file = None
+
+    if os.path.isfile(dataset_path):
+        train_file = dataset_path
+        base_dir = os.path.dirname(dataset_path) or "Datasets"
+        val_cand = os.path.join(base_dir, "tantra_val.jsonl")
+        if not os.path.exists(val_cand):
+            val_cand = dataset_path.replace("_train.jsonl", "_val.jsonl")
+        if os.path.exists(val_cand) and os.path.isfile(val_cand) and os.path.abspath(val_cand) != os.path.abspath(dataset_path):
+            target_val_file = val_cand
+
+        is_discrete_sft = (training_stage == "sft" or "_train.jsonl" in dataset_path)
+
+        train_count = sum(1 for _ in open(train_file, "r", encoding="utf-8")) if os.path.exists(train_file) else 0
+        val_count = sum(1 for _ in open(target_val_file, "r", encoding="utf-8")) if (target_val_file and os.path.exists(target_val_file)) else 0
+
+        dataset = JSONLDataset(
+            train_file, tokenizer, seq_len=seq_len,
+            max_samples=max_samples, mask_non_assistant=mask_non_assistant,
+            split="all" if is_discrete_sft else "train",
+            val_ratio=0.0 if is_discrete_sft else 0.05,
+            pack_sequences=False if training_stage == "sft" else pack_sequences
+        )
+
+        if target_val_file and os.path.isfile(target_val_file):
+            val_dataset = JSONLDataset(
+                target_val_file, tokenizer, seq_len=seq_len, max_samples=None,
+                mask_non_assistant=mask_non_assistant,
+                split="all", val_ratio=0.0,
+                pack_sequences=False
+            )
+            val_loader = torch.utils.data.DataLoader(val_dataset, batch_size=batch_size, num_workers=0)
+
+        log.info("=" * 65)
+        log.info("🛡️  [SFT DATASET PIPELINE VERIFIED]")
+        log.info(f"   • Train File Path   : {train_file} ({train_count:,} records)")
+        log.info(f"   • Val File Path     : {target_val_file} ({val_count:,} records)")
+        log.info(f"   • Split Mode        : split='all', val_ratio=0.0 (discrete pre-split files, no hash-split)")
+        log.info(f"   • SFT Format Mode   : Document-level conversation active")
+        log.info(f"   • Sequence Packing  : DISABLED (zero packed/sliding conversation samples)")
+        log.info(f"   • Label Masking     : Prompt & Pad = -100 (IGNORE_INDEX), Assistant & EOS = Supervised")
+        log.info(f"   • Overlength Prompts: Skipped and counted if prompt >= seq_len ({seq_len})")
+        log.info("=" * 65)
+    else:
+        if os.path.isdir(dataset_path):
+            direct_jsonls = [
+                p for p in glob.glob(os.path.join(dataset_path, "*.jsonl"))
+                if not any(excluded in os.path.basename(p).lower() for excluded in ["dpo", "preference", "eval", "sample"])
+            ]
             if len(direct_jsonls) > 1:
                 topic_paths = {os.path.splitext(os.path.basename(p))[0].replace("expert_", ""): [p] for p in direct_jsonls}
                 log.info(f"  Multi-track datasets detected: {list(topic_paths.keys())}")
@@ -948,39 +998,16 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
             else:
                 dataset = JSONLDataset(dataset_path, tokenizer, seq_len=seq_len,
                                       max_samples=max_samples, mask_non_assistant=mask_non_assistant, pack_sequences=pack_sequences)
-    else:
-        bin_cache = find_bin_cache(dataset_path)
-        if bin_cache:
-            log.info(f"  Pre-tokenized cache found -> {bin_cache} (skipping BPE encode() at train time)")
-            dataset = PretokenizedBinDataset(bin_cache, seq_len=seq_len,
-                                             max_samples=max_samples,
-                                             mask_non_assistant=mask_non_assistant)
         else:
-            dataset = JSONLDataset(dataset_path, tokenizer, seq_len=seq_len,
-                                  max_samples=max_samples, mask_non_assistant=mask_non_assistant, pack_sequences=pack_sequences)
-
-    val_loader = None
-    target_val_file = dataset_path if os.path.isfile(dataset_path) else None
-    if target_val_file is None and os.path.isdir(dataset_path):
-        candidates = [
-            os.path.join(dataset_path, "master_corpus.jsonl"),
-            os.path.join(dataset_path, "expert_general.jsonl"),
-            os.path.join(dataset_path, "expert_conversation.jsonl"),
-        ] + glob.glob(os.path.join(dataset_path, "**/*.jsonl"), recursive=True)
-        for c in candidates:
-            if os.path.isfile(c) and os.path.getsize(c) > 100:
-                target_val_file = c
-                break
-
-    if target_val_file and os.path.isfile(target_val_file):
-        try:
-            val_dataset = JSONLDataset(target_val_file, tokenizer, seq_len=seq_len, max_samples=100,
-                                       mask_non_assistant=mask_non_assistant, split="val", val_ratio=0.05,
-                                       pack_sequences=pack_sequences)
-            val_loader = torch.utils.data.DataLoader(val_dataset, batch_size=batch_size, num_workers=0)
-            log.info(f"  Held-out validation stream active from: {os.path.basename(target_val_file)}")
-        except Exception as e:
-            log.debug(f"Could not build validation dataset: {e}")
+            bin_cache = find_bin_cache(dataset_path)
+            if bin_cache:
+                log.info(f"  Pre-tokenized cache found -> {bin_cache} (skipping BPE encode() at train time)")
+                dataset = PretokenizedBinDataset(bin_cache, seq_len=seq_len,
+                                                 max_samples=max_samples,
+                                                 mask_non_assistant=mask_non_assistant)
+            else:
+                dataset = JSONLDataset(dataset_path, tokenizer, seq_len=seq_len,
+                                      max_samples=max_samples, mask_non_assistant=mask_non_assistant, pack_sequences=pack_sequences)
 
 
 
@@ -999,6 +1026,14 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
         trainer.save_checkpoint(latest_ckpt, save_optimizer=True, async_write=False)
         log.warning("Training interrupted; recovery checkpoint saved at step %d.", trainer.step_count)
     finally:
+        if isinstance(dataset, JSONLDataset) and mask_non_assistant:
+            log.info(
+                "SFT dataset summary: conversations=%d, skipped_overlength_prompts=%d, "
+                "truncated_assistant_tokens=%d.",
+                dataset.total_conversations_processed,
+                dataset.skipped_overlength_prompts,
+                dataset.truncated_assistant_tokens,
+            )
         final_step = trainer.step_count
         ck_interval = checkpoint_every if (checkpoint_every and checkpoint_every > 0) else 500
         # Only archive into Checkpoints/ if the step is an exact multiple (e.g. 500, 1000, 74000, 75000)
@@ -1019,13 +1054,13 @@ def run_dpo_training(
 ):
     from Tantra.dataset import DPODataset
     from torch.utils.data import DataLoader
-    
+
     checkpoints_dir = os.path.join(model_dir or MODEL_DIR, "Checkpoints")
     latest_dir = os.path.join(model_dir or MODEL_DIR, "Latest")
     os.makedirs(checkpoints_dir, exist_ok=True)
     os.makedirs(latest_dir, exist_ok=True)
     latest_ckpt = os.path.join(latest_dir, "checkpoint_latest.pt")
-    
+
     device = next(model.parameters()).device
     trainer = NeuroTrainer(
         model, lr=lr, weight_decay=0.01,
@@ -1033,11 +1068,11 @@ def run_dpo_training(
         grad_accumulation_steps=grad_accumulation_steps
     )
     trainer.device = device
-    
+
     if checkpoint_path and os.path.exists(checkpoint_path):
         trainer.load_checkpoint(checkpoint_path)
         log.info(f"Loaded baseline checkpoint for DPO: {checkpoint_path}")
-        
+
     dpo_dataset = DPODataset(dataset_path, tokenizer, max_len=128)
     dpo_loader = DataLoader(
         dpo_dataset,
@@ -1047,14 +1082,14 @@ def run_dpo_training(
         persistent_workers=data_workers > 0,
         prefetch_factor=2 if data_workers > 0 else None,
     )
-    
+
     def ckpt_cb(step, loss):
         ck_interval = checkpoint_every if (checkpoint_every and checkpoint_every > 0) else 250
         if step > 0 and step % ck_interval == 0:
             milestone = os.path.join(checkpoints_dir, f"checkpoint_dpo_step_{step}.pt")
             trainer.save_checkpoint(milestone, save_optimizer=True, async_write=False)
         trainer.save_checkpoint(latest_ckpt, save_optimizer=True, async_write=False)
-        
+
     def eval_cb(step):
         log.info(f"┌── 🌐 [ DPO PREFERENCE ALIGNMENT BENCHMARK @ Step {step:,} ] " + "─" * 20)
         test_prompts = [
@@ -1070,7 +1105,7 @@ def run_dpo_training(
             new_tokens = out[0, prompt_ids.shape[1]:].tolist()
             response = tokenizer.decode(new_tokens).strip().replace("\n", " ")
             log.info(f"│ {icon} [{domain:7s}]: {response[:90]}")
-        
+
         try:
             from Tantra.world_eval import evaluate_zero_shot_world_knowledge
             world_res = evaluate_zero_shot_world_knowledge(raw_model, tokenizer)
@@ -1079,7 +1114,7 @@ def run_dpo_training(
         except Exception:
             pass
         log.info("└" + "─" * 80)
-        
+
     try:
         trainer.train_dpo(
             dpo_loader,
@@ -1178,7 +1213,7 @@ def serve(model, tokenizer, port=8000, expert_dir=None):
 
 def main():
     print_banner()
-    
+
     parser = argparse.ArgumentParser(description="Tantra-LLM / NeuroCore CLI Engine")
     parser.add_argument("--mode", default="full",
                         choices=["full", "probe", "vocab", "train", "dataset", "eval", "compress", "generate", "serve", "status", "experts", "chat", "adapter", "dpo", "auto-pilot", "benchmark", "export"],
@@ -1313,7 +1348,7 @@ def main():
         return
 
     rt, sched = detect_hardware()
-    
+
     # ── Hybrid Device Selection: GPU if available, else CPU ──
     if args.device == "auto":
         # Auto-detect best available device
@@ -1374,7 +1409,7 @@ def main():
                     if _ckpt_cfg is not None:
                         _ckpt_cfg.vocab.vocab_size = vcfg.vocab_size
                         mcfg = _ckpt_cfg
-                    
+
                     # Also check state_dict layer keys for dynamically grown models
                     sdict = _ckpt.get("model_state_dict", {})
                     has_legacy_router = any(".router." in key for key in sdict)
@@ -1432,12 +1467,12 @@ def main():
         print_status_dashboard(model, trainer, reg, rt)
         sched.stop()
         return
-        
+
     if args.mode == "experts":
         print_expert_panel(reg)
         sched.stop()
         return
-        
+
     if args.mode == "chat":
         # Load custom checkpoint if passed or automatically load highest available milestone
         ckpt_to_load = args.checkpoint
@@ -1540,12 +1575,12 @@ def main():
             log.info(f"🚀 [AUTO CURRICULUM SEQUENCER] Running 12-Stage Phased Curriculum ({total_target_steps:,} total steps)")
             log.info("🎯 PRIORITY: Conversation / Greetings / Grammar (55% budget) FIRST -> Code -> Math -> Science")
             log.info("=" * 80)
-            
+
             for stage_idx, (track_name, budget_ratio, stage_desc) in enumerate(curriculum_stages, 1):
                 stage_steps = max(50, int(total_target_steps * budget_ratio))
                 log.info(f"\n▶️ [{stage_idx}/12] Launching: {stage_desc}")
                 log.info(f"   Track: '{track_name}' | Steps: +{stage_steps:,} ({budget_ratio*100:.0f}% of total budget)")
-                
+
                 run_dataset_training(
                     model, tok, args.dataset, steps=stage_steps, resume=True,
                     eval_every=args.eval_every, log_every=args.log_every,
@@ -1589,11 +1624,11 @@ def main():
         total_steps = args.steps
         sft_steps = int(total_steps * 0.90)
         dpo_steps = max(1, total_steps - sft_steps)
-        
+
         log.info("=" * 80)
         log.info(f"🚀 [AUTO-PILOT PIPELINE] Total: {total_steps:,} Steps │ Phase 1 (SFT + Auto-Growth): {sft_steps:,} Steps │ Phase 2 (DPO Preference Alignment): {dpo_steps:,} Steps")
         log.info("=" * 80)
-        
+
         # Ensure datasets are ready
         from Tantra.dataset import build_4track_curriculum, generate_gold_datasets
         if not os.path.exists(args.dataset):
@@ -1608,7 +1643,7 @@ def main():
         resolved_optimizer = (args.optimizer or "adamw").lower().strip()
         resolved_lr = args.lr if args.lr is not None else (5e-5 if resolved_optimizer == "lion" else 1e-4)
         resolved_wd = args.weight_decay if args.weight_decay is not None else (0.05 if resolved_optimizer == "lion" else 0.01)
-        
+
         run_dataset_training(
             model, tok, args.dataset, steps=sft_steps, resume=args.resume,
             eval_every=args.eval_every, log_every=args.log_every,
@@ -1626,7 +1661,7 @@ def main():
             max_grad_norm=args.max_grad_norm, mtp_loss_weight=args.mtp_weight,
             track=args.track
         )
-        
+
         # Phase 2: DPO Alignment
         log.info("▶️ [AUTO-PILOT PHASE 2/2] Phase 1 complete! Autonomously starting Phase 2 (DPO Preference Alignment)...")
         latest_ckpt = os.path.join(args.model_dir or MODEL_DIR, "Latest", "checkpoint_latest.pt")
