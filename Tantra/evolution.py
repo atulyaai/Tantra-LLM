@@ -114,8 +114,8 @@ class SelfRepairEngine:
             if nans_mask.any():
                 count = int(nans_mask.sum().item())
                 repaired_nans += count
-                # Reset corrupted entries with small normal noise
-                param.data[nans_mask] = torch.randn_like(param.data[nans_mask]) * 0.01
+                param.data.copy_(torch.nan_to_num(param.data, nan=0.0, posinf=0.02, neginf=-0.02))
+                param.data[nans_mask] += torch.randn_like(param.data[nans_mask]) * 0.01
 
             # 2. Repair Exploded Weights (scaled by sqrt(numel) for proper element RMS threshold)
             # Default threshold: max per-element RMS of 5.0 (well above normal weight initialization ~0.02)

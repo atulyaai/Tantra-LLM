@@ -112,7 +112,7 @@ class ALRAAttention(nn.Module):
         self.rope = RotaryPositionalEncoding(self.head_dim)
         
     def _apply_kernel(self, x: Tensor) -> Tensor:
-        return elu_plus_one(x)
+        return elu_plus_one(x.clamp(min=-20.0, max=20.0))
 
     def forward(
         self, 
@@ -184,8 +184,8 @@ class ALRAAttention(nn.Module):
                 attn = attn * D.unsqueeze(0).unsqueeze(0)
                 
             num = torch.matmul(attn, V)
-            den = attn.sum(dim=-1, keepdim=True).clamp(min=self.eps)
-            out = num / den
+            den = torch.nan_to_num(attn.sum(dim=-1, keepdim=True), nan=1.0).clamp(min=self.eps)
+            out = torch.nan_to_num(num / den, nan=0.0, posinf=1.0, neginf=-1.0)
             return out
 
         chunk_size = 256
