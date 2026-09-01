@@ -735,6 +735,22 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
             clean_disp = response.replace("\n", " ")[:90]
             log.info(f"│ {icon} [{domain:12s}]: {clean_disp}{extra_tag}")
 
+        # Part B: Random Conversational & Identity Spot-Check
+        import random
+        conv_pool = [
+            ("Identity",   "🤖", "<|user|>\nWho created you and what is your name?\n\n<|assistant|>\n", 0.4),
+            ("Greeting",   "👋", "<|user|>\nGood morning! How are you doing today?\n\n<|assistant|>\n", 0.4),
+            ("Chat",       "💬", "<|user|>\nThank you so much for your help!\n\n<|assistant|>\n", 0.4),
+            ("Capability", "⚡", "<|user|>\nWhat can you do as an AI assistant?\n\n<|assistant|>\n", 0.4)
+        ]
+        sample_conv = random.choice(conv_pool)
+        prompt_ids = torch.tensor([tokenizer.encode(sample_conv[2])], device=raw_model.embed.weight.device)
+        out = raw_model.generate(prompt_ids, max_new_tokens=64, min_new_tokens=1, temperature=sample_conv[3], top_p=0.9, repetition_penalty=1.15)
+        new_tokens = out[0, prompt_ids.shape[1]:].tolist()
+        response = tokenizer.decode(new_tokens).strip()
+        clean_disp = response.replace("\n", " ")[:90]
+        log.info(f"│ {sample_conv[1]} [{sample_conv[0]:12s}]: {clean_disp} (🎲 Random Conversation Check)")
+
         log.info("└" + "─" * 80)
 
 
