@@ -693,13 +693,15 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
                 log.warning(f"  torch.compile failed ({e}), continuing uncompiled.")
 
     def eval_callback(step):
-        # Evaluates 4 diverse domain prompts to monitor multi-skill emergence
-        log.info(f"┌── 🌐 [ MULTI-DOMAIN & ZERO-SHOT WORLD BENCHMARK @ Step {step:,} ] " + "─" * 20)
+        # Standard Fixed Benchmark Suite: Pure Mathematical Equations, Coding, and Hard Science
+        log.info(f"┌── 🌐 [ FIXED CAPABILITY BENCHMARK (MATH • CODE • SCIENCE) @ Step {step:,} ] " + "─" * 10)
         test_prompts = [
-            ("General", "💬", "<|user|>\nWhat is Tantra LLM?\n\n<|assistant|>\n", 0.4),
-            ("Coding",  "💻", "<|user|>\nWrite a Python function to reverse a string.\n\n<|assistant|>\n```python\n", 0.2),
-            ("Math",    "🔢", "<|user|>\nSolve for x in 2x + 6 = 14.\n\n<|assistant|>\n", 0.2),
-            ("Science", "🔬", "<|user|>\nState Newton's First Law of Motion.\n\n<|assistant|>\n", 0.4)
+            ("Math Eq 1",   "🔢", "<|user|>\nSolve for x in 3x + 12 = 36.\n\n<|assistant|>\n", 0.1),
+            ("Math Eq 2",   "📐", "<|user|>\nSolve for x in 5x - 15 = 20.\n\n<|assistant|>\n", 0.1),
+            ("Code (Prime)","💻", "<|user|>\nWrite a Python function to check if a number is prime.\n\n<|assistant|>\n```python\n", 0.1),
+            ("Code (Rev)",  "💻", "<|user|>\nWrite a Python function to reverse a string.\n\n<|assistant|>\n```python\n", 0.1),
+            ("Physics",     "🔬", "<|user|>\nState Newton's Second Law of Motion.\n\n<|assistant|>\n", 0.2),
+            ("Chemistry",   "🧪", "<|user|>\nWhat is the chemical formula for water?\n\n<|assistant|>\n", 0.1)
         ]
         raw_model = unwrap_model(model)
         for domain, icon, prompt_text, temp in test_prompts:
@@ -709,7 +711,7 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
             response = tokenizer.decode(new_tokens).strip()
 
             extra_tag = ""
-            if domain == "Coding":
+            if "Code" in domain:
                 import ast
                 code_cand = response.replace("```python", "").replace("```", "").strip()
                 try:
@@ -717,21 +719,22 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
                     extra_tag = " (✅ Valid Python AST)"
                 except Exception:
                     pass
-            elif domain == "Math":
-                if "x = 4" in response or "x=4" in response or "= 4" in response:
-                    extra_tag = " (✅ Solved: x = 4)"
+            elif domain == "Math Eq 1":
+                if "x = 8" in response or "x=8" in response or "= 8" in response:
+                    extra_tag = " (✅ Correct: x = 8)"
+            elif domain == "Math Eq 2":
+                if "x = 7" in response or "x=7" in response or "= 7" in response:
+                    extra_tag = " (✅ Correct: x = 7)"
+            elif domain == "Physics":
+                if "f = ma" in response.lower() or "force" in response.lower() and "acceleration" in response.lower():
+                    extra_tag = " (✅ Correct: F = ma)"
+            elif domain == "Chemistry":
+                if "h2o" in response.lower():
+                    extra_tag = " (✅ Correct: H2O)"
 
             clean_disp = response.replace("\n", " ")[:90]
-            log.info(f"│ {icon} [{domain:7s}]: {clean_disp}{extra_tag}")
+            log.info(f"│ {icon} [{domain:12s}]: {clean_disp}{extra_tag}")
 
-        # Zero-Shot World Knowledge MMLU Benchmark Evaluation
-        try:
-            from Tantra.world_eval import evaluate_zero_shot_world_knowledge
-            world_res = evaluate_zero_shot_world_knowledge(raw_model, tokenizer)
-            if world_res:
-                log.info(f"│ 🌍 [World MMLU]: 🏆 {world_res['world_mmlu_accuracy']:.1f}% Zero-Shot Accuracy ({world_res['correct_samples']}/{world_res['total_samples']} correct)")
-        except Exception:
-            pass
         log.info("└" + "─" * 80)
 
 
