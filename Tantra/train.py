@@ -404,6 +404,7 @@ class NeuroTrainer:
         if math.isnan(loss.item()) or math.isinf(loss.item()):
             log.warning("NaN or Inf detected in loss! Skipping batch update and auto-repairing weights.")
             SelfRepairEngine().scan_and_repair(self.model)
+            SelfRepairEngine().purge_corrupted_optimizer_state(self.optimizer)
             self.optimizer.zero_grad(set_to_none=True)
             self._micro_step += 1
             return 0.0, 0.0, 0.0, 0.0, False
@@ -455,6 +456,7 @@ class NeuroTrainer:
                 log.warning("NaN or Inf detected in grad_norm! Purging gradients and repairing model.")
                 self.optimizer.zero_grad(set_to_none=True)
                 SelfRepairEngine().scan_and_repair(self.model)
+                SelfRepairEngine().purge_corrupted_optimizer_state(self.optimizer)
                 if self.scaler.is_enabled():
                     self.scaler.update()
                 grad_norm = 0.0

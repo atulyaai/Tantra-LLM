@@ -142,14 +142,30 @@ class SelfRepairEngine:
             "repaired_dead": repaired_dead,
         }
 
+    def purge_corrupted_optimizer_state(self, optimizer: torch.optim.Optimizer) -> int:
+        """Purge and reset any NaN or Inf entries in optimizer momentum buffers."""
+        purged = 0
+        for group in optimizer.param_groups:
+            for p in group["params"]:
+                state = optimizer.state.get(p)
+                if state:
+                    for key in ["exp_avg", "exp_avg_sq"]:
+                        if key in state and state[key] is not None:
+                            bad_mask = torch.isnan(state[key]) | torch.isinf(state[key])
+                            if bad_mask.any():
+                                state[key][bad_mask] = 0.0
+                                purged += int(bad_mask.sum().item())
+        return purged
+
     def sanitize_optimizer_momentum(self, optimizer: torch.optim.Optimizer, grad_norm: float, threshold: float = 8.0) -> bool:
         """Law 2: Sanitize optimizer momentum if gradient explosion occurs."""
+        self.purge_corrupted_optimizer_state(optimizer)
         if grad_norm <= threshold:
             return False
         for group in optimizer.param_groups:
             for p in group["params"]:
                 state = optimizer.state.get(p)
-                if state and "exp_avg" in state:
+                if state and "exp_avg" in state and state["exp_avg"] is not None:
                     state["exp_avg"].mul_(0.5)  # Dampen runaway momentum
         return True
 
