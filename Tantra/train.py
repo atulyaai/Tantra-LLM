@@ -230,6 +230,7 @@ class NeuroTrainer:
         # dead optimizer on resume when scheduler thinks it's past total_steps.
         self.scheduler = create_lr_scheduler(self.optimizer, warmup_steps=warmup_steps, total_steps=total_steps, min_lr_ratio=0.10)
 
+        self.criterion = nn.CrossEntropyLoss(ignore_index=IGNORE_INDEX)
         use_amp = (self.device.type == 'cuda' and torch.cuda.is_bf16_supported())
         self.scaler = torch.amp.GradScaler('cuda', enabled=False)
         self.step_count = 0
