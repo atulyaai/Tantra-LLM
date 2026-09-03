@@ -1542,6 +1542,19 @@ def main():
 
         if ckpt_to_load and os.path.exists(ckpt_to_load):
             try:
+                # Auto-decompress .dna format checkpoints before loading
+                if ckpt_to_load.endswith(".dna"):
+                    log.info(f"🧬 Decompressing DNA checkpoint: {ckpt_to_load} ...")
+                    from Tantra.codec import MultimodalWeightFormatter
+                    from Tantra.config import CompressionConfig
+                    import tempfile
+                    formatter = MultimodalWeightFormatter(CompressionConfig())
+                    weights = formatter.parse_weights(ckpt_to_load)
+                    tmp_pt = tempfile.NamedTemporaryFile(suffix=".pt", delete=False)
+                    torch.save({"model_state_dict": weights, "step_count": 0, "step": 0}, tmp_pt.name)
+                    tmp_pt.close()
+                    ckpt_to_load = tmp_pt.name
+                    log.info(f"✅ DNA decompressed to temp checkpoint: {ckpt_to_load}")
                 trainer.load_checkpoint(ckpt_to_load)
                 log.info(f"✅ Loaded checkpoint for chat: {ckpt_to_load} (Step {trainer.step_count:,})")
             except Exception as e:
