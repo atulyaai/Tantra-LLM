@@ -83,6 +83,24 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Tantra Checkpoint Exporter")
     parser.add_argument("--checkpoint", type=str, required=True, help="Input .pt checkpoint")
     parser.add_argument("--output", type=str, default="Model/Export/checkpoint_clean.pt", help="Output path")
+    parser.add_argument("--dna", action="store_true", help="Export to compressed .dna format instead of .pt")
     args = parser.parse_args()
 
-    export_clean_checkpoint(args.checkpoint, args.output)
+    if args.dna:
+        # Auto-set output extension to .dna
+        out = args.output
+        if not out.endswith(".dna"):
+            out = os.path.splitext(out)[0] + ".dna"
+        print(f"📦 Exporting checkpoint to DNA format: {out}")
+        result = export_checkpoint_to_dna(args.checkpoint, out)
+        orig_mb = result["original_bytes"] / 1e6
+        comp_mb = result["container_bytes"] / 1e6
+        print(f"✅ DNA Export Complete!")
+        print(f"   Tensors    : {result['tensors']}")
+        print(f"   Original   : {orig_mb:.1f} MB")
+        print(f"   Compressed : {comp_mb:.1f} MB")
+        print(f"   Ratio      : {result['compression_ratio']:.3f}x")
+        print(f"   SHA256 OK  : {result['sha256_match']}")
+    else:
+        export_clean_checkpoint(args.checkpoint, args.output)
+
