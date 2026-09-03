@@ -1545,16 +1545,28 @@ def main():
                 # Auto-decompress .dna format checkpoints before loading
                 if ckpt_to_load.endswith(".dna"):
                     log.info(f"🧬 Decompressing DNA checkpoint: {ckpt_to_load} ...")
-                    import tempfile
+                    import tempfile, json as _json
                     from Tantra.codec import MultimodalWeightFormatter as _MWF
                     from Tantra.config import CompressionConfig as _CC
                     _formatter = _MWF(_CC())
                     _weights = _formatter.parse_weights(ckpt_to_load)
+                    # Read sidecar metadata if available
+                    _meta = {}
+                    _meta_path = ckpt_to_load + ".meta.json"
+                    if os.path.exists(_meta_path):
+                        with open(_meta_path) as _f:
+                            _meta = _json.load(_f)
                     _tmp_pt = tempfile.NamedTemporaryFile(suffix=".pt", delete=False)
-                    torch.save({"model_state_dict": _weights, "step_count": 0, "step": 0}, _tmp_pt.name)
+                    torch.save({
+                        "model_state_dict": _weights,
+                        "step_count": _meta.get("step_count", 0),
+                        "step":       _meta.get("step_count", 0),
+                        "best_loss":  _meta.get("best_loss", float("inf")),
+                        "total_tokens": _meta.get("total_tokens", 0),
+                    }, _tmp_pt.name)
                     _tmp_pt.close()
                     ckpt_to_load = _tmp_pt.name
-                    log.info(f"✅ DNA decompressed to temp checkpoint: {ckpt_to_load}")
+                    log.info(f"✅ DNA decompressed → step={_meta.get('step_count', 0):,} | {ckpt_to_load}")
                 trainer.load_checkpoint(ckpt_to_load)
                 log.info(f"✅ Loaded checkpoint for chat: {ckpt_to_load} (Step {trainer.step_count:,})")
             except Exception as e:

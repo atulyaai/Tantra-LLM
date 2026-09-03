@@ -51,15 +51,34 @@ def export_checkpoint_to_dna(input_path: str, output_path: str) -> dict:
     normal .pt checkpoint.  It serializes every state-dict tensor, reloads
     the container, and checks keys, shapes, dtypes, and tensor values before
     reporting success.
+
+    A companion .meta.json sidecar is written next to the .dna file so that
+    step_count, best_loss and other scalar fields survive the round-trip.
     """
+    import json as _json
     raw = torch.load(input_path, map_location="cpu", weights_only=False)
     state = raw.get("model_state_dict", raw.get("model", raw))
     if not isinstance(state, dict) or not state or not all(torch.is_tensor(v) for v in state.values()):
         raise ValueError("Checkpoint does not contain a tensor model_state_dict.")
 
+    # Collect scalar metadata to store in sidecar
+    meta = {
+        "step_count": int(raw.get("step_count", raw.get("step", 0))),
+        "best_loss":  float(raw.get("best_loss", float("inf"))),
+        "total_tokens": int(raw.get("total_tokens", 0)),
+        "source": os.path.basename(input_path),
+        "format": "tantra-dna-v1",
+    }
+
     os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
     formatter = MultimodalWeightFormatter(CompressionConfig())
     stats = formatter.format_weights(state, output_path)
+
+    # Write sidecar metadata
+    meta_path = output_path + ".meta.json"
+    with open(meta_path, "w") as f:
+        _json.dump(meta, f, indent=2)
+
     restored = formatter.parse_weights(output_path)
     if set(restored) != set(state):
         raise RuntimeError("DNA verification failed: restored tensor keys differ from the checkpoint.")
@@ -75,8 +94,11 @@ def export_checkpoint_to_dna(input_path: str, output_path: str) -> dict:
         "container_bytes": stats.compressed_bytes,
         "compression_ratio": stats.compression_ratio,
         "sha256_match": stats.sha256_match,
+        "step_count": meta["step_count"],
+        "best_loss": meta["best_loss"],
     }
-    log.info("✅ DNA checkpoint verified: %d tensors, %.3fx ratio, %s", result["tensors"], result["compression_ratio"], output_path)
+    log.info("✅ DNA checkpoint verified: %d tensors, %.3fx ratio, step=%d, %s",
+             result["tensors"], result["compression_ratio"], result["step_count"], output_path)
     return result
 
 if __name__ == "__main__":
