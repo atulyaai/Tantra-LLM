@@ -548,8 +548,8 @@ def test_admin_security_and_disabled_sandbox():
 
     headers = {"X-API-Key": TANTRA_API_KEY}
     clean = client.post("/api/datasets/clean", json={}, headers=headers)
-    assert clean.status_code == 501
-    assert "not available" in clean.json()["detail"]
+    assert clean.status_code == 200
+    assert clean.json()["status"] == "success"
     sandbox = client.post("/api/sandbox/run", json={"code": "while True: pass"}, headers=headers)
     assert sandbox.status_code == 403
     traversal = client.post("/api/checkpoints", json={"checkpoint": "../../etc/passwd"}, headers=headers)

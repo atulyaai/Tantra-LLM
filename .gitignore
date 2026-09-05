@@ -42,6 +42,7 @@ Model/Experts/registry.json
 # Datasets: Master datasets stay local; seed gold corpus & preference pairs tracked
 Datasets/*.jsonl
 Datasets/**/*.jsonl
+Datasets/documents/
 !Datasets/manifest.json
 !Datasets/gold_corpus.jsonl
 !Datasets/preference_pairs.jsonl

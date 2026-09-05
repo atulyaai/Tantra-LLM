@@ -984,7 +984,7 @@ async def upload_document(request: Request):
     with open(fpath, "w", encoding="utf-8") as f:
         f.write(content)
     
-    return {"status": "ok", "filename": filename, "size_bytes": len(content)}
+    return {"status": "success", "ok": True, "filename": filename, "size_bytes": len(content)}
 
 
 @app.post("/api/documents/query")
@@ -1011,8 +1011,8 @@ async def query_documents(request: Request):
                         })
                 except Exception:
                     pass
-
-    return {"matches": matches}
+    result_text = "\n".join(f"[{m['filename']}] {m['snippet']}" for m in matches)
+    return {"matches": matches, "result": result_text}
 
 
 @app.post("/api/datasets/clean", dependencies=[Depends(require_api_key)])
@@ -1051,7 +1051,10 @@ async def tokenize_text(request: Request):
     token_ids = tokenizer.encode(text)
     chunks = [tokenizer.decode([tid]) for tid in token_ids]
     return {
+        "status": "success",
         "tokens_count": len(token_ids),
+        "total_count": len(token_ids),
+        "tokens": chunks,
         "token_ids": token_ids,
         "chunks": chunks
     }

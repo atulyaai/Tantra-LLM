@@ -16,7 +16,7 @@ param([ValidateSet("train", "resume", "chat", "benchmark", "export", "webui", "t
 $Python = "python"
 
 switch ($Command) {
-  "train"     { & $Python main.py --mode auto-pilot --dataset Datasets/expert_conversation.jsonl --steps 10000 --batch-size 16 --grad-accum 2 --auto-growth --device auto }
+  "train"     { & $Python main.py --mode auto-pilot --dataset Datasets/tantra_master_train.jsonl --steps 10000 --batch-size 16 --grad-accum 2 --auto-growth --device auto }
   "resume"    { & $Python main.py --mode auto-pilot --resume --device auto }
   "chat"      { & $Python main.py --mode chat --checkpoint Model/Latest/checkpoint_latest.pt --temperature 0.3 }
   "benchmark" { & $Python main.py --mode benchmark --checkpoint Model/Latest/checkpoint_latest.pt }
