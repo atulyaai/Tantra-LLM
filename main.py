@@ -58,21 +58,28 @@ LATEST_DIR      = os.path.join(MODEL_DIR, "Latest")
 CHECKPOINTS_DIR = os.path.join(MODEL_DIR, "Checkpoints")
 EXPERTS_DIR     = os.path.join(MODEL_DIR, "Experts")
 _datasets_dir = os.path.join(os.path.dirname(__file__), "Datasets")
-has_topics = any(entry.is_dir() for entry in os.scandir(_datasets_dir)) if os.path.exists(_datasets_dir) else False
+has_topics = False
+if os.path.exists(_datasets_dir):
+    topic_subdirs = [
+        e.path for e in os.scandir(_datasets_dir)
+        if e.is_dir() and e.name not in ("documents", "__pycache__") and not e.name.startswith(".")
+    ]
+    # Verify subdirs actually contain topic JSONLs
+    has_topics = any(glob.glob(os.path.join(d, "*.jsonl")) for d in topic_subdirs)
 
 if has_topics:
     DEFAULT_DATASET = _datasets_dir
 else:
-    _default_cand = os.path.join(_datasets_dir, "train_pack_all_expanded_1040k.jsonl")
-    if not os.path.exists(_default_cand):
-        _found = glob.glob(os.path.join(_datasets_dir, "*.jsonl"))
+    _default_cand = os.path.join(_datasets_dir, "tantra_master_train.jsonl")
+    if os.path.exists(_default_cand):
+        DEFAULT_DATASET = _default_cand
+    else:
+        _found = [p for p in glob.glob(os.path.join(_datasets_dir, "*.jsonl")) if not any(x in os.path.basename(p) for x in ["val", "eval", "pref", "doc"])]
         if _found:
             _found.sort(key=lambda p: os.path.getsize(p) if os.path.exists(p) else 0, reverse=True)
             DEFAULT_DATASET = _found[0]
         else:
-            DEFAULT_DATASET = os.path.join(_datasets_dir, "tantra_master_identity_safety.jsonl")
-    else:
-        DEFAULT_DATASET = _default_cand
+            DEFAULT_DATASET = os.path.join(_datasets_dir, "tantra_master_train.jsonl")
 
 
 def print_banner():
