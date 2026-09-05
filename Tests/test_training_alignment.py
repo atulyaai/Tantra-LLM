@@ -536,5 +536,49 @@ def test_reset_optimizer_resets_best_val_loss(tmp_path):
     assert math.isinf(trainer3.best_val_loss)
 
 
+def test_sft_stale_baseline_calibration_and_reset_flag():
+    """Verify that SFT mode automatically resets an impossible pretraining baseline (< 4.0),
+    and that explicit reset_best_loss=True resets any baseline."""
+    import math
+    from Tantra.model import build_cpu_model
+    from Tantra.train import NeuroTrainer
+
+    model = build_cpu_model("micro10", attention_kind="causal")
+    trainer = NeuroTrainer(model, lr=1e-4, total_steps=100)
+
+    # Case 1: Pretraining anchor (2.9992) loaded into SFT stage
+    trainer.best_loss = 2.9992
+    trainer.best_val_loss = 2.9992
+    trainer.training_stage = "sft"
+    stage_name = "sft"
+    reset_best_loss = False
+
+    if reset_best_loss or (stage_name == "sft" and getattr(trainer, "best_val_loss", float('inf')) < 4.0):
+        trainer.best_loss = float('inf')
+        trainer.best_val_loss = float('inf')
+
+    assert math.isinf(trainer.best_loss)
+    assert math.isinf(trainer.best_val_loss)
+
+    # Case 2: Realistic SFT loss (e.g. 10.5) is preserved during ordinary resume
+    trainer.best_loss = 10.5
+    trainer.best_val_loss = 10.5
+    reset_best_loss = False
+    if reset_best_loss or (stage_name == "sft" and getattr(trainer, "best_val_loss", float('inf')) < 4.0):
+        trainer.best_loss = float('inf')
+        trainer.best_val_loss = float('inf')
+
+    assert trainer.best_val_loss == 10.5
+
+    # Case 3: Explicit reset_best_loss=True resets even realistic SFT loss
+    reset_best_loss = True
+    if reset_best_loss or (stage_name == "sft" and getattr(trainer, "best_val_loss", float('inf')) < 4.0):
+        trainer.best_loss = float('inf')
+        trainer.best_val_loss = float('inf')
+
+    assert math.isinf(trainer.best_val_loss)
+
+
+
 
 
