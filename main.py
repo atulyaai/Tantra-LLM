@@ -1322,6 +1322,7 @@ def main():
                              "Each phase gets steps/12 of the total --steps budget. "
                              "Conversation phases get 3x weight to prioritize greetings & grammar first.")
     parser.add_argument("--output", type=str, default=None, help="Output path for model export mode")
+    parser.add_argument("--suite", choices=["all", "industry", "60"], default="60", help="Benchmark suite to run (60, industry, all)")
     parser.add_argument("--prompt", type=str, default=None, help="Text prompt for --mode generate")
     parser.add_argument("--max-new-tokens", type=int, default=64, help="Max new tokens to generate")
     parser.add_argument("--repetition-penalty", type=float, default=1.15, help="Repetition penalty for generation (default: 1.15)")
@@ -1740,8 +1741,11 @@ def main():
         log.info("🏆 [AUTO-PILOT PIPELINE COMPLETE] Multi-Stage Autonomous Training & Alignment Finished!")
 
     elif args.mode == "benchmark":
-        from Tantra.benchmark import run_benchmarks
-        run_benchmarks(args.checkpoint, str(rt.device))
+        from Tantra.benchmark import run_benchmarks, run_60_benchmark
+        if args.suite in ("industry", "all"):
+            run_benchmarks(args.checkpoint, str(rt.device))
+        if args.suite in ("60", "all"):
+            run_60_benchmark(checkpoint_path=args.checkpoint, device=str(rt.device))
     elif args.mode == "export":
         from Tantra.export import export_clean_checkpoint
         export_clean_checkpoint(args.checkpoint, args.output or args.model_dir or "Model/Export/checkpoint_clean.pt")

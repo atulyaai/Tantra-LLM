@@ -141,13 +141,130 @@ def run_benchmarks(checkpoint_path: str = None, device: str = "auto"):
     print(f"  -> HumanEval pass@1: {pass_rate:.1f}% ({he_res.get('passed', 0)}/{he_res.get('total', 0)})")
 
     print("\n" + "=" * 70)
-    print("✅ Benchmark execution complete.")
+    print("✅ Industry Benchmark execution complete.")
     print("=" * 70)
+
+
+def run_60_benchmark(checkpoint_path: str = None, eval_jsonl: str = "Datasets/eval_60_benchmark.jsonl", device: str = "auto") -> dict:
+    """Runs the 60-prompt 5-domain qualitative alignment benchmark."""
+    import ast
+
+    print("=" * 70)
+    print(f"📊 Running 60-Prompt Domain Benchmark on: {checkpoint_path or 'Model/Latest/checkpoint_latest.pt'}")
+    print("=" * 70)
+
+    if not checkpoint_path or not os.path.exists(checkpoint_path):
+        default_candidates = [
+            "Model/Latest/checkpoint_latest.pt",
+            "Model/Best/checkpoint_best.pt",
+            "Model/Checkpoints/checkpoint_step_91500.pt",
+        ]
+        checkpoint_path = next((c for c in default_candidates if os.path.exists(c)), None)
+        if not checkpoint_path:
+            raise FileNotFoundError("No valid checkpoint found to benchmark. Please specify --checkpoint.")
+        print(f"🎯 Auto-selected checkpoint: {checkpoint_path}")
+
+    dev = torch.device("cuda" if torch.cuda.is_available() and device == "auto" else (device if device != "auto" else "cpu"))
+
+    vcfg = NeuroCoreConfig().vocab
+    bpe = ByteBPETokenizer.load("Model/tokenizer.json", vcfg) if os.path.exists("Model/tokenizer.json") else ByteBPETokenizer(vcfg)
+    patcher = MegabytePatcher(vcfg)
+    tokenizer = UnifiedTokenizer(vcfg, bpe, patcher)
+
+    ckpt = torch.load(checkpoint_path, map_location=dev, weights_only=False)
+    cfg = ckpt.get("config", None) or NeuroCoreConfig()
+    sdict = ckpt.get("model_state_dict", ckpt)
+
+    # Layer count detection
+    import re
+    layer_indices = [int(m.group(1)) for k in sdict.keys() for m in [re.search(r'layers\.(\d+)\.', k)] if m]
+    if layer_indices and hasattr(cfg, "block"):
+        cfg.block.num_layers = max(layer_indices) + 1
+
+    model = NeuroCoreModel(cfg).to(dev)
+    load_res = model.load_state_dict(sdict, strict=False)
+    print(f"✅ Architecture verified: {sum(p.numel() for p in model.parameters()):,} parameters.")
+    model.eval()
+
+    if not os.path.exists(eval_jsonl):
+        raise FileNotFoundError(f"Benchmark file {eval_jsonl} not found.")
+
+    with open(eval_jsonl, "r", encoding="utf-8") as f:
+        prompts = [json.loads(l) for l in f if l.strip()]
+
+    domain_scores = {}
+    valid_ast_count = 0
+    code_total = 0
+
+    print(f"\nEvaluating {len(prompts)} prompts across 5 domains...")
+    for i, item in enumerate(prompts):
+        domain = item.get("domain", "general")
+        q = item.get("prompt") or item.get("question", "")
+        expected = item.get("expected") or item.get("answer", "")
+
+        prompt_text = f"<|user|>\n{q}\n\n<|assistant|>\n"
+        input_ids = torch.tensor([tokenizer.encode(prompt_text)], dtype=torch.long, device=dev)
+
+        with torch.no_grad():
+            out = model.generate(input_ids, max_new_tokens=64, min_new_tokens=1, temperature=0.2, top_p=0.9, repetition_penalty=1.15)
+
+        gen_tokens = out[0, input_ids.shape[1]:].tolist()
+        gen_text = tokenizer.decode(gen_tokens).strip()
+        if "</s>" in gen_text:
+            gen_text = gen_text.split("</s>")[0].strip()
+
+        exp_words = set(expected.lower().split())
+        gen_words = set(gen_text.lower().split())
+        overlap = len(exp_words & gen_words) / max(len(exp_words), 1)
+
+        if domain not in domain_scores:
+            domain_scores[domain] = []
+        domain_scores[domain].append(overlap)
+
+        ast_valid = False
+        if domain == "code":
+            code_total += 1
+            code_clean = gen_text.replace("```python", "").replace("```", "").strip()
+            try:
+                ast.parse(code_clean)
+                ast_valid = True
+                valid_ast_count += 1
+            except Exception:
+                pass
+
+        if i < 5 or (i % 15 == 0):
+            print(f"\n[{i+1}/{len(prompts)}] [{domain.upper()}] Q: {q[:70]}")
+            print(f"  Expected: {expected[:70]}...")
+            print(f"  Got     : {gen_text[:70]}...")
+            print(f"  Overlap : {overlap*100:.1f}%" + (" | Valid AST: ✅" if ast_valid else ""))
+
+    print("\n" + "=" * 70)
+    print("🏆 60-PROMPT BENCHMARK RESULTS SUMMARY")
+    print("=" * 70)
+    all_scores = []
+    for d, scs in domain_scores.items():
+        avg_d = sum(scs) / len(scs) * 100
+        all_scores.extend(scs)
+        print(f"  • {d.capitalize():12s}: {avg_d:.1f}% concept overlap ({len(scs)} items)")
+
+    overall_avg = sum(all_scores) / max(len(all_scores), 1) * 100
+    print(f"  • Overall Alignment : {overall_avg:.1f}%")
+    if code_total > 0:
+        print(f"  • Valid Python AST  : {valid_ast_count}/{code_total} ({valid_ast_count/code_total*100:.1f}%)")
+    print("=" * 70)
+    return {"overall_alignment": overall_avg, "domain_scores": domain_scores}
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Tantra Benchmark Runner")
-    parser.add_argument("--checkpoint", type=str, default=None)
-    parser.add_argument("--device", type=str, default="auto")
+    parser.add_argument("--checkpoint", type=str, default=None, help="Path to checkpoint .pt")
+    parser.add_argument("--device", type=str, default="auto", help="Execution device (auto, cpu, cuda)")
+    parser.add_argument("--suite", choices=["all", "industry", "60"], default="60", help="Benchmark suite to run (default: 60)")
+    parser.add_argument("--eval-file", type=str, default="Datasets/eval_60_benchmark.jsonl", help="Custom JSONL benchmark file")
     args = parser.parse_args()
 
-    run_benchmarks(args.checkpoint, args.device)
+    if args.suite in ("industry", "all"):
+        run_benchmarks(args.checkpoint, args.device)
+    if args.suite in ("60", "all"):
+        run_60_benchmark(args.checkpoint, args.eval_file, args.device)
+
