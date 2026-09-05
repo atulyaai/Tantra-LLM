@@ -506,4 +506,35 @@ def test_early_stopping_trigger():
     assert trainer.step_count == 2
 
 
+def test_reset_optimizer_resets_best_val_loss(tmp_path):
+    """Verify that reset_optimizer=True resets best_val_loss to inf for a new stage/dataset."""
+    import math
+    from Tantra.model import build_cpu_model
+    from Tantra.train import NeuroTrainer
+
+    model1 = build_cpu_model("micro10", attention_kind="causal")
+    trainer1 = NeuroTrainer(model1, lr=1e-4, total_steps=100)
+    trainer1.best_loss = 2.9992
+    trainer1.best_val_loss = 2.9992
+    trainer1.step_count = 50
+
+    ckpt_path = str(tmp_path / "test_val_reset.pt")
+    trainer1.save_checkpoint(ckpt_path, save_optimizer=True)
+
+    # 1. Normal resume (reset_optimizer=False): best_val_loss is preserved
+    model2 = build_cpu_model("micro10", attention_kind="causal")
+    trainer2 = NeuroTrainer(model2, lr=1e-4, total_steps=100)
+    trainer2.load_checkpoint(ckpt_path, reset_optimizer=False)
+    assert trainer2.best_loss == 2.9992
+    assert trainer2.best_val_loss == 2.9992
+
+    # 2. Stage/dataset switch (reset_optimizer=True): best_val_loss is reset to inf
+    model3 = build_cpu_model("micro10", attention_kind="causal")
+    trainer3 = NeuroTrainer(model3, lr=1e-4, total_steps=100)
+    trainer3.load_checkpoint(ckpt_path, reset_optimizer=True)
+    assert math.isinf(trainer3.best_loss)
+    assert math.isinf(trainer3.best_val_loss)
+
+
+
 

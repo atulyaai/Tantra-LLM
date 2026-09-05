@@ -1459,8 +1459,16 @@ class NeuroTrainer:
         self.best_loss = ckpt.get("best_loss", float('inf'))
         self.best_val_loss = ckpt.get("best_val_loss", float('inf'))
 
+        if reset_optimizer:
+            # A fresh optimizer means a new dataset/stage — the old best_val_loss was
+            # measured on a different loss regime (e.g. raw pretraining vs assistant-only
+            # SFT loss) and isn't a meaningful floor for early stopping on the new task.
+            self.best_loss = float('inf')
+            self.best_val_loss = float('inf')
+            log.info("  best_val_loss reset to inf — establishing a fresh generalization baseline for the new dataset/stage.")
+
         # Fallback: if loading older checkpoint without best_val_loss, check Model/Best/checkpoint_best.pt
-        if math.isinf(self.best_val_loss):
+        if not reset_optimizer and math.isinf(self.best_val_loss):
             parent_dir = os.path.dirname(os.path.abspath(path))
             candidates = [
                 os.path.join(parent_dir, "..", "Best", "checkpoint_best.pt"),
