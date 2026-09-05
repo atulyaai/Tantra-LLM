@@ -1338,6 +1338,32 @@ class NeuroTrainer:
                              momentum from a different data distribution poisoning new training.
                              Default False preserves optimizer state for same-dataset resume.
         """
+        if path.endswith(".dna"):
+            log.info(f"🧬 Decompressing DNA checkpoint: {path} ...")
+            import tempfile, json as _json
+            from Tantra.codec import MultimodalWeightFormatter
+            from Tantra.config import CompressionConfig
+            formatter = MultimodalWeightFormatter(CompressionConfig())
+            weights = formatter.parse_weights(path)
+            meta_path = path + ".meta.json"
+            meta = {}
+            if os.path.exists(meta_path):
+                try:
+                    with open(meta_path, "r", encoding="utf-8") as f:
+                        meta = _json.load(f)
+                except Exception:
+                    pass
+            tmp_pt = tempfile.NamedTemporaryFile(suffix=".pt", delete=False)
+            torch.save({
+                "model_state_dict": weights,
+                "step_count": meta.get("step_count", 0),
+                "step":       meta.get("step_count", 0),
+                "best_loss":  meta.get("best_loss", float("inf")),
+                "total_tokens": meta.get("total_tokens", 0),
+            }, tmp_pt.name)
+            tmp_pt.close()
+            path = tmp_pt.name
+
         ckpt = torch.load(path, map_location=self.device, weights_only=False)
         state_dict = ckpt["model_state_dict"]
         raw_model = unwrap_model(self.model)

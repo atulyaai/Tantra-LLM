@@ -1450,7 +1450,19 @@ def main():
         if os.path.exists(_ckpt_path) and os.path.getsize(_ckpt_path) > 10 * 1024 * 1024 and mcfg is not None:
             try:
                 log.info(f"Reading model config from checkpoint: {_ckpt_path} ({os.path.getsize(_ckpt_path)/1e6:.1f} MB)...")
-                _ckpt = torch.load(_ckpt_path, map_location="cpu", weights_only=False)
+                if _ckpt_path.endswith(".dna"):
+                    import json as _json
+                    _meta_path = _ckpt_path + ".meta.json"
+                    if os.path.exists(_meta_path):
+                        with open(_meta_path, "r", encoding="utf-8") as _mf:
+                            _meta = _json.load(_mf)
+                        _nl = _meta.get("num_layers", 0)
+                        if _nl > 0 and hasattr(mcfg, "block") and mcfg.block.num_layers != _nl:
+                            mcfg.block.num_layers = _nl
+                            log.info(f"Detected {_nl} layers from DNA metadata sidecar; initialized architecture accordingly.")
+                    _ckpt = None
+                else:
+                    _ckpt = torch.load(_ckpt_path, map_location="cpu", weights_only=False)
                 if isinstance(_ckpt, dict):
                     _ckpt_cfg = _ckpt.get("config", None)
                     if _ckpt_cfg is not None:
