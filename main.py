@@ -670,7 +670,12 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
             total_steps=remaining,
             min_lr_ratio=0.10,
         )
-        stage_name = training_stage or getattr(trainer, "training_stage", None) or "sft"
+        prev_stage = getattr(trainer, "training_stage", None)
+        stage_name = training_stage or prev_stage or "sft"
+        if prev_stage is not None and prev_stage != stage_name:
+            trainer.best_loss = float('inf')
+            trainer.best_val_loss = float('inf')
+            log.info(f"  Stage transition detected ({prev_stage} -> {stage_name}): best_val_loss reset to inf for fresh generalization baseline.")
         trainer.training_stage = stage_name
 
         log.info("=" * 65)
