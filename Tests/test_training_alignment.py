@@ -477,3 +477,33 @@ def test_optimizer_and_scheduler_continuity_on_resume(tmp_path):
     assert trainer2.step_count == 6
 
 
+def test_early_stopping_trigger():
+    """Verify that early stopping halts train_dataset when validation loss does not improve."""
+    from Tantra.model import build_cpu_model
+    from Tantra.train import NeuroTrainer
+
+    model = build_cpu_model("micro10", attention_kind="causal")
+    trainer = NeuroTrainer(model, lr=1e-4, total_steps=20)
+
+    train_data = [(torch.randint(0, 1000, (1, 16)), torch.randint(0, 1000, (1, 16))) for _ in range(20)]
+    val_data = [(torch.randint(0, 1000, (1, 16)), torch.randint(0, 1000, (1, 16))) for _ in range(2)]
+
+    # Set best_val_loss artificially low so validation checks cannot improve upon it
+    trainer.best_val_loss = 0.001
+
+    trainer.train_dataset(
+        train_data,
+        max_steps=20,
+        log_every=1,
+        eval_every=1,
+        val_loader=val_data,
+        early_stopping_patience=2,
+        early_stopping_min_delta=0.01,
+        use_latent_reasoning=False
+    )
+
+    # With patience=2 and eval_every=1, early stopping should trigger after step 2
+    assert trainer.step_count == 2
+
+
+

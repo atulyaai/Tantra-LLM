@@ -236,6 +236,7 @@ class NeuroTrainer:
         self.step_count = 0
         self.best_loss = float('inf')
         self.best_val_loss = float('inf')
+        self.is_new_best = False
         self.ema_loss = None
         self.ema_alignment: Optional[float] = None
 
@@ -499,7 +500,7 @@ class NeuroTrainer:
         out[keep] = out[keep].clamp(0, vocab_size - 1)
         return out
 
-    def evaluate_validation(self, val_loader: Iterable[Tuple[torch.Tensor, torch.Tensor]], max_val_batches: int = 20) -> dict:
+    def evaluate_validation(self, val_loader: Iterable[Tuple[torch.Tensor, torch.Tensor]], max_val_batches: int = 20, min_delta: float = 0.0) -> dict:
         """Evaluate model on held-out validation data stream."""
         if val_loader is None:
             return {}
@@ -566,10 +567,11 @@ class NeuroTrainer:
         is_new_best = False
         if not hasattr(self, "best_val_loss") or self.best_val_loss is None:
             self.best_val_loss = float('inf')
-        if avg_val_loss < self.best_val_loss:
+        if avg_val_loss < (self.best_val_loss - min_delta):
             self.best_val_loss = avg_val_loss
             self.best_loss = avg_val_loss  # Align best_loss strictly to true generalization performance
             is_new_best = True
+            self.is_new_best = True
 
         return {
             "val_loss": avg_val_loss,
@@ -582,7 +584,7 @@ class NeuroTrainer:
 
 
 
-    def train_dataset(self, data_stream: Iterable[Tuple[torch.Tensor, torch.Tensor]], max_steps: int = 100, log_every: int = 10, eval_every: int = 0, eval_callback = None, checkpoint_every: int = 0, checkpoint_callback = None, tokenizer: Optional[Any] = None, enrichment_rate: float = 0.0, use_latent_reasoning: bool = True, auto_growth: bool = False, growth_patience: int = 1000, growth_min_delta: float = 0.005, max_layers: Optional[int] = None, val_loader: Optional[Iterable[Tuple[torch.Tensor, torch.Tensor]]] = None) -> list[float]:
+    def train_dataset(self, data_stream: Iterable[Tuple[torch.Tensor, torch.Tensor]], max_steps: int = 100, log_every: int = 10, eval_every: int = 0, eval_callback = None, checkpoint_every: int = 0, checkpoint_callback = None, tokenizer: Optional[Any] = None, enrichment_rate: float = 0.0, use_latent_reasoning: bool = True, auto_growth: bool = False, growth_patience: int = 1000, growth_min_delta: float = 0.005, max_layers: Optional[int] = None, val_loader: Optional[Iterable[Tuple[torch.Tensor, torch.Tensor]]] = None, early_stopping_patience: int = 4, early_stopping_min_delta: float = 0.002) -> list[float]:
 
         """Train over an iterable dataset stream (e.g. JSONLDataset).
 
@@ -646,6 +648,8 @@ class NeuroTrainer:
         )
 
         self._last_eval_step = getattr(self, "_last_eval_step", -1)
+        patience_counter = 0
+        early_stopped = False
         window_losses: list[float] = []
         window_accs: list[float] = []
         window_top5_accs: list[float] = []
@@ -911,7 +915,7 @@ class NeuroTrainer:
                 if at_boundary and eval_every > 0 and (self.step_count % eval_every == 0) and (self.step_count != self._last_eval_step):
                     self._last_eval_step = self.step_count
                     if val_loader is not None:
-                        val_res = self.evaluate_validation(val_loader)
+                        val_res = self.evaluate_validation(val_loader, min_delta=early_stopping_min_delta)
                         if val_res:
                             v_loss = val_res["val_loss"]
                             v_acc = val_res["val_acc"]
@@ -928,14 +932,34 @@ class NeuroTrainer:
                                     f"The model is memorizing training examples!"
                                 )
 
+                            if val_res.get("is_new_best", False):
+                                patience_counter = 0
+                                log.info(f"   🎉 [NEW BEST VAL LOSS: {v_loss:.4f}] Best checkpoint marked.")
+                            else:
+                                if early_stopping_patience > 0:
+                                    patience_counter += 1
+                                    log.info(
+                                        f"   [EARLY STOPPING PATIENCE: {patience_counter}/{early_stopping_patience}] "
+                                        f"Val loss did not improve by {early_stopping_min_delta:.4f} "
+                                        f"(Current: {v_loss:.4f}, Best: {self.best_val_loss:.4f})"
+                                    )
+                                    if patience_counter >= early_stopping_patience:
+                                        log.warning(
+                                            f"   🛑 [EARLY STOPPING TRIGGERED @ Step {self.step_count}] "
+                                            f"Validation loss failed to improve for {early_stopping_patience} consecutive checks. "
+                                            f"Halting training to preserve peak model generalization."
+                                        )
+                                        early_stopped = True
 
                     if eval_callback is not None:
                         if progress:
                             progress.stop()
                         eval_callback(self.step_count)
-                        if progress and self.step_count < max_steps:
+                        if progress and self.step_count < max_steps and not early_stopped:
                             progress.start()
 
+                if early_stopped:
+                    break
 
                 # Lightweight recovery checkpoint: this writes only the latest
                 # resumable state.  Full sampled/archival checkpoints remain on
@@ -951,15 +975,18 @@ class NeuroTrainer:
                 progress.stop()
 
         self._write_training_status(
-            status="complete" if self.step_count >= max_steps else "stopped",
+            status="early_stopped" if early_stopped else ("complete" if self.step_count >= max_steps else "stopped"),
             step=self.step_count, target_steps=max_steps,
             loss=losses[-1] if losses else None, ema_loss=self.ema_loss,
             accuracy=last_accuracy if losses else None, ppl=ppl if losses else None,
             grad_norm=grad_norm if losses else None, tok_s=tok_per_sec if losses else 0.0,
-            session_tokens=self._session_tokens, eta="00:00:00" if self.step_count >= max_steps else "stopped",
-            eta_seconds=0 if self.step_count >= max_steps else None,
+            session_tokens=self._session_tokens, eta="early_stopped" if early_stopped else ("00:00:00" if self.step_count >= max_steps else "stopped"),
+            eta_seconds=0 if (self.step_count >= max_steps or early_stopped) else None,
         )
-        log.info(f"Dataset pre-training run complete ({self.step_count} steps executed).")
+        if early_stopped:
+            log.info(f"🛑 Dataset training halted by Early Stopping at step {self.step_count}. Peak validation state preserved.")
+        else:
+            log.info(f"Dataset pre-training run complete ({self.step_count} steps executed).")
         return losses
 
     def compute_sequence_logprobs(self, logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
@@ -1444,7 +1471,7 @@ class NeuroTrainer:
                     try:
                         best_meta = torch.load(cand, map_location="cpu", weights_only=False)
                         cand_val = best_meta.get("best_val_loss", best_meta.get("best_loss", float('inf')))
-                        if cand_val is not None and not math.isinf(cand_val) and cand_val > 4.0:
+                        if cand_val is not None and not math.isinf(cand_val) and not math.isnan(cand_val) and cand_val > 0.0:
                             self.best_val_loss = float(cand_val)
                             self.best_loss = self.best_val_loss
                             break

@@ -526,7 +526,7 @@ def run_training(model, vcfg, steps=30, resume=False):
     trainer.save_checkpoint(latest_ckpt, save_optimizer=True)
 
 
-def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False, eval_every=1000, log_every=50, checkpoint_every=500, batch_size=1, seq_len=128, grad_accumulation_steps=1, data_workers=0, use_latent_reasoning=True, use_mtp_loss=True, compile=False, lr=1e-4, weight_decay=0.01, optimizer="adamw", warmup_steps=None, topic_weights=None, training_stage="sft", auto_growth=False, growth_patience=1000, growth_min_delta=0.005, max_layers=None, model_dir=None, adapter_name=None, archive_checkpoints=True, pack_sequences=True, checkpoint_path=None, max_grad_norm=1.0, mtp_loss_weight=0.3, track=None, curriculum_phase=None, validation_dataset=None):
+def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False, eval_every=1000, log_every=50, checkpoint_every=500, batch_size=1, seq_len=128, grad_accumulation_steps=1, data_workers=0, use_latent_reasoning=True, use_mtp_loss=True, compile=False, lr=1e-4, weight_decay=0.01, optimizer="adamw", warmup_steps=None, topic_weights=None, training_stage="sft", auto_growth=False, growth_patience=1000, growth_min_delta=0.005, max_layers=None, model_dir=None, adapter_name=None, archive_checkpoints=True, pack_sequences=True, checkpoint_path=None, max_grad_norm=1.0, mtp_loss_weight=0.3, track=None, curriculum_phase=None, validation_dataset=None, early_stopping_patience=4, early_stopping_min_delta=0.002):
 
     log.info("== [DATASET PRE-TRAINING MODE] =====================")
     if training_stage not in {"pretrain", "sft"}:
@@ -1063,7 +1063,7 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
     )
     enrichment = 0.0 if training_stage == "sft" else 0.02
     try:
-        trainer.train_dataset(dataloader, max_steps=steps, log_every=log_every, eval_every=eval_every, eval_callback=eval_callback, checkpoint_every=checkpoint_every, checkpoint_callback=checkpoint_callback, tokenizer=tokenizer, enrichment_rate=enrichment, use_latent_reasoning=use_latent_reasoning, auto_growth=auto_growth, growth_patience=growth_patience, growth_min_delta=growth_min_delta, max_layers=max_layers, val_loader=val_loader)
+        trainer.train_dataset(dataloader, max_steps=steps, log_every=log_every, eval_every=eval_every, eval_callback=eval_callback, checkpoint_every=checkpoint_every, checkpoint_callback=checkpoint_callback, tokenizer=tokenizer, enrichment_rate=enrichment, use_latent_reasoning=use_latent_reasoning, auto_growth=auto_growth, growth_patience=growth_patience, growth_min_delta=growth_min_delta, max_layers=max_layers, val_loader=val_loader, early_stopping_patience=early_stopping_patience, early_stopping_min_delta=early_stopping_min_delta)
 
     except KeyboardInterrupt:
         # Ctrl+C happens after an optimizer boundary in many practical runs.
@@ -1298,6 +1298,8 @@ def main():
     parser.add_argument("--growth-patience", type=int, default=250, help="Optimizer steps to observe before auto-growth adds a layer (default: 250)")
     parser.add_argument("--growth-min-delta", type=float, default=0.003, help="Minimum EMA-loss improvement required to avoid auto-growth")
     parser.add_argument("--max-layers", type=int, default=16, help="Hard maximum depth when auto-growth is enabled (default: 16 layers)")
+    parser.add_argument("--early-stopping-patience", type=int, default=4, help="Patience (consecutive validation checks with no improvement) before halting training (0 to disable, default: 4)")
+    parser.add_argument("--early-stopping-min-delta", type=float, default=0.002, help="Minimum validation loss improvement delta to reset early stopping patience (default: 0.002)")
     parser.add_argument("--compile", action="store_true", help="Compile model with torch.compile(backend='inductor') for CPU/GPU kernel fusion")
     parser.add_argument("--optimizer", type=str, choices=["adamw", "adam", "lion", "sgd"], default="adamw", help="Optimizer choice (default: adamw)")
     parser.add_argument("--lr", type=float, default=None, help="Learning rate (default: 1e-4 for AdamW, 5e-5 for Lion)")
@@ -1679,10 +1681,11 @@ def main():
                     adapter_name=args.adapter, model_dir=(ADAPTER_ROOT if args.adapter is not None else args.model_dir),
                     pack_sequences=args.pack_sequences, checkpoint_path=args.checkpoint, validation_dataset=args.val_dataset,
                     max_grad_norm=args.max_grad_norm, mtp_loss_weight=args.mtp_weight,
-                    track=track_name, curriculum_phase=None
+                    track=track_name, curriculum_phase=None,
+                    early_stopping_patience=args.early_stopping_patience, early_stopping_min_delta=args.early_stopping_min_delta
                 )
         else:
-            run_dataset_training(model, tok, args.dataset, steps=args.steps, resume=args.resume, eval_every=args.eval_every, log_every=args.log_every, checkpoint_every=args.checkpoint_every, batch_size=args.batch_size, seq_len=args.seq_len, grad_accumulation_steps=args.grad_accum, data_workers=args.data_workers, use_latent_reasoning=use_latent_reasoning, use_mtp_loss=use_mtp_loss, compile=args.compile, lr=resolved_lr, weight_decay=resolved_wd, optimizer=resolved_optimizer, warmup_steps=args.warmup, topic_weights=topic_weights, training_stage=args.training_stage, auto_growth=args.auto_growth, growth_patience=args.growth_patience, growth_min_delta=args.growth_min_delta, max_layers=args.max_layers, adapter_name=args.adapter, model_dir=(ADAPTER_ROOT if args.adapter is not None else args.model_dir), pack_sequences=args.pack_sequences, checkpoint_path=args.checkpoint, max_grad_norm=args.max_grad_norm, mtp_loss_weight=args.mtp_weight, track=args.track, curriculum_phase=args.curriculum_phase, validation_dataset=args.val_dataset)
+            run_dataset_training(model, tok, args.dataset, steps=args.steps, resume=args.resume, eval_every=args.eval_every, log_every=args.log_every, checkpoint_every=args.checkpoint_every, batch_size=args.batch_size, seq_len=args.seq_len, grad_accumulation_steps=args.grad_accum, data_workers=args.data_workers, use_latent_reasoning=use_latent_reasoning, use_mtp_loss=use_mtp_loss, compile=args.compile, lr=resolved_lr, weight_decay=resolved_wd, optimizer=resolved_optimizer, warmup_steps=args.warmup, topic_weights=topic_weights, training_stage=args.training_stage, auto_growth=args.auto_growth, growth_patience=args.growth_patience, growth_min_delta=args.growth_min_delta, max_layers=args.max_layers, adapter_name=args.adapter, model_dir=(ADAPTER_ROOT if args.adapter is not None else args.model_dir), pack_sequences=args.pack_sequences, checkpoint_path=args.checkpoint, max_grad_norm=args.max_grad_norm, mtp_loss_weight=args.mtp_weight, track=args.track, curriculum_phase=args.curriculum_phase, validation_dataset=args.val_dataset, early_stopping_patience=args.early_stopping_patience, early_stopping_min_delta=args.early_stopping_min_delta)
 
     elif args.mode == "dpo":
         dpo_ckpt = args.checkpoint
@@ -1743,7 +1746,9 @@ def main():
             max_layers=args.max_layers, model_dir=args.model_dir,
             pack_sequences=args.pack_sequences, checkpoint_path=args.checkpoint, validation_dataset=args.val_dataset,
             max_grad_norm=args.max_grad_norm, mtp_loss_weight=args.mtp_weight,
-            track=args.track
+            track=args.track,
+            early_stopping_patience=args.early_stopping_patience,
+            early_stopping_min_delta=args.early_stopping_min_delta
         )
 
         # Phase 2: DPO Alignment
