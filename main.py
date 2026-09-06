@@ -27,6 +27,14 @@ import time
 import torch
 import torch._dynamo
 
+if torch.cuda.is_available():
+    torch.backends.cudnn.benchmark = True
+    try:
+        torch.backends.cuda.matmul.allow_tf32 = True
+        torch.backends.cudnn.allow_tf32 = True
+    except Exception:
+        pass
+
 from Tantra.config import NeuroCoreConfig, VocabConfig, MoEConfig, CompressionConfig
 from Tantra.utils import get_logger, unwrap_model
 from Tantra.hardware import HardwareDetector, Profiler, RuntimeConfigBuilder, AdaptiveScheduler
