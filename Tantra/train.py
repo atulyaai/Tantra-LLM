@@ -231,8 +231,18 @@ class NeuroTrainer:
         self.scheduler = create_lr_scheduler(self.optimizer, warmup_steps=warmup_steps, total_steps=total_steps, min_lr_ratio=0.10)
 
         self.criterion = nn.CrossEntropyLoss(ignore_index=IGNORE_INDEX)
-        use_amp = (self.device.type == 'cuda' and torch.cuda.is_bf16_supported())
-        self.scaler = torch.amp.GradScaler('cuda', enabled=False)
+        use_amp = (self.device.type == 'cuda')
+        self.use_amp = use_amp
+        if use_amp:
+            if torch.cuda.is_bf16_supported():
+                self.amp_dtype = torch.bfloat16
+                self.scaler = torch.amp.GradScaler('cuda', enabled=False)
+            else:
+                self.amp_dtype = torch.float16
+                self.scaler = torch.amp.GradScaler('cuda', enabled=True)
+        else:
+            self.amp_dtype = torch.float32
+            self.scaler = torch.amp.GradScaler('cuda', enabled=False)
         self.step_count = 0
         self.best_loss = float('inf')
         self.best_val_loss = float('inf')
@@ -363,8 +373,8 @@ class NeuroTrainer:
             x = torch.clamp(x, 0, vsize - 1)
 
         device_type = self.device.type if self.device.type in ('cuda', 'mps') else 'cpu'
-        autocast_enabled = (self.device.type == 'cuda' and torch.cuda.is_bf16_supported())
-        amp_dtype = torch.bfloat16 if autocast_enabled else torch.float32
+        autocast_enabled = bool(self.use_amp and (self.device.type in ('cuda', 'mps')))
+        amp_dtype = self.amp_dtype if autocast_enabled else torch.float32
         with torch.autocast(device_type=device_type, dtype=amp_dtype, enabled=autocast_enabled):
             out = self.model(x, return_mtp=self.use_mtp_loss, use_latent_reasoning=use_latent_reasoning)
             if isinstance(out[0], tuple):
@@ -512,12 +522,17 @@ class NeuroTrainer:
         val_top5_accs = []
         val_ppls = []
 
+        device_type = self.device.type if self.device.type in ('cuda', 'mps') else 'cpu'
+        autocast_enabled = bool(self.use_amp and (self.device.type in ('cuda', 'mps')))
+        amp_dtype = self.amp_dtype if autocast_enabled else torch.float32
+
         with torch.no_grad():
             batch_count = 0
             for vx, vy in val_loader:
                 vx = vx.to(self.device)
                 vy = vy.to(self.device)
-                outputs = raw_model(vx)
+                with torch.autocast(device_type=device_type, dtype=amp_dtype, enabled=autocast_enabled):
+                    outputs = raw_model(vx)
                 if isinstance(outputs, (tuple, list)):
                     first = outputs[0]
                     logits = first[0] if isinstance(first, (tuple, list)) else first
