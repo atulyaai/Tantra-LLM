@@ -886,8 +886,7 @@ class NeuroCoreModel(nn.Module):
         generated_tokens = [[] for _ in range(B)]
 
         if banned_token_ids is None:
-            # Mask known pretrain DNA artifact token IDs
-            banned_token_ids = [28344, 23214, 12932, 13142, 19409]
+            banned_token_ids = []
 
         for _ in range(max_new_tokens):
             next_token_logits = torch.nan_to_num(next_token_logits, nan=-1e9, posinf=1e4, neginf=-1e9)

@@ -1324,7 +1324,7 @@ def main():
     parser.add_argument("--grad-accum", type=int, default=1, help="Gradient accumulation steps (larger effective batch without more RAM; 1 = off)")
     parser.add_argument("--data-workers", type=int, default=0, help="Parallel data-loading/tokenization workers (overlaps tokenization with training compute; 0 = synchronous/main-thread, as before)")
 
-    parser.add_argument("--training-stage", "--stage", dest="training_stage", choices=["pretrain", "sft"], default="sft", help="pretrain uses full-token loss; sft supervises assistant replies only")
+    parser.add_argument("--training-stage", "--stage", dest="training_stage", choices=["pretrain", "sft"], default="pretrain", help="pretrain uses full-token loss; sft supervises assistant replies only")
     parser.add_argument("--latent-reasoning", action=argparse.BooleanOptionalAction, default=None, help="Enable/disable latent reasoning. Defaults off for pretraining and on for SFT.")
     parser.add_argument("--mtp-loss", action=argparse.BooleanOptionalAction, default=None, help="Train the MTP auxiliary head. Defaults off for pretraining and on for SFT.")
     parser.add_argument("--auto-growth", action=argparse.BooleanOptionalAction, default=True, help="Automatically add depth layers whenever loss plateaus (default: enabled)")
@@ -1658,7 +1658,7 @@ def main():
             use_latent_reasoning = args.training_stage == "sft"
         use_mtp_loss = args.mtp_loss
         if use_mtp_loss is None:
-            use_mtp_loss = True  # Enable MTP multi-token speculative loss for both pretrain and SFT
+            use_mtp_loss = (args.training_stage == "sft")
 
         # Optimizer-specific hyperparameter defaults
         resolved_optimizer = (args.optimizer or "adamw").lower().strip()
