@@ -597,6 +597,7 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
 
     # Resume only when explicitly requested.
     resume_target = None
+    resumed_from_explicit_checkpoint = False
     if checkpoint_path and os.path.isfile(checkpoint_path):
         try:
             log.info(f"Loading explicit checkpoint: {checkpoint_path} ({os.path.getsize(checkpoint_path)/1e6:.1f} MB)...")
@@ -608,6 +609,7 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
             # reset_optimizer=True explicitly via the call-site or add a CLI flag.
             trainer.load_checkpoint(checkpoint_path, reset_optimizer=False)
             resume_target = checkpoint_path
+            resumed_from_explicit_checkpoint = True
         except Exception as exc:
             log.warning(f"Could not load specified checkpoint {checkpoint_path}: {exc}")
 
@@ -782,29 +784,31 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
             random.choice(conv_pool)
         ]
 
-        log.info(f"┌── 🌐 [ DYNAMIC 5-DOMAIN BENCHMARK (RANDOMIZED QUESTIONS) @ Step {step:,} ] " + "─" * 5)
-        raw_model = unwrap_model(model)
-        for domain, icon, prompt_text, temp, expected_key in selected_tests:
-            prompt_ids = torch.tensor([tokenizer.encode(prompt_text)], device=raw_model.embed.weight.device)
-            out = raw_model.generate(prompt_ids, max_new_tokens=64, min_new_tokens=1, temperature=temp, top_p=0.9, repetition_penalty=1.15)
-            new_tokens = out[0, prompt_ids.shape[1]:].tolist()
-            response = tokenizer.decode(new_tokens).strip()
+        # Run generative benchmark at major evaluation milestones (step >= 500), avoiding early-training stalls
+        if step >= 500 and (step % max(500, eval_every) == 0 or step == steps):
+            log.info(f"┌── 🌐 [ DYNAMIC 5-DOMAIN BENCHMARK (RANDOMIZED QUESTIONS) @ Step {step:,} ] " + "─" * 5)
+            raw_model = unwrap_model(model)
+            for domain, icon, prompt_text, temp, expected_key in selected_tests:
+                prompt_ids = torch.tensor([tokenizer.encode(prompt_text)], device=raw_model.embed.weight.device)
+                out = raw_model.generate(prompt_ids, max_new_tokens=64, min_new_tokens=1, temperature=temp, top_p=0.9, repetition_penalty=1.15)
+                new_tokens = out[0, prompt_ids.shape[1]:].tolist()
+                response = tokenizer.decode(new_tokens).strip()
 
-            extra_tag = ""
-            if "Code" in domain:
-                code_cand = response.replace("```python", "").replace("```", "").strip()
-                try:
-                    ast.parse(code_cand)
-                    extra_tag = " (✅ Valid Python AST)"
-                except Exception:
-                    pass
-            elif expected_key.lower() in response.lower().replace(" ", "") or expected_key.lower() in response.lower():
-                extra_tag = f" (✅ Key Matched: {expected_key})"
+                extra_tag = ""
+                if "Code" in domain:
+                    code_cand = response.replace("```python", "").replace("```", "").strip()
+                    try:
+                        ast.parse(code_cand)
+                        extra_tag = " (✅ Valid Python AST)"
+                    except Exception:
+                        pass
+                elif expected_key.lower() in response.lower().replace(" ", "") or expected_key.lower() in response.lower():
+                    extra_tag = f" (✅ Key Matched: {expected_key})"
 
-            clean_disp = response.replace("\n", " ")[:90]
-            log.info(f"│ {icon} [{domain:10s}]: {clean_disp}{extra_tag}")
+                clean_disp = response.replace("\n", " ")[:90]
+                log.info(f"│ {icon} [{domain:10s}]: {clean_disp}{extra_tag}")
 
-        log.info("└" + "─" * 80)
+            log.info("└" + "─" * 80)
 
 
 

@@ -1189,10 +1189,10 @@ async def get_live_training_status():
         # Enrich with live model parameters and active layers
         status_data["active_layers"] = status_data.get("active_layers", num_layers)
         status_data["parameters"] = status_data.get("parameters", f"{total_params / 1e6:.1f}M")
-        status_data["top1_accuracy"] = status_data.get("accuracy") or status_data.get("top1_accuracy") or 23.3
+        status_data["top1_accuracy"] = status_data.get("accuracy", status_data.get("top1_accuracy", 0.0))
         if "total_tokens_seen" not in status_data:
             total_tok = status_data.get("total_tokens", 0)
-            status_data["total_tokens_seen"] = f"{total_tok / 1e6:.2f}M" if total_tok else "11.3M"
+            status_data["total_tokens_seen"] = f"{total_tok / 1e6:.2f}M" if total_tok else "0.00M"
         return status_data
     
     # Fallback: Query real checkpoints on disk
@@ -1214,11 +1214,11 @@ async def get_live_training_status():
     return {
         "status": "idle",
         "step": step_num,
-        "loss": loss_val or 5.45,
-        "top1_accuracy": 23.3,
+        "loss": loss_val,
+        "top1_accuracy": 0.0,
         "active_layers": num_layers,
         "parameters": f"{total_params / 1e6:.1f}M",
-        "total_tokens_seen": f"{total_toks / 1e6:.1f}M" if total_toks else "11.3M",
+        "total_tokens_seen": f"{total_toks / 1e6:.2f}M" if total_toks else "0.00M",
         "stage": "Ready / Idle",
         "history": []
     }
@@ -1324,12 +1324,17 @@ async def compare_checkpoints(request: Request):
         "model_a": {
             "name": f"Current Active Checkpoint ({ACTIVE_CHECKPOINT})",
             "response": live_response,
-            "metrics": {"loss": "5.45", "top1": "23.3%", "layers": num_layers, "parameters": f"{total_params / 1e6:.1f}M"}
+            "metrics": {
+                "loss": f"{status_data.get('loss', 0.0):.3f}" if status_data.get('loss') is not None else "N/A",
+                "top1": f"{status_data.get('accuracy', 0.0):.1f}%" if status_data.get('accuracy') is not None else "N/A",
+                "layers": num_layers,
+                "parameters": f"{total_params / 1e6:.1f}M"
+            }
         },
         "model_b": {
-            "name": f"Evolved AutoGrowth Checkpoint (10 Layers, 82.8M)",
+            "name": "Base Reference Model",
             "response": live_response,
-            "metrics": {"loss": "2.84", "top1": "55.4%", "layers": 10, "parameters": "82.8M"}
+            "metrics": {"layers": num_layers, "parameters": f"{total_params / 1e6:.1f}M"}
         }
     }
 

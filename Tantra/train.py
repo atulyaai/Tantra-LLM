@@ -870,11 +870,19 @@ class NeuroTrainer:
                     is_card_step = (session_steps == 1 or session_steps % log_every == 0 or self.step_count == max_steps)
                     ticker_interval = max(10, log_every // 2)
 
-                    # Live step ticker with cumulative tokens and actual elapsed time
-                    if not is_card_step and (session_steps % ticker_interval == 0):
+                    # Live step ticker on every step (or mini-interval) so user sees real-time continuous learning
+                    step_log_interval = 1 if max_steps <= 100 else max(1, min(5, log_every // 5))
+                    if not is_card_step and (session_steps % step_log_interval == 0):
                         loss_color_arrow = "🔻" if (self.best_loss is None or loss <= self.best_loss) else "🔸"
-                        acc_str = f"🎯 {last_accuracy:.1f}%" if last_accuracy is not None else ""
-                        log.info(f"   ⚡ [Step {self.step_count:,}/{max_steps:,}] 📉 Loss: {loss:.4f} {loss_color_arrow} │ {acc_str} │ 📦 {self.total_tokens/1e6:.2f}M tok │ ⏳ {elapsed_str} ({actual_avg_step_sec:.1f}s/step) │ ⏱️ ETA: {rolling_eta}")
+                        top1_str = f"🎯 Top-1: {last_accuracy:.1f}%" if last_accuracy is not None else ""
+                        top5_val = getattr(self, "last_top5_acc", None)
+                        top5_str = f"🌟 Top-5: {top5_val:.1f}%" if top5_val is not None else ""
+                        cur_lr_val = self.optimizer.param_groups[0]["lr"] if self.optimizer.param_groups else self.lr
+                        log.info(
+                            f"   ⚡ [Step {self.step_count:,}/{max_steps:,}] 📉 Loss: {loss:.4f} {loss_color_arrow} │ "
+                            f"{top1_str} │ {top5_str} │ ⚡ {tok_per_sec:.1f} tok/s ({actual_avg_step_sec:.2f}s/step) │ "
+                            f"🎚️ LR: {cur_lr_val:.2e} │ ⏱️ ETA: {rolling_eta}"
+                        )
 
                     if is_card_step:
                         first_step = self.step_count - window_optimizer_steps + 1
@@ -894,7 +902,7 @@ class NeuroTrainer:
                         user_snippet = ""
                         asst_snippet = ""
                         model_snippet = ""
-                        if tokenizer is not None:
+                        if tokenizer is not None and getattr(self, "training_stage", "sft") == "sft":
                             try:
                                 sample_toks = [t for t in x[0].cpu().tolist() if t > 0]
                                 decoded_text = tokenizer.decode(sample_toks)
@@ -912,8 +920,9 @@ class NeuroTrainer:
                                 if target_toks:
                                     asst_snippet = tokenizer.decode(target_toks).replace("</s>", "").replace("\n", " ").strip()[:150]
 
+                                # Only show model prediction snippet if accuracy > 5% or step > 200 (avoid random early noise)
                                 pred_ids = getattr(self, "last_pred_tokens", None)
-                                if pred_ids:
+                                if pred_ids and (avg_acc > 5.0 or self.step_count >= 200):
                                     model_snippet = tokenizer.decode(pred_ids).replace("</s>", "").replace("\n", " ").strip()[:150]
                             except Exception:
                                 pass
