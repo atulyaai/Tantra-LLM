@@ -208,8 +208,8 @@ class SelfRepairEngine:
                 param.data.mul_(5.0 / (elem_rms + 1e-6))
                 repaired_explosions += 1
 
-            # 3. Repair Dead Neurons (zero weights in linear layers)
-            if "weight" in name and param.dim() == 2:
+            # 3. Repair Dead Neurons (zero weights in multi-neuron linear projections)
+            if "weight" in name and param.dim() == 2 and param.size(0) > 1 and "w_scale" not in name and "gate" not in name:
                 row_norms = param.data.norm(dim=1)
                 dead_rows = row_norms < 1e-6
                 if dead_rows.any():
