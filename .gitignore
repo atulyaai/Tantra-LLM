@@ -32,6 +32,7 @@ Model/**/*.tmp
 
 # Generated checkpoint sidecar metadata (written by save_checkpoint)
 Model/**/*.pt.meta.json
+Model/**/*.eval.json
 
 # Regenerated expert artifacts (built by training runs)
 Model/Experts/*.dna

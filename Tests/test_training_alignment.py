@@ -18,10 +18,20 @@ from Tantra.tokenizer import ByteBPETokenizer, MegabytePatcher, UnifiedTokenizer
 from Tantra.dataset import TopicMixedDataset, PretokenizedBinDataset, JSONLDataset, IGNORE_INDEX, TokenJuiceEngine
 
 
-
 class _StubTokenizer:
-    vocab_size = 4096
+    """Uses real trained BPE tokenizer from Model/tokenizer.json if available, or ByteBPETokenizer."""
+    def __init__(self):
+        if os.path.exists("Model/tokenizer.json"):
+            from tokenizers import Tokenizer
+            self._tok = Tokenizer.from_file("Model/tokenizer.json")
+            self.vocab_size = self._tok.get_vocab_size()
+        else:
+            self._tok = None
+            self.vocab_size = 4096
+
     def encode(self, text, modality="text"):
+        if self._tok is not None:
+            return self._tok.encode(text).ids
         return [min((ord(c) % self.vocab_size), self.vocab_size - 1) for c in text]
 
 
@@ -263,9 +273,10 @@ def test_sft_document_sample_masks_prompt_padding_and_keeps_eos():
 def test_sft_truncates_only_answer_tail_and_skips_overlength_prompt():
     with tempfile.TemporaryDirectory() as tmp:
         tok = _StubTokenizer()
+        diverse_long = "The quick brown fox jumps over the lazy dog and runs across the field into the distant mountains. " * 10
         long_answer = os.path.join(tmp, "long_answer.jsonl")
         with open(long_answer, "w", encoding="utf-8") as f:
-            f.write(json.dumps({"user": "Short", "assistant": "A" * 400}) + "\n")
+            f.write(json.dumps({"user": "Short", "assistant": diverse_long}) + "\n")
         ds = JSONLDataset(long_answer, tok, seq_len=64, max_samples=1, shuffle=False,
                           mask_non_assistant=True, split="all", val_ratio=0.0)
         x, y = next(iter(ds))
@@ -276,7 +287,7 @@ def test_sft_truncates_only_answer_tail_and_skips_overlength_prompt():
 
         long_prompt = os.path.join(tmp, "long_prompt.jsonl")
         with open(long_prompt, "w", encoding="utf-8") as f:
-            f.write(json.dumps({"user": "Q" * 400, "assistant": "Answer"}) + "\n")
+            f.write(json.dumps({"user": diverse_long, "assistant": "Answer"}) + "\n")
         skipped = JSONLDataset(long_prompt, tok, seq_len=64, max_samples=1, shuffle=False,
                                mask_non_assistant=True, split="all", val_ratio=0.0)
         # The stream is intentionally empty instead of emitting a fragment.

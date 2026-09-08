@@ -334,7 +334,7 @@ def detect_hardware():
     return rt, sched
 
 
-def build_vocab(cfg: VocabConfig, corpus_file: str | None = None) -> UnifiedTokenizer:
+def build_vocab(cfg: VocabConfig, corpus_file: str | None = None, force_rebuild: bool = False) -> UnifiedTokenizer:
     log.info("== [2] UNIFIED VOCABULARY & TOKENIZER STATUS =======")
     os.makedirs(MODEL_DIR, exist_ok=True)
     os.makedirs(BEST_DIR, exist_ok=True)
@@ -344,7 +344,7 @@ def build_vocab(cfg: VocabConfig, corpus_file: str | None = None) -> UnifiedToke
     tokenizer_json_path = os.path.join(MODEL_DIR, "tokenizer.json")
     status = "Cached Artifact"
 
-    if os.path.exists(tokenizer_json_path):
+    if os.path.exists(tokenizer_json_path) and not force_rebuild:
         try:
             bpe = ByteBPETokenizer.load(tokenizer_json_path, cfg)
             status = f"Loaded real BPE tokenizer ({tokenizer_json_path}, {bpe.vocab_size:,} tokens)"
@@ -354,7 +354,7 @@ def build_vocab(cfg: VocabConfig, corpus_file: str | None = None) -> UnifiedToke
     else:
         bpe = ByteBPETokenizer(cfg)
 
-    if (not os.path.exists(tokenizer_json_path) or bpe.vocab_size == 0 or bpe._tokenizer is None or bpe._tokenizer.get_vocab_size() == 0) and corpus_file and os.path.exists(corpus_file):
+    if (force_rebuild or not os.path.exists(tokenizer_json_path) or bpe.vocab_size == 0 or bpe._tokenizer is None or bpe._tokenizer.get_vocab_size() == 0) and corpus_file and os.path.exists(corpus_file):
         # Dataset mode commonly receives the Datasets directory.  Select a
         # real JSONL corpus rather than attempting ``open(Datasets)`` when a
         # tokenizer has to be rebuilt.
@@ -368,10 +368,11 @@ def build_vocab(cfg: VocabConfig, corpus_file: str | None = None) -> UnifiedToke
                 raise RuntimeError(f"No JSONL files found under dataset directory: {corpus_file}")
             resolved_corpus = max(candidates, key=os.path.getsize)
             log.info(f"  Tokenizer rebuild source selected from dataset directory: {resolved_corpus}")
-        sample_txt = extract_corpus_sample(resolved_corpus, os.path.join(MODEL_DIR, "corpus_sample.txt"))
+        sample_txt = extract_corpus_sample(resolved_corpus, os.path.join(MODEL_DIR, "corpus_sample.txt"), max_lines=None)
         special_toks = list(cfg.special_tokens.keys())
         bpe.train([sample_txt], vocab_size=cfg.vocab_size, special_tokens=special_toks)
         bpe.save(tokenizer_json_path)
+        NeuroTrainer.export_tokenizer_and_vocab(MODEL_DIR)
         status = f"Trained fresh BPE tokenizer on {resolved_corpus} & saved to {tokenizer_json_path}"
 
     patcher = MegabytePatcher()
@@ -599,7 +600,13 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
     if checkpoint_path and os.path.isfile(checkpoint_path):
         try:
             log.info(f"Loading explicit checkpoint: {checkpoint_path} ({os.path.getsize(checkpoint_path)/1e6:.1f} MB)...")
-            trainer.load_checkpoint(checkpoint_path, reset_optimizer=True)
+            # BUG-07 FIX: was reset_optimizer=True, which silently discarded all
+            # Adam/Lion momentum buffers on every explicit --checkpoint load,
+            # forcing a cold-restart warmup each time. Preserve momentum so the
+            # optimizer continues exactly where it left off. If you genuinely need
+            # a fresh-momentum start (e.g. switching datasets/stages), pass
+            # reset_optimizer=True explicitly via the call-site or add a CLI flag.
+            trainer.load_checkpoint(checkpoint_path, reset_optimizer=False)
             resume_target = checkpoint_path
         except Exception as exc:
             log.warning(f"Could not load specified checkpoint {checkpoint_path}: {exc}")
@@ -660,23 +667,26 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
         remaining = max(steps - trainer.step_count, 1)
         actual_warmup = max(1, min(warmup or max(remaining // 10, 50), remaining // 5))
 
-        # Rebuild fresh optimizer and schedule for recovery (do not preserve stale momentum)
+        # BUG-08 FIX: Do NOT rebuild the optimizer here. load_checkpoint() already
+        # restored the optimizer state (momentum buffers) from the checkpoint.
+        # Rebuilding from scratch here discards all that restored momentum, making
+        # the load_checkpoint() restoration work pointless.
+        # We DO need to rebuild the scheduler, because the session's remaining-step
+        # count and warmup may differ from what the checkpoint was built with.
         trainer.lr = lr
-        trainer.optimizer = torch.optim.AdamW(
-            trainer.model.parameters(),
-            lr=lr,
-            betas=(0.9, 0.95),
-            weight_decay=weight_decay or 0.01,
-            eps=1e-8
-        )
+        for group in trainer.optimizer.param_groups:
+            group["lr"] = lr
+            group["initial_lr"] = lr
         trainer.total_steps = steps
         trainer.warmup_steps = actual_warmup
         from Tantra.train import create_lr_scheduler
         trainer.scheduler = create_lr_scheduler(
             trainer.optimizer,
             warmup_steps=actual_warmup,
-            total_steps=remaining,
+            total_steps=steps,
             min_lr_ratio=0.10,
+            start_step=trainer.step_count,
+            last_epoch=trainer.step_count - 1,
         )
         prev_stage = getattr(trainer, "training_stage", None)
         stage_name = training_stage or prev_stage or "sft"
@@ -696,8 +706,9 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
         log.info(f"   • Source Checkpoint : {resume_target}")
         log.info(f"   • Starting Step     : {trainer.step_count:,}")
         log.info(f"   • Target Step       : {steps:,} (+{remaining:,} steps)")
-        log.info(f"   • Fresh Optimizer   : Confirmed AdamW (lr={lr:.2e}, momentum reset=True)")
-        log.info(f"   • Recovery Schedule : Confirmed Cosine (warmup={actual_warmup}, min_lr_ratio=0.10)")
+        optimizer_state_label = "Preserved from checkpoint" if not resumed_from_explicit_checkpoint else "Preserved (explicit checkpoint)"
+        log.info(f"   • Optimizer State   : {optimizer_state_label} (lr={lr:.2e})")
+        log.info(f"   • Recovery Schedule : Cosine restarted for +{remaining:,} steps (warmup={actual_warmup}, min_lr_ratio=0.10)")
         log.info(f"   • Model Directory   : {checkpoint_root}")
         log.info("=" * 65)
     else:
@@ -1309,7 +1320,7 @@ def main():
     parser.add_argument("--grad-accum", type=int, default=1, help="Gradient accumulation steps (larger effective batch without more RAM; 1 = off)")
     parser.add_argument("--data-workers", type=int, default=0, help="Parallel data-loading/tokenization workers (overlaps tokenization with training compute; 0 = synchronous/main-thread, as before)")
 
-    parser.add_argument("--training-stage", choices=["pretrain", "sft"], default="sft", help="pretrain uses full-token loss; sft supervises assistant replies only")
+    parser.add_argument("--training-stage", "--stage", dest="training_stage", choices=["pretrain", "sft"], default="sft", help="pretrain uses full-token loss; sft supervises assistant replies only")
     parser.add_argument("--latent-reasoning", action=argparse.BooleanOptionalAction, default=None, help="Enable/disable latent reasoning. Defaults off for pretraining and on for SFT.")
     parser.add_argument("--mtp-loss", action=argparse.BooleanOptionalAction, default=None, help="Train the MTP auxiliary head. Defaults off for pretraining and on for SFT.")
     parser.add_argument("--auto-growth", action=argparse.BooleanOptionalAction, default=True, help="Automatically add depth layers whenever loss plateaus (default: enabled)")
@@ -1408,7 +1419,7 @@ def main():
         return
 
     if args.mode == "vocab":
-        build_vocab(vcfg, args.dataset)
+        build_vocab(vcfg, args.dataset, force_rebuild=True)
         return
 
     if args.mode == "compress":

@@ -83,6 +83,13 @@ class TokenJuiceEngine:
         y_mask = torch.tensor(target_mask[1:], dtype=torch.bool, device=y.device)
         y_syn = torch.where(y_mask, y_syn, torch.full_like(y_syn, IGNORE_INDEX))
 
+        # BUG-09 FIX: Guard against shape mismatch before injection.
+        # If the synthetic sequence was trimmed/padded to a different length than
+        # the batch's seq_len, skip enrichment for this step instead of silently
+        # broadcasting incorrectly or raising a hard shape error.
+        if x_syn.shape[0] != x.shape[-1] or y_syn.shape[0] != y.shape[-1]:
+            return x, y
+
         x[-1:] = x_syn.unsqueeze(0)
         y[-1:] = y_syn.unsqueeze(0)
         return x, y
@@ -605,15 +612,42 @@ class JSONLDataset(IterableDataset):
             epoch += 1
 
 
-def extract_corpus_sample(jsonl_path: str, output_txt_path: str, max_lines: int = 2000) -> str:
-    """Extract raw text lines from JSONL to train BPE tokenizer."""
-    log.info(f"Extracting sample text from {jsonl_path} for BPE vocabulary training...")
+def extract_corpus_sample(jsonl_path: str, output_txt_path: str, max_lines: Optional[int] = None, stride: Optional[int] = None) -> str:
+    """Extract raw text lines from JSONL to train BPE tokenizer.
+    If max_lines is None or <= 0, processes 100% of the entire dataset.
+    """
+    target_desc = f"{max_lines:,} lines" if (max_lines and max_lines > 0) else "100% of entire corpus (all lines)"
+    log.info(f"Extracting text from {jsonl_path} for BPE vocabulary training ({target_desc})...")
     os.makedirs(os.path.dirname(output_txt_path) or ".", exist_ok=True)
 
+    use_full = (max_lines is None or max_lines <= 0)
+
+    # Count lines if sampling with stride, otherwise stream full file
+    if not use_full:
+        total_lines = 0
+        if os.path.isfile(jsonl_path):
+            try:
+                with open(jsonl_path, "r", encoding="utf-8", errors="ignore") as f:
+                    for _ in f:
+                        total_lines += 1
+            except Exception:
+                total_lines = 0
+
+        if stride is None:
+            stride = max(1, total_lines // max_lines) if total_lines > max_lines else 1
+        log.info(f"Corpus has {total_lines:,} lines. Sampling evenly with stride={stride}.")
+    else:
+        stride = 1
+        log.info("Processing 100% full dataset (no line limits, stride=1)...")
+
     count = 0
+    line_num = 0
     with open(jsonl_path, "r", encoding="utf-8", errors="ignore") as f_in, \
          open(output_txt_path, "w", encoding="utf-8") as f_out:
         for line in f_in:
+            line_num += 1
+            if stride > 1 and (line_num % stride) != 0:
+                continue
             line = line.strip()
             if not line:
                 continue
@@ -625,10 +659,10 @@ def extract_corpus_sample(jsonl_path: str, output_txt_path: str, max_lines: int 
 
             f_out.write(text + "\n")
             count += 1
-            if count >= max_lines:
+            if not use_full and count >= max_lines:
                 break
 
-    log.info(f"Extracted {count} text samples -> {output_txt_path}")
+    log.info(f"Extracted {count:,} text samples ({'100% full corpus' if use_full else 'sampled'}) -> {output_txt_path}")
     return output_txt_path
 
 

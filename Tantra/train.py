@@ -27,7 +27,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.optim import AdamW
-from typing import Any, Iterable, Optional, Tuple
+from typing import Any, Callable, Iterable, List, Optional, Tuple
 
 
 from Tantra.utils import get_logger, unwrap_model
@@ -71,6 +71,7 @@ def create_lr_scheduler(
     min_lr_ratio: float = 0.10,
     start_factor: float = 1e-3,
     start_step: int = 0,
+    last_epoch: int = -1,
 ) -> torch.optim.lr_scheduler.LambdaLR:
     """Creates a strictly clamped linear warmup + cosine decay LR schedule.
 
@@ -97,7 +98,7 @@ def create_lr_scheduler(
         cosine_decay = 0.5 * (1.0 + math.cos(math.pi * progress))
         return min_lr_ratio + (1.0 - min_lr_ratio) * cosine_decay
 
-    return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
+    return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda, last_epoch=last_epoch)
 
 
 class Lion(torch.optim.Optimizer):
@@ -248,6 +249,10 @@ class NeuroTrainer:
         self.best_val_loss = float('inf')
         self.is_new_best = False
         self.ema_loss = None
+        # Keep the last held-out measurement alongside the live training
+        # statistics.  Training loss can include auxiliary objectives and is
+        # therefore not a reliable indicator of generation quality by itself.
+        self.last_validation_metrics: dict[str, float] = {}
         self.ema_alignment: Optional[float] = None
 
         self.total_tokens = 0
@@ -332,10 +337,16 @@ class NeuroTrainer:
 
     def _write_training_status(self, **status: Any) -> None:
         """Publish real training state for the local Web UI and recovery logs."""
+        # Tests construct tiny random models and would otherwise overwrite the
+        # user's live dashboard with their synthetic two-step measurements.
+        if os.environ.get("PYTEST_CURRENT_TEST"):
+            return
         try:
             status_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "Model", "training_status.json")
             os.makedirs(os.path.dirname(status_path), exist_ok=True)
             status["updated_at"] = time.time()
+            if "validation" not in status and self.last_validation_metrics:
+                status["validation"] = dict(self.last_validation_metrics)
             self._status_history.append({
                 "step": status.get("step", self.step_count), "loss": status.get("loss"),
                 "ppl": status.get("ppl"), "tok_s": status.get("tok_s"),
@@ -391,6 +402,20 @@ class NeuroTrainer:
                 # Micro-batch contains only prompt/pad tokens and no assistant targets.
                 # Use zero loss so backprop / grad accumulation step can proceed correctly
                 # without skipping accumulation boundaries or dropping previously accumulated gradients.
+                # BUG-01 FIX: Rate-limited gradient-death warning. If this fires frequently
+                # (or every step), your dataset has no <|assistant|> targets — switch to
+                # --stage pretrain, or fix dataset formatting so assistant turns are present.
+                _last_warn = getattr(self, "_last_zero_sup_warn_step", -500)
+                if self.step_count - _last_warn >= 500:
+                    n_ignore = (y_flat == IGNORE_INDEX).sum().item()
+                    log.warning(
+                        f"[GRADIENT DEATH @ step {self.step_count}] ALL {n_ignore} targets in this "
+                        f"micro-batch are IGNORE_INDEX (-100). Zero loss → zero gradients → model "
+                        f"cannot learn. Possible causes: (1) dataset has no <|assistant|> turns, "
+                        f"(2) assistant content is empty, (3) wrong --stage (use pretrain for raw text). "
+                        f"This warning is rate-limited to once per 500 steps."
+                    )
+                    self._last_zero_sup_warn_step = self.step_count
                 loss = logits_flat.sum() * 0.0
             else:
                 # Memory optimization: only allocate cross-entropy softmax/backward buffers
@@ -449,7 +474,10 @@ class NeuroTrainer:
                 accuracy = None
                 self.last_top5_acc = None
 
-            ppl = math.exp(min(loss.item(), 20.0))
+            # BUG-12 FIX: Return inf for catastrophic loss instead of capping at exp(20)=485M.
+            # This makes dashboards immediately obvious when training has diverged.
+            _loss_for_ppl = loss.item()
+            ppl = math.exp(_loss_for_ppl) if _loss_for_ppl < 20.0 else float('inf')
 
         if self.scaler.is_enabled():
             self.scaler.scale(loss / self.grad_accumulation_steps).backward()
@@ -563,7 +591,8 @@ class NeuroTrainer:
 
 
 
-                ppl = math.exp(min(loss.item(), 20.0))
+                _vl = loss.item()
+                ppl = math.exp(_vl) if _vl < 20.0 else float('inf')
                 val_ppls.append(ppl)
 
                 batch_count += 1
@@ -588,13 +617,18 @@ class NeuroTrainer:
             is_new_best = True
             self.is_new_best = True
 
-        return {
+        metrics = {
             "val_loss": avg_val_loss,
             "val_acc": avg_val_acc,
             "val_top5_acc": avg_val_top5_acc,
             "val_ppl": avg_val_ppl,
             "is_new_best": is_new_best,
         }
+        self.last_validation_metrics = {
+            key: float(value) for key, value in metrics.items()
+            if key != "is_new_best"
+        }
+        return metrics
 
 
 
@@ -653,6 +687,13 @@ class NeuroTrainer:
 
         losses = []
         progress = None
+
+        # BUG-17 FIX: Initialize loop-local variables before the loop so that
+        # _write_training_status at the end is never looking at unbound names,
+        # even if the data_stream is empty (zero-iteration loop).
+        ppl: float = 0.0
+        grad_norm: float = 0.0
+        tok_per_sec: float = 0.0
 
 
         self._write_training_status(
@@ -1190,6 +1231,7 @@ class NeuroTrainer:
             "step_count": self.step_count,
             "best_loss": getattr(self, "best_loss", float('inf')),
             "best_val_loss": getattr(self, "best_val_loss", float('inf')),
+            "last_validation_metrics": copy.deepcopy(getattr(self, "last_validation_metrics", {})),
             "total_tokens": getattr(self, "total_tokens", 0),
             "session_tokens": getattr(self, "_session_tokens", 0),
             "total_training_seconds": accumulated_total_seconds,
@@ -1227,6 +1269,8 @@ class NeuroTrainer:
                         "total_training_time": format_time_duration(data["total_training_seconds"]),
                         "session_elapsed_seconds": round(data.get("session_elapsed_sec", 0.0), 2),
                         "actual_avg_step_sec": round(data.get("actual_avg_step_sec", 0.0), 2),
+                        "best_val_loss": data.get("best_val_loss"),
+                        "last_validation": data.get("last_validation_metrics", {}),
                     }, handle, indent=2)
                 os.replace(meta_temp, meta_path)
 
@@ -1465,14 +1509,45 @@ class NeuroTrainer:
         if not reset_optimizer and "optimizer_state_dict" in ckpt:
             try:
                 self.optimizer.load_state_dict(ckpt["optimizer_state_dict"])
-            except Exception:
-                log.warning("Could not restore optimizer state — using fresh optimizer.")
+            except ValueError as exc:
+                # Older checkpoints were written with one AdamW parameter
+                # group, while current trainers split decay/no-decay tensors.
+                # Recreate that legacy layout so its momentum is usable rather
+                # than silently throwing away the learned optimizer history.
+                saved_groups = ckpt["optimizer_state_dict"].get("param_groups", [])
+                if len(saved_groups) == 1 and isinstance(self.optimizer, AdamW):
+                    saved_group = saved_groups[0]
+                    valid_keys = {"lr", "betas", "eps", "weight_decay", "amsgrad", "maximize", "foreach", "capturable", "differentiable", "fused"}
+                    legacy_options = {
+                        key: value for key, value in saved_group.items()
+                        if key in valid_keys
+                    }
+                    legacy_options.setdefault("lr", self.lr)
+                    self.optimizer = AdamW(
+                        [param for param in self.model.parameters() if param.requires_grad],
+                        **legacy_options,
+                    )
+                    try:
+                        # Clean param groups in state dict as well to avoid unexpected kwarg errors
+                        for g in ckpt["optimizer_state_dict"].get("param_groups", []):
+                            for extra_k in list(g.keys()):
+                                if extra_k != "params" and extra_k not in valid_keys:
+                                    g.pop(extra_k, None)
+                        self.optimizer.load_state_dict(ckpt["optimizer_state_dict"])
+                        log.info("Restored optimizer momentum using legacy single-group AdamW compatibility.")
+                    except Exception as legacy_exc:
+                        log.warning("Could not restore legacy optimizer state — using fresh optimizer (%s).", legacy_exc)
+                else:
+                    log.warning("Could not restore optimizer state — using fresh optimizer (%s).", exc)
+            except Exception as exc:
+                log.warning("Could not restore optimizer state — using fresh optimizer (%s).", exc)
         elif reset_optimizer:
             log.info("reset_optimizer=True — discarding saved optimizer state. Fresh momentum for new dataset.")
 
         self.step_count = ckpt.get("step_count", 0)
         self.best_loss = ckpt.get("best_loss", float('inf'))
         self.best_val_loss = ckpt.get("best_val_loss", float('inf'))
+        self.last_validation_metrics = ckpt.get("last_validation_metrics", {}) or {}
 
         if reset_optimizer:
             # A fresh optimizer means a new dataset/stage — the old best_val_loss was

@@ -17,23 +17,83 @@ log = get_logger("tantra.evolution")
 
 
 class AutoGrowthController:
-    """Monitors training loss trajectory and dynamically grows model capacity."""
+    """Monitors training loss trajectory and layer representation saturation (80-90%)
+    to dynamically expand model capacity only when existing layers are genuinely filled.
+    """
 
-    def __init__(self, plateau_patience: int = 1000, min_delta: float = 0.005, max_layers: Optional[int] = None):
+    def __init__(
+        self,
+        plateau_patience: int = 250,
+        min_delta: float = 0.003,
+        max_layers: Optional[int] = None,
+        saturation_threshold: float = 0.80,
+        max_loss_for_growth: float = 10.0,
+    ):
         self.plateau_patience = plateau_patience
         self.min_delta = min_delta
+        self.max_layers = max_layers
+        self.saturation_threshold = float(saturation_threshold)
+        self.max_loss_for_growth = float(max_loss_for_growth)
         self.loss_history: List[float] = []
         self.growth_events: List[Dict[str, Any]] = []
         # Guard: allow at most one growth event per plateau window to prevent
         # repeated layer additions that desync generate()'s layer-state list.
         self._steps_since_growth: int = 0
-        self.max_layers = max_layers
+
+    @staticmethod
+    def compute_capacity_saturation(model: nn.Module) -> float:
+        """Measure what fraction (0.0 to 1.0) of layer representation capacity is utilized.
+
+        Evaluates:
+        1. Neuron activation ratio in SparseGatedProjection layers.
+        2. Dimensional representation participation ratio (effective rank / dimension usage)
+           across output projection matrices.
+        """
+        actual_model = model
+        while hasattr(actual_model, "module"):
+            actual_model = actual_model.module
+        while hasattr(actual_model, "_orig_mod"):
+            actual_model = actual_model._orig_mod
+        while hasattr(actual_model, "module"):
+            actual_model = actual_model.module
+
+        if not hasattr(actual_model, "layers") or not actual_model.layers:
+            return 0.0
+
+        saturation_scores: List[float] = []
+
+        for layer in actual_model.layers:
+            # 1. Sparse MLP neuron active ratio
+            mlp = getattr(layer, "mlp", None)
+            if mlp is not None and hasattr(mlp, "_last_active_ratio"):
+                target_ratio = getattr(mlp, "k", 1) / max(1, getattr(mlp, "hidden_dim", 1))
+                if target_ratio > 0:
+                    act_score = min(1.0, float(mlp._last_active_ratio) / target_ratio)
+                    saturation_scores.append(act_score)
+
+            # 2. Linear projection dimensional participation ratio:
+            w_candidate = None
+            if mlp is not None and hasattr(mlp, "w_down") and hasattr(mlp.w_down, "weight"):
+                w_candidate = mlp.w_down.weight
+            elif hasattr(layer, "attn") and hasattr(layer.attn, "w_o") and hasattr(layer.attn.w_o, "weight"):
+                w_candidate = layer.attn.w_o.weight
+
+            if w_candidate is not None and w_candidate.ndim == 2:
+                with torch.no_grad():
+                    w_data = w_candidate.detach().float()
+                    row_vars = torch.var(w_data, dim=-1)
+                    active_dims = (row_vars > 1e-5).float().mean().item()
+                    saturation_scores.append(active_dims)
+
+        if not saturation_scores:
+            return 0.85
+        return sum(saturation_scores) / len(saturation_scores)
 
     def observe(self, loss: float, model: nn.Module) -> bool:
-        """Observe step loss. Returns True if capacity growth was triggered."""
+        """Observe step loss & layer capacity saturation. Returns True if capacity growth was triggered."""
         self.loss_history.append(loss)
         self._steps_since_growth += 1
-        
+
         if len(self.loss_history) < self.plateau_patience:
             return False
 
@@ -48,10 +108,34 @@ class AutoGrowthController:
         improvement = window_start - window_end
 
         if improvement < self.min_delta:
-            log.info(f"Loss plateau detected (improvement: {improvement:.5f} < {self.min_delta}). Triggering auto-growth...")
+            # Check 1: Loss must be within normal learning regime (<= max_loss_for_growth).
+            # If loss is 13.0+, the model is still in initial convergence or divergence;
+            # it does NOT need more layers, it needs to learn the current layers!
+            if window_end > self.max_loss_for_growth:
+                log.debug(
+                    f"Loss plateau detected at {window_end:.4f}, but loss > {self.max_loss_for_growth:.1f}. "
+                    f"Skipping growth until current layer capacity is learned."
+                )
+                return False
+
+            # Check 2: Layer representation capacity must be 80-90% saturated
+            saturation = self.compute_capacity_saturation(model)
+            if saturation < self.saturation_threshold:
+                log.info(
+                    f"Loss plateau detected at {window_end:.4f}, but layer representation is only "
+                    f"{saturation*100:.1f}% saturated (< {self.saturation_threshold*100:.0f}% threshold). "
+                    f"Existing layers still have capacity headroom — continuing optimization."
+                )
+                return False
+
+            log.info(
+                f"🧠 [CAPACITY SATURATED: {saturation*100:.1f}%] Layer capacity reached saturation threshold "
+                f"(>= {self.saturation_threshold*100:.0f}%) and loss plateaued at {window_end:.4f} "
+                f"(improvement: {improvement:.5f} < {self.min_delta}). Dynamically expanding model depth..."
+            )
             grown = self.grow_capacity(model)
-            # Reset tracking so we evaluate again only after a new full patience window
-            self.loss_history.clear()
+            keep = max(0, self.plateau_patience // 2)
+            self.loss_history = self.loss_history[-keep:] if keep > 0 else []
             self._steps_since_growth = 0
             return grown
 

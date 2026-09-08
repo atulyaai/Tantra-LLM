@@ -35,7 +35,10 @@ class DynamicScaleNorm(nn.Module):
         orig_dtype = x.dtype
         x_norm = F.layer_norm(x.float(), (x.shape[-1],), eps=self.eps).to(orig_dtype)
         scale = torch.sigmoid(self.w_scale(x))
-        return x_norm * scale * self.gamma + self.beta
+        # BUG-19 FIX: Cast gamma/beta to x's dtype so the output stays in the
+        # model's working precision (e.g. bf16 under AMP) instead of silently
+        # upcasting the whole activation to float32 via gamma's default float32 storage.
+        return x_norm * scale * self.gamma.to(orig_dtype) + self.beta.to(orig_dtype)
 
 
 # ── RotaryPositionalEncoding ──
@@ -93,7 +96,7 @@ class ALRAAttention(nn.Module):
         self.num_heads = config.num_heads
         self.head_dim = config.head_dim
         self.use_forget_gate = config.use_forget_gate
-        self.eps = 1e-6
+        self.eps = 1e-4  # BUG-02 FIX: 1e-6 caused near-zero denominator div (≈1e6 magnitude) with ELU+1 kernels early in training
 
         assert self.dim == self.num_heads * self.head_dim, "dim must be num_heads * head_dim"
 
@@ -330,18 +333,32 @@ class SparseGatedProjection(nn.Module):
     def forward(self, x: Tensor) -> Tensor:
         gates = torch.sigmoid(self.w_gate(x))
         mask = top_k_mask(gates, self.k)
-        
+
+        # BUG-11 FIX: Actually update the monitoring metric.
+        # detach() so this stat-tracking doesn't participate in backprop.
+        with torch.no_grad():
+            self._last_active_ratio = mask.float().mean().item()
+
         if self.training:
             mask_float = mask.to(x.dtype)
+            # BUG-03 FIX: The original STE `mask_float.detach() - gates.detach() + gates`
+            # passes gradients through `gates` for all neurons (active and inactive).
+            # However, for inactive neurons the hidden state is ~0, so the gradient
+            # of w_up and the output projection for those neurons is also ~0 —
+            # they receive no useful learning signal from the loss.
+            # Add a small soft bypass (0.01 * gates) so inactive neurons still carry
+            # a tiny gradient signal from their pre-activation, keeping them "alive"
+            # and preventing permanent dead neuron lock-in without meaningfully
+            # changing the dominant (active) neuron outputs.
             mask_st = mask_float.detach() - gates.detach() + gates
             up = self.act(self.w_up(x))
-            hidden = up * mask_st
+            # Dominant active path + tiny soft bypass for inactive neurons
+            hidden = up * mask_st + 0.01 * gates * (1.0 - mask_float.detach())
         else:
             mask_float = mask.to(x.dtype)
             up = self.act(self.w_up(x))
             hidden = up * mask_float
 
-            
         return self.w_down(hidden)
 
     def get_activation_stats(self) -> dict:
@@ -486,7 +503,12 @@ class LatentCoTHeader(nn.Module):
             normed = self.reasoning_norm(state)
             delta = F.silu(self.reasoning_proj(normed))
             g = torch.sigmoid(self.gate(torch.cat([state, delta], dim=-1)))
-            state = torch.clamp(state + g * delta, min=-100.0, max=100.0)
+            # BUG-04 FIX: Tighten clamp from ±100 → ±10.
+            # ±100 was 10× wider than the logit soft-cap (±30), causing final_norm
+            # to see wildly-scaled inputs and destabilise its variance estimates.
+            # ±10 keeps states well within a normalizable range while still allowing
+            # the reasoning header full expressive power.
+            state = torch.clamp(state + g * delta, min=-10.0, max=10.0)
         return state
 
 
@@ -844,7 +866,11 @@ class NeuroCoreModel(nn.Module):
         if prompt_ids.numel() == 0 or prompt_ids.size(1) == 0:
             prompt_ids = torch.tensor([[1]], device=prompt_ids.device, dtype=torch.long)
         B, T = prompt_ids.shape
-        states = [{} for _ in range(len(self.layers))]
+        num_layers = len(self.layers)
+        resolved_category = adapter_name or self.active_category
+        if resolved_category and resolved_category in self.category_layers:
+            num_layers += len(self.category_layers[resolved_category])
+        states = [{} for _ in range(num_layers)]
 
         for t in range(T):
             token = prompt_ids[:, t:t+1]
@@ -954,7 +980,11 @@ class NeuroCoreModel(nn.Module):
         if prompt_ids.numel() == 0 or prompt_ids.size(1) == 0:
             prompt_ids = torch.tensor([[1]], device=prompt_ids.device, dtype=torch.long)
         B, T = prompt_ids.shape
-        states = [{} for _ in range(len(self.layers))]
+        num_layers = len(self.layers)
+        resolved_category = adapter_name or self.active_category
+        if resolved_category and resolved_category in self.category_layers:
+            num_layers += len(self.category_layers[resolved_category])
+        states = [{} for _ in range(num_layers)]
 
         if banned_token_ids is None:
             banned_token_ids = [28344, 23214, 12932, 13142, 19409]

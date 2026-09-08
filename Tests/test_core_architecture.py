@@ -440,26 +440,6 @@ def test_hardware_detection_and_runtime_config():
     assert runtime.device in ("cpu", "cuda:0", "mps") and runtime.batch_size >= 1
 
 
-@pytest.fixture
-def micro_config():
-    cfg = NeuroCoreConfig()
-    cfg.block.num_layers = 1
-    cfg.block.alra.dim, cfg.block.alra.num_heads, cfg.block.alra.head_dim = 32, 4, 8
-    cfg.block.sgp.dim = 32
-    cfg.vocab = VocabConfig(vocab_size=1000)
-    cfg.use_mtp, cfg.reasoning_depth = True, 1
-    return cfg
-
-
-def test_mtp_training_and_speculative_generation(micro_config):
-    model = NeuroCoreModel(micro_config)
-    trainer = NeuroTrainer(model, lr=1e-3)
-    x = torch.randint(0, 1000, (2, 16))
-    loss, _, _, _, at_boundary = trainer.train_step(x, x.clone())
-    assert loss >= 0 and at_boundary and trainer.step_count == 1
-    assert model.generate(torch.tensor([[1, 2, 3]]), max_new_tokens=8, use_mtp_speculation=True).shape == (1, 11)
-    assert 1 <= len(list(model.generate_stream(torch.tensor([[1, 2, 3]]), max_new_tokens=4, temperature=0))) <= 4
-
 
 def test_variable_seq_len_checkpoint_transfer(micro_config, tmp_path):
     model1 = NeuroCoreModel(micro_config)

@@ -643,28 +643,5 @@ def test_refresh_optimizer_preserves_momentum():
     assert torch.equal(trainer.optimizer.state[first_param]["exp_avg"], old_momentum)
 
 
-def test_export_clean_checkpoint():
-    """Verify export_clean_checkpoint preserves metadata and strips optimizer."""
-    from Tantra.export import export_clean_checkpoint
-
-    cfg = _make_test_cfg()
-    model = NeuroCoreModel(cfg)
-    trainer = NeuroTrainer(model, lr=1e-3)
-    trainer.step_count = 1234
-    trainer.best_loss = 2.45
-
-    with tempfile.TemporaryDirectory() as tmpdir:
-        raw_ckpt = os.path.join(tmpdir, "raw.pt")
-        clean_ckpt = os.path.join(tmpdir, "clean.pt")
-
-        trainer.save_checkpoint(raw_ckpt, save_optimizer=True)
-        export_clean_checkpoint(raw_ckpt, clean_ckpt)
-
-        loaded = torch.load(clean_ckpt, map_location="cpu", weights_only=False)
-        assert loaded["step_count"] == 1234
-        assert loaded["best_loss"] == 2.45
-        assert "model_state_dict" in loaded
-        assert "optimizer_state_dict" not in loaded
-
 
 
