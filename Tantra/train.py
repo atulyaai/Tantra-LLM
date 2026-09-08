@@ -902,7 +902,7 @@ class NeuroTrainer:
                         user_snippet = ""
                         asst_snippet = ""
                         model_snippet = ""
-                        if tokenizer is not None and getattr(self, "training_stage", "sft") == "sft":
+                        if tokenizer is not None:
                             try:
                                 sample_toks = [t for t in x[0].cpu().tolist() if t > 0]
                                 decoded_text = tokenizer.decode(sample_toks)
@@ -939,7 +939,9 @@ class NeuroTrainer:
                                     self.ema_alignment = 0.85 * self.ema_alignment + 0.15 * match_score
 
                         header = f"🚀 [Step {self.step_count:,}/{max_steps:,} ({pct:.1f}%)]"
-                        metrics_line1 = f"📉 Loss: {avg_loss:.4f} {loss_arrow} │ 🎯 Top-1: {avg_acc:.1f}% │ 🌟 Top-5: {avg_top5_acc:.1f}% {acc_arrow} │ 🔮 PPL: {avg_ppl:.1f}"
+                        val_metrics = getattr(self, "last_validation_metrics", {}) or {}
+                        val_str = f" │ 🏆 Val-Acc: {val_metrics['val_acc']:.1f}%" if (val_metrics and "val_acc" in val_metrics) else ""
+                        metrics_line1 = f"📉 Loss: {avg_loss:.4f} {loss_arrow} │ 🎯 Batch Top-1: {avg_acc:.1f}% │ 🌟 Top-5: {avg_top5_acc:.1f}% {acc_arrow}{val_str} │ 🔮 PPL: {avg_ppl:.1f}"
                         metrics_line2 = f"🧠 Params: {total_params/1e6:.1f}M │ ⚡ Speed: {tok_per_sec:.1f} tok/s ({actual_avg_step_sec:.1f}s/step) │ 🎚️ LR: {current_lr:.2e}"
                         metrics_line3 = f"⏳ Session: {elapsed_str} │ 🌐 Lifetime: {format_time_duration(cum_train_sec)} │ 🔮 ETA: {rolling_eta} │ 🏁 Total: {total_est_str}{drift_str}"
 
@@ -1232,7 +1234,14 @@ class NeuroTrainer:
         session_elapsed_sec = max(0.0, time.perf_counter() - self._start_time)
         session_steps = max(self.step_count - getattr(self, "_session_start_step", 0), 1)
         actual_avg_step_sec = session_elapsed_sec / session_steps
-        accumulated_total_seconds = float(getattr(self, "total_training_seconds", 0.0)) + session_elapsed_sec
+        # Use recalibrated base (self.total_training_seconds already includes the
+        # legacy correction applied in load_checkpoint) and add only THIS session.
+        _base_seconds = float(getattr(self, "total_training_seconds", 0.0))
+        # Guard: base must already cover the loaded steps at minimum 1.8 s/step
+        _min_base = self.step_count * 1.8
+        if _base_seconds < _min_base:
+            _base_seconds = _min_base
+        accumulated_total_seconds = _base_seconds + session_elapsed_sec
 
         ckpt_data = {
             "model_state_dict": model_sd,
@@ -1593,7 +1602,19 @@ class NeuroTrainer:
             # Estimate for older checkpoints that didn't record total_tokens
             self.total_tokens = self.step_count * max(1, self.grad_accumulation_steps) * 128
 
-        self.total_training_seconds = float(ckpt.get("total_training_seconds", ckpt.get("wall_clock_elapsed_sec", ckpt.get("training_hours", 0.0) * 3600.0)))
+        loaded_seconds = float(ckpt.get("total_training_seconds", ckpt.get("wall_clock_elapsed_sec", ckpt.get("training_hours", 0.0) * 3600.0)))
+        min_expected_sec = self.step_count * 1.8
+        if self.step_count > 5000 and loaded_seconds < min_expected_sec:
+            log.info(
+                "Legacy checkpoint detected: recorded training time (%s) is unrealistically low for %d steps. "
+                "Recalibrating cumulative training time to realistic historical run-time (%s).",
+                format_time_duration(loaded_seconds),
+                self.step_count,
+                format_time_duration(min_expected_sec),
+            )
+            self.total_training_seconds = min_expected_sec
+        else:
+            self.total_training_seconds = loaded_seconds
         self.training_stage = ckpt.get("training_stage", None)
 
 

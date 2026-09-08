@@ -11,7 +11,9 @@ from torch import Tensor
 
 from Tantra.config import NeuroCoreConfig, ALRAConfig, SGPConfig, NeuroCoreBlockConfig, BitNetConfig
 from Tantra.bitnet import BitLinear, TernaryQuantizer
-from Tantra.utils import elu_plus_one, top_k_mask
+from Tantra.utils import elu_plus_one, top_k_mask, get_logger
+
+log = get_logger("tantra.model")
 
 
 # ── DynamicScaleNorm ──
@@ -624,15 +626,26 @@ class NeuroCoreModel(nn.Module):
                  for _ in range(len(stack))]
             )
 
-    def grow_category(self, category: str, cap: int) -> bool:
-        """Append one more specialist layer to a category (up to ``cap`` total)."""
+    def grow_category(self, category: str, cap: int, max_params: int = 1_000_000_000) -> bool:
+        """Append one more specialist layer to a category (up to ``cap`` total), respecting 1B param ceiling."""
         import copy
         if category not in self.category_layers:
             return False
         stack = self.category_layers[category]
         if len(stack) >= cap:
             return False
+
+        # Guard 1 Billion Parameter Limit
+        current_params = sum(p.numel() for p in self.parameters())
         source = stack[-1]
+        layer_params = sum(p.numel() for p in source.parameters())
+        if (current_params + layer_params) > max_params:
+            log.warning(
+                f"⛔ [GROWTH BLOCKED] Growing category '{category}' (+{layer_params/1e6:.1f}M params) "
+                f"would exceed 1 Billion parameter ceiling ({max_params/1e6:.0f}M). Current: {current_params/1e6:.1f}M."
+            )
+            return False
+
         new_layer = copy.deepcopy(source)
         with torch.no_grad():
             for p in new_layer.parameters():
@@ -641,6 +654,7 @@ class NeuroCoreModel(nn.Module):
         self.category_gates[category].append(
             nn.Parameter(torch.zeros((), dtype=torch.get_default_dtype()), requires_grad=True)
         )
+        log.info(f"🌱 Category '{category}' auto-grown to depth {len(stack)} (Total: {sum(p.numel() for p in self.parameters())/1e6:.1f}M params).")
         return True
 
     def shrink_category(self, category: str, floor: int = 1) -> bool:

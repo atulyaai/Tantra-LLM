@@ -28,12 +28,14 @@ class AutoGrowthController:
         max_layers: Optional[int] = None,
         saturation_threshold: float = 0.80,
         max_loss_for_growth: float = 10.0,
+        max_params: int = 1_000_000_000,
     ):
         self.plateau_patience = plateau_patience
         self.min_delta = min_delta
         self.max_layers = max_layers
         self.saturation_threshold = float(saturation_threshold)
         self.max_loss_for_growth = float(max_loss_for_growth)
+        self.max_params = int(max_params)
         self.loss_history: List[float] = []
         self.growth_events: List[Dict[str, Any]] = []
         # Guard: allow at most one growth event per plateau window to prevent
@@ -65,7 +67,7 @@ class AutoGrowthController:
         for layer in actual_model.layers:
             # 1. Sparse MLP neuron active ratio
             mlp = getattr(layer, "mlp", None)
-            if mlp is not None and hasattr(mlp, "_last_active_ratio"):
+            if mlp is not None and hasattr(mlp, "_last_active_ratio") and mlp._last_active_ratio > 0:
                 target_ratio = getattr(mlp, "k", 1) / max(1, getattr(mlp, "hidden_dim", 1))
                 if target_ratio > 0:
                     act_score = min(1.0, float(mlp._last_active_ratio) / target_ratio)
@@ -89,7 +91,7 @@ class AutoGrowthController:
             return 0.85
         return sum(saturation_scores) / len(saturation_scores)
 
-    def observe(self, loss: float, model: nn.Module) -> bool:
+    def observe(self, loss: float, model: nn.Module, optimizer: Optional[Any] = None) -> bool:
         """Observe step loss & layer capacity saturation. Returns True if capacity growth was triggered."""
         self.loss_history.append(loss)
         self._steps_since_growth += 1
@@ -133,7 +135,7 @@ class AutoGrowthController:
                 f"(>= {self.saturation_threshold*100:.0f}%) and loss plateaued at {window_end:.4f} "
                 f"(improvement: {improvement:.5f} < {self.min_delta}). Dynamically expanding model depth..."
             )
-            grown = self.grow_capacity(model)
+            grown = self.grow_capacity(model, optimizer=optimizer)
             keep = max(0, self.plateau_patience // 2)
             self.loss_history = self.loss_history[-keep:] if keep > 0 else []
             self._steps_since_growth = 0
@@ -141,8 +143,8 @@ class AutoGrowthController:
 
         return False
 
-    def grow_capacity(self, model: nn.Module) -> bool:
-        """Dynamically add capacity to model layers or experts."""
+    def grow_capacity(self, model: nn.Module, optimizer: Optional[Any] = None) -> bool:
+        """Dynamically add capacity to model layers or experts with 1B parameter ceiling."""
         actual_model = model
         while hasattr(actual_model, "module"):
             actual_model = actual_model.module
@@ -155,9 +157,21 @@ class AutoGrowthController:
             if self.max_layers is not None and len(actual_model.layers) >= self.max_layers:
                 log.info("Auto-growth plateau observed, but maximum depth (%d) is already reached.", self.max_layers)
                 return False
+
+            # Check 1 Billion Parameter Limit guard
+            current_params = sum(p.numel() for p in actual_model.parameters())
+            last_layer = actual_model.layers[-1]
+            layer_params = sum(p.numel() for p in last_layer.parameters())
+
+            if (current_params + layer_params) > self.max_params:
+                log.warning(
+                    f"⛔ [GROWTH BLOCKED] Adding layer ({layer_params/1e6:.1f}M params) would exceed "
+                    f"1 Billion parameter ceiling ({self.max_params/1e6:.0f}M). Current: {current_params/1e6:.1f}M."
+                )
+                return False
+
             # Duplicate and perturb last layer to grow depth
             import copy
-            last_layer = actual_model.layers[-1]
             new_layer = copy.deepcopy(last_layer)
             
             # Small random perturbation to break symmetry
@@ -167,8 +181,18 @@ class AutoGrowthController:
             actual_model.layers.append(new_layer)
             if hasattr(actual_model, "config") and hasattr(actual_model.config, "block"):
                 actual_model.config.block.num_layers = len(actual_model.layers)
-            log.info(f"Model capacity auto-grown: total layers is now {len(actual_model.layers)}")
-            self.growth_events.append({"type": "add_layer", "new_total": len(actual_model.layers)})
+
+            # Sync with optimizer so new parameters receive gradients and updates
+            if optimizer is not None and hasattr(optimizer, "param_groups") and optimizer.param_groups:
+                optimizer.param_groups[0]["params"].extend(list(new_layer.parameters()))
+                log.info("Registered newly grown layer parameters with optimizer param_groups.")
+
+            new_total_params = sum(p.numel() for p in actual_model.parameters())
+            log.info(
+                f"🌱 Model capacity auto-grown: total layers is now {len(actual_model.layers)} "
+                f"({new_total_params/1e6:.1f}M / {self.max_params/1e6:.0f}M params max)."
+            )
+            self.growth_events.append({"type": "add_layer", "new_total": len(actual_model.layers), "total_params": new_total_params})
             return True
         return False
 
