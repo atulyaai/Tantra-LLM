@@ -49,6 +49,13 @@
                 <span id="live-speed-text">LIVE 157.4 tok/s</span>
             </div>
 
+            <!-- CHECKPOINT SELECTOR -->
+            <div class="refresh-control" title="Active Model Checkpoint" style="margin-right: 6px;">
+                <select id="sel-checkpoint" onchange="switchCheckpoint(this.value)" style="max-width: 170px;">
+                    <option value="">💾 Checkpoint...</option>
+                </select>
+            </div>
+
             <!-- AUTO REFRESH SELECTOR -->
             <div class="refresh-control" title="Auto telemetry polling frequency">
                 <select id="sel-poll-rate" onchange="changePollRate(this.value)">
@@ -194,10 +201,37 @@
                         <h2 class="view-title">📈 Live Autonomous Training & Alignment Telemetry</h2>
                         <p class="view-subtitle">Real-time convergence curves, step speed, auto-growth layer depth, and active training status from <code class="inline-code">Model/training_status.json</code>.</p>
                     </div>
-                    <div style="display:flex; gap:10px; align-items:center;">
+                    <div style="display:flex; gap:8px; align-items:center;">
                         <span class="status-badge" id="train-status-pill">● IDLE</span>
-                        <button class="btn-action btn-cyan" onclick="loadTrainingDashboard(true)">🔄 Force Refresh</button>
+                        <button class="btn-action" id="btn-start-training" style="background:#10b981; color:#fff;" onclick="startTrainingFromUI()">▶️ Start</button>
+                        <button class="btn-action" id="btn-stop-training" style="background:#ef4444; color:#fff;" onclick="stopTrainingFromUI()">⏹️ Stop</button>
+                        <button class="btn-action btn-cyan" onclick="loadTrainingDashboard(true)">🔄 Refresh</button>
                     </div>
+                </div>
+
+                <!-- TRAINING CONTROL CONFIG BAR -->
+                <div class="glass-card" style="margin-bottom: 20px; padding: 12px 18px; display: flex; flex-wrap: wrap; gap: 14px; align-items: center; justify-content: space-between;">
+                    <div style="display: flex; flex-wrap: wrap; gap: 12px; align-items: center;">
+                        <label style="font-size: 0.8rem; color: var(--text-muted);">Stage:
+                            <select id="train-cfg-stage" style="background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15); color: #fff; padding: 4px 8px; border-radius: 6px; margin-left: 4px;">
+                                <option value="pretrain" selected>Pretrain (Full Token)</option>
+                                <option value="sft">SFT (Instruction)</option>
+                            </select>
+                        </label>
+                        <label style="font-size: 0.8rem; color: var(--text-muted);">Steps:
+                            <input type="number" id="train-cfg-steps" value="500" style="width: 75px; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15); color: #fff; padding: 4px 8px; border-radius: 6px; margin-left: 4px;">
+                        </label>
+                        <label style="font-size: 0.8rem; color: var(--text-muted);">Batch:
+                            <input type="number" id="train-cfg-batch" value="2" style="width: 55px; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15); color: #fff; padding: 4px 8px; border-radius: 6px; margin-left: 4px;">
+                        </label>
+                        <label style="font-size: 0.8rem; color: var(--text-muted);">LR:
+                            <input type="text" id="train-cfg-lr" value="3e-4" style="width: 70px; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15); color: #fff; padding: 4px 8px; border-radius: 6px; margin-left: 4px;">
+                        </label>
+                        <label style="font-size: 0.8rem; color: var(--text-muted); display: flex; align-items: center; gap: 4px;">
+                            <input type="checkbox" id="train-cfg-resume" checked> Resume
+                        </label>
+                    </div>
+                    <div id="train-ui-msg" style="font-size: 0.8rem; font-weight: 600; color: var(--cyan);"></div>
                 </div>
 
                 <!-- PROGRESS BAR -->

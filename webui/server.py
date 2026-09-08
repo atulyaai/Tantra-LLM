@@ -53,6 +53,7 @@ MODEL = None
 TOKENIZER = None
 HW = None
 ACTIVE_CHECKPOINT = "checkpoint_latest.pt"
+ACTIVE_TRAINING_PROCESS = None
 
 # Persistent Chat & Memory Storage File Paths
 CHAT_FILE = os.path.join(REPO_ROOT, "Model", "saved_chats.json")
@@ -1222,6 +1223,155 @@ async def get_live_training_status():
         "stage": "Ready / Idle",
         "history": []
     }
+
+
+@app.post("/api/training/start")
+async def start_training_job(request: Request):
+    """Launches a live background training process via main.py."""
+    global ACTIVE_TRAINING_PROCESS
+    if ACTIVE_TRAINING_PROCESS is not None and ACTIVE_TRAINING_PROCESS.poll() is None:
+        raise HTTPException(status_code=400, detail="A training run is already in progress.")
+
+    body = await request.json()
+    dataset = body.get("dataset", "Datasets/tantra_master_train.jsonl")
+    stage = body.get("stage", "pretrain")
+    steps = int(body.get("steps", 500))
+    batch_size = int(body.get("batch_size", 2))
+    grad_accum = int(body.get("grad_accum", 4))
+    lr = float(body.get("lr", 3e-4))
+    resume = bool(body.get("resume", True))
+
+    dataset_full = os.path.join(REPO_ROOT, dataset) if not os.path.isabs(dataset) else dataset
+    if not os.path.exists(dataset_full):
+        raise HTTPException(status_code=404, detail=f"Dataset not found at {dataset}")
+
+    cmd = [
+        sys.executable,
+        os.path.join(REPO_ROOT, "main.py"),
+        "--mode", "dataset",
+        "--dataset", dataset_full,
+        "--stage", stage,
+        "--steps", str(steps),
+        "--batch-size", str(batch_size),
+        "--grad-accum", str(grad_accum),
+        "--lr", str(lr),
+    ]
+    if resume:
+        cmd.append("--resume")
+
+    try:
+        ACTIVE_TRAINING_PROCESS = subprocess.Popen(
+            cmd, cwd=REPO_ROOT, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+        )
+        return {"status": "started", "pid": ACTIVE_TRAINING_PROCESS.pid, "stage": stage, "target_steps": steps}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to start training: {e}")
+
+
+@app.post("/api/training/stop")
+async def stop_training_job():
+    """Terminates active training process."""
+    global ACTIVE_TRAINING_PROCESS
+    if ACTIVE_TRAINING_PROCESS is None or ACTIVE_TRAINING_PROCESS.poll() is not None:
+        return {"status": "not_running"}
+
+    try:
+        ACTIVE_TRAINING_PROCESS.terminate()
+        try:
+            ACTIVE_TRAINING_PROCESS.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            ACTIVE_TRAINING_PROCESS.kill()
+        ACTIVE_TRAINING_PROCESS = None
+        return {"status": "stopped"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to stop training: {e}")
+
+
+@app.get("/api/checkpoints/list")
+async def list_available_checkpoints():
+    """Lists available model checkpoints with size and timestamp."""
+    results = []
+    search_dirs = [
+        os.path.join(REPO_ROOT, "Model", "Checkpoints"),
+        os.path.join(REPO_ROOT, "Model", "Latest"),
+        os.path.join(REPO_ROOT, "Model", "Best"),
+    ]
+    for s_dir in search_dirs:
+        if os.path.exists(s_dir):
+            for f in os.listdir(s_dir):
+                if f.endswith(".pt"):
+                    fpath = os.path.join(s_dir, f)
+                    try:
+                        sz_mb = os.path.getsize(fpath) / (1024 * 1024)
+                        mtime = os.path.getmtime(fpath)
+                        rel_path = os.path.relpath(fpath, REPO_ROOT)
+                        results.append({
+                            "name": f,
+                            "path": rel_path,
+                            "size_mb": round(sz_mb, 1),
+                            "modified": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(mtime)),
+                            "is_active": (f == ACTIVE_CHECKPOINT or rel_path == ACTIVE_CHECKPOINT),
+                        })
+                    except Exception:
+                        pass
+    results.sort(key=lambda x: x["modified"], reverse=True)
+    return {"checkpoints": results, "active": ACTIVE_CHECKPOINT}
+
+
+@app.post("/api/checkpoints/switch")
+async def switch_active_checkpoint(request: Request):
+    """Hot-reloads the active checkpoint for inference."""
+    global ACTIVE_CHECKPOINT, MODEL
+    body = await request.json()
+    ckpt_name_or_path = body.get("checkpoint")
+    if not ckpt_name_or_path:
+        raise HTTPException(status_code=400, detail="Missing 'checkpoint' field")
+
+    cand_path = os.path.join(REPO_ROOT, ckpt_name_or_path) if not os.path.isabs(ckpt_name_or_path) else ckpt_name_or_path
+    if not os.path.exists(cand_path):
+        found = None
+        for root_d, _, files in os.walk(os.path.join(REPO_ROOT, "Model")):
+            if ckpt_name_or_path in files:
+                found = os.path.join(root_d, ckpt_name_or_path)
+                break
+        if found:
+            cand_path = found
+        else:
+            raise HTTPException(status_code=404, detail=f"Checkpoint file not found: {ckpt_name_or_path}")
+
+    try:
+        get_model_and_tokenizer(checkpoint_path=cand_path)
+        ACTIVE_CHECKPOINT = os.path.basename(cand_path)
+        return {"status": "reloaded", "active_checkpoint": ACTIVE_CHECKPOINT}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to reload checkpoint: {e}")
+
+
+@app.get("/api/datasets/preview")
+async def preview_dataset_samples(limit: int = 5):
+    """Returns real dataset samples with token counts from tantra_master_train.jsonl."""
+    ds_path = os.path.join(REPO_ROOT, "Datasets", "tantra_master_train.jsonl")
+    if not os.path.exists(ds_path):
+        raise HTTPException(status_code=404, detail="tantra_master_train.jsonl not found")
+
+    samples = []
+    try:
+        with open(ds_path, "r", encoding="utf-8") as f:
+            for i, line in enumerate(f):
+                if i >= limit:
+                    break
+                line = line.strip()
+                if line:
+                    item = json.loads(line)
+                    samples.append({
+                        "index": i + 1,
+                        "system": item.get("system", ""),
+                        "user": item.get("user", "")[:300],
+                        "assistant": item.get("assistant", "")[:300],
+                    })
+        return {"samples": samples, "total_previewed": len(samples)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to preview dataset: {e}")
 
 
 @app.post("/api/multimodal/audio_generate")

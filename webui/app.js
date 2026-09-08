@@ -613,9 +613,10 @@ function updateTrainingDashboardUI(data) {
     if (data.history && data.history.length > 0) {
         const ctx = document.getElementById('trainingLossChart');
         if (ctx) {
-            const labels = data.history.map(h => 'Step ' + h.step);
-            const lossPoints = data.history.map(h => h.loss);
-            const pplPoints = data.history.map(h => Math.min(h.ppl || 200, 500));
+            const valid = data.history.filter(h => h && h.loss !== null && h.loss !== undefined && !isNaN(h.loss));
+            const labels = valid.map(h => 'Step ' + h.step);
+            const lossPoints = valid.map(h => parseFloat(h.loss));
+            const pplPoints = valid.map(h => Math.min(parseFloat(h.ppl || 200), 500));
 
             if (trainingChartInstance) {
                 trainingChartInstance.data.labels = labels;
@@ -674,6 +675,79 @@ function updateTrainingDashboardUI(data) {
         }
     }
 }
+
+async function startTrainingFromUI() {
+    const stage = document.getElementById('train-cfg-stage')?.value || 'pretrain';
+    const steps = parseInt(document.getElementById('train-cfg-steps')?.value || 500, 10);
+    const batch_size = parseInt(document.getElementById('train-cfg-batch')?.value || 2, 10);
+    const lr = parseFloat(document.getElementById('train-cfg-lr')?.value || 3e-4);
+    const resume = document.getElementById('train-cfg-resume')?.checked ?? true;
+    const msgEl = document.getElementById('train-ui-msg');
+
+    if (msgEl) {
+        msgEl.style.color = 'var(--cyan)';
+        msgEl.innerText = '⏳ Launching training process...';
+    }
+
+    try {
+        const res = await fetch('/api/training/start', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                dataset: 'Datasets/tantra_master_train.jsonl',
+                stage: stage,
+                steps: steps,
+                batch_size: batch_size,
+                grad_accum: 4,
+                lr: lr,
+                resume: resume
+            })
+        });
+        const data = await res.json();
+        if (res.ok) {
+            if (msgEl) {
+                msgEl.style.color = 'var(--emerald)';
+                msgEl.innerText = `🚀 Training active (PID: ${data.pid}, Target: ${data.target_steps} steps)`;
+            }
+            loadTrainingDashboard(true);
+        } else {
+            if (msgEl) {
+                msgEl.style.color = 'var(--amber)';
+                msgEl.innerText = `⚠️ ${data.detail || 'Could not start training'}`;
+            }
+        }
+    } catch(err) {
+        if (msgEl) {
+            msgEl.style.color = '#ef4444';
+            msgEl.innerText = `❌ Error: ${err.message}`;
+        }
+    }
+}
+window.startTrainingFromUI = startTrainingFromUI;
+
+async function stopTrainingFromUI() {
+    const msgEl = document.getElementById('train-ui-msg');
+    if (msgEl) {
+        msgEl.style.color = 'var(--amber)';
+        msgEl.innerText = '⏹️ Stopping training process...';
+    }
+
+    try {
+        const res = await fetch('/api/training/stop', { method: 'POST' });
+        const data = await res.json();
+        if (msgEl) {
+            msgEl.style.color = 'var(--cyan)';
+            msgEl.innerText = data.status === 'stopped' ? '⏹️ Training process terminated.' : 'ℹ️ No active training process running.';
+        }
+        loadTrainingDashboard(true);
+    } catch(err) {
+        if (msgEl) {
+            msgEl.style.color = '#ef4444';
+            msgEl.innerText = `❌ Error: ${err.message}`;
+        }
+    }
+}
+window.stopTrainingFromUI = stopTrainingFromUI;
 
 
 // ── 5. Native Multimodal & Web Audio Oscilloscope ───────────────────────────
@@ -1373,7 +1447,80 @@ async function runSandboxCode() {
 window.runSandboxCode = runSandboxCode;
 
 
-// ── 12. Admin Suite ─────────────────────────────────────────────────────────
+// ── 12. Admin Suite & Checkpoint Controls ───────────────────────────────────
+
+async function loadAvailableCheckpoints() {
+    try {
+        const res = await fetch('/api/checkpoints/list');
+        if (!res.ok) return;
+        const data = await res.json();
+        const headerSelect = document.getElementById('sel-checkpoint');
+        const adminSelect = document.getElementById('admin-ckpt-select');
+
+        const ckpts = data.checkpoints || [];
+        const active = data.active || '';
+
+        if (headerSelect) {
+            headerSelect.innerHTML = '<option value="">💾 Checkpoint...</option>';
+            ckpts.forEach(c => {
+                const opt = document.createElement('option');
+                opt.value = c.path;
+                opt.innerText = `${c.name} (${c.size_mb} MB)`;
+                if (c.name === active || c.path === active || c.is_active) opt.selected = true;
+                headerSelect.appendChild(opt);
+            });
+        }
+
+        if (adminSelect) {
+            adminSelect.innerHTML = '';
+            ckpts.forEach(c => {
+                const opt = document.createElement('option');
+                opt.value = c.path;
+                opt.innerText = `${c.name} (${c.size_mb} MB) [${c.modified}]`;
+                if (c.name === active || c.path === active || c.is_active) opt.selected = true;
+                adminSelect.appendChild(opt);
+            });
+        }
+    } catch(err) {
+        console.warn("Checkpoints list fetch failed:", err);
+    }
+}
+window.loadAvailableCheckpoints = loadAvailableCheckpoints;
+
+async function switchCheckpoint(checkpointPath) {
+    if (!checkpointPath) return;
+    const msgEl = document.getElementById('train-ui-msg');
+    if (msgEl) {
+        msgEl.style.color = 'var(--cyan)';
+        msgEl.innerText = `🔄 Switching weights to: ${checkpointPath}...`;
+    }
+    try {
+        const res = await fetch('/api/checkpoints/switch', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ checkpoint: checkpointPath })
+        });
+        const data = await res.json();
+        if (res.ok) {
+            if (msgEl) {
+                msgEl.style.color = 'var(--emerald)';
+                msgEl.innerText = `✅ Swapped weights to: ${data.active_checkpoint}`;
+            }
+            loadAvailableCheckpoints();
+        } else {
+            if (msgEl) {
+                msgEl.style.color = '#ef4444';
+                msgEl.innerText = `❌ Failed: ${data.detail || 'Checkpoint swap error'}`;
+            }
+        }
+    } catch(err) {
+        if (msgEl) {
+            msgEl.style.color = '#ef4444';
+            msgEl.innerText = `❌ Error: ${err.message}`;
+        }
+    }
+}
+window.switchCheckpoint = switchCheckpoint;
 
 async function adminSwitchCheckpoint() {
     const ckpt = document.getElementById('admin-ckpt-select').value;
@@ -1381,16 +1528,17 @@ async function adminSwitchCheckpoint() {
     if (resultDiv) resultDiv.innerText = "Swapping checkpoint...";
 
     try {
-        const res = await fetch('/api/checkpoints', {
+        const res = await fetch('/api/checkpoints/switch', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ checkpoint: ckpt })
         });
         const data = await res.json();
-        if (data.active) {
-            if (resultDiv) resultDiv.innerText = `✅ Checkpoint successfully swapped to: ${data.active}`;
+        if (res.ok && data.active_checkpoint) {
+            if (resultDiv) resultDiv.innerText = `✅ Checkpoint successfully swapped to: ${data.active_checkpoint}`;
+            loadAvailableCheckpoints();
         } else {
-            if (resultDiv) resultDiv.innerText = `Response: ${JSON.stringify(data)}`;
+            if (resultDiv) resultDiv.innerText = `❌ Error: ${data.detail || JSON.stringify(data)}`;
         }
     } catch(err) {
         if (resultDiv) resultDiv.innerText = `❌ Error: ${err.message}`;
@@ -1405,6 +1553,7 @@ window.addEventListener('DOMContentLoaded', () => {
     loadRAGDocuments();
     loadMemoryBank();
     loadDatasets();
+    loadAvailableCheckpoints();
     pollLiveTelemetry();
 
     // Start auto polling timer
