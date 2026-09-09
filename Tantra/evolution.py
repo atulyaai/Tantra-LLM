@@ -183,9 +183,21 @@ class AutoGrowthController:
                 actual_model.config.block.num_layers = len(actual_model.layers)
 
             # Sync with optimizer so new parameters receive gradients and updates
-            if optimizer is not None and hasattr(optimizer, "param_groups") and optimizer.param_groups:
-                optimizer.param_groups[0]["params"].extend(list(new_layer.parameters()))
-                log.info("Registered newly grown layer parameters with optimizer param_groups.")
+            if optimizer is not None:
+                if hasattr(optimizer, "refresh_optimizer"):
+                    optimizer.refresh_optimizer()
+                elif hasattr(optimizer, "add_param_group"):
+                    decay = [p for p in new_layer.parameters() if p.ndim >= 2]
+                    no_decay = [p for p in new_layer.parameters() if p.ndim < 2]
+                    ref_lr = optimizer.param_groups[0].get("lr", 1e-4) if optimizer.param_groups else 1e-4
+                    ref_wd = optimizer.param_groups[0].get("weight_decay", 0.01) if optimizer.param_groups else 0.01
+                    if decay:
+                        optimizer.add_param_group({"params": decay, "lr": ref_lr, "weight_decay": ref_wd})
+                    if no_decay:
+                        optimizer.add_param_group({"params": no_decay, "lr": ref_lr, "weight_decay": 0.0})
+                    log.info("Registered newly grown layer parameters via add_param_group (decay/no-decay separated).")
+                elif hasattr(optimizer, "param_groups") and optimizer.param_groups:
+                    optimizer.param_groups[0]["params"].extend(list(new_layer.parameters()))
 
             new_total_params = sum(p.numel() for p in actual_model.parameters())
             log.info(
