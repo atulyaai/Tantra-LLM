@@ -31,7 +31,7 @@ from typing import Any, Callable, Iterable, List, Optional, Tuple
 
 
 from Tantra.utils import get_logger, unwrap_model
-from Tantra.evolution import AutoGrowthController, SelfRepairEngine
+from Tantra.evolution import AutoGrowthController
 
 log = get_logger(__name__)
 
@@ -807,17 +807,6 @@ class NeuroTrainer:
                     window_top5_accs.append(self.last_top5_acc)
                 window_ppls.append(ppl)
 
-
-                # Dynamic Self-Repair — rate-limited to at most once every 500 optimizer steps
-                # to avoid scanning all parameters on every high-loss micro-batch at training start.
-                _repair_interval = 500
-                if math.isnan(loss) or loss > 15.0:
-                    last_repair = getattr(self, "_last_repair_step", -_repair_interval)
-                    if self.step_count - last_repair >= _repair_interval:
-                        log.warning(f"Loss instability detected (Loss: {loss:.4f}) at step {self.step_count}. Triggering dynamic Self-Repair...")
-                        repair = SelfRepairEngine()
-                        repair.scan_and_repair(self.model)
-                        self._last_repair_step = self.step_count
 
                 elapsed = time.perf_counter() - self._start_time
                 # Use session tokens (not total_tokens which includes checkpoint history)
@@ -1626,7 +1615,6 @@ class NeuroTrainer:
         log.info(f"✅ Checkpoint state reloaded with 0 missing base tensors.")
         if hasattr(raw_model, "sync_category_gates_from_checkpoint"):
             raw_model.sync_category_gates_from_checkpoint(state_dict)
-        SelfRepairEngine().scan_and_repair(raw_model)
         # Optimizer is optional (only saved when save_optimizer=True).
         # IMPORTANT: reset_optimizer=True discards saved optimizer momentum — use this
         # when switching to a new dataset so stale Adam/Lion first/second moments from the
