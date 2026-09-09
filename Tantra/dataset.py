@@ -212,11 +212,19 @@ def build_prompt_segments(item: Dict[str, Any]) -> Optional[List[Tuple[str, bool
     return segments
 
 
+_ENCODE_CACHE: Dict[Tuple[int, str], List[int]] = {}
+
 def _encode(tokenizer: Any, text: str) -> List[int]:
+    key = (id(tokenizer), text)
+    if len(text) < 128 and key in _ENCODE_CACHE:
+        return list(_ENCODE_CACHE[key])
     try:
-        return tokenizer.encode(text, modality="text")
+        res = tokenizer.encode(text, modality="text")
     except TypeError:
-        return tokenizer.encode(text)
+        res = tokenizer.encode(text)
+    if len(text) < 128 and len(_ENCODE_CACHE) < 5000:
+        _ENCODE_CACHE[key] = res
+    return res
 
 
 class PretokenizedBinDataset(IterableDataset):
