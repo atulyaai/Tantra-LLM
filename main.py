@@ -1330,7 +1330,7 @@ def main():
     parser.add_argument("--auto-growth", action=argparse.BooleanOptionalAction, default=True, help="Automatically add depth layers whenever loss plateaus (default: enabled)")
     parser.add_argument("--growth-patience", type=int, default=250, help="Optimizer steps to observe before auto-growth adds a layer (default: 250)")
     parser.add_argument("--growth-min-delta", type=float, default=0.003, help="Minimum EMA-loss improvement required to avoid auto-growth")
-    parser.add_argument("--max-layers", type=int, default=16, help="Hard maximum depth when auto-growth is enabled (default: 16 layers)")
+    parser.add_argument("--max-layers", type=int, default=None, help="Hard maximum depth when auto-growth is enabled (default: None, grows up to 1 Billion parameter ceiling)")
     parser.add_argument("--early-stopping-patience", type=int, default=4, help="Patience (consecutive validation checks with no improvement) before halting training (0 to disable, default: 4)")
     parser.add_argument("--early-stopping-min-delta", type=float, default=0.002, help="Minimum validation loss improvement delta to reset early stopping patience (default: 0.002)")
     parser.add_argument("--reset-best-loss", action="store_true", default=False, help="Reset best_val_loss baseline to infinity on checkpoint resume (useful when starting a new stage or dataset)")

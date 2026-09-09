@@ -719,7 +719,7 @@ class NeuroTrainer:
                 min_delta=max(0.0, float(growth_min_delta)),
                 max_layers=max_layers,
             )
-            log.info("  Auto-growth enabled: monitor every %d optimizer steps; max layers=%s.", growth_controller.plateau_patience, max_layers if max_layers is not None else "unbounded")
+            log.info("  Auto-growth enabled: monitor every %d optimizer steps; depth target: %s.", growth_controller.plateau_patience, f"{max_layers} layers" if max_layers is not None else "scaled up to 1 Billion parameter ceiling")
         if not use_latent_reasoning:
             log.info("  Latent CoT reasoning DISABLED for this run (~3x cheaper per step on that stage) "
                      "— re-enable for fine-tuning/reasoning-quality passes.")
