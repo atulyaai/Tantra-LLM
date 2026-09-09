@@ -247,6 +247,7 @@ class NeuroTrainer:
         self.step_count = 0
         self.best_loss = float('inf')
         self.best_val_loss = float('inf')
+        self._best_model_state: Optional[dict[str, torch.Tensor]] = None
         self.is_new_best = False
         self.ema_loss = None
         # Keep the last held-out measurement alongside the live training
@@ -705,6 +706,7 @@ class NeuroTrainer:
 
         self._last_eval_step = getattr(self, "_last_eval_step", -1)
         patience_counter = 0
+        collapse_counter = 0
         early_stopped = False
         window_losses: list[float] = []
         window_accs: list[float] = []
@@ -1001,8 +1003,37 @@ class NeuroTrainer:
 
                             if val_res.get("is_new_best", False):
                                 patience_counter = 0
-                                log.info(f"   🎉 [NEW BEST VAL LOSS: {v_loss:.4f}] Best checkpoint marked.")
+                                collapse_counter = 0
+                                raw_m = unwrap_model(self.model)
+                                self._best_model_state = copy.deepcopy(raw_m.state_dict())
+                                log.info(f"   🎉 [NEW BEST VAL LOSS: {v_loss:.4f}] Best checkpoint marked & model snapshot saved.")
                             else:
+                                # Validation Collapse Guard: detect sudden catastrophic degradation (>35% spike above best loss)
+                                if (self.best_val_loss is not None and not math.isinf(self.best_val_loss) and self.best_val_loss > 0 and v_loss > (1.35 * self.best_val_loss)):
+                                    collapse_counter += 1
+                                    log.warning(
+                                        f"   ⚠️ [VALIDATION COLLAPSE ALERT @ Step {self.step_count}] Current val loss ({v_loss:.4f}) "
+                                        f"is {((v_loss/self.best_val_loss)-1.0)*100:.1f}% worse than best ({self.best_val_loss:.4f}) "
+                                        f"[Streak: {collapse_counter}/2]."
+                                    )
+                                    if collapse_counter >= 2 and getattr(self, "_best_model_state", None) is not None:
+                                        raw_m = unwrap_model(self.model)
+                                        raw_m.load_state_dict(self._best_model_state)
+                                        self.lr = max(self.lr * 0.5, 1e-6)
+                                        for g in self.optimizer.param_groups:
+                                            g["lr"] = self.lr
+                                        for p in raw_m.parameters():
+                                            st = self.optimizer.state.get(p)
+                                            if st and "exp_avg" in st and st["exp_avg"] is not None:
+                                                st["exp_avg"].zero_()
+                                        collapse_counter = 0
+                                        log.warning(
+                                            f"   🚨 [AUTO-ROLLBACK EXECUTED @ Step {self.step_count}] Reverted model weights to best "
+                                            f"validation checkpoint ({self.best_val_loss:.4f}), halved LR to {self.lr:.2e}, and flushed momentum!"
+                                        )
+                                else:
+                                    collapse_counter = 0
+
                                 if early_stopping_patience > 0:
                                     patience_counter += 1
                                     log.info(
