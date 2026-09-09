@@ -1736,6 +1736,7 @@ class NeuroTrainer:
 
         # Rebuild scheduler relative to current step_count and total_steps.
         # This ensures the full requested learning rate is active over the remaining steps.
+        # Note: main.py will override this with a fresh scheduler for recovery runs.
         self.scheduler = create_lr_scheduler(
             self.optimizer, warmup_steps=self.warmup_steps,
             total_steps=self.total_steps, min_lr_ratio=0.10,
@@ -1743,17 +1744,10 @@ class NeuroTrainer:
         )
 
         if "scheduler_state_dict" in ckpt:
-            try:
-                self.scheduler.load_state_dict(ckpt["scheduler_state_dict"])
-                self._sync_scheduler_lambdas()
-                log.info("LR scheduler state restored — resuming at correct point in warmup/cosine schedule.")
-            except Exception as e:
-                log.warning(f"Could not restore scheduler state ({e}); fast-forwarding by step_count instead.")
-                self._fast_forward_scheduler()
+            log.info("Checkpoint has scheduler_state_dict — skipping load; main.py rebuilds scheduler for recovery.")
         elif self.step_count > 0:
             log.warning("Checkpoint has no scheduler_state_dict (older checkpoint) — "
-                        "fast-forwarding scheduler by step_count so LR doesn't reset to warmup start.")
-            self._fast_forward_scheduler()
+                        "main.py will rebuild scheduler for recovery.")
 
         hist_time_str = format_time_duration(self.total_training_seconds) if self.total_training_seconds > 0 else "0s"
         log.info(f"Checkpoint loaded <- {path} (step {self.step_count:,}, tokens: {self.total_tokens/1e6:.2f}M, trained: {hist_time_str}, best_loss={self.best_loss:.4f})")
