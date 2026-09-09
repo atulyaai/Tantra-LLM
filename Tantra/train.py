@@ -691,7 +691,7 @@ class NeuroTrainer:
 
 
 
-    def train_dataset(self, data_stream: Iterable[Tuple[torch.Tensor, torch.Tensor]], max_steps: int = 100, log_every: int = 10, eval_every: int = 0, eval_callback = None, checkpoint_every: int = 0, checkpoint_callback = None, tokenizer: Optional[Any] = None, enrichment_rate: float = 0.0, use_latent_reasoning: bool = True, auto_growth: bool = False, growth_patience: int = 1000, growth_min_delta: float = 0.005, max_layers: Optional[int] = None, val_loader: Optional[Iterable[Tuple[torch.Tensor, torch.Tensor]]] = None, early_stopping_patience: int = 4, early_stopping_min_delta: float = 0.002) -> list[float]:
+    def train_dataset(self, data_stream: Iterable[Tuple[torch.Tensor, torch.Tensor]], max_steps: int = 100, log_every: int = 10, eval_every: int = 0, eval_callback = None, checkpoint_every: int = 0, checkpoint_callback = None, tokenizer: Optional[Any] = None, enrichment_rate: float = 0.0, use_latent_reasoning: bool = True, auto_growth: bool = False, growth_patience: int = 1000, growth_min_delta: float = 0.005, max_layers: Optional[int] = None, val_loader: Optional[Iterable[Tuple[torch.Tensor, torch.Tensor]]] = None, early_stopping_patience: int = 8, early_stopping_min_delta: float = 0.002, max_val_batches: int = 200) -> list[float]:
 
         """Train over an iterable dataset stream (e.g. JSONLDataset).
 
@@ -1043,7 +1043,7 @@ class NeuroTrainer:
                 if at_boundary and eval_every > 0 and (self.step_count % eval_every == 0) and (self.step_count != self._last_eval_step):
                     self._last_eval_step = self.step_count
                     if val_loader is not None:
-                        val_res = self.evaluate_validation(val_loader, min_delta=early_stopping_min_delta)
+                        val_res = self.evaluate_validation(val_loader, max_val_batches=max_val_batches, min_delta=early_stopping_min_delta)
                         if val_res:
                             v_loss = val_res["val_loss"]
                             v_acc = val_res["val_acc"]
