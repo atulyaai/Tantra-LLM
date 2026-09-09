@@ -265,10 +265,62 @@ class NeuroTrainer:
 
         self.grad_accumulation_steps = max(1, grad_accumulation_steps)
         self._micro_step = 0
+        self._rollback_count = 0
         if self.grad_accumulation_steps > 1:
             log.info(f"  Gradient accumulation enabled: {self.grad_accumulation_steps} micro-batches per optimizer step")
         if not self.use_mtp_loss:
             log.info("  MTP auxiliary loss DISABLED for this run (reduced CPU output-projection work).")
+
+    def rollback_to_checkpoint(self, checkpoint_path: Optional[str] = None, lr_factor: float = 0.5,
+                                warmup_steps: Optional[int] = None) -> bool:
+        """Recover from a validation collapse: restore known-good weights from
+        `checkpoint_path` (or best snapshot / Model/Best/checkpoint_best.pt),
+        discard whatever optimizer momentum accumulated during the collapse,
+        and resume at a reduced LR.
+        """
+        if not checkpoint_path:
+            for cand in ["Model/Best/checkpoint_best.pt", "Model/Latest/checkpoint_latest.pt"]:
+                if os.path.isfile(cand):
+                    checkpoint_path = cand
+                    break
+
+        if (not checkpoint_path or not os.path.isfile(checkpoint_path)) and getattr(self, "_best_model_state", None) is None:
+            log.warning(f"Rollback requested but no checkpoint or snapshot available ({checkpoint_path}). Cannot recover.")
+            return False
+
+        pre_rollback_step = self.step_count
+        raw_m = unwrap_model(self.model)
+        if checkpoint_path and os.path.isfile(checkpoint_path):
+            self.load_checkpoint(checkpoint_path, reset_optimizer=True)
+        elif getattr(self, "_best_model_state", None) is not None:
+            raw_m.load_state_dict(self._best_model_state)
+
+        self.lr = max(self.lr * lr_factor, 1e-7)
+
+        decay_params, no_decay_params = [], []
+        for n, p in raw_m.named_parameters():
+            if not p.requires_grad:
+                continue
+            (no_decay_params if (p.ndim < 2 or 'bias' in n or 'norm' in n or 'scale' in n) else decay_params).append(p)
+        param_groups = [
+            {"params": decay_params, "weight_decay": float(self.weight_decay)},
+            {"params": no_decay_params, "weight_decay": 0.0},
+        ]
+        self.optimizer = build_optimizer(self.optimizer_name, param_groups, lr=self.lr, weight_decay=self.weight_decay)
+
+        effective_warmup = warmup_steps if warmup_steps is not None else max(1, min(self.warmup_steps, 200))
+        self.scheduler = create_lr_scheduler(
+            self.optimizer, warmup_steps=effective_warmup,
+            total_steps=max(self.total_steps - self.step_count, effective_warmup + 1),
+            min_lr_ratio=0.10,
+        )
+
+        log.warning(
+            f"🔄 [ROLLBACK EXECUTED] Restored known-good weights from step {self.step_count} "
+            f"(was at step {pre_rollback_step}) — fresh optimizer momentum, "
+            f"LR reduced to {self.lr:.2e} with a {effective_warmup}-step re-warmup."
+        )
+        return True
 
     def refresh_optimizer(self) -> None:
         """Rebuild/update the optimizer and LR schedule from the model's current
