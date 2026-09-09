@@ -1506,12 +1506,23 @@ def main():
                     _ckpt_cfg = _ckpt.get("config", None)
                     if _ckpt_cfg is not None:
                         _ckpt_cfg.vocab.vocab_size = vcfg.vocab_size
-                        # Ensure BitNet is always enabled even if old checkpoint config had it off
-                        if not getattr(_ckpt_cfg.bitnet, "enabled", False):
+                        # Detect if checkpoint was actually trained with BitLinear
+                        # by checking for ternary/shadow state keys in the state dict
+                        sdict_for_check = _ckpt.get("model_state_dict", {})
+                        has_ternary_state = any(
+                            "ternary" in k or "shadow" in k
+                            for k in sdict_for_check
+                        )
+                        if getattr(_ckpt_cfg.bitnet, "enabled", False) and not has_ternary_state:
+                            # Config says BitNet but weights were trained with nn.Linear
+                            _ckpt_cfg.bitnet.enabled = False
+                            log.info("  [BitNet] Disabled — checkpoint was trained with nn.Linear (no ternary state).")
+                        elif not getattr(_ckpt_cfg.bitnet, "enabled", False):
+                            # Fresh model, enable BitNet for new training
                             _ckpt_cfg.bitnet.enabled = True
                             _ckpt_cfg.bitnet.quantize_mode = "ternary"
                             _ckpt_cfg.bitnet.use_shadow_weights = True
-                            log.info("  [BitNet] Force-enabled ternary quantization on loaded checkpoint config.")
+                            log.info("  [BitNet] Enabled ternary quantization for new training.")
                         mcfg = _ckpt_cfg
 
                     # Also check state_dict layer keys for dynamically grown models
