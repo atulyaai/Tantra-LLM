@@ -224,7 +224,8 @@ def run_interactive_chat(model, tokenizer, device, temp=0.7, top_p=0.9, router=N
             if console and routed is not None:
                 console.print(f"[dim]→ routed to adapter: {routed}[/dim]")
 
-            formatted_input = f"<|user|>\n{user_input.strip()}\n\n<|assistant|>\n"
+            system_prompt = "You are Tantra, a helpful, polite, and intelligent AI assistant created by Atulya AI."
+            formatted_input = f"<|system|>\n{system_prompt}\n\n<|user|>\n{user_input.strip()}\n\n<|assistant|>\n"
             tokens = tokenizer.encode(formatted_input)
             prompt = torch.tensor([tokens], device=device)
 
@@ -735,44 +736,45 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
         import random
         import ast
 
+        sys_tag = "<|system|>\nYou are Tantra, a helpful, polite, and intelligent AI assistant created by Atulya AI.\n\n"
+
         math_pool = [
-            ("Math Eq", "🔢", "<|user|>\nSolve for x in 3x + 12 = 36.\n\n<|assistant|>\n", 0.1, "x = 8"),
-            ("Math Eq", "🔢", "<|user|>\nSolve for x in 5x - 15 = 20.\n\n<|assistant|>\n", 0.1, "x = 7"),
-            ("Math Eq", "🔢", "<|user|>\nSolve for x in 4x + 8 = 32.\n\n<|assistant|>\n", 0.1, "x = 6"),
-            ("Math Eq", "🔢", "<|user|>\nSolve for x in 7x - 14 = 35.\n\n<|assistant|>\n", 0.1, "x = 7"),
-            ("Math Eq", "🔢", "<|user|>\nSolve for x in 2x + 18 = 40.\n\n<|assistant|>\n", 0.1, "x = 11"),
-            ("Math Pct", "🔢", "<|user|>\nWhat is 15% of 800?\n\n<|assistant|>\n", 0.1, "120"),
-            ("Math Pct", "🔢", "<|user|>\nWhat is 20% of 450?\n\n<|assistant|>\n", 0.1, "90")
+            ("Math Eq", "🔢", f"{sys_tag}<|user|>\nSolve for x in 3x + 12 = 36.\n\n<|assistant|>\n", 0.1, "x = 8"),
+            ("Math Eq", "🔢", f"{sys_tag}<|user|>\nSolve for x in 5x - 15 = 20.\n\n<|assistant|>\n", 0.1, "x = 7"),
+            ("Math Eq", "🔢", f"{sys_tag}<|user|>\nSolve for x in 4x + 8 = 32.\n\n<|assistant|>\n", 0.1, "x = 6"),
+            ("Math Eq", "🔢", f"{sys_tag}<|user|>\nSolve for x in 7x - 14 = 35.\n\n<|assistant|>\n", 0.1, "x = 7"),
+            ("Math Eq", "🔢", f"{sys_tag}<|user|>\nSolve for x in 2x + 18 = 40.\n\n<|assistant|>\n", 0.1, "x = 11"),
+            ("Math Pct", "🔢", f"{sys_tag}<|user|>\nWhat is 15% of 800?\n\n<|assistant|>\n", 0.1, "120"),
+            ("Math Pct", "🔢", f"{sys_tag}<|user|>\nWhat is 20% of 450?\n\n<|assistant|>\n", 0.1, "90")
         ]
 
         code_pool = [
-            ("Code", "💻", "<|user|>\nWrite a Python function to check if a number is prime.\n\n<|assistant|>\n```python\n", 0.1, "is_prime"),
-            ("Code", "💻", "<|user|>\nWrite a Python function to reverse a string.\n\n<|assistant|>\n```python\n", 0.1, "reverse_string"),
-            ("Code", "💻", "<|user|>\nWrite a Python function to compute the factorial of a number.\n\n<|assistant|>\n```python\n", 0.1, "factorial"),
-            ("Code", "💻", "<|user|>\nWrite a Python function to check if a word is a palindrome.\n\n<|assistant|>\n```python\n", 0.1, "is_palindrome"),
-            ("Code", "💻", "<|user|>\nWrite a Python function to merge two dictionaries.\n\n<|assistant|>\n```python\n", 0.1, "merge_dicts"),
-            ("Code", "💻", "<|user|>\nWrite a Python function to remove duplicates from a list.\n\n<|assistant|>\n```python\n", 0.1, "remove_duplicates")
+            ("Code", "💻", f"{sys_tag}<|user|>\nWrite a Python function to check if a number is prime.\n\n<|assistant|>\n```python\n", 0.1, "is_prime"),
+            ("Code", "💻", f"{sys_tag}<|user|>\nWrite a Python function to reverse a string.\n\n<|assistant|>\n```python\n", 0.1, "reverse_string"),
+            ("Code", "💻", f"{sys_tag}<|user|>\nWrite a Python function to compute the factorial of a number.\n\n<|assistant|>\n```python\n", 0.1, "factorial"),
+            ("Code", "💻", f"{sys_tag}<|user|>\nWrite a Python function to check if a word is a palindrome.\n\n<|assistant|>\n```python\n", 0.1, "is_palindrome"),
+            ("Code", "💻", f"{sys_tag}<|user|>\nWrite a Python function to merge two dictionaries.\n\n<|assistant|>\n```python\n", 0.1, "merge_dicts"),
+            ("Code", "💻", f"{sys_tag}<|user|>\nWrite a Python function to remove duplicates from a list.\n\n<|assistant|>\n```python\n", 0.1, "remove_duplicates")
         ]
 
         physics_pool = [
-            ("Physics", "🔬", "<|user|>\nState Newton's First Law of Motion.\n\n<|assistant|>\n", 0.2, "inertia"),
-            ("Physics", "🔬", "<|user|>\nState Newton's Second Law of Motion.\n\n<|assistant|>\n", 0.2, "F = ma"),
-            ("Physics", "🔬", "<|user|>\nState Newton's Third Law of Motion.\n\n<|assistant|>\n", 0.2, "action"),
-            ("Physics", "🔬", "<|user|>\nWhat is the speed of light in a vacuum?\n\n<|assistant|>\n", 0.2, "299,792,458")
+            ("Physics", "🔬", f"{sys_tag}<|user|>\nState Newton's First Law of Motion.\n\n<|assistant|>\n", 0.2, "inertia"),
+            ("Physics", "🔬", f"{sys_tag}<|user|>\nState Newton's Second Law of Motion.\n\n<|assistant|>\n", 0.2, "F = ma"),
+            ("Physics", "🔬", f"{sys_tag}<|user|>\nState Newton's Third Law of Motion.\n\n<|assistant|>\n", 0.2, "action"),
+            ("Physics", "🔬", f"{sys_tag}<|user|>\nWhat is the speed of light in a vacuum?\n\n<|assistant|>\n", 0.2, "299,792,458")
         ]
 
         chem_bio_pool = [
-            ("Chemistry", "🧪", "<|user|>\nWhat is the chemical formula for water?\n\n<|assistant|>\n", 0.1, "H2O"),
-            ("Chemistry", "🧪", "<|user|>\nWhat is the chemical formula for carbon dioxide?\n\n<|assistant|>\n", 0.1, "CO2"),
-            ("Biology",   "🧬", "<|user|>\nWhat is DNA?\n\n<|assistant|>\n", 0.2, "deoxyribonucleic"),
-            ("Biology",   "🧬", "<|user|>\nWhat is known as the powerhouse of the cell?\n\n<|assistant|>\n", 0.1, "mitochondri")
+            ("Chemistry", "🧪", f"{sys_tag}<|user|>\nWhat is the chemical formula for water?\n\n<|assistant|>\n", 0.1, "H2O"),
+            ("Chemistry", "🧪", f"{sys_tag}<|user|>\nWhat is the chemical formula for carbon dioxide?\n\n<|assistant|>\n", 0.1, "CO2"),
+            ("Biology",   "🧬", f"{sys_tag}<|user|>\nWhat is DNA?\n\n<|assistant|>\n", 0.2, "deoxyribonucleic"),
+            ("Biology",   "🧬", f"{sys_tag}<|user|>\nWhat is known as the powerhouse of the cell?\n\n<|assistant|>\n", 0.1, "mitochondri")
         ]
-
         conv_pool = [
-            ("Identity",   "🤖", "<|user|>\nWho created you and what is your name?\n\n<|assistant|>\n", 0.3, "Tantra"),
-            ("Greeting",   "👋", "<|user|>\nGood morning! How are you doing today?\n\n<|assistant|>\n", 0.3, "help"),
-            ("Chat",       "💬", "<|user|>\nThank you so much for your help!\n\n<|assistant|>\n", 0.3, "welcome"),
-            ("Capability", "⚡", "<|user|>\nWhat can you do as an AI assistant?\n\n<|assistant|>\n", 0.3, "code")
+            ("Identity",   "🤖", f"{sys_tag}<|user|>\nWho created you and what is your name?\n\n<|assistant|>\n", 0.3, "Tantra"),
+            ("Greeting",   "👋", f"{sys_tag}<|user|>\nGood morning! How are you doing today?\n\n<|assistant|>\n", 0.3, "help"),
+            ("Chat",       "💬", f"{sys_tag}<|user|>\nThank you so much for your help!\n\n<|assistant|>\n", 0.3, "welcome"),
+            ("Capability", "⚡", f"{sys_tag}<|user|>\nWhat can you do as an AI assistant?\n\n<|assistant|>\n", 0.3, "code")
         ]
 
         # Pick 1 random question from each of the 5 domains (Total 5 questions per eval)
@@ -887,7 +889,7 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
     # individual samples.  Gradient accumulation consumes multiple complete
     # batches per update, so the old cap stopped runs early when --grad-accum
     # was above one.
-    max_samples = steps * batch_size * max(1, grad_accumulation_steps)
+    max_samples = None  # Stream full dataset across epochs instead of capping
 
     dataset = None
     if track and track.lower() not in ("all", "none"):
@@ -1031,7 +1033,7 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
 
         dataset = JSONLDataset(
             train_file, tokenizer, seq_len=seq_len,
-            max_samples=max_samples, mask_non_assistant=mask_non_assistant,
+            max_samples=None, mask_non_assistant=mask_non_assistant,
             split="all" if is_discrete_sft else "train",
             val_ratio=0.0 if is_discrete_sft else 0.05,
             pack_sequences=False if training_stage == "sft" else pack_sequences,
@@ -1094,7 +1096,7 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
         pin_memory=torch.cuda.is_available(),
         persistent_workers=data_workers > 0, prefetch_factor=4 if data_workers > 0 else None,
     )
-    enrichment = 0.0 if training_stage == "sft" else 0.02
+    enrichment = 0.08 if training_stage == "sft" else 0.02
     try:
         trainer.train_dataset(dataloader, max_steps=steps, log_every=log_every, eval_every=eval_every, eval_callback=eval_callback, checkpoint_every=checkpoint_every, checkpoint_callback=checkpoint_callback, tokenizer=tokenizer, enrichment_rate=enrichment, use_latent_reasoning=use_latent_reasoning, auto_growth=auto_growth, growth_patience=growth_patience, growth_min_delta=growth_min_delta, max_layers=max_layers, val_loader=val_loader, early_stopping_patience=early_stopping_patience, early_stopping_min_delta=early_stopping_min_delta, max_val_batches=max_val_batches)
 
@@ -1504,6 +1506,12 @@ def main():
                     _ckpt_cfg = _ckpt.get("config", None)
                     if _ckpt_cfg is not None:
                         _ckpt_cfg.vocab.vocab_size = vcfg.vocab_size
+                        # Ensure BitNet is always enabled even if old checkpoint config had it off
+                        if not getattr(_ckpt_cfg.bitnet, "enabled", False):
+                            _ckpt_cfg.bitnet.enabled = True
+                            _ckpt_cfg.bitnet.quantize_mode = "ternary"
+                            _ckpt_cfg.bitnet.use_shadow_weights = True
+                            log.info("  [BitNet] Force-enabled ternary quantization on loaded checkpoint config.")
                         mcfg = _ckpt_cfg
 
                     # Also check state_dict layer keys for dynamically grown models
