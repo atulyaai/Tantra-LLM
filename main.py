@@ -713,28 +713,28 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
         prev_stage = getattr(trainer, "training_stage", None)
         stage_name = training_stage or prev_stage or "sft"
         if prev_stage is not None and prev_stage != stage_name:
-# Stage transition (pretrain → SFT): RESET optimizer to prevent catastrophic forgetting
-        # The pretrain optimizer momentum is incompatible with SFT gradients,
-        # causing the loss to explode (9.45 → 21.1). Fresh momentum = stable SFT.
-        log.warning(f"  ⚠️ Stage transition ({prev_stage} → {stage_name}): RESETTING optimizer for stable SFT fine-tuning.")
-        trainer.best_loss = float('inf')
-        trainer.best_val_loss = float('inf')
-        trainer.optimizer = build_optimizer(
-            trainer.optimizer_name,
-            [p for p in trainer.model.parameters() if p.requires_grad],
-            lr=lr,
-            weight_decay=trainer.weight_decay,
-        )
-        trainer.scheduler = create_lr_scheduler(
-            trainer.optimizer,
-            warmup_steps=actual_warmup,
-            total_steps=steps,
-            min_lr_ratio=0.10,
-            start_step=trainer.step_count,
-            last_epoch=-1,
-        )
-        log.info(f"  Fresh optimizer + scheduler for SFT at LR={lr:.2e}")
-        log.info(f"  best_val_loss reset to inf for SFT baseline.")
+            # Stage transition (pretrain → SFT): RESET optimizer to prevent catastrophic forgetting
+            # The pretrain optimizer momentum is incompatible with SFT gradients,
+            # causing the loss to explode (9.45 → 21.1). Fresh momentum = stable SFT.
+            log.warning(f"  ⚠️ Stage transition ({prev_stage} → {stage_name}): RESETTING optimizer for stable SFT fine-tuning.")
+            trainer.best_loss = float('inf')
+            trainer.best_val_loss = float('inf')
+            trainer.optimizer = build_optimizer(
+                trainer.optimizer_name,
+                [p for p in trainer.model.parameters() if p.requires_grad],
+                lr=lr,
+                weight_decay=trainer.weight_decay,
+            )
+            trainer.scheduler = create_lr_scheduler(
+                trainer.optimizer,
+                warmup_steps=actual_warmup,
+                total_steps=steps,
+                min_lr_ratio=0.10,
+                start_step=trainer.step_count,
+                last_epoch=-1,
+            )
+            log.info(f"  Fresh optimizer + scheduler for SFT at LR={lr:.2e}")
+            log.info(f"  best_val_loss reset to inf for SFT baseline.")
         elif reset_best_loss:
             prev_val = getattr(trainer, "best_val_loss", float('inf'))
             trainer.best_loss = float('inf')
