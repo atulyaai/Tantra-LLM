@@ -1675,14 +1675,14 @@ def main():
                         has_ternary_state = any(
                             "ternary" in k or "shadow" in k
                             for k in sdict_for_check
-                        )
-if getattr(_ckpt_cfg.bitnet, "enabled", False) and not has_ternary_state:
-            # Config says BitNet but weights were trained with nn.Linear
-            _ckpt_cfg.bitnet.enabled = False
-            log.info("  [BitNet] Disabled — checkpoint was trained with nn.Linear (no ternary state).")
-        # When resuming a checkpoint, preserve its BitNet setting — do not override
-        # BitNet state based on whether the checkpoint was disabled. Only enable
-        # BitNet on a genuinely fresh model (no checkpoint loaded).
+)
+                        if getattr(_ckpt_cfg.bitnet, "enabled", False) and not has_ternary_state:
+                            # Config says BitNet but weights were trained with nn.Linear
+                            _ckpt_cfg.bitnet.enabled = False
+                            log.info("  [BitNet] Disabled — checkpoint was trained with nn.Linear (no ternary state).")
+                        # When resuming a checkpoint, preserve its BitNet setting — do not override
+                        # BitNet state based on whether the checkpoint was disabled. Only enable
+                        # BitNet on a genuinely fresh model (no checkpoint loaded).
                         # Only use checkpoint config if user did NOT explicitly override architecture
                         if not user_overrode_arch:
                             mcfg = _ckpt_cfg
@@ -1700,28 +1700,28 @@ if getattr(_ckpt_cfg.bitnet, "enabled", False) and not has_ternary_state:
                             mcfg.dim = args.dim
                             log.info(f"Forced architecture: layers={args.layers}, dim={args.dim}")
 
-                    # Also check state_dict layer keys for dynamically grown models
-                    sdict = _ckpt.get("model_state_dict", {})
-                    has_legacy_router = any(".router." in key for key in sdict)
-                    use_real_top1 = bool(
-                        getattr(mcfg.moe, "real_top1", False)
-                        and getattr(mcfg.moe, "num_experts", 1) > 1
-                    )
-                    legacy_checkpoint_compat = bool(
-                        has_legacy_router
-                        and not use_real_top1
-                        and getattr(mcfg.moe, "num_experts", 1) > 1
-                    )
-                    import re
-                    layer_indices = [int(m.group(1)) for k in sdict.keys() for m in [re.search(r'layers\.(\d+)\.', k)] if m]
-                    if layer_indices and mcfg is not None and hasattr(mcfg, "block") and not user_overrode_arch:
-                        ckpt_num_layers = max(layer_indices) + 1
-                        if ckpt_num_layers != mcfg.block.num_layers:
-                            mcfg.block.num_layers = ckpt_num_layers
-                            log.info(f"Detected {ckpt_num_layers} layers in checkpoint weights; initialized architecture accordingly.")
+                        # Also check state_dict layer keys for dynamically grown models
+                        sdict = _ckpt.get("model_state_dict", {})
+                        has_legacy_router = any(".router." in key for key in sdict)
+                        use_real_top1 = bool(
+                            getattr(mcfg.moe, "real_top1", False)
+                            and getattr(mcfg.moe, "num_experts", 1) > 1
+                        )
+                        legacy_checkpoint_compat = bool(
+                            has_legacy_router
+                            and not use_real_top1
+                            and getattr(mcfg.moe, "num_experts", 1) > 1
+                        )
+                        import re
+                        layer_indices = [int(m.group(1)) for k in sdict.keys() for m in [re.search(r'layers\.(\d+)\.', k)] if m]
+                        if layer_indices and mcfg is not None and hasattr(mcfg, "block") and not user_overrode_arch:
+                            ckpt_num_layers = max(layer_indices) + 1
+                            if ckpt_num_layers != mcfg.block.num_layers:
+                                mcfg.block.num_layers = ckpt_num_layers
+                                log.info(f"Detected {ckpt_num_layers} layers in checkpoint weights; initialized architecture accordingly.")
 
-                    log.info("Rebuilt model architecture from checkpoint "
-                             f"(dim={mcfg.block.alra.dim}, layers={mcfg.block.num_layers}, vocab={mcfg.vocab.vocab_size}).")
+                        log.info("Rebuilt model architecture from checkpoint "
+                                 f"(dim={mcfg.block.alra.dim}, layers={mcfg.block.num_layers}, vocab={mcfg.vocab.vocab_size}).")
             except Exception as _exc:
                 log.warning(f"Could not read checkpoint config: {_exc}; using default architecture.")
     # Create model from mcfg (either fresh user architecture or checkpoint config)
