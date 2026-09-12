@@ -1624,19 +1624,20 @@ def main():
                              f"(dim={mcfg.block.alra.dim}, layers={mcfg.block.num_layers}, vocab={mcfg.vocab.vocab_size}).")
             except Exception as _exc:
                 log.warning(f"Could not read checkpoint config: {_exc}; using default architecture.")
-        model = init_model(mcfg, rt.device, compatibility_legacy_moe=legacy_checkpoint_compat)
-        use_dp = (
-            torch.cuda.is_available()
-            and torch.cuda.device_count() > 1
-            and args.device in ("cuda", "auto")
-            and not getattr(args, "single_gpu", False)
-            and args.mode in ("train", "dataset", "auto-pilot", "dpo")
-        )
-        if use_dp:
-            log.info(f"  [Multi-GPU DataParallel] Enabling {torch.cuda.device_count()}x GPUs for parallel batch execution.")
-            model = torch.nn.DataParallel(model)
-        else:
-            log.info(f"  [Direct Device Execution] Running directly on {rt.device} without DataParallel wrapper.")
+    # Create model from mcfg (either fresh user architecture or checkpoint config)
+    model = init_model(mcfg, rt.device, compatibility_legacy_moe=legacy_checkpoint_compat)
+    use_dp = (
+        torch.cuda.is_available()
+        and torch.cuda.device_count() > 1
+        and args.device in ("cuda", "auto")
+        and not getattr(args, "single_gpu", False)
+        and args.mode in ("train", "dataset", "auto-pilot", "dpo")
+    )
+    if use_dp:
+        log.info(f"  [Multi-GPU DataParallel] Enabling {torch.cuda.device_count()}x GPUs for parallel batch execution.")
+        model = torch.nn.DataParallel(model)
+    else:
+        log.info(f"  [Direct Device Execution] Running directly on {rt.device} without DataParallel wrapper.")
 
     # When a category is requested for dataset/chat/generate/serve, load the
     # MoE-2 / 32K adapter checkpoint (shared base + specialist layers) instead
