@@ -157,6 +157,11 @@ class BitLinear(nn.Module):
         self.register_buffer('neg_mask', None)
         self.register_buffer('w_ternary', None)
 
+        # Cached quantized weights for training (updated only after optimizer step)
+        self.register_buffer('_cached_w_ternary', None)
+        self.register_buffer('_cached_scale', None)
+        self._cache_valid = False
+
     def forward(self, x: Tensor) -> Tensor:
         """Compute forward pass."""
         eps = 1e-8
@@ -177,14 +182,12 @@ class BitLinear(nn.Module):
                 out += self.bias
             return out
         else:
-            # 1. Quantize weights
-            W_q, scale = self.quantizer.quantize(self.weight)
+            # Use cached quantized weights (updated after optimizer step)
+            if not self._cache_valid:
+                self._update_quantization_cache()
+            w_ternary = self._cached_w_ternary.to(dtype=x.dtype)
+            out = F.linear(x_norm, w_ternary) * (self._cached_scale * x_scale)
             
-            # 2. Vectorized single-pass ternary matmul
-            w_ternary = W_q.to(dtype=x.dtype)
-            out = F.linear(x_norm, w_ternary) * (scale * x_scale)
-            
-            # 3. Add bias
             if self.bias is not None:
                 out += self.bias
             return out
@@ -202,10 +205,24 @@ class BitLinear(nn.Module):
         self.neg_mask = (W_q == -1).to(torch.float32)
         self.w_ternary = self.pos_mask - self.neg_mask
         
+        # Update training cache as well
+        self._cached_w_ternary = (W_q.to(torch.float32)).detach()
+        self._cached_scale = scale.detach()
+        self._cache_valid = True
+        
         # Remove FP32 weight to save memory
         del self.weight
         self.register_parameter('weight', None)
         self.is_inference = True
+
+    def _update_quantization_cache(self) -> None:
+        """Update cached quantized weights (called after optimizer step)."""
+        if self.weight is None:
+            return
+        W_q, scale = self.quantizer.quantize(self.weight.detach())
+        self._cached_w_ternary = W_q.to(torch.float32).detach()
+        self._cached_scale = scale.detach()
+        self._cache_valid = True
 
     def to_training_mode(self) -> None:
         """Restore FP32 shadow weights from packed weights."""
@@ -222,6 +239,9 @@ class BitLinear(nn.Module):
         self.pos_mask = None
         self.neg_mask = None
         self.w_ternary = None
+        self._cached_w_ternary = None
+        self._cached_scale = None
+        self._cache_valid = False
         self.is_inference = False
 
     @classmethod
@@ -365,8 +385,10 @@ class BitNetTrainerHooks:
                 layer.weight.grad.clamp_(-1.0, 1.0)
                 
     def after_optimizer_step(self) -> None:
-        """Called after optimizer.step() — nothing needed (shadow weights update naturally)."""
-        pass
+        """Called after optimizer.step() — refresh quantized weight cache."""
+        for layer in self.bitlinear_layers:
+            if hasattr(layer, '_update_quantization_cache'):
+                layer._update_quantization_cache()
         
     def get_param_groups(self) -> list[dict]:
         """

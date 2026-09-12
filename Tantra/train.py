@@ -32,6 +32,7 @@ from typing import Any, Callable, Iterable, List, Optional, Tuple
 
 from Tantra.utils import get_logger, unwrap_model
 from Tantra.evolution import AutoGrowthController
+from Tantra.config import BitNetConfig
 
 log = get_logger(__name__)
 
@@ -254,6 +255,10 @@ class NeuroTrainer:
             {"params": no_decay_params, "weight_decay": 0.0},
         ]
         self.optimizer = build_optimizer(self.optimizer_name, param_groups, lr=lr, weight_decay=weight_decay)
+
+        # BitNet hooks for cached quantization
+        from Tantra.bitnet import BitNetTrainerHooks
+        self.bitnet_hooks = BitNetTrainerHooks(self.model, self.config if hasattr(self, 'config') else BitNetConfig())
 
         self.total_steps = total_steps
         self.warmup_steps = warmup_steps
@@ -583,6 +588,9 @@ class NeuroTrainer:
         if at_boundary:
             if self.scaler.is_enabled():
                 self.scaler.unscale_(self.optimizer)
+            # BitNet: clip gradients of shadow weights before optimizer step
+            if hasattr(self, 'bitnet_hooks'):
+                self.bitnet_hooks.before_optimizer_step()
             grad_norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.max_grad_norm).item()
             if math.isnan(grad_norm) or math.isinf(grad_norm):
                 log.warning("NaN or Inf detected in grad_norm! Purging gradients and repairing model.")
@@ -596,6 +604,9 @@ class NeuroTrainer:
                     self.scaler.update()
                 else:
                     self.optimizer.step()
+                # BitNet: refresh quantized weight cache after optimizer step
+                if hasattr(self, 'bitnet_hooks'):
+                    self.bitnet_hooks.after_optimizer_step()
                 self._sync_scheduler_lambdas()
                 self.scheduler.step()
                 self.step_count += 1
