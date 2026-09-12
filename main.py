@@ -93,11 +93,14 @@ else:
 def auto_detect_config(args, model_layers=None, model_dim=None, model_heads=None):
     """Automatically detect optimal batch_size and seq_len based on available GPU VRAM.
 
-    Calibrated from known-good config: batch=4, seq=256, dim=1024, layers=24, 2x T4 16GB → ~14.5 GB used.
-    Fixed overhead (model weights + optimizer) ≈ 2.85 GB on T4.
-    Remaining ~11.65 GB for activations across 24 layers → ~477 KB per (batch*seq*layer).
+    Calibrated from known data points on 2x T4 (16GB each):
+      - 473.7M model (dim=1024, layers=24): ~14.5 GB used at batch=4, seq=256
+      - Fixed overhead scales linearly with layers and dim^2
+      - Activation memory scales with n_layers * batch * seq
+    Batch size is snapped to be divisible by GPU count for DataParallel.
 
-    Returns a dict with 'batch_size', 'seq_len', and 'fresh' keys.
+    Returns a dict with 'batch_size', 'seq_len', and 'fresh' keys, or None
+    if --auto-config was not passed.
     """
     auto = getattr(args, "auto_config", False) or getattr(args, "auto", False)
     if not auto:
