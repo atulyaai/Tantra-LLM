@@ -782,8 +782,6 @@ class NeuroCoreModel(nn.Module):
         use_latent_reasoning: bool = True,
         adapter_name: Optional[str] = None,
     ) -> Union[Tuple[Tensor, Optional[List[dict]]], Tuple[Tuple[Tensor, Tensor], Optional[List[dict]]]]:
-        if token_ids is None:
-            raise ValueError("token_ids must be provided")
         x = self.embed(token_ids)
         adapter_name = adapter_name or self.active_category
         if adapter_name is not None and adapter_name not in self.category_layers:
