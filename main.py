@@ -1676,16 +1676,13 @@ def main():
                             "ternary" in k or "shadow" in k
                             for k in sdict_for_check
                         )
-                        if getattr(_ckpt_cfg.bitnet, "enabled", False) and not has_ternary_state:
-                            # Config says BitNet but weights were trained with nn.Linear
-                            _ckpt_cfg.bitnet.enabled = False
-                            log.info("  [BitNet] Disabled — checkpoint was trained with nn.Linear (no ternary state).")
-                        elif not getattr(_ckpt_cfg.bitnet, "enabled", False):
-                            # Fresh model, enable BitNet for new training
-                            _ckpt_cfg.bitnet.enabled = True
-                            _ckpt_cfg.bitnet.quantize_mode = "ternary"
-                            _ckpt_cfg.bitnet.use_shadow_weights = True
-                            log.info("  [BitNet] Enabled ternary quantization for new training.")
+if getattr(_ckpt_cfg.bitnet, "enabled", False) and not has_ternary_state:
+            # Config says BitNet but weights were trained with nn.Linear
+            _ckpt_cfg.bitnet.enabled = False
+            log.info("  [BitNet] Disabled — checkpoint was trained with nn.Linear (no ternary state).")
+        # When resuming a checkpoint, preserve its BitNet setting — do not override
+        # BitNet state based on whether the checkpoint was disabled. Only enable
+        # BitNet on a genuinely fresh model (no checkpoint loaded).
                         # Only use checkpoint config if user did NOT explicitly override architecture
                         if not user_overrode_arch:
                             mcfg = _ckpt_cfg
