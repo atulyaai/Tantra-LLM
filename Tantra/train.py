@@ -479,7 +479,7 @@ class NeuroTrainer:
         autocast_enabled = bool(self.use_amp and (self.device.type in ('cuda', 'mps')))
         amp_dtype = self.amp_dtype if autocast_enabled else torch.float32
         with torch.autocast(device_type=device_type, dtype=amp_dtype, enabled=autocast_enabled):
-            out = self.model(x, return_mtp=self.use_mtp_loss, use_latent_reasoning=use_latent_reasoning)
+            out = self.model(token_ids=x, return_mtp=self.use_mtp_loss, use_latent_reasoning=use_latent_reasoning)
             if isinstance(out[0], tuple):
                 logits_main, logits_mtp = out[0]
             else:
@@ -1257,9 +1257,9 @@ class NeuroTrainer:
                 rejected_labels = batch["rejected_labels"].to(self.device)
                 
                 # Forward current model
-                chosen_out = self.model(chosen_ids)
+                chosen_out = self.model(token_ids=chosen_ids)
                 chosen_logits = chosen_out[0] if isinstance(chosen_out, tuple) else chosen_out
-                rejected_out = self.model(rejected_ids)
+                rejected_out = self.model(token_ids=rejected_ids)
                 rejected_logits = rejected_out[0] if isinstance(rejected_out, tuple) else rejected_out
                 
                 # Forward reference model (frozen)
