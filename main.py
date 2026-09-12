@@ -1748,7 +1748,7 @@ def main():
     if args.adapter is not None and args.mode in ("dataset", "chat", "generate", "serve"):
         model = build_adapter_model(rt)
 
-    trainer = NeuroTrainer(model, lr=1e-4)
+    trainer = NeuroTrainer(model, lr=1e-4, optimizer_name=args.optimizer if args.optimizer else "adamw")
     # Check if a checkpoint exists for status — use LATEST_DIR constant (capital L)
     # not the literal "latest" path which never matches on Windows.
     if args.mode == "status":
