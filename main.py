@@ -42,7 +42,7 @@ from Tantra.tokenizer import ByteBPETokenizer, MegabytePatcher, UnifiedTokenizer
 from Tantra.model import NeuroCoreModel, cpu_dense_config, build_cpu_model
 from Tantra.moe import ExpertRegistry, LazyExpertLoader
 from Tantra.codec import DNACodec, CompressionBenchmark
-from Tantra.train import NeuroTrainer
+from Tantra.train import NeuroTrainer, build_optimizer, create_lr_scheduler
 from Tantra.dataset import JSONLDataset, extract_corpus_sample, PretokenizedBinDataset, find_bin_cache
 from Tantra.evolution import AutoGrowthController, SelfRepairEngine, CategoryGrowthController
 from Tantra.eval_suite import EvaluationEngine
@@ -713,15 +713,28 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
         prev_stage = getattr(trainer, "training_stage", None)
         stage_name = training_stage or prev_stage or "sft"
         if prev_stage is not None and prev_stage != stage_name:
-            # Stage transition (pretrain → SFT): KEEP optimizer and learned weights
-            # to preserve what the model already learned. But use a VERY LOW LR
-            # so SFT updates don't destroy pretraining knowledge (no catastrophic forgetting).
-            log.info(f"  Stage transition ({prev_stage} → {stage_name}): PRESERVING optimizer + learned weights.")
-            log.info(f"  Using reduced LR={lr:.2e} for fine-tuning to avoid catastrophic forgetting.")
-            # Reset best_loss to inf since SFT loss is different from pretrain loss
-            trainer.best_loss = float('inf')
-            trainer.best_val_loss = float('inf')
-            log.info(f"  best_val_loss reset to inf for SFT baseline.")
+# Stage transition (pretrain → SFT): RESET optimizer to prevent catastrophic forgetting
+        # The pretrain optimizer momentum is incompatible with SFT gradients,
+        # causing the loss to explode (9.45 → 21.1). Fresh momentum = stable SFT.
+        log.warning(f"  ⚠️ Stage transition ({prev_stage} → {stage_name}): RESETTING optimizer for stable SFT fine-tuning.")
+        trainer.best_loss = float('inf')
+        trainer.best_val_loss = float('inf')
+        trainer.optimizer = build_optimizer(
+            trainer.optimizer_name,
+            [p for p in trainer.model.parameters() if p.requires_grad],
+            lr=lr,
+            weight_decay=trainer.weight_decay,
+        )
+        trainer.scheduler = create_lr_scheduler(
+            trainer.optimizer,
+            warmup_steps=actual_warmup,
+            total_steps=steps,
+            min_lr_ratio=0.10,
+            start_step=trainer.step_count,
+            last_epoch=-1,
+        )
+        log.info(f"  Fresh optimizer + scheduler for SFT at LR={lr:.2e}")
+        log.info(f"  best_val_loss reset to inf for SFT baseline.")
         elif reset_best_loss:
             prev_val = getattr(trainer, "best_val_loss", float('inf'))
             trainer.best_loss = float('inf')
@@ -1508,7 +1521,16 @@ def main():
             os.path.join(MODEL_DIR, "checkpoint_latest.pt"),
         ])
         latest_ckpt_file = next((p for p in ckpt_candidates if os.path.exists(p) and os.path.getsize(p) > 10 * 1024 * 1024), ckpt_candidates[0])
-        restore_checkpoint_architecture(mcfg, latest_ckpt_file)
+        # Only restore checkpoint architecture if user explicitly passed different values
+        # If user passed --layers or --dim, use those; don't let checkpoint override
+        user_overrode_arch = (
+            (getattr(args, 'layers', None) is not None and args.layers != 8) or
+            (getattr(args, 'dim', None) is not None and args.dim != 512)
+        )
+        if not user_overrode_arch:
+            restore_checkpoint_architecture(mcfg, latest_ckpt_file)
+        else:
+            log.info(f"User explicitly set --layers={args.layers} --dim={args.dim}; keeping CLI architecture (not overriding with checkpoint).")
         legacy_checkpoint_compat = False
         _ckpt_path = latest_ckpt_file
         if os.path.exists(_ckpt_path) and os.path.getsize(_ckpt_path) > 10 * 1024 * 1024 and mcfg is not None:
@@ -1548,7 +1570,18 @@ def main():
                             _ckpt_cfg.bitnet.quantize_mode = "ternary"
                             _ckpt_cfg.bitnet.use_shadow_weights = True
                             log.info("  [BitNet] Enabled ternary quantization for new training.")
-                        mcfg = _ckpt_cfg
+                        # Only use checkpoint config if user did NOT explicitly override architecture
+                        if not user_overrode_arch:
+                            mcfg = _ckpt_cfg
+                        else:
+                            # Keep our CLI architecture but copy other settings from checkpoint
+                            # (bitnet settings, vocab, etc.)
+                            log.info(f"Keeping CLI architecture (layers={args.layers}, dim={args.dim}) from checkpoint config.")
+                            # Still apply bitnet settings from checkpoint
+                            if hasattr(mcfg, 'bitnet') and hasattr(_ckpt_cfg, 'bitnet'):
+                                mcfg.bitnet.enabled = _ckpt_cfg.bitnet.enabled
+                                mcfg.bitnet.quantize_mode = _ckpt_cfg.bitnet.quantize_mode
+                                mcfg.bitnet.use_shadow_weights = _ckpt_cfg.bitnet.use_shadow_weights
 
                     # Also check state_dict layer keys for dynamically grown models
                     sdict = _ckpt.get("model_state_dict", {})
