@@ -617,17 +617,15 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
     resume_target = None
     resumed_from_explicit_checkpoint = False
     if checkpoint_path and os.path.isfile(checkpoint_path):
-        try:
-            log.info(f"Loading explicit checkpoint: {checkpoint_path} ({os.path.getsize(checkpoint_path)/1e6:.1f} MB)...")
-            # BUG-07 FIX: was reset_optimizer=True, which silently discarded all
-            # Adam/Lion momentum buffers on every explicit --checkpoint load,
-            # forcing a cold-restart warmup each time. Preserve momentum so the
-            # optimizer continues exactly where it left off. If you genuinely need
-            # a fresh-momentum start (e.g. switching datasets/stages), pass
-            # reset_optimizer=True explicitly via the call-site or add a CLI flag.
-            trainer.load_checkpoint(checkpoint_path, reset_optimizer=False)
-            resume_target = checkpoint_path
-            resumed_from_explicit_checkpoint = True
+try:
+                log.info(f"Loading explicit checkpoint: {checkpoint_path} ({os.path.getsize(checkpoint_path)/1e6:.1f} MB)...")
+                # Reset optimizer when switching to SFT stage (different data distribution)
+                reset_opt = (training_stage == "sft")
+                if reset_opt:
+                    log.info("  Stage is SFT — resetting optimizer for fresh momentum on new data distribution.")
+                trainer.load_checkpoint(checkpoint_path, reset_optimizer=reset_opt)
+                resume_target = checkpoint_path
+                resumed_from_explicit_checkpoint = True
         except Exception as exc:
             log.warning(f"Could not load specified checkpoint {checkpoint_path}: {exc}")
 
@@ -669,7 +667,10 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
             seen.add(candidate)
             try:
                 log.info(f"Loading recovery checkpoint: {candidate} ({os.path.getsize(candidate)/1e6:.1f} MB)...")
-                trainer.load_checkpoint(candidate)
+                reset_opt = (training_stage == "sft")
+                if reset_opt:
+                    log.info("  Stage is SFT — resetting optimizer for fresh momentum on new data distribution.")
+                trainer.load_checkpoint(candidate, reset_optimizer=reset_opt)
                 resume_target = candidate
                 break
             except Exception as exc:
@@ -747,7 +748,12 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
         log.info(f"   • Source Checkpoint : {resume_target}")
         log.info(f"   • Starting Step     : {trainer.step_count:,}")
         log.info(f"   • Target Step       : {steps:,} (+{remaining:,} steps)")
-        optimizer_state_label = "Preserved from checkpoint" if not resumed_from_explicit_checkpoint else "Preserved (explicit checkpoint)"
+        if training_stage == "sft" and resume_target:
+            optimizer_state_label = "Fresh (SFT stage transition)"
+        elif not resumed_from_explicit_checkpoint:
+            optimizer_state_label = "Preserved from checkpoint"
+        else:
+            optimizer_state_label = "Preserved (explicit checkpoint)"
         log.info(f"   • Optimizer State   : {optimizer_state_label} (lr={lr:.2e})")
         log.info(f"   • Recovery Schedule : Cosine restarted for +{remaining:,} steps (warmup={actual_warmup}, min_lr_ratio=0.10)")
         log.info(f"   • Model Directory   : {checkpoint_root}")
