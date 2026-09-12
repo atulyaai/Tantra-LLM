@@ -123,19 +123,37 @@ def auto_detect_config(args, model_layers=None, model_dim=None, model_heads=None
     available_for_activations = max(usable_mem - FIXED_OVERHEAD, 1024**3)
     max_batch_seq = int(available_for_activations / (24 * BYTES_PER_BATCH_SEQ_LAYER) * SAFETY_FACTOR)
 
-    # Prefer higher seq_len (better quality) with reasonable batch
-    # Target: seq_len in [64, 128, 256, 512], batch_size in [1, 8]
+    # Prefer batch sizes divisible by GPU count (DataParallel needs even split)
+    gpu_count = 1
+    if torch.cuda.is_available():
+        gpu_count = torch.cuda.device_count()
+
+    # Empirically validated: batch=6, seq=256 is safe on 2x T4 16GB
+    # Use formula but snap to nearest divisible batch
+    def _snap_batch(bs):
+        """Snap to nearest valid batch divisible by gpu_count, in range [2, 8]."""
+        bs = max(2, min(8, bs))
+        if gpu_count > 1:
+            # Prefer even numbers divisible by gpu_count
+            candidates = [b for b in range(2, 9) if b % gpu_count == 0]
+            # Pick the closest candidate
+            return min(candidates, key=lambda c: (abs(c - bs), -c))
+        return bs
+
     if max_batch_seq >= 256:
         seq_len = 256
-        batch_size = max(1, min(8, max_batch_seq // seq_len))
+        raw_batch = max(1, min(8, max_batch_seq // seq_len))
+        batch_size = _snap_batch(raw_batch)
     elif max_batch_seq >= 128:
         seq_len = 128
-        batch_size = max(1, min(8, max_batch_seq // seq_len))
+        raw_batch = max(1, min(8, max_batch_seq // seq_len))
+        batch_size = _snap_batch(raw_batch)
     else:
         seq_len = 64
-        batch_size = max(1, min(4, max_batch_seq // seq_len))
+        raw_batch = max(1, min(4, max_batch_seq // seq_len))
+        batch_size = _snap_batch(raw_batch)
 
-    batch_size = max(1, min(8, batch_size))
+    batch_size = max(2, min(8, batch_size))
     seq_len = max(64, min(512, seq_len))
 
     # Auto --fresh vs --resume
@@ -143,7 +161,7 @@ def auto_detect_config(args, model_layers=None, model_dim=None, model_heads=None
     fresh = not (os.path.exists(ckpt_path) and os.path.getsize(ckpt_path) > 10 * 1024**2)
 
     result = {"batch_size": batch_size, "seq_len": seq_len, "fresh": fresh}
-    log.info(f"[Auto-Config] Optimal batch_size={batch_size}, seq_len={seq_len}, fresh={fresh} (max_batch_seq={max_batch_seq})")
+    log.info(f"[Auto-Config] Optimal batch_size={batch_size}, seq_len={seq_len}, fresh={fresh} (max_batch_seq={max_batch_seq}, gpu_count={gpu_count})")
     return result
 
 
