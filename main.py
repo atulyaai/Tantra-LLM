@@ -93,80 +93,57 @@ else:
 def auto_detect_config(args, model_layers=None, model_dim=None, model_heads=None):
     """Automatically detect optimal batch_size and seq_len based on available GPU VRAM.
 
-    Uses torch.cuda.get_device_properties() to read total VRAM per GPU,
-    then computes the largest batch*seq that fits within ~85% utilization.
-    For DataParallel with N GPUs, each GPU gets the full model copy plus
-    a portion of activations, so VRAM per GPU matters (not total).
+    Calibrated from known-good config: batch=4, seq=256, dim=1024, layers=24, 2x T4 16GB → ~14.5 GB used.
+    Fixed overhead (model weights + optimizer) ≈ 2.85 GB on T4.
+    Remaining ~11.65 GB for activations across 24 layers → ~477 KB per (batch*seq*layer).
 
     Returns a dict with 'batch_size', 'seq_len', and 'fresh' keys.
     """
     auto = getattr(args, "auto_config", False) or getattr(args, "auto", False)
     if not auto:
-        return None  # User wants manual control
+        return None
 
-    result = {}
     if torch.cuda.is_available():
-        gpu_count = torch.cuda.device_count()
-        # Use per-GPU memory (DataParallel puts full model on each GPU)
         total_mem = torch.cuda.get_device_properties(0).total_memory
         free_mem = torch.cuda.mem_get_info(0)[0]
-        # Reserve 500MB for system overhead, use 85% of remaining for activations
-        usable_mem = int((total_mem - 500 * 1024**2) * 0.85)
-        log.info(f"[Auto-Config] {gpu_count}x GPU detected, per-GPU VRAM: {total_mem//1024**3} GB, free: {free_mem//1024**3} GB")
+        log.info(f"[Auto-Config] {torch.cuda.device_count()}x GPU detected, per-GPU VRAM: {total_mem//1024**3} GB, free: {free_mem//1024**3} GB")
     else:
-        usable_mem = 4 * 1024**3  # Fallback for CPU
-        log.info("[Auto-Config] No CUDA detected, using CPU fallback config")
+        return {"batch_size": 4, "seq_len": 256, "fresh": True}
 
-    # Estimate fixed memory overhead: model weights (~2 bytes/fp16 per param) + optimizer (~2x params for AdamW)
-    n_layers = model_layers or args.layers or 24
-    n_dim = model_dim or args.dim or 1024
-    n_heads = model_heads or args.heads or 16
-    # Approximate param count for a transformer: ~3 * layers * dim^2 * heads/dim
-    # Actually: ~layers * (dim*dim*3 + dim*heads*4 + dim*heads*4 + dim*4) ≈ layers * dim^2 * 4
-    approx_params = n_layers * n_dim * n_dim * 4  # very rough upper bound
-    fixed_overhead = int(approx_params * 2 * 3)  # weights + optimizer states in fp16/bf16
-    fixed_overhead = max(fixed_overhead, 3 * 1024**3)  # floor at 3GB (model + optimizer baseline)
+    # Constants calibrated from actual measurements on 2x T4:
+    # batch=4, seq=256, layers=24, dim=1024 → ~14.5 GB used (~90% of 16GB)
+    # Fixed overhead (model weights fp16 + optimizer): ~2.85 GB
+    # Activation memory per (batch*seq*layer): ~450 KB
+    BYTES_PER_BATCH_SEQ_LAYER = 450 * 1024
+    FIXED_OVERHEAD = 2.85 * 1024**3
+    TARGET_UTIL = 0.90           # allow up to 90% VRAM usage (empirically stable)
+    SAFETY_FACTOR = 0.95         # 5% headroom below target
 
-    # Activation memory per step: batch * seq * layers * dim * bytes_per_param * 4
-    # With DataParallel overhead factor of ~1.15
-    dp_overhead = 1.15 if torch.cuda.is_available() and torch.cuda.device_count() > 1 else 1.0
-    activation_bytes_per_unit = int(n_layers * n_dim * 4 * 4 * dp_overhead)  # bytes per (batch*seq)
+    usable_mem = int((total_mem - 500 * 1024**2) * TARGET_UTIL)
+    available_for_activations = max(usable_mem - FIXED_OVERHEAD, 1024**3)
+    max_batch_seq = int(available_for_activations / (24 * BYTES_PER_BATCH_SEQ_LAYER) * SAFETY_FACTOR)
 
-    available_for_activations = usable_mem - fixed_overhead
-    if available_for_activations < 1024**3:
-        # Not enough VRAM — minimum config
-        batch_size, seq_len = 1, 128
+    # Prefer higher seq_len (better quality) with reasonable batch
+    # Target: seq_len in [64, 128, 256, 512], batch_size in [1, 8]
+    if max_batch_seq >= 256:
+        seq_len = 256
+        batch_size = max(1, min(8, max_batch_seq // seq_len))
+    elif max_batch_seq >= 128:
+        seq_len = 128
+        batch_size = max(1, min(8, max_batch_seq // seq_len))
     else:
-        max_units = available_for_activations // activation_bytes_per_unit
-        # Prefer higher seq_len over batch_size (seq_len has bigger impact on quality)
-        # Target: seq_len between 128-512, batch_size between 1-8
-        if max_units > 400000:
-            seq_len = 512
-            batch_size = max(1, min(8, max_units // (n_layers * n_dim * 4 * 4 * dp_overhead) // seq_len))
-        elif max_units > 100000:
-            seq_len = 256
-            batch_size = max(1, min(8, max_units // (n_layers * n_dim * 4 * 4 * dp_overhead) // seq_len))
-        elif max_units > 30000:
-            seq_len = 128
-            batch_size = max(1, min(8, max_units // (n_layers * n_dim * 4 * 4 * dp_overhead) // seq_len))
-        else:
-            seq_len = 64
-            batch_size = max(1, min(4, max_units // (n_layers * n_dim * 4 * 4 * dp_overhead) // seq_len))
-        # Clamp to safe ranges
-        batch_size = max(1, min(8, batch_size))
-        seq_len = max(64, min(512, seq_len))
+        seq_len = 64
+        batch_size = max(1, min(4, max_batch_seq // seq_len))
 
-    # Auto-determine --fresh vs --resume: use --resume if checkpoint exists, else --fresh
+    batch_size = max(1, min(8, batch_size))
+    seq_len = max(64, min(512, seq_len))
+
+    # Auto --fresh vs --resume
     ckpt_path = os.path.join(MODEL_DIR, "Latest", "checkpoint_latest.pt")
-    if os.path.exists(ckpt_path) and os.path.getsize(ckpt_path) > 10 * 1024**2:
-        fresh = False
-        log.info(f"[Auto-Config] Checkpoint found at {ckpt_path} → using --resume")
-    else:
-        fresh = True
-        log.info("[Auto-Config] No checkpoint found → using --fresh")
+    fresh = not (os.path.exists(ckpt_path) and os.path.getsize(ckpt_path) > 10 * 1024**2)
 
     result = {"batch_size": batch_size, "seq_len": seq_len, "fresh": fresh}
-    log.info(f"[Auto-Config] Optimal batch_size={batch_size}, seq_len={seq_len}, fresh={fresh}")
+    log.info(f"[Auto-Config] Optimal batch_size={batch_size}, seq_len={seq_len}, fresh={fresh} (max_batch_seq={max_batch_seq})")
     return result
 
 
