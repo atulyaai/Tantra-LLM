@@ -1512,10 +1512,17 @@ def main():
     # fail on every router tensor.
     if len(reg) > 0:
         mcfg.moe.num_experts = len(reg)
+    legacy_checkpoint_compat = False
     if getattr(args, "fresh", False):
-        mcfg = cpu_dense_config(vocab_size=vcfg.vocab_size, attention_kind="causal")
-        model = build_cpu_model("dense", attention_kind="causal", vocab_size=vcfg.vocab_size)
-        log.info(f"Initialized fresh official 38.6M CPU profile model ({model.num_parameters:,} parameters).")
+        mcfg = NeuroCoreConfig()
+        mcfg.vocab.vocab_size = vcfg.vocab_size
+        mcfg.block.num_layers = args.layers
+        mcfg.dim = args.dim
+        mcfg.block.alra.dim = args.dim
+        mcfg.block.sgp.dim = args.dim
+        mcfg.block.alra.num_heads = args.heads
+        mcfg.block.alra.head_dim = args.dim // args.heads
+        log.info(f"Initialized fresh model with user architecture: {args.layers} layers, dim={args.dim}, heads={args.heads}")
     else:
         ckpt_candidates = []
         if args.checkpoint and os.path.exists(args.checkpoint):
