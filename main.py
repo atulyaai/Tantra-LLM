@@ -166,8 +166,15 @@ def auto_detect_config(args, model_layers=None, model_dim=None, model_heads=None
     ckpt_path = os.path.join(MODEL_DIR, "Latest", "checkpoint_latest.pt")
     fresh = not (os.path.exists(ckpt_path) and os.path.getsize(ckpt_path) > 10 * 1024**2)
 
-    result = {"batch_size": batch_size, "seq_len": seq_len, "fresh": fresh}
-    log.info(f"[Auto-Config] Optimal batch_size={batch_size}, seq_len={seq_len}, fresh={fresh} (max_batch_seq={max_batch_seq}, gpu_count={gpu_count})")
+    # Bug 1: enforce minimum batch size >= GPU count for DataParallel
+    if torch.cuda.is_available() and torch.cuda.device_count() > 1:
+        gpu_count = torch.cuda.device_count()
+        if args.batch_size < gpu_count:
+            log.warning(f"[Auto-Config] batch_size={args.batch_size} < GPU count={gpu_count}. Raising to {gpu_count}.")
+            args.batch_size = gpu_count
+
+    result = {"batch_size": args.batch_size, "seq_len": args.seq_len, "fresh": fresh}
+    log.info(f"[Auto-Config] Optimal batch_size={args.batch_size}, seq_len={args.seq_len}, fresh={fresh} (max_batch_seq={max_batch_seq}, gpu_count={gpu_count})")
     return result
 
 
@@ -1639,7 +1646,7 @@ def main():
         if not user_overrode_arch:
             restore_checkpoint_architecture(mcfg, latest_ckpt_file)
         else:
-            log.info(f"User explicitly set --layers={args.layers} --dim={args.dim}; keeping CLI architecture (not overriding with checkpoint).")
+            log.info(f"User explicitly set --layers={args.layers} --dim={args.dim}; CLI architecture set, but train.py may still grow layers to match checkpoint weights.")
         legacy_checkpoint_compat = False
         _ckpt_path = latest_ckpt_file
         if os.path.exists(_ckpt_path) and os.path.getsize(_ckpt_path) > 10 * 1024 * 1024 and mcfg is not None:
@@ -1940,8 +1947,9 @@ def main():
         sft_steps = int(total_steps * 0.90)
         dpo_steps = max(1, total_steps - sft_steps)
 
+        growth_label = "SFT + Auto-Growth" if args.auto_growth else "SFT (No Auto-Growth)"
         log.info("=" * 80)
-        log.info(f"🚀 [AUTO-PILOT PIPELINE] Total: {total_steps:,} Steps │ Phase 1 (SFT + Auto-Growth): {sft_steps:,} Steps │ Phase 2 (DPO Preference Alignment): {dpo_steps:,} Steps")
+        log.info(f"🚀 [AUTO-PILOT PIPELINE] Total: {total_steps:,} Steps │ Phase 1 ({growth_label}): {sft_steps:,} Steps │ Phase 2 (DPO Preference Alignment): {dpo_steps:,} Steps")
         log.info("=" * 80)
 
         # Ensure datasets are ready
