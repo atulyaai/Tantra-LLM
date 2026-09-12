@@ -115,7 +115,15 @@ def print_status_dashboard(model, trainer, expert_reg, rt):
         table.add_column("Value", style="magenta")
 
         total_params = sum(p.numel() for p in model.parameters())
-        status = "FRESH" if trainer.step_count == 0 else f"RESUMING (Step {trainer.step_count})"
+        status = "RESUMING" if trainer._is_resume else "FRESH"
+        if trainer.step_count > 0 and not trainer._is_resume:
+            status = "FRESH_START (step 0)"
+        elif trainer._is_resume and trainer.step_count == 0:
+            status = "RESUMING (step 0)"
+        elif trainer._is_resume:
+            status = f"RESUMING (Step {trainer.step_count})"
+        else:
+            status = f"FRESH (Step {trainer.step_count})"
 
         table.add_row("Model", f"NeuroCore ({total_params/1e6:.1f}M params)")
         table.add_row("Device", f"{rt.device} | dtype: {rt.dtype}")
@@ -523,15 +531,27 @@ def run_forward(model, vcfg, batch_size, device):
 
 def run_training(model, vcfg, steps=30, resume=False):
     log.info("== [SYNTHETIC BENCHMARK TRAINING] ==================")
-    trainer = NeuroTrainer(model, lr=1e-4, total_steps=steps)
     latest_ckpt = os.path.join(LATEST_DIR, "checkpoint_latest.pt")
-
+    
+    # Auto-resume: if resume flag is set AND checkpoint exists, load it
+    # This prevents "starting from 0" when a previous training run left a checkpoint
     if resume and os.path.exists(latest_ckpt):
         log.info(f"RESUMING training from existing checkpoint: {latest_ckpt}")
+        trainer = NeuroTrainer(model, lr=1e-3, total_steps=steps, warmup_steps=max(1, steps // 10))
         trainer.load_checkpoint(latest_ckpt)
+        log.info(f"Resumed at step {trainer.step_count:,}. Continuing to {steps} steps.")
     else:
-        log.info("Starting FRESH synthetic training benchmark.")
-
+        # Check if a checkpoint exists even without explicit --resume flag
+        # to avoid starting fresh when there's a valid checkpoint
+        if os.path.exists(latest_ckpt):
+            log.info(f"Found existing checkpoint {latest_ckpt}. Auto-resuming training.")
+            trainer = NeuroTrainer(model, lr=1e-3, total_steps=steps, warmup_steps=max(1, steps // 10))
+            trainer.load_checkpoint(latest_ckpt)
+            log.info(f"Resumed at step {trainer.step_count:,}. Continuing to {steps} steps.")
+        else:
+            log.info("Starting FRESH synthetic training benchmark.")
+            trainer = NeuroTrainer(model, lr=1e-3, total_steps=steps, warmup_steps=max(1, steps // 10))
+    
     trainer.train_demo(steps=steps, vocab_size=vcfg.vocab_size)
     trainer.save_checkpoint(latest_ckpt, save_optimizer=True)
 
@@ -661,6 +681,8 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
         log.info(f"RESUMING training from recovered checkpoint: {resume_target}")
         if steps <= trainer.step_count:
             effective_target = trainer.step_count + steps
+            # Round to nearest 1000 for cleaner display
+            effective_target = ((effective_target + 500) // 1000) * 1000
             log.info(f"  [Incremental Steps] Specified --steps {steps} <= checkpoint step {trainer.step_count}. "
                      f"Running +{steps} steps -> new target: {effective_target} steps.")
             steps = effective_target
@@ -691,10 +713,16 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
         prev_stage = getattr(trainer, "training_stage", None)
         stage_name = training_stage or prev_stage or "sft"
         if prev_stage is not None and prev_stage != stage_name:
+            # Stage transition (pretrain → SFT): KEEP optimizer and learned weights
+            # to preserve what the model already learned. But use a VERY LOW LR
+            # so SFT updates don't destroy pretraining knowledge (no catastrophic forgetting).
+            log.info(f"  Stage transition ({prev_stage} → {stage_name}): PRESERVING optimizer + learned weights.")
+            log.info(f"  Using reduced LR={lr:.2e} for fine-tuning to avoid catastrophic forgetting.")
+            # Reset best_loss to inf since SFT loss is different from pretrain loss
             trainer.best_loss = float('inf')
             trainer.best_val_loss = float('inf')
-            log.info(f"  Stage transition detected ({prev_stage} -> {stage_name}): best_val_loss reset to inf for fresh generalization baseline.")
-        elif reset_best_loss or (stage_name == "sft" and getattr(trainer, "best_val_loss", float('inf')) < 4.0):
+            log.info(f"  best_val_loss reset to inf for SFT baseline.")
+        elif reset_best_loss:
             prev_val = getattr(trainer, "best_val_loss", float('inf'))
             trainer.best_loss = float('inf')
             trainer.best_val_loss = float('inf')

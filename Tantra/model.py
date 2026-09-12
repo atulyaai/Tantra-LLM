@@ -858,7 +858,8 @@ class NeuroCoreModel(nn.Module):
         max_new_tokens: int = 150,
         temperature: float = 0.35,          # Lower temp = confident, coherent, non-hallucinating
         top_p: float = 0.85,               # Narrow nucleus = high quality vocab
-        repetition_penalty: float = 1.15,  # Anti-loop on generated tokens
+        repetition_penalty: float = 1.30,  # Anti-loop on generated tokens
+        no_repeat_ngram_size: int = 3,     # Ban 3-token repeating loops (duplicate phrases)
         use_mtp_speculation: bool = False,
         use_latent_reasoning: bool = False,
         eos_token_id: Optional[int] = 2,
@@ -913,6 +914,18 @@ class NeuroCoreModel(nn.Module):
             for batch_idx, history in enumerate(generated_tokens):
                 if len(history) >= 3 and history[-1] == history[-2] == history[-3]:
                     next_token_logits[batch_idx, history[-1]] = -1e9
+
+            # Strict N-gram repetition blocking: completely eliminates duplicate looping words and phrases
+            if no_repeat_ngram_size > 0:
+                n = no_repeat_ngram_size
+                for batch_idx, history in enumerate(generated_tokens):
+                    if len(history) >= n - 1:
+                        ngram_prefix = tuple(history[-(n - 1):])
+                        for k in range(len(history) - (n - 1)):
+                            if tuple(history[k:k + n - 1]) == ngram_prefix:
+                                banned_tok = history[k + n - 1]
+                                if 0 <= banned_tok < next_token_logits.size(-1):
+                                    next_token_logits[batch_idx, banned_tok] = -1e9
 
             if banned_token_ids:
                 for b_id in banned_token_ids:
@@ -980,7 +993,8 @@ class NeuroCoreModel(nn.Module):
         max_new_tokens: int = 150,
         temperature: float = 0.35,
         top_p: float = 0.85,
-        repetition_penalty: float = 1.15,
+        repetition_penalty: float = 1.30,
+        no_repeat_ngram_size: int = 3,
         use_mtp_speculation: bool = False,
         use_latent_reasoning: bool = False,
         eos_token_id: Optional[int] = 2,
@@ -1020,6 +1034,19 @@ class NeuroCoreModel(nn.Module):
             for batch_idx, history in enumerate(generated_tokens):
                 if len(history) >= 3 and history[-1] == history[-2] == history[-3]:
                     logits[batch_idx, history[-1]] = -1e9
+
+            # Strict N-gram repetition blocking in stream mode
+            if no_repeat_ngram_size > 0:
+                n = no_repeat_ngram_size
+                for batch_idx, history in enumerate(generated_tokens):
+                    if len(history) >= n - 1:
+                        ngram_prefix = tuple(history[-(n - 1):])
+                        for k in range(len(history) - (n - 1)):
+                            if tuple(history[k:k + n - 1]) == ngram_prefix:
+                                banned_tok = history[k + n - 1]
+                                if 0 <= banned_tok < logits.size(-1):
+                                    logits[batch_idx, banned_tok] = -1e9
+
             if banned_token_ids:
                 for b_id in banned_token_ids:
                     if 0 <= b_id < logits.size(-1):

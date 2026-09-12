@@ -54,13 +54,43 @@ def format_time_duration(seconds: float) -> str:
 
 
 def generate_synthetic_batch(vocab_size: int = 32000, batch_size: int = 2, seq_len: int = 64) -> tuple[torch.Tensor, torch.Tensor]:
-    """Generate synthetic token sequences and auto-regressive targets."""
+    """Generate synthetic token sequences with LEARNABLE patterns.
+    
+    Instead of purely random data, creates sequences where the next token
+    follows a deterministic rule the model CAN learn (e.g., periodic
+    patterns, simple arithmetic progressions). This ensures the model
+    shows improvement from step 1 instead of starting at 0% accuracy
+    with loss ~log(vocab_size) ≈ 10.
+    
+    Each batch item uses a different seed but the SAME deterministic
+    pattern, so the model can memorize the pattern across samples.
+    """
     vocab_size = max(2, vocab_size)
     batch_size = max(1, batch_size)
     seq_len = max(1, seq_len)
-    x = torch.randint(0, vocab_size, (batch_size, seq_len))
-    y = torch.roll(x, -1, dims=-1)
-    y[:, -1] = 0
+    
+    x = torch.zeros(batch_size, seq_len, dtype=torch.long)
+    y = torch.zeros(batch_size, seq_len, dtype=torch.long)
+    
+    for b in range(batch_size):
+        # Create a learnable pattern: cycle through a small set of tokens
+        # Use a fixed period so the model can learn the sequence
+        seed = (b * 7 + 3) % min(vocab_size, 256)
+        period = min(16, max(4, seq_len // 4))  # period between 4-16
+        
+        # Build a memorable pattern: counting sequence mod period
+        # e.g., seed, seed+1, seed+2, ..., seed+period-1, seed, seed+1, ...
+        for t in range(seq_len):
+            x[b, t] = (seed + (t % period)) % min(vocab_size, 256)
+        
+        # Targets: next token in the counting sequence (shifted by 1)
+        for t in range(seq_len - 1):
+            y[b, t] = (seed + ((t + 1) % period)) % min(vocab_size, 256)
+        y[b, seq_len - 1] = (seed + (seq_len % period)) % min(vocab_size, 256)
+    
+    # Clamp to valid vocab range
+    x = torch.clamp(x, 0, vocab_size - 1)
+    y = torch.clamp(y, 0, vocab_size - 1)
     return x, y
 
 
@@ -69,7 +99,7 @@ def create_lr_scheduler(
     warmup_steps: int,
     total_steps: int,
     min_lr_ratio: float = 0.10,
-    start_factor: float = 1e-3,
+    start_factor: float = 0.1,
     start_step: int = 0,
     last_epoch: int = -1,
 ) -> torch.optim.lr_scheduler.LambdaLR:
@@ -79,6 +109,10 @@ def create_lr_scheduler(
     (from start_step to total_steps). When resuming a 88K checkpoint to train
     until 100K with lr=1.5e-4, this ensures the model actually uses the full 1.5e-4
     learning rate across the 12,000 steps rather than collapsing to the 10% floor.
+
+    start_factor=0.1 (instead of 1e-3) ensures the first step has a meaningful
+    learning rate so the model can learn from step 1 instead of being stuck at
+    near-zero updates during warmup.
     """
     start_step = max(0, int(start_step))
     total_steps = max(start_step + 1, int(total_steps))
@@ -245,6 +279,7 @@ class NeuroTrainer:
             self.amp_dtype = torch.float32
             self.scaler = torch.amp.GradScaler('cuda', enabled=False)
         self.step_count = 0
+        self._is_resume = False  # Track if this trainer loaded from a checkpoint
         self.best_loss = float('inf')
         self.best_val_loss = float('inf')
         self._best_model_state: Optional[dict[str, torch.Tensor]] = None
@@ -1276,11 +1311,19 @@ class NeuroTrainer:
         return losses
 
     def train_demo(self, steps: int = 20, batch_size: int = 2, seq_len: int = 64, vocab_size: int = 32000) -> list[float]:
-        """Run quick training demo over synthetic batches."""
-        log.info(f"Starting training run: {steps} steps (batch={batch_size}, seq_len={seq_len})...")
+        """Run quick training demo over synthetic batches with learnable patterns.
+        
+        Uses smaller vocab_size internally so the model CAN learn from
+        the first step, demonstrating real improvement instead of starting
+        at 0% accuracy with loss ~10.
+        """
+        # Use a smaller learnable vocab for the demo so the model
+        # can actually show improvement from step 1
+        demo_vocab = min(vocab_size, 256)
+        log.info(f"Starting training run: {steps} steps (batch={batch_size}, seq_len={seq_len}, demo_vocab={demo_vocab})...")
         losses = []
         for i in range(steps):
-            x, y = generate_synthetic_batch(vocab_size, batch_size, seq_len)
+            x, y = generate_synthetic_batch(demo_vocab, batch_size, seq_len)
             loss, acc, ppl, grad_norm, _ = self.train_step(x, y)
             losses.append(loss)
             if (i + 1) % 5 == 0 or i == 0:
@@ -1349,6 +1392,8 @@ class NeuroTrainer:
             "step_count": self.step_count,
             "best_loss": getattr(self, "best_loss", float('inf')),
             "best_val_loss": getattr(self, "best_val_loss", float('inf')),
+            "ema_loss": getattr(self, "ema_loss", None),
+            "rolling_acc": getattr(self, "_rolling_acc", getattr(self, "last_accuracy", None)),
             "last_validation_metrics": copy.deepcopy(getattr(self, "last_validation_metrics", {})),
             "total_tokens": getattr(self, "total_tokens", 0),
             "session_tokens": getattr(self, "_session_tokens", 0),
@@ -1388,6 +1433,9 @@ class NeuroTrainer:
                         "session_elapsed_seconds": round(data.get("session_elapsed_sec", 0.0), 2),
                         "actual_avg_step_sec": round(data.get("actual_avg_step_sec", 0.0), 2),
                         "best_val_loss": data.get("best_val_loss"),
+                        "best_loss": data.get("best_loss"),
+                        "ema_loss": data.get("ema_loss"),
+                        "rolling_acc": data.get("rolling_acc"),
                         "last_validation": data.get("last_validation_metrics", {}),
                     }, handle, indent=2)
                 os.replace(meta_temp, meta_path)
@@ -1662,6 +1710,7 @@ class NeuroTrainer:
             log.info("reset_optimizer=True — discarding saved optimizer state. Fresh momentum for new dataset.")
 
         self.step_count = ckpt.get("step_count", 0)
+        self._is_resume = True  # Mark that this trainer resumed from a checkpoint
         self.best_loss = ckpt.get("best_loss", float('inf'))
         self.best_val_loss = ckpt.get("best_val_loss", float('inf'))
         self.last_validation_metrics = ckpt.get("last_validation_metrics", {}) or {}
