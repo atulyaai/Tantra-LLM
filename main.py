@@ -90,6 +90,86 @@ else:
             DEFAULT_DATASET = os.path.join(_datasets_dir, "tantra_master_train.jsonl")
 
 
+def auto_detect_config(args, model_layers=None, model_dim=None, model_heads=None):
+    """Automatically detect optimal batch_size and seq_len based on available GPU VRAM.
+
+    Uses torch.cuda.get_device_properties() to read total VRAM per GPU,
+    then computes the largest batch*seq that fits within ~85% utilization.
+    For DataParallel with N GPUs, each GPU gets the full model copy plus
+    a portion of activations, so VRAM per GPU matters (not total).
+
+    Returns a dict with 'batch_size', 'seq_len', and 'fresh' keys.
+    """
+    auto = getattr(args, "auto_config", False) or getattr(args, "auto", False)
+    if not auto:
+        return None  # User wants manual control
+
+    result = {}
+    if torch.cuda.is_available():
+        gpu_count = torch.cuda.device_count()
+        # Use per-GPU memory (DataParallel puts full model on each GPU)
+        total_mem = torch.cuda.get_device_properties(0).total_memory
+        free_mem = torch.cuda.mem_get_info(0)[0]
+        # Reserve 500MB for system overhead, use 85% of remaining for activations
+        usable_mem = int((total_mem - 500 * 1024**2) * 0.85)
+        log.info(f"[Auto-Config] {gpu_count}x GPU detected, per-GPU VRAM: {total_mem//1024**3} GB, free: {free_mem//1024**3} GB")
+    else:
+        usable_mem = 4 * 1024**3  # Fallback for CPU
+        log.info("[Auto-Config] No CUDA detected, using CPU fallback config")
+
+    # Estimate fixed memory overhead: model weights (~2 bytes/fp16 per param) + optimizer (~2x params for AdamW)
+    n_layers = model_layers or args.layers or 24
+    n_dim = model_dim or args.dim or 1024
+    n_heads = model_heads or args.heads or 16
+    # Approximate param count for a transformer: ~3 * layers * dim^2 * heads/dim
+    # Actually: ~layers * (dim*dim*3 + dim*heads*4 + dim*heads*4 + dim*4) ≈ layers * dim^2 * 4
+    approx_params = n_layers * n_dim * n_dim * 4  # very rough upper bound
+    fixed_overhead = int(approx_params * 2 * 3)  # weights + optimizer states in fp16/bf16
+    fixed_overhead = max(fixed_overhead, 3 * 1024**3)  # floor at 3GB (model + optimizer baseline)
+
+    # Activation memory per step: batch * seq * layers * dim * bytes_per_param * 4
+    # With DataParallel overhead factor of ~1.15
+    dp_overhead = 1.15 if torch.cuda.is_available() and torch.cuda.device_count() > 1 else 1.0
+    activation_bytes_per_unit = int(n_layers * n_dim * 4 * 4 * dp_overhead)  # bytes per (batch*seq)
+
+    available_for_activations = usable_mem - fixed_overhead
+    if available_for_activations < 1024**3:
+        # Not enough VRAM — minimum config
+        batch_size, seq_len = 1, 128
+    else:
+        max_units = available_for_activations // activation_bytes_per_unit
+        # Prefer higher seq_len over batch_size (seq_len has bigger impact on quality)
+        # Target: seq_len between 128-512, batch_size between 1-8
+        if max_units > 400000:
+            seq_len = 512
+            batch_size = max(1, min(8, max_units // (n_layers * n_dim * 4 * 4 * dp_overhead) // seq_len))
+        elif max_units > 100000:
+            seq_len = 256
+            batch_size = max(1, min(8, max_units // (n_layers * n_dim * 4 * 4 * dp_overhead) // seq_len))
+        elif max_units > 30000:
+            seq_len = 128
+            batch_size = max(1, min(8, max_units // (n_layers * n_dim * 4 * 4 * dp_overhead) // seq_len))
+        else:
+            seq_len = 64
+            batch_size = max(1, min(4, max_units // (n_layers * n_dim * 4 * 4 * dp_overhead) // seq_len))
+        # Clamp to safe ranges
+        batch_size = max(1, min(8, batch_size))
+        seq_len = max(64, min(512, seq_len))
+
+    # Auto-determine --fresh vs --resume: use --resume if checkpoint exists, else --fresh
+    ckpt_path = os.path.join(MODEL_DIR, "Latest", "checkpoint_latest.pt")
+    if os.path.exists(ckpt_path) and os.path.getsize(ckpt_path) > 10 * 1024**2:
+        fresh = False
+        log.info(f"[Auto-Config] Checkpoint found at {ckpt_path} → using --resume")
+    else:
+        fresh = True
+        log.info("[Auto-Config] No checkpoint found → using --fresh")
+
+    result = {"batch_size": batch_size, "seq_len": seq_len, "fresh": fresh}
+    log.info(f"[Auto-Config] Optimal batch_size={batch_size}, seq_len={seq_len}, fresh={fresh}")
+    return result
+
+
 def print_banner():
     is_tty = getattr(sys.stdout, "isatty", lambda: False)()
     if console and is_tty:
@@ -1424,7 +1504,17 @@ def main():
     parser.add_argument("--max-grad-norm", type=float, default=0.5, help="Max gradient norm clipping threshold (default: 0.5)")
     parser.add_argument("--mtp-weight", type=float, default=0.3, help="Auxiliary MTP loss weight factor (default: 0.3)")
     parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
+    parser.add_argument("--auto-config", action="store_true", default=False, help="Auto-detect optimal batch_size/seq_len based on available VRAM; auto-select --fresh/--resume based on checkpoint availability")
     args = parser.parse_args()
+
+    # ── Auto-Configuration ──────────────────────────────────────────────
+    auto_cfg = auto_detect_config(args)
+    if auto_cfg:
+        args.batch_size = auto_cfg["batch_size"]
+        args.seq_len = auto_cfg["seq_len"]
+        if auto_cfg["fresh"] and not args.fresh:
+            args.fresh = True
+        log.info(f"[Auto-Config] Applied: batch_size={args.batch_size}, seq_len={args.seq_len}, fresh={args.fresh}")
 
     from Tantra.utils import set_seed
     set_seed(args.seed)
@@ -1868,27 +1958,43 @@ def main():
         resolved_lr = args.lr if args.lr is not None else (5e-5 if resolved_optimizer == "lion" else 1e-4)
         resolved_wd = args.weight_decay if args.weight_decay is not None else (0.05 if resolved_optimizer == "lion" else 0.01)
 
-        run_dataset_training(
-            model, tok, args.dataset, steps=sft_steps, resume=args.resume,
-            eval_every=args.eval_every, log_every=args.log_every,
-            checkpoint_every=args.checkpoint_every, batch_size=args.batch_size,
-            seq_len=args.seq_len, grad_accumulation_steps=args.grad_accum,
-            data_workers=args.data_workers,
-            use_latent_reasoning=(args.latent_reasoning if args.latent_reasoning is not None else True),
-            use_mtp_loss=(args.mtp_loss if args.mtp_loss is not None else True),
-            compile=args.compile, lr=resolved_lr, weight_decay=resolved_wd,
-            optimizer=resolved_optimizer, warmup_steps=args.warmup,
-            training_stage="sft", auto_growth=args.auto_growth,
-            growth_patience=args.growth_patience, growth_min_delta=args.growth_min_delta,
-            max_layers=args.max_layers, model_dir=args.model_dir,
-            pack_sequences=args.pack_sequences, checkpoint_path=args.checkpoint, validation_dataset=args.val_dataset,
-            max_grad_norm=args.max_grad_norm, mtp_loss_weight=args.mtp_weight,
-            track=args.track,
-            early_stopping_patience=args.early_stopping_patience,
-            early_stopping_min_delta=args.early_stopping_min_delta,
-            reset_best_loss=getattr(args, "reset_best_loss", False),
-            max_val_batches=getattr(args, "val_batches", 200)
-        )
+        # OOM recovery loop: auto-reduce batch/seq if out of memory
+        _phase1_batch = args.batch_size
+        _phase1_seq = args.seq_len
+        _phase1_ok = False
+        while not _phase1_ok:
+            try:
+                run_dataset_training(
+                    model, tok, args.dataset, steps=sft_steps, resume=args.resume,
+                    eval_every=args.eval_every, log_every=args.log_every,
+                    checkpoint_every=args.checkpoint_every, batch_size=_phase1_batch,
+                    seq_len=_phase1_seq, grad_accumulation_steps=args.grad_accum,
+                    data_workers=args.data_workers,
+                    use_latent_reasoning=(args.latent_reasoning if args.latent_reasoning is not None else True),
+                    use_mtp_loss=(args.mtp_loss if args.mtp_loss is not None else True),
+                    compile=args.compile, lr=resolved_lr, weight_decay=resolved_wd,
+                    optimizer=resolved_optimizer, warmup_steps=args.warmup,
+                    training_stage="sft", auto_growth=args.auto_growth,
+                    growth_patience=args.growth_patience, growth_min_delta=args.growth_min_delta,
+                    max_layers=args.max_layers, model_dir=args.model_dir,
+                    pack_sequences=args.pack_sequences, checkpoint_path=args.checkpoint, validation_dataset=args.val_dataset,
+                    max_grad_norm=args.max_grad_norm, mtp_loss_weight=args.mtp_weight,
+                    track=args.track,
+                    early_stopping_patience=args.early_stopping_patience,
+                    early_stopping_min_delta=args.early_stopping_min_delta,
+                    reset_best_loss=getattr(args, "reset_best_loss", False),
+                    max_val_batches=getattr(args, "val_batches", 200)
+                )
+                _phase1_ok = True
+            except RuntimeError as _e:
+                if "out of memory" in str(_e).lower() or "OOM" in str(_e):
+                    log.warning(f"[OOM Recovery] Phase 1 OOM detected ({_e}). Reducing batch/seq...")
+                    _phase1_batch = max(1, _phase1_batch // 2)
+                    _phase1_seq = max(64, _phase1_seq // 2)
+                    torch.cuda.empty_cache()
+                    log.info(f"[OOM Recovery] Retrying with batch_size={_phase1_batch}, seq_len={_phase1_seq}")
+                else:
+                    raise
 
         # Phase 2: DPO Alignment
         log.info("▶️ [AUTO-PILOT PHASE 2/2] Phase 1 complete! Autonomously starting Phase 2 (DPO Preference Alignment)...")
