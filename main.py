@@ -110,18 +110,21 @@ def auto_detect_config(args, model_layers=None, model_dim=None, model_heads=None
     else:
         return {"batch_size": 4, "seq_len": 256, "fresh": True}
 
-    # Constants calibrated from actual measurements on 2x T4:
-    # batch=4, seq=256, layers=24, dim=1024 → ~14.5 GB used (~90% of 16GB)
-    # Fixed overhead (model weights fp16 + optimizer): ~2.85 GB
-    # Activation memory per (batch*seq*layer): ~450 KB
-    BYTES_PER_BATCH_SEQ_LAYER = 450 * 1024
-    FIXED_OVERHEAD = 2.85 * 1024**3
-    TARGET_UTIL = 0.90           # allow up to 90% VRAM usage (empirically stable)
-    SAFETY_FACTOR = 0.95         # 5% headroom below target
+# Fixed overhead calibrated from known data:
+    # dim=1024, layers=24 → 473.7M params → ~2.85 GB overhead
+    # Scales linearly with layers and dim^2
+    n_layers = model_layers or args.layers or 24
+    n_dim = model_dim or args.dim or 1024
+    fixed_overhead = int(2.85 * (n_layers / 24.0) * (n_dim / 1024.0)**2 * 1024**3)
+    fixed_overhead = max(fixed_overhead, 500 * 1024**2)  # floor at 0.5 GB
+
+    BYTES_PER_BATCH_SEQ_LAYER = 477 * 1024
+    TARGET_UTIL = 0.90
+    SAFETY_FACTOR = 0.95
 
     usable_mem = int((total_mem - 500 * 1024**2) * TARGET_UTIL)
-    available_for_activations = max(usable_mem - FIXED_OVERHEAD, 1024**3)
-    max_batch_seq = int(available_for_activations / (24 * BYTES_PER_BATCH_SEQ_LAYER) * SAFETY_FACTOR)
+    available_for_activations = max(usable_mem - fixed_overhead, 1024**3)
+    max_batch_seq = int(available_for_activations / (n_layers * BYTES_PER_BATCH_SEQ_LAYER) * SAFETY_FACTOR)
 
     # Prefer batch sizes divisible by GPU count (DataParallel needs even split)
     gpu_count = 1
