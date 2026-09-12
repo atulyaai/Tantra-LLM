@@ -1195,6 +1195,11 @@ def run_dpo_training(
 
     if checkpoint_path and os.path.exists(checkpoint_path):
         trainer.load_checkpoint(checkpoint_path)
+        trainer.optimizer = torch.optim.AdamW(
+            [p for p in trainer.model.parameters() if p.requires_grad],
+            lr=lr, weight_decay=0.01
+        )
+        log.info("Reinitialized AdamW optimizer for DPO (SFT optimizer state incompatible).")
         log.info(f"Loaded baseline checkpoint for DPO: {checkpoint_path}")
 
     dpo_dataset = DPODataset(dataset_path, tokenizer, max_len=128)
