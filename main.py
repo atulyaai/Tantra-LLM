@@ -1582,6 +1582,10 @@ def main():
                                 mcfg.bitnet.enabled = _ckpt_cfg.bitnet.enabled
                                 mcfg.bitnet.quantize_mode = _ckpt_cfg.bitnet.quantize_mode
                                 mcfg.bitnet.use_shadow_weights = _ckpt_cfg.bitnet.use_shadow_weights
+                            # Force CLI architecture parameters
+                            mcfg.block.num_layers = args.layers
+                            mcfg.dim = args.dim
+                            log.info(f"Forced architecture: layers={args.layers}, dim={args.dim}")
 
                     # Also check state_dict layer keys for dynamically grown models
                     sdict = _ckpt.get("model_state_dict", {})
@@ -1597,7 +1601,7 @@ def main():
                     )
                     import re
                     layer_indices = [int(m.group(1)) for k in sdict.keys() for m in [re.search(r'layers\.(\d+)\.', k)] if m]
-                    if layer_indices and mcfg is not None and hasattr(mcfg, "block"):
+                    if layer_indices and mcfg is not None and hasattr(mcfg, "block") and not user_overrode_arch:
                         ckpt_num_layers = max(layer_indices) + 1
                         if ckpt_num_layers != mcfg.block.num_layers:
                             mcfg.block.num_layers = ckpt_num_layers
