@@ -617,15 +617,15 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
     resume_target = None
     resumed_from_explicit_checkpoint = False
     if checkpoint_path and os.path.isfile(checkpoint_path):
-try:
-                log.info(f"Loading explicit checkpoint: {checkpoint_path} ({os.path.getsize(checkpoint_path)/1e6:.1f} MB)...")
-                # Reset optimizer when switching to SFT stage (different data distribution)
-                reset_opt = (training_stage == "sft")
-                if reset_opt:
-                    log.info("  Stage is SFT — resetting optimizer for fresh momentum on new data distribution.")
-                trainer.load_checkpoint(checkpoint_path, reset_optimizer=reset_opt)
-                resume_target = checkpoint_path
-                resumed_from_explicit_checkpoint = True
+        try:
+            log.info(f"Loading explicit checkpoint: {checkpoint_path} ({os.path.getsize(checkpoint_path)/1e6:.1f} MB)...")
+            # Reset optimizer when switching to SFT stage (different data distribution)
+            reset_opt = (training_stage == "sft")
+            if reset_opt:
+                log.info("  Stage is SFT — resetting optimizer for fresh momentum on new data distribution.")
+            trainer.load_checkpoint(checkpoint_path, reset_optimizer=reset_opt)
+            resume_target = checkpoint_path
+            resumed_from_explicit_checkpoint = True
         except Exception as exc:
             log.warning(f"Could not load specified checkpoint {checkpoint_path}: {exc}")
 
