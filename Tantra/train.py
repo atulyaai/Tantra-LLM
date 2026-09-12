@@ -400,9 +400,13 @@ class NeuroTrainer:
             status["updated_at"] = time.time()
             if "validation" not in status and self.last_validation_metrics:
                 status["validation"] = dict(self.last_validation_metrics)
+            _safe_ppl = status.get("ppl")
+            if _safe_ppl is not None and (math.isinf(_safe_ppl) or math.isnan(_safe_ppl) or _safe_ppl > 1e9):
+                _safe_ppl = 1e9
+            status["ppl"] = _safe_ppl
             self._status_history.append({
                 "step": status.get("step", self.step_count), "loss": status.get("loss"),
-                "ppl": status.get("ppl"), "tok_s": status.get("tok_s"),
+                "ppl": _safe_ppl, "tok_s": status.get("tok_s"),
             })
             status["history"] = self._status_history[-50:]
             temporary_path = status_path + ".tmp"

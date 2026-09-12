@@ -60,11 +60,26 @@ CHAT_FILE = os.path.join(REPO_ROOT, "Model", "saved_chats.json")
 MEMORY_FILE = os.path.join(REPO_ROOT, "Model", "memory_bank.json")
 TRAINING_STATUS_FILE = os.path.join(REPO_ROOT, "Model", "training_status.json")
 
+def _sanitize_floats(obj):
+    """Recursively replace non-standard float values (inf, -inf, nan) with JSON-compliant values."""
+    if isinstance(obj, float):
+        if math.isinf(obj):
+            return 1e9 if obj > 0 else -1e9
+        if math.isnan(obj):
+            return None
+        return obj
+    elif isinstance(obj, dict):
+        return {k: _sanitize_floats(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [_sanitize_floats(item) for item in obj]
+    return obj
+
 def load_json_file(filepath, default):
     if os.path.exists(filepath):
         try:
             with open(filepath, "r", encoding="utf-8") as f:
-                return json.load(f)
+                data = json.load(f)
+                return _sanitize_floats(data)
         except Exception:
             return default
     return default
