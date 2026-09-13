@@ -1454,7 +1454,6 @@ def main():
     parser.add_argument("--preference-dataset", type=str, default="Datasets/preference_pairs.jsonl", help="DPO pairwise preference dataset path")
     parser.add_argument("--dpo-beta", type=float, default=0.1, help="DPO temperature scaling hyperparameter beta (default: 0.1)")
     parser.add_argument("--steps", type=int, default=30, help="Training steps")
-    parser.add_argument("--log-every", type=int, default=50, help="Print training summary every N optimizer steps (default: 50)")
     parser.add_argument("--seq-len", type=int, default=128, help="Context sequence length window")
     parser.add_argument("--use-mtp", action=argparse.BooleanOptionalAction, default=True, help="Enable/disable Multi-Token Prediction (MTP)")
     parser.add_argument("--temperature", type=float, default=0.35, help="Sampling temperature")
