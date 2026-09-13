@@ -737,7 +737,7 @@ class NeuroTrainer:
 
 
 
-    def train_dataset(self, data_stream: Iterable[Tuple[torch.Tensor, torch.Tensor]], max_steps: int = 100, log_every: int = 10, eval_every: int = 0, eval_callback = None, checkpoint_every: int = 0, checkpoint_callback = None, tokenizer: Optional[Any] = None, enrichment_rate: float = 0.0, use_latent_reasoning: bool = True, auto_growth: bool = False, growth_patience: int = 1000, growth_min_delta: float = 0.005, max_layers: Optional[int] = None, val_loader: Optional[Iterable[Tuple[torch.Tensor, torch.Tensor]]] = None, early_stopping_patience: int = 8, early_stopping_min_delta: float = 0.002, max_val_batches: int = 200) -> list[float]:
+    def train_dataset(self, data_stream: Iterable[Tuple[torch.Tensor, torch.Tensor]], max_steps: int = 100, log_every: int = 10, eval_every: int = 0, eval_callback = None, checkpoint_every: int = 0, checkpoint_callback = None, tokenizer: Optional[Any] = None, enrichment_rate: float = 0.0, use_latent_reasoning: bool = True, auto_growth: bool = False, growth_patience: int = 1000, growth_min_delta: float = 0.005, max_layers: Optional[int] = None, max_params: Optional[int] = None, val_loader: Optional[Iterable[Tuple[torch.Tensor, torch.Tensor]]] = None, early_stopping_patience: int = 8, early_stopping_min_delta: float = 0.002, max_val_batches: int = 200) -> list[float]:
 
         """Train over an iterable dataset stream (e.g. JSONLDataset).
 
@@ -760,12 +760,14 @@ class NeuroTrainer:
         checkpoint_every = max(0, int(checkpoint_every))
         growth_controller = None
         if auto_growth:
+            max_params_val = max_params if max_params is not None else 500_000_000
             growth_controller = AutoGrowthController(
                 plateau_patience=max(20, int(growth_patience)),
                 min_delta=max(0.0, float(growth_min_delta)),
                 max_layers=max_layers,
+                max_params=max_params_val,
             )
-            log.info("  Auto-growth enabled: monitor every %d optimizer steps; depth target: %s.", growth_controller.plateau_patience, f"{max_layers} layers" if max_layers is not None else "scaled up to 1 Billion parameter ceiling")
+            log.info("  Auto-growth enabled: monitor every %d optimizer steps; depth target: %s.", growth_controller.plateau_patience, f"{max_layers} layers" if max_layers is not None else f"scaled up to {max_params_val//1_000_000:.0f}M parameter ceiling")
         if not use_latent_reasoning:
             log.info("  Latent CoT reasoning DISABLED for this run (~3x cheaper per step on that stage) "
                      "— re-enable for fine-tuning/reasoning-quality passes.")
@@ -982,7 +984,7 @@ class NeuroTrainer:
                     ticker_interval = max(10, log_every // 2)
 
                     # Live step ticker on every step (or mini-interval) so user sees real-time continuous learning
-                    step_log_interval = 1 if max_steps <= 100 else max(1, min(5, log_every // 5))
+                    step_log_interval = log_every
                     if not is_card_step and (session_steps % step_log_interval == 0):
                         loss_color_arrow = "🔻" if (self.best_loss is None or loss <= self.best_loss) else "🔸"
                         if last_accuracy is not None:

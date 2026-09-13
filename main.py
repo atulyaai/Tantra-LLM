@@ -644,7 +644,7 @@ def run_training(model, vcfg, steps=30, resume=False):
     trainer.save_checkpoint(latest_ckpt, save_optimizer=True)
 
 
-def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False, eval_every=1000, log_every=50, checkpoint_every=500, batch_size=1, seq_len=128, grad_accumulation_steps=1, data_workers=0, use_latent_reasoning=True, use_mtp_loss=True, compile=False, lr=1e-4, weight_decay=0.01, optimizer="adamw", warmup_steps=None, topic_weights=None, training_stage="sft", auto_growth=False, growth_patience=1000, growth_min_delta=0.005, max_layers=None, model_dir=None, adapter_name=None, archive_checkpoints=True, pack_sequences=True, checkpoint_path=None, max_grad_norm=0.5, mtp_loss_weight=0.3, track=None, curriculum_phase=None, validation_dataset=None, early_stopping_patience=8, early_stopping_min_delta=0.002, reset_best_loss=False, max_val_batches=200):
+def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False, eval_every=1000, log_every=50, checkpoint_every=500, batch_size=1, seq_len=128, grad_accumulation_steps=1, data_workers=0, use_latent_reasoning=True, use_mtp_loss=True, compile=False, lr=1e-4, weight_decay=0.01, optimizer="adamw", warmup_steps=None, topic_weights=None, training_stage="sft", auto_growth=False, growth_patience=1000, growth_min_delta=0.005, max_layers=None, max_params=None, model_dir=None, adapter_name=None, archive_checkpoints=True, pack_sequences=True, checkpoint_path=None, max_grad_norm=0.5, mtp_loss_weight=0.3, track=None, curriculum_phase=None, validation_dataset=None, early_stopping_patience=8, early_stopping_min_delta=0.002, reset_best_loss=False, max_val_batches=200):
 
     log.info("== [DATASET PRE-TRAINING MODE] =====================")
     if training_stage not in {"pretrain", "sft"}:
@@ -797,8 +797,12 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
             total_steps=steps,
             min_lr_ratio=0.10,
             start_step=trainer.step_count,
-            last_epoch=-1,
+            last_epoch=trainer.step_count,
         )
+        # Force scheduler to advance past initial state and update optimizer LR immediately
+        trainer.scheduler.step()
+        _debug_lr = trainer.optimizer.param_groups[0]["lr"]
+        log.info(f"  🧪 [LR DEBUG] After scheduler creation+step (start_step={trainer.step_count}, last_epoch={trainer.step_count}): LR={_debug_lr:.6e}")
         prev_stage = getattr(trainer, "training_stage", None)
         stage_name = training_stage or prev_stage or "sft"
         if prev_stage is not None and prev_stage != stage_name:
@@ -820,8 +824,10 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
                 total_steps=steps,
                 min_lr_ratio=0.10,
                 start_step=trainer.step_count,
-                last_epoch=-1,
+                last_epoch=trainer.step_count,
             )
+            trainer.scheduler.step()  # Force immediate LR update
+            log.info(f"  🧪 [LR DEBUG] Stage transition scheduler: LR={trainer.optimizer.param_groups[0]['lr']:.6e}")
             log.info(f"  Fresh optimizer + scheduler for SFT at LR={lr:.2e}")
             log.info(f"  best_val_loss reset to inf for SFT baseline.")
         elif reset_best_loss:
@@ -1168,7 +1174,7 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
             max_samples=None, mask_non_assistant=mask_non_assistant,
             split="all" if is_discrete_sft else "train",
             val_ratio=0.0 if is_discrete_sft else 0.05,
-            pack_sequences=False if training_stage == "sft" else pack_sequences,
+            pack_sequences=pack_sequences,
             shuffle=True,
             shuffle_buf_size=2000
         )
@@ -1188,7 +1194,7 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
         log.info(f"   • Val File Path     : {target_val_file} ({val_count:,} records)")
         log.info(f"   • Split Mode        : split='all', val_ratio=0.0 (discrete pre-split files, no hash-split)")
         log.info(f"   • SFT Format Mode   : Document-level conversation active")
-        log.info(f"   • Sequence Packing  : DISABLED (zero packed/sliding conversation samples)")
+        log.info(f"   • Sequence Packing  : {'ENABLED' if pack_sequences else 'DISABLED'}")
         log.info(f"   • Label Masking     : Prompt & Pad = -100 (IGNORE_INDEX), Assistant & EOS = Supervised")
         log.info(f"   • Overlength Prompts: Skipped and counted if prompt >= seq_len ({seq_len})")
         log.info("=" * 65)
@@ -1230,7 +1236,7 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
     )
     enrichment = 0.08 if training_stage == "sft" else 0.02
     try:
-        trainer.train_dataset(dataloader, max_steps=steps, log_every=log_every, eval_every=eval_every, eval_callback=eval_callback, checkpoint_every=checkpoint_every, checkpoint_callback=checkpoint_callback, tokenizer=tokenizer, enrichment_rate=enrichment, use_latent_reasoning=use_latent_reasoning, auto_growth=auto_growth, growth_patience=growth_patience, growth_min_delta=growth_min_delta, max_layers=max_layers, val_loader=val_loader, early_stopping_patience=early_stopping_patience, early_stopping_min_delta=early_stopping_min_delta, max_val_batches=max_val_batches)
+        trainer.train_dataset(dataloader, max_steps=steps, log_every=log_every, eval_every=eval_every, eval_callback=eval_callback, checkpoint_every=checkpoint_every, checkpoint_callback=checkpoint_callback, tokenizer=tokenizer, enrichment_rate=enrichment, use_latent_reasoning=use_latent_reasoning, auto_growth=auto_growth, growth_patience=growth_patience, growth_min_delta=growth_min_delta, max_layers=max_layers, max_params=max_params, val_loader=val_loader, early_stopping_patience=early_stopping_patience, early_stopping_min_delta=early_stopping_min_delta, max_val_batches=max_val_batches)
 
     except KeyboardInterrupt:
         # Ctrl+C happens after an optimizer boundary in many practical runs.
@@ -1443,10 +1449,12 @@ def main():
     parser.add_argument("--checkpoint", type=str, default=None, help="Path to custom .pt model checkpoint to load (for chat, eval, serve, dpo, benchmark, export)")
     parser.add_argument("--pack-sequences", action=argparse.BooleanOptionalAction, default=True, help="Enable continuous document sequence packing (zero padding waste)")
     parser.add_argument("--dataset", type=str, default=DEFAULT_DATASET, help="JSONL dataset path")
+    parser.add_argument("--data-dir", type=str, default=None, help="Local folder containing .jsonl dataset files (auto-finds train/val files)")
     parser.add_argument("--val-dataset", type=str, default=None, help="Explicit held-out JSONL validation dataset; never hash-split this file")
     parser.add_argument("--preference-dataset", type=str, default="Datasets/preference_pairs.jsonl", help="DPO pairwise preference dataset path")
     parser.add_argument("--dpo-beta", type=float, default=0.1, help="DPO temperature scaling hyperparameter beta (default: 0.1)")
     parser.add_argument("--steps", type=int, default=30, help="Training steps")
+    parser.add_argument("--log-every", type=int, default=50, help="Print training summary every N optimizer steps (default: 50)")
     parser.add_argument("--seq-len", type=int, default=128, help="Context sequence length window")
     parser.add_argument("--use-mtp", action=argparse.BooleanOptionalAction, default=True, help="Enable/disable Multi-Token Prediction (MTP)")
     parser.add_argument("--temperature", type=float, default=0.35, help="Sampling temperature")
@@ -1470,6 +1478,8 @@ def main():
     parser.add_argument("--growth-patience", type=int, default=250, help="Optimizer steps to observe before auto-growth adds a layer (default: 250)")
     parser.add_argument("--growth-min-delta", type=float, default=0.003, help="Minimum EMA-loss improvement required to avoid auto-growth")
     parser.add_argument("--max-layers", type=int, default=None, help="Hard maximum depth when auto-growth is enabled (default: None, grows up to 1 Billion parameter ceiling)")
+    parser.add_argument("--max-params", type=int, default=None, help="Hard maximum parameters when auto-growth is enabled (default: 500_000_000 for 0.5B ceiling)")
+    parser.add_argument("--vocab-size", type=int, default=None, help="Vocabulary size for tokenizer and model (default: 32768, use larger for 1B+ models)")
     parser.add_argument("--val-batches", "--max-val-batches", dest="val_batches", type=int, default=200, help="Maximum number of validation batches to evaluate during validation checks (default: 200)")
     parser.add_argument("--early-stopping-patience", type=int, default=8, help="Patience (consecutive validation checks with no improvement) before halting training (0 to disable, default: 8)")
     parser.add_argument("--early-stopping-min-delta", type=float, default=0.002, help="Minimum validation loss improvement delta to reset early stopping patience (default: 0.002)")
@@ -1515,6 +1525,26 @@ def main():
     parser.add_argument("--auto-config", action="store_true", default=False, help="Auto-detect optimal batch_size/seq_len based on available VRAM; auto-select --fresh/--resume based on checkpoint availability")
     args = parser.parse_args()
 
+    # ── Data Directory Support ────────────────────────────────────
+    # If --data-dir is specified, search it for .jsonl files
+    if args.data_dir is not None and os.path.isdir(args.data_dir):
+        jsonl_files = sorted([f for f in os.listdir(args.data_dir) if f.endswith(".jsonl")])
+        if jsonl_files:
+            train_file = os.path.join(args.data_dir, jsonl_files[0])
+            # Find val file (look for val/eval in name)
+            val_files = [f for f in jsonl_files if "val" in f.lower() or "eval" in f.lower() or "test" in f.lower()]
+            if val_files:
+                args.dataset = train_file
+                args.val_dataset = os.path.join(args.data_dir, val_files[0])
+            else:
+                args.dataset = train_file
+            log.info(f"[Data Dir] Found {len(jsonl_files)} files in {args.data_dir}: {jsonl_files}")
+            log.info(f"[Data Dir] Train: {args.dataset}")
+            if args.val_dataset:
+                log.info(f"[Data Dir] Val: {args.val_dataset}")
+        else:
+            log.warning(f"[Data Dir] No .jsonl files found in {args.data_dir}")
+
     # ── Auto-Configuration ──────────────────────────────────────────────
     auto_cfg = auto_detect_config(args)
     if auto_cfg:
@@ -1528,6 +1558,9 @@ def main():
     set_seed(args.seed)
 
     vcfg = VocabConfig()
+    if args.vocab_size is not None:
+        vcfg.vocab_size = args.vocab_size
+        log.info(f"Using custom vocab_size: {args.vocab_size:,}")
     mcfg = NeuroCoreConfig()
     mcfg.block.alra.dim = args.dim
     mcfg.block.sgp.dim = args.dim
@@ -1908,6 +1941,7 @@ def main():
                     topic_weights=topic_weights, training_stage=args.training_stage,
                     auto_growth=args.auto_growth, growth_patience=args.growth_patience,
                     growth_min_delta=args.growth_min_delta, max_layers=args.max_layers,
+                    max_params=args.max_params,
                     adapter_name=args.adapter, model_dir=(ADAPTER_ROOT if args.adapter is not None else args.model_dir),
                     pack_sequences=args.pack_sequences, checkpoint_path=args.checkpoint, validation_dataset=args.val_dataset,
                     max_grad_norm=args.max_grad_norm, mtp_loss_weight=args.mtp_weight,
@@ -1917,7 +1951,7 @@ def main():
                     max_val_batches=getattr(args, "val_batches", 200)
                 )
         else:
-            run_dataset_training(model, tok, args.dataset, steps=args.steps, resume=args.resume, eval_every=args.eval_every, log_every=args.log_every, checkpoint_every=args.checkpoint_every, batch_size=args.batch_size, seq_len=args.seq_len, grad_accumulation_steps=args.grad_accum, data_workers=args.data_workers, use_latent_reasoning=use_latent_reasoning, use_mtp_loss=use_mtp_loss, compile=args.compile, lr=resolved_lr, weight_decay=resolved_wd, optimizer=resolved_optimizer, warmup_steps=args.warmup, topic_weights=topic_weights, training_stage=args.training_stage, auto_growth=args.auto_growth, growth_patience=args.growth_patience, growth_min_delta=args.growth_min_delta, max_layers=args.max_layers, adapter_name=args.adapter, model_dir=(ADAPTER_ROOT if args.adapter is not None else args.model_dir), pack_sequences=args.pack_sequences, checkpoint_path=args.checkpoint, max_grad_norm=args.max_grad_norm, mtp_loss_weight=args.mtp_weight, track=args.track, curriculum_phase=args.curriculum_phase, validation_dataset=args.val_dataset, early_stopping_patience=args.early_stopping_patience, early_stopping_min_delta=args.early_stopping_min_delta, reset_best_loss=getattr(args, "reset_best_loss", False), max_val_batches=getattr(args, "val_batches", 200))
+            run_dataset_training(model, tok, args.dataset, steps=args.steps, resume=args.resume, eval_every=args.eval_every, log_every=args.log_every, checkpoint_every=args.checkpoint_every, batch_size=args.batch_size, seq_len=args.seq_len, grad_accumulation_steps=args.grad_accum, data_workers=args.data_workers, use_latent_reasoning=use_latent_reasoning, use_mtp_loss=use_mtp_loss, compile=args.compile, lr=resolved_lr, weight_decay=resolved_wd, optimizer=resolved_optimizer, warmup_steps=args.warmup, topic_weights=topic_weights, training_stage=args.training_stage, auto_growth=args.auto_growth, growth_patience=args.growth_patience, growth_min_delta=args.growth_min_delta, max_layers=args.max_layers, max_params=args.max_params, adapter_name=args.adapter, model_dir=(ADAPTER_ROOT if args.adapter is not None else args.model_dir), pack_sequences=args.pack_sequences, checkpoint_path=args.checkpoint, max_grad_norm=args.max_grad_norm, mtp_loss_weight=args.mtp_weight, track=args.track, curriculum_phase=args.curriculum_phase, validation_dataset=args.val_dataset, early_stopping_patience=args.early_stopping_patience, early_stopping_min_delta=args.early_stopping_min_delta, reset_best_loss=getattr(args, "reset_best_loss", False), max_val_batches=getattr(args, "val_batches", 200))
 
     elif args.mode == "dpo":
         dpo_ckpt = args.checkpoint
@@ -1982,7 +2016,7 @@ def main():
                     optimizer=resolved_optimizer, warmup_steps=args.warmup,
                     training_stage="sft", auto_growth=args.auto_growth,
                     growth_patience=args.growth_patience, growth_min_delta=args.growth_min_delta,
-                    max_layers=args.max_layers, model_dir=args.model_dir,
+                    max_layers=args.max_layers, max_params=args.max_params, model_dir=args.model_dir,
                     pack_sequences=args.pack_sequences, checkpoint_path=args.checkpoint, validation_dataset=args.val_dataset,
                     max_grad_norm=args.max_grad_norm, mtp_loss_weight=args.mtp_weight,
                     track=args.track,
