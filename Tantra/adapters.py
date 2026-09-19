@@ -66,13 +66,14 @@ DEFAULT_CATEGORIES: List[AdapterCategory] = [
                   "chat", "conversation", "opinion", "introduction", "yourself", "why", "explain",
                   "reason", "think", "because", "compare", "difference",
                   # Hindi conversational keywords
-                  "hindi", "हिंदी", "namaste", "नमस्ते", "pranaam", "प्रणाम",
+                  "namaste", "नमस्ते", "pranaam", "प्रणाम",
                   "aap", "आप", "main", "मैं", "kya", "क्या", "kaise", "कैसे",
                   "kya baat", "क्या बात", "achha", "अच्छा", "bure", "बुरे",
                   "bohot", "बहुत", "kyunki", "क्योंकि", "kyun", "क्यूँ",
-                  "kahan", "कहाँ", "kab", "कब", "kaise", "कैसे",
+                  "kahan", "कहाँ", "kab", "कब",
                   "madad", "मदद", "sawal", "सवाल", "jawab", "जवाब",
-                  "greeting", "salutation", "hindi", "sanskrit"],
+                  "greeting", "salutation", "बातचीत", "परिचय", "हालचाल",
+                  "बताओ", "बताइए", "विचार", "चर्चा"],
     ),
     AdapterCategory(
         name="math",
@@ -81,7 +82,12 @@ DEFAULT_CATEGORIES: List[AdapterCategory] = [
         max_depth=3,
         keywords=["calculate", "equation", "solve", "math", "algebra", "geometry", "derivative",
                   "integral", "probability", "sum", "divide", "multiply", "square root", "logic",
-                  "proof", "hypotenuse", "fraction", "percentage", "remainder", "formula"],
+                  "proof", "hypotenuse", "fraction", "percentage", "remainder", "formula",
+                  # Hindi math keywords
+                  "गणित", "जोड़", "घटाव", "गुणा", "भाग", "समीकरण", "हल", "गणना",
+                  "बीजगणित", "रेखागणित", "ज्यामिति", "त्रिकोणमिति", "अंकगणित",
+                  "वर्गमूल", "घनमूल", "भिन्न", "प्रतिशत", "औसत", "अनुपात", "प्रमेय",
+                  "सूत्र", "क्षेत्रफल", "आयतन", "परिमाप"],
     ),
     AdapterCategory(
         name="science",
@@ -90,7 +96,12 @@ DEFAULT_CATEGORIES: List[AdapterCategory] = [
         max_depth=2,
         keywords=["science", "physics", "chemistry", "biology", "atom", "molecule", "gravity",
                   "enzyme", "cell", "planet", "orbit", "experiment", "hypothesis", "temperature",
-                  "dna", "protein", "climate", "energy", "electrons", "photosynthesis"],
+                  "dna", "protein", "climate", "energy", "electrons", "photosynthesis",
+                  # Hindi science keywords
+                  "विज्ञान", "भौतिकी", "रसायन", "रसायनशास्त्र", "जीवविज्ञान",
+                  "परमाणु", "अणु", "गुरुत्वाकर्षण", "ऊर्जा", "प्रकाश संश्लेषण",
+                  "कोशिका", "तापमान", "प्रयोग", "ग्रह", "सौरमंडल", "तरंग",
+                  "चुंबक", "इलेक्ट्रॉन", "प्रोटॉन", "न्यूट्रॉन", "डीएनए"],
     ),
     AdapterCategory(
         name="code",
@@ -99,7 +110,11 @@ DEFAULT_CATEGORIES: List[AdapterCategory] = [
         max_depth=3,
         keywords=["python", "code", "program", "function", "bug", "debug", "algorithm",
                   "compile", "library", "import", "loop", "recursion", "api", "database",
-                  "syntax", "variable", "javascript", "c++", "linux", "refactor", "sql"],
+                  "syntax", "variable", "javascript", "c++", "linux", "refactor", "sql",
+                  # Hindi code keywords
+                  "कोड", "कोडिंग", "प्रोग्राम", "प्रोग्रामिंग", "फंक्शन", "एल्गोरिदम",
+                  "कलन विधि", "डिबग", "वेरिएबल", "डेटाबेस", "कंपाइलर", "सिंटेक्स",
+                  "लूप", "सॉफ्टवेयर"],
     ),
     AdapterCategory(
         name="creative_writing",
@@ -108,7 +123,10 @@ DEFAULT_CATEGORIES: List[AdapterCategory] = [
         max_depth=2,
         keywords=["write", "story", "poem", "essay", "creative", "imagine", "novel", "character",
                   "plot", "metaphor", "describe", "dialogue", "genre", "draft", "rewrite", "rhyme",
-                  "scene", "narration", "inspiration"],
+                  "scene", "narration", "inspiration",
+                  # Hindi creative writing keywords
+                  "कहानी", "कविता", "शायरी", "गीत", "निबंध", "उपन्यास", "रचना",
+                  "काल्पनिक", "पात्र", "संवाद", "पटकथा", "छंद", "अलंकार", "गद्य", "पद्य"],
     ),
     AdapterCategory(
         name="instructions",
@@ -117,7 +135,10 @@ DEFAULT_CATEGORIES: List[AdapterCategory] = [
         max_depth=2,
         keywords=["how to", "steps", "guide", "instructions", "tutorial", "task", "plan", "list",
                   "productivity", "organize", "workflow", "schedule", "step by step", "procedure",
-                  "tips", "checklist", "setup", "install", "configure"],
+                  "tips", "checklist", "setup", "install", "configure",
+                  # Hindi instruction keywords
+                  "कैसे करें", "तरीका", "उपाय", "विधि", "चरण", "निर्देश", "मार्गदर्शिका",
+                  "योजना", "सुझाव", "प्रक्रिया", "कदम"],
     ),
     AdapterCategory(
         name="safety",
@@ -126,7 +147,10 @@ DEFAULT_CATEGORIES: List[AdapterCategory] = [
         max_depth=2,
         keywords=["danger", "unsafe", "illegal", "harm", "ethic", "privacy", "bias", "weapon",
                   "suicide", "misinformation", "uncertain", "not sure", "does not know",
-                  "safe", "responsible", "consent", "abuse", "report"],
+                  "safe", "responsible", "consent", "abuse", "report",
+                  # Hindi safety keywords
+                  "खतरा", "असुरक्षित", "नुकसान", "अवैध", "जहर", "हथियार",
+                  "आत्महत्या", "हिंसा", "शोषण", "हानिकारक", "गोपनीयता"],
     ),
     AdapterCategory(
         name="multilingual",
@@ -134,8 +158,11 @@ DEFAULT_CATEGORIES: List[AdapterCategory] = [
         topics=["translation", "multilingual"],
         max_depth=2,
         keywords=["english translation", "translate", "translation",
-                  "अनुवाद", "शब्द", "polylingual", "bilingual", "अंग्रेज़ी",
-                  "convert to english", "transliterate", "transliteration"],
+                  "translate this", "translate to", "translate sentence",
+                  "अनुवाद", "अनुवाद करें", "अनुवाद करो", "polylingual", "bilingual",
+                  "अंग्रेज़ी अनुवाद", "हिंदी अनुवाद", "का अनुवाद",
+                  "convert to english", "transliterate", "transliteration",
+                  "translate to english", "translate to hindi", "अंग्रेजी में अनुवाद", "रूपांतरण"],
     ),
 ]
 
@@ -304,18 +331,16 @@ class RequestRouter:
                     if keyword in lowered:
                         score += 1.0
                 else:
-                    import re
-                    if re.search(r'\b' + re.escape(keyword) + r'\b', lowered):
+                    pat = r'(?<![\w\u0900-\u097f])' + re.escape(keyword) + r'(?![\w\u0900-\u097f])'
+                    if re.search(pat, lowered):
                         score += 1.0
             scores[category.name] = score
 
         # Heuristic helpers that strengthen without needing a lexicon entry.
-        if _contains_devanagari(text):
-            scores["general"] = scores.get("general", 0.0) + 2.0
         if _looks_like_code(text):
             scores["code"] = scores.get("code", 0.0) + 1.5
-        if re.search(r"[\d<>=+\-*/^]+|[0-9][+\-*/^=][0-9]|%.", lowered):
-            scores["math"] = scores.get("math", 0.0) + 0.5
+        if re.search(r"[0-9\u0966-\u096f][+\-*/^=][0-9\u0966-\u096f]|[\d\u0966-\u096f]\s*[+\-*/^=]\s*[\d\u0966-\u096f]|%.", lowered):
+            scores["math"] = scores.get("math", 0.0) + 1.0
 
         ranked = sorted(scores.items(), key=lambda kv: kv[1], reverse=True)
         if not ranked:

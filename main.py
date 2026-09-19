@@ -370,18 +370,18 @@ def build_vocab(cfg: VocabConfig, corpus_file: str | None = None, force_rebuild:
         if os.path.isdir(corpus_file):
             candidates = [
                 path for path in glob.glob(os.path.join(corpus_file, "**", "*.jsonl"), recursive=True)
-                if "_duplicates" not in os.path.normpath(path).split(os.sep)
+                if not any(exc in os.path.basename(path).lower() for exc in ["_duplicates", "val", "eval", "test", "sample", "preference", "dpo"])
             ]
             if not candidates:
                 raise RuntimeError(f"No JSONL files found under dataset directory: {corpus_file}")
-            resolved_corpus = max(candidates, key=os.path.getsize)
-            log.info(f"  Tokenizer rebuild source selected from dataset directory: {resolved_corpus}")
+            resolved_corpus = candidates
+            log.info(f"  Tokenizer rebuild sources selected: {[os.path.basename(p) for p in resolved_corpus]}")
         sample_txt = extract_corpus_sample(resolved_corpus, os.path.join(MODEL_DIR, "corpus_sample.txt"), max_lines=None)
         special_toks = list(cfg.special_tokens.keys())
         bpe.train([sample_txt], vocab_size=cfg.vocab_size, special_tokens=special_toks)
         bpe.save(tokenizer_json_path)
         NeuroTrainer.export_tokenizer_and_vocab(MODEL_DIR)
-        status = f"Trained fresh BPE tokenizer on {resolved_corpus} & saved to {tokenizer_json_path}"
+        status = f"Trained fresh BPE tokenizer on balanced multi-corpus & saved to {tokenizer_json_path}"
 
     patcher = MegabytePatcher()
     tok = UnifiedTokenizer(cfg, bpe, patcher)
@@ -1045,17 +1045,17 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
                 # giving every domain expert meaningful exposure. Override with the
                 # --topic-weights flag if you want a different mixture.
                 DEFAULT_TOPIC_WEIGHTS = {
-                "general": 40.0,
-                "code": 15.0,
-                "math": 15.0,
-                "science": 8.0,
-                "reasoning": 8.0,
-                "creative_writing": 4.0,
-                "conversation": 4.0,
-                "multilingual": 3.0,
-                "instructions": 2.0,
-                "safety": 1.0,
-            }
+                    "conversation": 35.0,
+                    "general": 35.0,
+                    "code": 12.0,
+                    "science": 10.0,
+                    "reasoning": 8.0,
+                    "creative_writing": 4.0,
+                    "multilingual": 3.0,
+                    "instructions": 2.0,
+                    "math": 2.0,
+                    "safety": 1.0,
+                }
             if topic_weights:
                 weights = {t: float(topic_weights.get(t, DEFAULT_TOPIC_WEIGHTS.get(t, 1.0))) for t in topic_paths.keys()}
                 log.info(f"  Custom topic weights: {weights}")
@@ -1090,7 +1090,8 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
             val_ratio=0.0 if is_discrete_sft else 0.05,
             pack_sequences=pack_sequences,
             shuffle=True,
-            shuffle_buf_size=2000
+            shuffle_buf_size=2000,
+            auto_rebalance=True
         )
 
         if target_val_file and os.path.isfile(target_val_file):
@@ -1121,15 +1122,36 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
             if len(direct_jsonls) > 1:
                 topic_paths = {os.path.splitext(os.path.basename(p))[0].replace("expert_", ""): [p] for p in direct_jsonls}
                 log.info(f"  Multi-track datasets detected: {list(topic_paths.keys())}")
-                weights = {t: 1.0 for t in topic_paths.keys()}
+                if topic_weights:
+                    weights = {t: float(topic_weights.get(t, DEFAULT_TOPIC_WEIGHTS.get(t, 1.0))) for t in topic_paths.keys()}
+                else:
+                    weights = {}
+                    for t in topic_paths.keys():
+                        t_lower = t.lower()
+                        if "conversation" in t_lower or "chitchat" in t_lower or "greeting" in t_lower:
+                            w = 35.0
+                        elif "general" in t_lower:
+                            w = 35.0
+                        elif "code" in t_lower:
+                            w = 12.0
+                        elif "science" in t_lower:
+                            w = 10.0
+                        elif "math" in t_lower:
+                            w = 2.0  # Downweighted so math doesn't drown out conversation
+                        else:
+                            w = DEFAULT_TOPIC_WEIGHTS.get(t_lower, 5.0)
+                        weights[t] = w
+                log.info(f"  Rebalanced multi-track weights: {weights}")
                 dataset = TopicMixedDataset(topic_paths, weights, tokenizer, seq_len=seq_len,
                                             max_samples=max_samples, mask_non_assistant=mask_non_assistant)
             elif len(direct_jsonls) == 1:
                 dataset = JSONLDataset(direct_jsonls[0], tokenizer, seq_len=seq_len,
-                                      max_samples=max_samples, mask_non_assistant=mask_non_assistant, pack_sequences=pack_sequences)
+                                      max_samples=max_samples, mask_non_assistant=mask_non_assistant, pack_sequences=pack_sequences,
+                                      auto_rebalance=True)
             else:
                 dataset = JSONLDataset(dataset_path, tokenizer, seq_len=seq_len,
-                                      max_samples=max_samples, mask_non_assistant=mask_non_assistant, pack_sequences=pack_sequences)
+                                      max_samples=max_samples, mask_non_assistant=mask_non_assistant, pack_sequences=pack_sequences,
+                                      auto_rebalance=True)
         else:
             bin_cache = find_bin_cache(dataset_path)
             if bin_cache:
@@ -1916,9 +1938,8 @@ def main():
 
         # Ensure datasets are ready
         from Tantra.dataset import build_4track_curriculum, generate_gold_datasets
-        if not os.path.exists(args.dataset):
-            log.info(f"Dataset {args.dataset} not found locally. Auto-building 4-Track Domain Curriculum...")
-            build_4track_curriculum(datasets_dir=os.path.dirname(args.dataset) or "Datasets")
+        curriculum_dir = args.dataset if os.path.isdir(args.dataset) else (os.path.dirname(args.dataset) or "Datasets")
+        build_4track_curriculum(datasets_dir=curriculum_dir)
         if args.preference_dataset and not os.path.exists(args.preference_dataset):
             log.info(f"Preference dataset {args.preference_dataset} not found. Auto-generating DPO pairs...")
             generate_gold_datasets(datasets_dir=os.path.dirname(args.preference_dataset) or "Datasets")

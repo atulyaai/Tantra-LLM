@@ -80,6 +80,20 @@ def test_request_router_picks_expected_category():
     assert router.route("hi, how are you?") == "general"
 
 
+def test_request_router_hindi_categories():
+    registry = _tmp_registry()
+    registry.seed_defaults()
+    router = RequestRouter(registry)
+
+    # Hindi domain routing should route cleanly to the respective categories
+    assert router.route("नमस्ते, आप कैसे हैं?") == "general"
+    assert router.route("५ गुणा १० का गणित हल क्या है?") == "math"
+    assert router.route("पायथन में लूप कैसे लिखें? कोड दिखाइए") == "code"
+    assert router.route("प्रकाश संश्लेषण और कोशिका का विज्ञान समझाएं") == "science"
+    assert router.route("एक सुंदर कविता और कहानी सुनाइए") == "creative_writing"
+    assert router.route("इस वाक्य का अंग्रेजी अनुवाद करें") == "multilingual"
+
+
 def test_registry_persists_categories(tmp_path):
     registry = _tmp_registry(tmp_path)
     registry.seed_defaults()

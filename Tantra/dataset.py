@@ -323,12 +323,27 @@ class JSONLDataset(IterableDataset):
     Reads large dataset files line-by-line without loading entire files into RAM.
     """
 
+    DEFAULT_DOMAIN_WEIGHTS = {
+        "conversation": 10.0,
+        "chitchat": 10.0,
+        "greeting": 10.0,
+        "general": 5.0,
+        "creative_writing": 3.0,
+        "code": 2.0,
+        "science": 2.0,
+        "instructions": 2.0,
+        "math": 0.1,  # Downweight math so 65k math rows don't drown out conversation
+    }
+
     def __init__(self, jsonl_path: str, tokenizer: Any, seq_len: int = 128,
                  max_samples: Optional[int] = None, mask_non_assistant: bool = True,
                  insert_doc_boundaries: bool = True, shuffle: bool = True,
                  shuffle_buf_size: int = 2000, seed: int = 42,
                  val_ratio: float = 0.05, split: str = "train",
-                 pack_sequences: bool = True):
+                 pack_sequences: bool = True,
+                 domain_weights: Optional[dict] = None,
+                 auto_rebalance: bool = False,
+                 max_math_ratio: float = 5.0):
         super().__init__()
         self.jsonl_path = jsonl_path
         self.tokenizer = tokenizer
@@ -343,6 +358,10 @@ class JSONLDataset(IterableDataset):
         self.val_ratio = max(0.0, min(0.5, val_ratio))
         self.split = split.lower().strip()
         self.pack_sequences = pack_sequences
+        # domain_weights: e.g. {"conversation": 5.0, "math": 0.1} to oversample conversation
+        self.domain_weights = domain_weights or {}
+        self.auto_rebalance = auto_rebalance
+        self.max_math_ratio = max_math_ratio
         self._unrecognized_json = 0
         self.skipped_overlength_prompts = 0
         self.truncated_assistant_tokens = 0
@@ -407,6 +426,75 @@ class JSONLDataset(IterableDataset):
         return ids, is_target
 
 
+    def _get_domain(self, item: dict) -> str:
+        """Extract domain label from a parsed JSONL item, falling back to file name heuristics."""
+        if not isinstance(item, dict):
+            return "general"
+        d = str(item.get("domain") or item.get("category") or "").lower().strip()
+        if d and d not in ("hi", "hindi", "en", "english"):
+            return d
+        fname = os.path.basename(self.jsonl_path).lower()
+        if "conversation" in fname or "chitchat" in fname or "greeting" in fname:
+            return "conversation"
+        if "math" in fname:
+            return "math"
+        if "code" in fname:
+            return "code"
+        if "science" in fname:
+            return "science"
+        return "general"
+
+    def _compute_weights(self) -> Optional[list]:
+        """Pre-scan file to compute per-row sampling weights based on domain_weights and domain ratio capping."""
+        if not self.domain_weights and not getattr(self, "auto_rebalance", False):
+            return None
+        if not os.path.exists(self.jsonl_path):
+            return None
+
+        domain_counts: Dict[str, int] = {}
+        rows_domains = []
+        with open(self.jsonl_path, encoding="utf-8", errors="ignore") as f:
+            for line in f:
+                if not line.strip():
+                    rows_domains.append(None)
+                    continue
+                try:
+                    item = json.loads(line)
+                    dom = self._get_domain(item)
+                except Exception:
+                    dom = "general"
+                rows_domains.append(dom)
+                domain_counts[dom] = domain_counts.get(dom, 0) + 1
+
+        if not domain_counts:
+            return None
+
+        weights_dict = dict(self.domain_weights) if self.domain_weights else dict(self.DEFAULT_DOMAIN_WEIGHTS)
+
+        # Cap math relative to conversation/general
+        conv_count = domain_counts.get("conversation", 0) + domain_counts.get("general", 0)
+        math_count = domain_counts.get("math", 0)
+        max_ratio = getattr(self, "max_math_ratio", 5.0)
+        if conv_count > 0 and math_count > 0:
+            target_math_samples = conv_count * max_ratio
+            if math_count > target_math_samples:
+                target_per_row = target_math_samples / math_count
+                base_math_w = weights_dict.get("math", 1.0)
+                weights_dict["math"] = min(base_math_w, base_math_w * target_per_row)
+                log.info(
+                    f" Domain Rebalance: Math ({math_count:,}) capped to {max_ratio:.1f}x conversation+general "
+                    f"({conv_count:,}). Math row sampling weight adjusted to {weights_dict['math']:.4f}."
+                )
+
+        weights = []
+        for dom in rows_domains:
+            if dom is None:
+                weights.append(0.0)
+            else:
+                w = weights_dict.get(dom, 1.0)
+                weights.append(max(w, 0.001))
+        return weights
+
     def __iter__(self) -> Iterator[Tuple[torch.Tensor, torch.Tensor]]:
         if not os.path.exists(self.jsonl_path):
             candidates = [
@@ -442,6 +530,23 @@ class JSONLDataset(IterableDataset):
         worker_info = torch.utils.data.get_worker_info()
         worker_id = worker_info.id if worker_info is not None else 0
         num_workers = worker_info.num_workers if worker_info is not None else 1
+
+        # Pre-compute weighted line indices for domain rebalancing
+        weighted_indices = None
+        all_lines: List[str] = []
+        if self.domain_weights or getattr(self, "auto_rebalance", False):
+            with open(self.jsonl_path, encoding="utf-8", errors="ignore") as f:
+                all_lines = [l for l in f if l.strip()]
+            weights = self._compute_weights()
+            if weights and any(w > 0 for w in weights):
+                valid_weights = [max(w, 0.001) for w in weights]
+                total_w = sum(valid_weights)
+                if total_w > 0:
+                    probs = [w / total_w for w in valid_weights]
+                    n = len(all_lines)
+                    rng_init = random.Random(self.seed)
+                    sample_k = max(n * 2, 1000) if getattr(self, "infinite", True) is not False else n
+                    weighted_indices = list(rng_init.choices(range(len(all_lines)), weights=probs, k=sample_k))
 
         count = 0
         lines_seen = 0
@@ -565,26 +670,59 @@ class JSONLDataset(IterableDataset):
             rng = random.Random(self.seed + epoch)
             shuffle_buffer: List[str] = []
 
-            with open(self.jsonl_path, "r", encoding="utf-8", errors="ignore") as f:
-                for line in f:
-                    line = line.strip()
+            if weighted_indices is not None and all_lines:
+                file_had_lines = True
+                epoch_indices = list(weighted_indices)
+                if self.shuffle:
+                    rng.shuffle(epoch_indices)
+                for idx in epoch_indices:
+                    line = all_lines[idx].strip()
                     if not line:
                         continue
-                    file_had_lines = True
                     if self.val_ratio > 0:
                         is_val = is_val_line(line, self.val_ratio)
                         if self.split == "val" and not is_val:
                             continue
                         elif self.split == "train" and is_val:
                             continue
+                    for x, y in _process_line(line):
+                        yield x, y
+                        count += 1
+                        effective_max = self.max_samples
+                        if effective_max and num_workers > 1:
+                            effective_max = max(1, effective_max // num_workers)
+                        if effective_max and count >= effective_max:
+                            return
+            else:
+                with open(self.jsonl_path, "r", encoding="utf-8", errors="ignore") as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        file_had_lines = True
+                        if self.val_ratio > 0:
+                            is_val = is_val_line(line, self.val_ratio)
+                            if self.split == "val" and not is_val:
+                                continue
+                            elif self.split == "train" and is_val:
+                                continue
 
-                    if self.shuffle and self.shuffle_buf_size > 1:
+                        if self.shuffle and self.shuffle_buf_size > 1:
 
-                        shuffle_buffer.append(line)
-                        if len(shuffle_buffer) >= self.shuffle_buf_size:
-                            idx = rng.randrange(len(shuffle_buffer))
-                            popped = shuffle_buffer.pop(idx)
-                            for x, y in _process_line(popped):
+                            shuffle_buffer.append(line)
+                            if len(shuffle_buffer) >= self.shuffle_buf_size:
+                                idx = rng.randrange(len(shuffle_buffer))
+                                popped = shuffle_buffer.pop(idx)
+                                for x, y in _process_line(popped):
+                                    yield x, y
+                                    count += 1
+                                    effective_max = self.max_samples
+                                    if effective_max and num_workers > 1:
+                                        effective_max = max(1, effective_max // num_workers)
+                                    if effective_max and count >= effective_max:
+                                        return
+                        else:
+                            for x, y in _process_line(line):
                                 yield x, y
                                 count += 1
                                 effective_max = self.max_samples
@@ -592,15 +730,6 @@ class JSONLDataset(IterableDataset):
                                     effective_max = max(1, effective_max // num_workers)
                                 if effective_max and count >= effective_max:
                                     return
-                    else:
-                        for x, y in _process_line(line):
-                            yield x, y
-                            count += 1
-                            effective_max = self.max_samples
-                            if effective_max and num_workers > 1:
-                                effective_max = max(1, effective_max // num_workers)
-                            if effective_max and count >= effective_max:
-                                return
 
             if self.shuffle and shuffle_buffer:
                 rng.shuffle(shuffle_buffer)
@@ -627,57 +756,70 @@ class JSONLDataset(IterableDataset):
             epoch += 1
 
 
-def extract_corpus_sample(jsonl_path: str, output_txt_path: str, max_lines: Optional[int] = None, stride: Optional[int] = None) -> str:
-    """Extract raw text lines from JSONL to train BPE tokenizer.
-    If max_lines is None or <= 0, processes 100% of the entire dataset.
+def extract_corpus_sample(jsonl_source: Any, output_txt_path: str, max_lines: Optional[int] = None, stride: Optional[int] = None) -> str:
+    """Extract raw text lines from one or multiple JSONL sources to train BPE tokenizer.
+    Supports single filepath, list of filepaths, or directory path.
+    Balances sampling across all source files so Hindi conversation and general text
+    are thoroughly represented rather than being dominated by single large files.
     """
-    target_desc = f"{max_lines:,} lines" if (max_lines and max_lines > 0) else "100% of entire corpus (all lines)"
-    log.info(f"Extracting text from {jsonl_path} for BPE vocabulary training ({target_desc})...")
     os.makedirs(os.path.dirname(output_txt_path) or ".", exist_ok=True)
 
-    use_full = (max_lines is None or max_lines <= 0)
-
-    # Count lines if sampling with stride, otherwise stream full file
-    if not use_full:
-        total_lines = 0
-        if os.path.isfile(jsonl_path):
-            try:
-                with open(jsonl_path, "r", encoding="utf-8", errors="ignore") as f:
-                    for _ in f:
-                        total_lines += 1
-            except Exception:
-                total_lines = 0
-
-        if stride is None:
-            stride = max(1, total_lines // max_lines) if total_lines > max_lines else 1
-        log.info(f"Corpus has {total_lines:,} lines. Sampling evenly with stride={stride}.")
+    if isinstance(jsonl_source, (list, tuple)):
+        files = [p for p in jsonl_source if os.path.isfile(p)]
+    elif os.path.isdir(jsonl_source):
+        files = sorted([
+            p for p in glob.glob(os.path.join(jsonl_source, "**", "*.jsonl"), recursive=True)
+            if not any(exc in os.path.basename(p).lower() for exc in ["val", "eval", "test", "sample", "preference", "dpo"])
+        ])
+    elif os.path.isfile(jsonl_source):
+        files = [jsonl_source]
     else:
-        stride = 1
-        log.info("Processing 100% full dataset (no line limits, stride=1)...")
+        files = []
+
+    if not files:
+        raise ValueError(f"No valid JSONL source files found at {jsonl_source}")
+
+    log.info(f"Extracting text from {len(files)} corpus file(s) for BPE vocabulary training...")
+    for f_p in files:
+        log.info(f"  • Source: {os.path.basename(f_p)}")
 
     count = 0
-    line_num = 0
-    with open(jsonl_path, "r", encoding="utf-8", errors="ignore") as f_in, \
-         open(output_txt_path, "w", encoding="utf-8") as f_out:
-        for line in f_in:
-            line_num += 1
-            if stride > 1 and (line_num % stride) != 0:
-                continue
-            line = line.strip()
-            if not line:
-                continue
+    with open(output_txt_path, "w", encoding="utf-8") as f_out:
+        for f_in_path in files:
+            file_count = 0
+            # Scale sampling dynamically by file size:
+            # - Math files get a lower baseline to avoid dominating
+            # - General/Hindi conversation/monolingual web text scales with file size (~50k lines per 100MB)
+            # - Caps range gracefully from 15k up to 250k+ lines per file for multi-GB corpora
+            fname = os.path.basename(f_in_path).lower()
             try:
-                item = json.loads(line)
-                text = format_jsonl_prompt(item)
-            except Exception:
-                text = line
+                f_size_mb = os.path.getsize(f_in_path) / (1024 * 1024)
+            except OSError:
+                f_size_mb = 1.0
 
-            f_out.write(text + "\n")
-            count += 1
-            if not use_full and count >= max_lines:
-                break
+            if "math" in fname:
+                per_file_max = max(15000, min(int(f_size_mb * 500), 50000))
+            else:
+                per_file_max = max(30000, min(int(f_size_mb * 1000), 250000))
 
-    log.info(f"Extracted {count:,} text samples ({'100% full corpus' if use_full else 'sampled'}) -> {output_txt_path}")
+            with open(f_in_path, "r", encoding="utf-8", errors="ignore") as f_in:
+                for line in f_in:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        item = json.loads(line)
+                        text = format_jsonl_prompt(item)
+                    except Exception:
+                        text = line
+
+                    f_out.write(text + "\n")
+                    count += 1
+                    file_count += 1
+                    if per_file_max and file_count >= per_file_max:
+                        break
+
+    log.info(f"Extracted {count:,} balanced text samples across {len(files)} files -> {output_txt_path}")
     return output_txt_path
 
 
@@ -888,10 +1030,14 @@ class DPODataset(IterableDataset):
 
 
 CURRICULUM_TRACKS = {
-    "expert_conversation.jsonl": ["conversation", "dialogue", "greeting", "persona", "chat", "identity"],
-    "expert_code.jsonl": ["code", "python", "javascript", "cpp", "java", "sql", "algorithm", "function"],
-    "expert_math_science.jsonl": ["math", "science", "physics", "gsm8k", "algebra", "arithmetic", "chemistry", "biology"],
-    "expert_general.jsonl": ["general", "history", "geography", "knowledge", "reasoning", "facts", "summary"]
+    "expert_conversation.jsonl": ["conversation", "dialogue", "greeting", "persona", "chat", "identity",
+                                  "नमस्ते", "प्रणाम", "हालचाल", "बातचीत", "परिचय"],
+    "expert_code.jsonl": ["code", "python", "javascript", "cpp", "java", "sql", "algorithm", "function",
+                          "कोड", "प्रोग्राम", "प्रोग्रामिंग", "फंक्शन"],
+    "expert_math_science.jsonl": ["math", "science", "physics", "gsm8k", "algebra", "arithmetic", "chemistry", "biology",
+                                  "गणित", "समीकरण", "गणना", "विज्ञान", "भौतिकी", "रसायन"],
+    "expert_general.jsonl": ["general", "history", "geography", "knowledge", "reasoning", "facts", "summary",
+                             "सामान्य", "इतिहास", "भूगोल", "ज्ञान", "तर्क"]
 }
 
 
@@ -1090,10 +1236,11 @@ class QualityFilterAndDeduplicator:
             "javascript is disabled", "please enable cookies", "var _0x", "window.__initial_state__"
         ]
 
-    def is_clean(self, prompt: str, output: str) -> bool:
+    def is_clean(self, prompt: str, output: str, min_output_len: Optional[int] = None) -> bool:
         p = (prompt or "").strip()
         o = (output or "").strip()
-        if len(p) < self.min_prompt_len or len(o) < self.min_output_len:
+        min_out = self.min_output_len if min_output_len is None else min_output_len
+        if len(p) < self.min_prompt_len or len(o) < min_out:
             return False
         if len(p) + len(o) > self.max_token_len * 5:
             return False
@@ -2182,16 +2329,25 @@ def ingest_gigabyte_super_corpus(datasets_dir: str = "Datasets", target_samples:
     return total_added
 
 
-def _input_file_hash(datasets_dir: str, source_files: list) -> str:
-    """Hash of all input file names, sizes, and mtimes — changes when files are added/removed/modified."""
+def _input_file_hash(datasets_dir: str, source_files: Optional[List[str]] = None) -> str:
+    """Hash of candidate input JSONL files (names, sizes, and mtimes) — changes when files are added, removed, or modified."""
     import hashlib
+    target_filenames = set(CURRICULUM_TRACKS.keys()) | {"master_corpus.jsonl", "tantra_final_dataset.jsonl"}
+    if source_files is None:
+        source_files = []
+        if os.path.exists(datasets_dir):
+            for fname in sorted(os.listdir(datasets_dir)):
+                if fname.endswith(".jsonl") and fname not in target_filenames and "preference" not in fname and "sample" not in fname and "eval" not in fname:
+                    source_files.append(os.path.join(datasets_dir, fname))
     h = hashlib.sha256()
-    for fname in sorted(os.listdir(datasets_dir)):
-        if not fname.endswith(".jsonl"):
+    for fpath in sorted(source_files):
+        if not os.path.exists(fpath):
             continue
-        fpath = os.path.join(datasets_dir, fname)
-        st = os.stat(fpath)
-        h.update(f"{fname}:{st.st_size}:{int(st.st_mtime)}".encode())
+        try:
+            st = os.stat(fpath)
+            h.update(f"{os.path.basename(fpath)}:{st.st_size}:{int(st.st_mtime)}".encode())
+        except OSError:
+            continue
     return h.hexdigest()
 
 
@@ -2199,46 +2355,36 @@ def build_4track_curriculum(datasets_dir: str = "Datasets", force: bool = False)
     """Partitions all available master and gold datasets into 4 expert tracks ordered by curriculum complexity."""
     os.makedirs(datasets_dir, exist_ok=True)
     expected_files = [os.path.join(datasets_dir, f) for f in CURRICULUM_TRACKS.keys()]
+    target_filenames = set(CURRICULUM_TRACKS.keys()) | {"master_corpus.jsonl", "tantra_final_dataset.jsonl"}
 
-    # Check if input files changed since last build (not just whether output exists)
+    # Collect all candidate source JSONL files (excluding the target partitioned files)
+    source_files = []
+    for fname in sorted(os.listdir(datasets_dir)):
+        if fname.endswith(".jsonl") and fname not in target_filenames and "preference" not in fname and "sample" not in fname and "eval" not in fname:
+            source_files.append(os.path.join(datasets_dir, fname))
+
+    if not source_files:
+        generate_gold_datasets(datasets_dir=datasets_dir, force=force)
+        for fname in sorted(os.listdir(datasets_dir)):
+            if fname.endswith(".jsonl") and fname not in target_filenames and "preference" not in fname and "sample" not in fname and "eval" not in fname:
+                source_files.append(os.path.join(datasets_dir, fname))
+
+    if not source_files:
+        source_files = [os.path.join(datasets_dir, "gold_corpus.jsonl")]
+
+    # Check if input files changed since last build (hash of input file names, sizes, mtimes)
     cache_hash_file = os.path.join(datasets_dir, ".curriculum_cache_hash")
-    if not force:
-        current_hash = _input_file_hash(datasets_dir, [])
-        if os.path.exists(cache_hash_file):
-            with open(cache_hash_file, encoding="utf-8") as f:
-                stored_hash = f.read().strip()
-            if stored_hash == current_hash and all(os.path.exists(p) and os.path.getsize(p) > 50_000 for p in expected_files):
-                log.info(f" [CACHE HIT] 4-Track Domain Curriculum cached (input unchanged) in {datasets_dir}/.")
-                return
-
-    generate_gold_datasets(datasets_dir=datasets_dir, force=force)
-
-    # Collect all candidate source JSONL files (excluding the target partitioned files)
-    target_filenames = set(CURRICULUM_TRACKS.keys())
-    source_files = []
-    for fname in os.listdir(datasets_dir):
-        if fname.endswith(".jsonl") and fname not in target_filenames and "preference" not in fname and "sample" not in fname:
-            source_files.append(os.path.join(datasets_dir, fname))
-
-    if not source_files:
-        source_files = [os.path.join(datasets_dir, "gold_corpus.jsonl")]
-
-    # Save input hash for next run
     current_hash = _input_file_hash(datasets_dir, source_files)
-    with open(cache_hash_file, "w", encoding="utf-8") as f:
-        f.write(current_hash)
-
-    generate_gold_datasets(datasets_dir=datasets_dir, force=force)
-
-    # Collect all candidate source JSONL files (excluding the target partitioned files)
-    target_filenames = set(CURRICULUM_TRACKS.keys())
-    source_files = []
-    for fname in os.listdir(datasets_dir):
-        if fname.endswith(".jsonl") and fname not in target_filenames and "preference" not in fname and "sample" not in fname:
-            source_files.append(os.path.join(datasets_dir, fname))
-
-    if not source_files:
-        source_files = [os.path.join(datasets_dir, "gold_corpus.jsonl")]
+    if not force:
+        if os.path.exists(cache_hash_file) and all(os.path.exists(p) for p in expected_files):
+            try:
+                with open(cache_hash_file, encoding="utf-8") as f:
+                    stored_hash = f.read().strip()
+                if stored_hash == current_hash:
+                    log.info(f" [CACHE HIT] 4-Track Domain Curriculum cached (input unchanged) in {datasets_dir}/.")
+                    return
+            except Exception:
+                pass
 
     log.info(f" Partitioning sources: {[os.path.basename(p) for p in source_files]}")
 
@@ -2249,6 +2395,15 @@ def build_4track_curriculum(datasets_dir: str = "Datasets", force: bool = False)
     for src in source_files:
         if not os.path.exists(src):
             continue
+        src_name = os.path.basename(src).lower()
+        default_track = None
+        if "conversation" in src_name or "chitchat" in src_name:
+            default_track = "expert_conversation.jsonl"
+        elif "code" in src_name:
+            default_track = "expert_code.jsonl"
+        elif "math" in src_name:
+            default_track = "expert_math_science.jsonl"
+
         with open(src, "r", encoding="utf-8", errors="ignore") as f:
             for line in f:
                 if not line.strip():
@@ -2263,7 +2418,9 @@ def build_4track_curriculum(datasets_dir: str = "Datasets", force: bool = False)
                             if m.get("role") == "user": u += " " + m.get("content", "")
                             elif m.get("role") == "assistant": a += " " + m.get("content", "")
 
-                    if not filter_dedup.is_clean(str(u), str(a)):
+                    # For math/code arithmetic with short numeric answers, tolerate shorter outputs
+                    min_out = 1 if ("math" in src_name or d == "math") else 5
+                    if not filter_dedup.is_clean(str(u), str(a), min_output_len=min_out):
                         continue
 
                     text = (str(u) + " " + str(a) + " " + str(d)).lower()
@@ -2274,20 +2431,34 @@ def build_4track_curriculum(datasets_dir: str = "Datasets", force: bool = False)
                             matched = True
                             break
                     if not matched:
-                        track_buckets["expert_general.jsonl"].append(data)
+                        fallback = default_track or "expert_general.jsonl"
+                        track_buckets[fallback].append(data)
                 except Exception:
                     continue
 
-    # Sort each track from Easy (complexity 1)  Hard (complexity 3)
+    # Sort each track from Easy (complexity 1) -> Hard (complexity 3)
     total_samples = 0
     for target_file, items in track_buckets.items():
         sorted_items = sorted(items, key=lambda x: (x.get("complexity", 1), len(x.get("output", ""))))
+        if not sorted_items:
+            log.warning(
+                f"  ⚠ {target_file}: 0 samples matched — skipping file write. "
+                f"Drop matching source data into Datasets/ to populate this track."
+            )
+            continue
         out_path = os.path.join(datasets_dir, target_file)
         with open(out_path, "w", encoding="utf-8") as f:
             for it in sorted_items:
-                f.write(json.dumps(it) + "\n")
+                f.write(json.dumps(it, ensure_ascii=False) + "\n")
         total_samples += len(sorted_items)
         log.info(f"  • {target_file}: {len(sorted_items):,} curriculum-ordered samples written.")
+
+    # Save input hash for cache checking
+    try:
+        with open(cache_hash_file, "w", encoding="utf-8") as f:
+            f.write(current_hash)
+    except Exception as e:
+        log.warning(f"Could not write cache hash file: {e}")
 
     log.info(f" Total Master Dataset Partitioned: {total_samples:,} samples across 4 tracks.")
 

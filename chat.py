@@ -72,9 +72,35 @@ print(f"Model loaded: {sum(p.numel() for p in model.parameters())/1e6:.1f}M para
 print(f"Checkpoint step: {ckpt.get('step', ckpt.get('step_count', 'unknown'))}")
 print()
 
+USE_SPEAK = "--speak" in sys.argv or "-s" in sys.argv
+
+def _speak_text(text: str):
+    """Play speech asynchronously using edge-tts on Windows."""
+    if not text.strip():
+        return
+    try:
+        import asyncio, edge_tts, tempfile
+        async def _synth():
+            comm = edge_tts.Communicate(text, voice="hi-IN-SwaraNeural")
+            with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
+                tmp_path = tmp.name
+            await comm.save(tmp_path)
+            return tmp_path
+
+        audio_path = asyncio.run(_synth())
+        # Play asynchronously using PowerShell SoundPlayer or default media tool
+        cmd = f'powershell -c "(New-Object Media.SoundPlayer \'{audio_path}\').PlaySync()" 2>$null'
+        os.system(cmd)
+        try:
+            os.unlink(audio_path)
+        except Exception:
+            pass
+    except Exception as e:
+        print(f"  [TTS warning: {e}]")
+
 # Interactive chat
 print("=" * 60)
-print("  तंत्र चैट - Hindi LLM Interactive Mode")
+print(f"  तंत्र चैट - Hindi LLM Interactive Mode {'[Voice ON]' if USE_SPEAK else '[Voice OFF (use --speak to enable)]'}")
 print("  Type 'quit' to exit")
 print("=" * 60)
 
@@ -107,3 +133,5 @@ while True:
 
     response = tok.decode(new_ids).strip()
     print(f"\nतंत्र: {response}")
+    if USE_SPEAK:
+        _speak_text(response)

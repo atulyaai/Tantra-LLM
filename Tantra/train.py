@@ -1677,17 +1677,19 @@ class NeuroTrainer:
 
         model_state = raw_model.state_dict()
 
-        # Auto-align vocabulary shape mismatches (e.g. checkpoint saved at 32000, model configured for 65536)
+        # Verify vocabulary compatibility before copying embedding weights
         for k in ["embed.weight", "output_proj.weight", "mtp_head.weight"]:
             if k in state_dict and k in model_state:
                 ckpt_w = state_dict[k]
                 target_w = model_state[k]
                 if ckpt_w.shape != target_w.shape:
-                    log.info(f"Auto-aligning checkpoint tensor '{k}' shape {ckpt_w.shape} -> {target_w.shape}")
-                    aligned_w = target_w.clone()
-                    min_vocab = min(ckpt_w.size(0), target_w.size(0))
-                    aligned_w[:min_vocab] = ckpt_w[:min_vocab]
-                    state_dict[k] = aligned_w
+                    log.warning(
+                        f"  [VOCAB MISMATCH GUARD] Checkpoint tensor '{k}' shape {ckpt_w.shape} differs from model {target_w.shape}. "
+                        f"If the BPE tokenizer was rebuilt, copying old weights into new token positions corrupts embeddings. "
+                        f"Preserving freshly initialized {k} for clean learning on new vocabulary."
+                    )
+                    # Keep the target model's fresh embedding/projection initialized for this new vocabulary
+                    state_dict[k] = target_w
 
         for k, v in state_dict.items():
             if k in model_state and v.dtype != model_state[k].dtype:

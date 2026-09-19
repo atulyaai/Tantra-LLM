@@ -23,6 +23,7 @@ gpustat>=1.1.1           # GPU stats (optional, graceful fallback)
 torchaudio>=2.2.0        # Audio processing
 torchvision>=0.17.0      # Image processing
 Pillow>=10.0.0           # Image I/O
+faster-whisper>=1.0.0    # CPU-optimised Whisper STT (tiny model ~39MB, Hindi supported)
 
 # Web UI server (optional, webui/server.py only)
 fastapi>=0.110.0

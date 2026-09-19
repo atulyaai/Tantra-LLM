@@ -753,33 +753,173 @@ window.stopTrainingFromUI = stopTrainingFromUI;
 // ── 5. Native Multimodal & Web Audio Oscilloscope ───────────────────────────
 
 async function generateAudioSample() {
-    const freq = document.getElementById('inp-audio-freq')?.value || 440;
-    const dur = parseFloat(document.getElementById('inp-audio-dur')?.value) || 1.2;
+    const text = document.getElementById('inp-tts-text')?.value || "नमस्ते! मैं तंत्र हूँ।";
+    const voice = document.getElementById('sel-tts-voice')?.value || "hi-IN-SwaraNeural";
+
+    const container = document.getElementById('audio-player-container');
+    if (container) {
+        container.innerHTML = `<div style="font-size:0.75rem; color:var(--cyan); margin-top:8px;">⏳ Synthesizing speech via Edge-TTS...</div>`;
+    }
 
     try {
         const res = await fetch('/api/multimodal/audio_generate', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ frequency: freq, duration: dur })
+            body: JSON.stringify({ text: text, voice: voice })
         });
         const data = await res.json();
-        const container = document.getElementById('audio-player-container');
         if (container && data.audio_base64) {
             container.innerHTML = `
                 <audio id="synthesizedAudio" controls autoplay src="${data.audio_base64}" style="width:100%; margin-top:8px;"></audio>
-                <div style="font-size:0.72rem; color:var(--emerald); margin-top:4px;">✅ Synthesized 16kHz PCM Waveform (${data.tokens_encoded} Audio Tokens)</div>
+                <div style="font-size:0.72rem; color:var(--emerald); margin-top:4px;">✅ Synthesized ${data.chars_spoken} characters (${data.voice})</div>
             `;
 
             const audioElement = document.getElementById('synthesizedAudio');
             if (audioElement) {
                 startAudioOscilloscope(audioElement);
             }
+        } else if (data.detail) {
+            if (container) container.innerHTML = `<div style="font-size:0.75rem; color:var(--magenta); margin-top:8px;">⚠️ ${data.detail}</div>`;
         }
     } catch(err) {
         console.error("Audio generation error:", err);
+        if (container) container.innerHTML = `<div style="font-size:0.75rem; color:var(--magenta); margin-top:8px;">⚠️ Network error: ${err.message}</div>`;
     }
 }
 window.generateAudioSample = generateAudioSample;
+
+// ── Voice Input (STT via Whisper) & Voice Output (TTS) ───────────────────────
+
+let mediaRecorderInstance = null;
+let audioChunks = [];
+let isRecordingAudio = false;
+
+async function toggleMicRecording() {
+    const micBtn = document.getElementById('btn-mic-toggle');
+    const statusInd = document.getElementById('chat-status-indicator');
+
+    if (isRecordingAudio) {
+        // Stop recording
+        if (mediaRecorderInstance && mediaRecorderInstance.state !== 'inactive') {
+            mediaRecorderInstance.stop();
+        }
+        isRecordingAudio = false;
+        if (micBtn) {
+            micBtn.innerText = '🎤';
+            micBtn.style.background = 'rgba(255,255,255,0.08)';
+        }
+        if (statusInd) statusInd.innerText = 'Transcribing audio...';
+        return;
+    }
+
+    // Start recording
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        alert("Microphone access is not supported by your browser environment.");
+        return;
+    }
+
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        audioChunks = [];
+        mediaRecorderInstance = new MediaRecorder(stream);
+
+        mediaRecorderInstance.ondataavailable = (e) => {
+            if (e.data && e.data.size > 0) {
+                audioChunks.push(e.data);
+            }
+        };
+
+        mediaRecorderInstance.onstop = async () => {
+            stream.getTracks().forEach(track => track.stop());
+            const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+            if (audioBlob.size === 0) return;
+
+            const formData = new FormData();
+            formData.append('audio', audioBlob, 'input.webm');
+
+            try {
+                const res = await fetch('/api/stt', {
+                    method: 'POST',
+                    body: formData
+                });
+                const data = await res.json();
+                if (data.transcript) {
+                    const inputField = document.getElementById('chat-input-field');
+                    if (inputField) {
+                        inputField.value = (inputField.value ? inputField.value + " " : "") + data.transcript;
+                        autoExpandTextarea(inputField);
+                    }
+                    if (statusInd) statusInd.innerText = `Recognized (${data.language}): Ready`;
+                } else if (data.detail) {
+                    if (statusInd) statusInd.innerText = `STT note: ${data.detail}`;
+                }
+            } catch (err) {
+                console.error("STT error:", err);
+                if (statusInd) statusInd.innerText = 'STT request failed';
+            }
+        };
+
+        mediaRecorderInstance.start();
+        isRecordingAudio = true;
+        if (micBtn) {
+            micBtn.innerText = '🛑';
+            micBtn.style.background = '#ef4444';
+        }
+        if (statusInd) statusInd.innerText = 'Listening (speak now)...';
+    } catch (err) {
+        console.error("Microphone access error:", err);
+        alert(`Could not access microphone: ${err.message}`);
+    }
+}
+window.toggleMicRecording = toggleMicRecording;
+
+async function speakLastResponse() {
+    const bubbles = document.querySelectorAll('.message-row.assistant .message-bubble');
+    if (!bubbles.length) return;
+    const lastBubble = bubbles[bubbles.length - 1];
+    const textToSpeak = lastBubble.innerText.trim();
+    if (!textToSpeak) return;
+
+    const speakBtn = document.getElementById('btn-speak-last');
+    const statusInd = document.getElementById('chat-status-indicator');
+    if (speakBtn) speakBtn.innerText = '⏳';
+    if (statusInd) statusInd.innerText = 'Synthesizing speech...';
+
+    try {
+        const res = await fetch('/api/tts', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                text: textToSpeak.slice(0, 1000), // Speak first 1000 chars
+                voice: "hi-IN-SwaraNeural"
+            })
+        });
+        const data = await res.json();
+        if (data.audio_base64) {
+            let player = document.getElementById('global-tts-player');
+            if (!player) {
+                player = document.createElement('audio');
+                player.id = 'global-tts-player';
+                player.style.display = 'none';
+                document.body.appendChild(player);
+            }
+            player.src = data.audio_base64;
+            player.play();
+            if (statusInd) statusInd.innerText = 'Playing response audio...';
+            player.onended = () => {
+                if (statusInd) statusInd.innerText = 'Ready';
+            };
+        } else if (data.detail) {
+            if (statusInd) statusInd.innerText = `TTS note: ${data.detail}`;
+        }
+    } catch (err) {
+        console.error("TTS playback error:", err);
+        if (statusInd) statusInd.innerText = 'TTS request failed';
+    } finally {
+        if (speakBtn) speakBtn.innerText = '🔊';
+    }
+}
+window.speakLastResponse = speakLastResponse;
 
 function startAudioOscilloscope(audioElement) {
     try {

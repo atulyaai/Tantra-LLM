@@ -181,6 +181,12 @@
                 <div class="chat-input-box">
                     <div class="chat-input-wrapper">
                         <textarea id="chat-input-field" placeholder="Ask Tantra anything (Math, Python, Architecture, RAG documents)... (Press Enter to Send, Shift+Enter for New Line)" rows="1" onkeydown="handleChatKey(event)" oninput="autoExpandTextarea(this)"></textarea>
+                        <button class="send-button" id="btn-mic-toggle" onclick="toggleMicRecording()" title="Voice Input (STT via Whisper)" style="background: rgba(255,255,255,0.08); margin-right: 6px;">
+                            🎤
+                        </button>
+                        <button class="send-button" id="btn-speak-last" onclick="speakLastResponse()" title="Speak Assistant Response (TTS)" style="background: rgba(255,255,255,0.08); margin-right: 6px;">
+                            🔊
+                        </button>
                         <button class="send-button" id="btn-send-message" onclick="sendMessage()" title="Send Message (Enter)">
                             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
                         </button>
@@ -306,21 +312,26 @@
                     <div class="glass-card" style="padding: 20px;">
                         <div style="display:flex; align-items:center; gap:8px; margin-bottom:12px;">
                             <span style="font-size:1.4rem;">🔊</span>
-                            <h3 style="font-size: 1.05rem; font-weight: 700; color:#fff;">1D Acoustic Synthesizer</h3>
+                            <h3 style="font-size: 1.05rem; font-weight: 700; color:#fff;">Neural Voice TTS Synthesizer</h3>
                         </div>
-                        <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 16px;">Generates native 16kHz PCM audio waveforms and visualizes live frequencies.</p>
+                        <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 16px;">Generates high-fidelity neural speech (Hindi & English) via Edge-TTS on CPU.</p>
                         
                         <div class="control-group">
-                            <div class="control-label">Frequency (Hz): <span class="control-val" id="lbl-audio-freq">440</span></div>
-                            <input type="range" id="inp-audio-freq" min="110" max="880" step="10" value="440" oninput="document.getElementById('lbl-audio-freq').innerText=this.value">
+                            <label class="input-label" style="margin-bottom: 4px; display: block;">Text to Synthesize:</label>
+                            <textarea id="inp-tts-text" class="search-input" style="height: 65px; resize: vertical;" placeholder="नमस्ते! मैं तंत्र हूँ, आपकी क्या सहायता कर सकता हूँ?">नमस्ते! मैं तंत्र हूँ, आपकी क्या सहायता कर सकता हूँ?</textarea>
                         </div>
 
                         <div class="control-group" style="margin-top: 10px;">
-                            <div class="control-label">Duration (Seconds): <span class="control-val" id="lbl-audio-dur">1.2s</span></div>
-                            <input type="range" id="inp-audio-dur" min="0.5" max="3.0" step="0.1" value="1.2" oninput="document.getElementById('lbl-audio-dur').innerText=this.value + 's'">
+                            <label class="input-label" style="margin-bottom: 4px; display: block;">Neural Voice:</label>
+                            <select id="sel-tts-voice" class="styled-select" style="width: 100%;">
+                                <option value="hi-IN-SwaraNeural" selected>🇮🇳 Hindi - Swara (Female)</option>
+                                <option value="hi-IN-MadhurNeural">🇮🇳 Hindi - Madhur (Male)</option>
+                                <option value="en-IN-NeerjaNeural">🇮🇳 Indian English - Neerja (Female)</option>
+                                <option value="en-US-JennyNeural">🇺🇸 English - Jenny (Female)</option>
+                            </select>
                         </div>
 
-                        <button class="btn-action btn-cyan" style="width:100%; margin-top:16px;" onclick="generateAudioSample()">⚡ Synthesize & Play Waveform</button>
+                        <button class="btn-action btn-cyan" style="width:100%; margin-top:16px;" onclick="generateAudioSample()">⚡ Synthesize & Play Voice</button>
                         
                         <!-- Live Oscilloscope Visualizer Canvas -->
                         <div style="margin-top: 16px; background: rgba(0,0,0,0.6); border-radius: 8px; border: 1px solid var(--border-light); padding: 8px;">

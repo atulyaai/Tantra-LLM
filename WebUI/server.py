@@ -1395,38 +1395,108 @@ async def preview_dataset_samples(limit: int = 5):
 
 @app.post("/api/multimodal/audio_generate")
 async def generate_multimodal_audio(request: Request):
-    """Generates synthetic 16kHz acoustic PCM waveform tokens."""
-    import math, struct, base64
+    """Real neural TTS using edge-tts (Hindi + multilingual voices, CPU-only)."""
     body = await request.json()
-    freq = float(body.get("frequency", 440.0))
-    duration = float(body.get("duration", 1.0))
-    
-    sample_rate = 16000
-    num_samples = int(sample_rate * duration)
-    raw_pcm = bytearray()
-    for i in range(num_samples):
-        t = float(i) / sample_rate
-        val = math.sin(2.0 * math.pi * freq * t) * math.exp(-1.5 * t)
-        int_val = max(-32767, min(32767, int(val * 32767)))
-        raw_pcm.extend(struct.pack("<h", int_val))
+    text = body.get("text", "नमस्ते, मैं तंत्र हूँ।")
+    voice = body.get("voice", "hi-IN-SwaraNeural")
+    return await _run_edge_tts(text, voice)
 
-    header = struct.pack(
-        "<4sI4s4sIHHIIHH4sI",
-        b"RIFF", 36 + len(raw_pcm), b"WAVE",
-        b"fmt ", 16, 1, 1, sample_rate, sample_rate * 2, 2, 16,
-        b"data", len(raw_pcm)
-    )
-    wav_bytes = header + raw_pcm
-    b64_wav = base64.b64encode(wav_bytes).decode("utf-8")
-    
-    return {
-        "status": "success",
-        "audio_base64": f"data:audio/wav;base64,{b64_wav}",
-        "sample_rate": sample_rate,
-        "tokens_encoded": num_samples // 320,
-        "duration_seconds": duration,
-        "codec": "1D-Conv Discrete VQ"
-    }
+
+@app.post("/api/tts")
+async def text_to_speech(request: Request):
+    """Text-to-speech endpoint (edge-tts, CPU, Hindi + English voices)."""
+    body = await request.json()
+    text = body.get("text", "")
+    voice = body.get("voice", "hi-IN-SwaraNeural")
+    if not text.strip():
+        raise HTTPException(status_code=400, detail="text field is required and must not be empty")
+    return await _run_edge_tts(text, voice)
+
+
+async def _run_edge_tts(text: str, voice: str) -> dict:
+    """Shared edge-tts synthesis helper. Returns base64-encoded MP3."""
+    import base64, tempfile, os as _os
+    try:
+        import edge_tts
+    except ImportError:
+        raise HTTPException(
+            status_code=503,
+            detail="edge-tts not installed. Run: pip install edge-tts"
+        )
+    try:
+        communicate = edge_tts.Communicate(text, voice=voice)
+        with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
+            tmp_path = tmp.name
+        await communicate.save(tmp_path)
+        with open(tmp_path, "rb") as f:
+            audio_bytes = f.read()
+        _os.unlink(tmp_path)
+        b64 = base64.b64encode(audio_bytes).decode("utf-8")
+        return {
+            "status": "success",
+            "audio_base64": f"data:audio/mpeg;base64,{b64}",
+            "voice": voice,
+            "chars_spoken": len(text),
+            "codec": "edge-tts MP3 (neural)"
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"TTS synthesis failed: {e}")
+
+
+# Lazy-loaded Whisper model singleton (downloaded once ~39MB)
+_WHISPER_MODEL = None
+
+@app.post("/api/stt")
+async def speech_to_text(request: Request):
+    """Speech-to-text using faster-whisper tiny model (CPU, Hindi supported).
+    Accepts multipart form upload with field 'audio' (WebM/WAV blob from browser).
+    Returns { transcript, language, duration }.
+    """
+    global _WHISPER_MODEL
+    try:
+        from faster_whisper import WhisperModel
+    except ImportError:
+        raise HTTPException(
+            status_code=503,
+            detail="faster-whisper not installed. Run: pip install faster-whisper"
+        )
+
+    import tempfile, os as _os
+    form = await request.form()
+    audio_file = form.get("audio")
+    if audio_file is None:
+        raise HTTPException(status_code=400, detail="Multipart field 'audio' is required")
+
+    audio_bytes = await audio_file.read()
+    suffix = ".webm"
+    if hasattr(audio_file, "filename") and audio_file.filename:
+        suffix = _os.path.splitext(audio_file.filename)[1] or ".webm"
+
+    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+        tmp.write(audio_bytes)
+        tmp_path = tmp.name
+
+    try:
+        if _WHISPER_MODEL is None:
+            log.info("Loading faster-whisper tiny model (first-time download ~39MB)...")
+            _WHISPER_MODEL = WhisperModel("tiny", device="cpu", compute_type="int8")
+            log.info("faster-whisper tiny model loaded.")
+
+        segments, info = _WHISPER_MODEL.transcribe(tmp_path, language="hi", beam_size=5)
+        transcript = " ".join(seg.text.strip() for seg in segments)
+        return {
+            "transcript": transcript.strip(),
+            "language": info.language,
+            "language_probability": round(info.language_probability, 3),
+            "duration": round(info.duration, 2)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"STT transcription failed: {e}")
+    finally:
+        try:
+            _os.unlink(tmp_path)
+        except Exception:
+            pass
 
 
 @app.post("/api/multimodal/image_inspect")
