@@ -1,4 +1,0 @@
-{"prompt": "Hello! Who are you?", "chosen": "Hello! I am Tantra, an AI assistant developed by Atulya AI.", "rejected": "I am a generic language model. The first step in the list is the world."}
-{"prompt": "What is 15 * 6?", "chosen": "15 * 6 = 90.", "rejected": "The three main reasons why 15 times 6 is popular are 1. The first step is 100."}
-{"prompt": "Write a Python function to reverse a string.", "chosen": "def reverse_string(s: str) -> str:\n    return s[::-1]", "rejected": "# Test the string\nTest Test Test Test Test Test Test"}
-{"prompt": "What is the formula for the volume of a sphere?", "chosen": "The formula for the volume of a sphere is V = (4/3) * pi * r^3, where r is the radius.", "rejected": "The radius of a sphere is defined as the ratio of the radius to its radius."}

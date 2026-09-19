@@ -2182,14 +2182,51 @@ def ingest_gigabyte_super_corpus(datasets_dir: str = "Datasets", target_samples:
     return total_added
 
 
+def _input_file_hash(datasets_dir: str, source_files: list) -> str:
+    """Hash of all input file names, sizes, and mtimes — changes when files are added/removed/modified."""
+    import hashlib
+    h = hashlib.sha256()
+    for fname in sorted(os.listdir(datasets_dir)):
+        if not fname.endswith(".jsonl"):
+            continue
+        fpath = os.path.join(datasets_dir, fname)
+        st = os.stat(fpath)
+        h.update(f"{fname}:{st.st_size}:{int(st.st_mtime)}".encode())
+    return h.hexdigest()
+
+
 def build_4track_curriculum(datasets_dir: str = "Datasets", force: bool = False) -> None:
     """Partitions all available master and gold datasets into 4 expert tracks ordered by curriculum complexity."""
     os.makedirs(datasets_dir, exist_ok=True)
     expected_files = [os.path.join(datasets_dir, f) for f in CURRICULUM_TRACKS.keys()]
 
-    if not force and all(os.path.exists(p) and os.path.getsize(p) > 50_000 for p in expected_files):
-        log.info(f" [CACHE HIT] 4-Track Domain Curriculum cached in {datasets_dir}/.")
-        return
+    # Check if input files changed since last build (not just whether output exists)
+    cache_hash_file = os.path.join(datasets_dir, ".curriculum_cache_hash")
+    if not force:
+        current_hash = _input_file_hash(datasets_dir, [])
+        if os.path.exists(cache_hash_file):
+            with open(cache_hash_file, encoding="utf-8") as f:
+                stored_hash = f.read().strip()
+            if stored_hash == current_hash and all(os.path.exists(p) and os.path.getsize(p) > 50_000 for p in expected_files):
+                log.info(f" [CACHE HIT] 4-Track Domain Curriculum cached (input unchanged) in {datasets_dir}/.")
+                return
+
+    generate_gold_datasets(datasets_dir=datasets_dir, force=force)
+
+    # Collect all candidate source JSONL files (excluding the target partitioned files)
+    target_filenames = set(CURRICULUM_TRACKS.keys())
+    source_files = []
+    for fname in os.listdir(datasets_dir):
+        if fname.endswith(".jsonl") and fname not in target_filenames and "preference" not in fname and "sample" not in fname:
+            source_files.append(os.path.join(datasets_dir, fname))
+
+    if not source_files:
+        source_files = [os.path.join(datasets_dir, "gold_corpus.jsonl")]
+
+    # Save input hash for next run
+    current_hash = _input_file_hash(datasets_dir, source_files)
+    with open(cache_hash_file, "w", encoding="utf-8") as f:
+        f.write(current_hash)
 
     generate_gold_datasets(datasets_dir=datasets_dir, force=force)
 

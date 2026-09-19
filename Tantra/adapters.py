@@ -60,11 +60,19 @@ DEFAULT_CATEGORIES: List[AdapterCategory] = [
     AdapterCategory(
         name="general",
         description="General conversation, reasoning, and open-domain chat (base fallback).",
-        topics=["general"],
+        topics=["general", "conversation", "greeting", "small_talk"],
         max_depth=2,
         keywords=["hello", "hi", "hey", "how are you", "tell me about", "what is", "who is",
                   "chat", "conversation", "opinion", "introduction", "yourself", "why", "explain",
-                  "reason", "think", "because", "compare", "difference"],
+                  "reason", "think", "because", "compare", "difference",
+                  # Hindi conversational keywords
+                  "hindi", "हिंदी", "namaste", "नमस्ते", "pranaam", "प्रणाम",
+                  "aap", "आप", "main", "मैं", "kya", "क्या", "kaise", "कैसे",
+                  "kya baat", "क्या बात", "achha", "अच्छा", "bure", "बुरे",
+                  "bohot", "बहुत", "kyunki", "क्योंकि", "kyun", "क्यूँ",
+                  "kahan", "कहाँ", "kab", "कब", "kaise", "कैसे",
+                  "madad", "मदद", "sawal", "सवाल", "jawab", "जवाब",
+                  "greeting", "salutation", "hindi", "sanskrit"],
     ),
     AdapterCategory(
         name="math",
@@ -122,12 +130,12 @@ DEFAULT_CATEGORIES: List[AdapterCategory] = [
     ),
     AdapterCategory(
         name="multilingual",
-        description="Multilingual and Hindi/Sanskrit understanding.",
-        topics=["multilingual"],
+        description="Translation and multilingual tasks only.",
+        topics=["translation", "multilingual"],
         max_depth=2,
-        keywords=["hindi", "sanskrit", "english translation", "translate", "translation",
-                  "भाषा", "नमस्ते", "संस्कृत", "हिंदी", "language", "अनुवाद", "शब्द",
-                  "polylingual", "bilingual", "अंग्रेज़ी", "devanagari"],
+        keywords=["english translation", "translate", "translation",
+                  "अनुवाद", "शब्द", "polylingual", "bilingual", "अंग्रेज़ी",
+                  "convert to english", "transliterate", "transliteration"],
     ),
 ]
 
@@ -303,7 +311,7 @@ class RequestRouter:
 
         # Heuristic helpers that strengthen without needing a lexicon entry.
         if _contains_devanagari(text):
-            scores["multilingual"] = scores.get("multilingual", 0.0) + 2.0
+            scores["general"] = scores.get("general", 0.0) + 2.0
         if _looks_like_code(text):
             scores["code"] = scores.get("code", 0.0) + 1.5
         if re.search(r"[\d<>=+\-*/^]+|[0-9][+\-*/^=][0-9]|%.", lowered):
