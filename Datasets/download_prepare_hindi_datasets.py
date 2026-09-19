@@ -255,7 +255,7 @@ def download_cc100(max_rows: int = 500_000) -> Path:
     log.info("Downloading CC-100 (Hindi)...")
     try:
         from datasets import load_dataset
-        ds = load_dataset("cc100", "hi", split="train", streaming=True)
+        ds = load_dataset("cc100", "hi", split="train", streaming=True, trust_remote_code=True)
     except Exception as e:
         log.warning(f"  HuggingFace load failed: {e}")
         return out
@@ -483,42 +483,19 @@ def download_codealpaca(max_rows: int = 50_000) -> Path:
         log.warning(f"  HuggingFace load failed: {e}")
         return out
 
-    # Simple English->Hindi translation map for common programming terms
-    TERM_MAP = {
-        "write a function": "एक फंक्शन लिखें",
-        "create a function": "एक फंक्शन बनाएं",
-        "write a program": "एक प्रोग्राम लिखें",
-        "write a script": "एक स्क्रिप्ट लिखें",
-        "implement a function": "एक फंक्शन लागू करें",
-        "write code": "कोड लिखें",
-        "given": "दिया है",
-        "return": "रिटर्न",
-        "input": "इनपुट",
-        "output": "आउटपुट",
-        "print": "प्रिंट",
-        "list": "लिस्ट",
-        "string": "स्ट्रिंग",
-        "number": "नंबर",
-        "array": "एरे",
-        "dictionary": "डिक्शनरी",
-        "loop": "लूप",
-        "function": "फंक्शन",
-        "class": "क्लास",
-        "variable": "वेरिएबल",
-        "algorithm": "एल्गोरिद्म",
-        "sort the": "सॉर्ट करें",
-        "find the": "खोजें",
-        "calculate": "गणना करें",
-    }
+    # Honest labeling: Hindi prompt wrapper + original English instruction + English code.
+    # No fake translation — the English instruction is kept as-is because the code
+    # output is English code anyway, and word-by-word Hindi substitution produces
+    # gibberish.  The Hindi wrapper text is genuine Hindi that teaches the model
+    # to respond to Hindi prompts with code.
+    CODE_PROMPT_TEMPLATE = (
+        "निम्नलिखित प्रोग्रामिंग समस्या का समाधान Python कोड में लिखें।\n"
+        "समस्या: {instruction}\n\n"
+        "कोड:"
+    )
 
-    def _to_hindi_explanation(instruction: str) -> str:
-        """Convert an English instruction to a simple Hindi explanation."""
-        lower = instruction.lower()
-        # Try to find a matching pattern
-        for eng, hin in sorted(TERM_MAP.items(), key=lambda x: -len(x[0])):
-            if eng in lower:
-                return f"प्रोग्रामिंग समस्या: {instruction}\n\nहल के लिए Python कोड लिखें।"
-        return f"प्रोग्रामिंग समस्या: {instruction}\n\nहल के लिए Python कोड लिखें।"
+    def _honest_hindi_prompt(instruction: str) -> str:
+        return CODE_PROMPT_TEMPLATE.format(instruction=instruction)
 
     count = 0
     with open(out, "w", encoding="utf-8") as f:
@@ -527,8 +504,7 @@ def download_codealpaca(max_rows: int = 50_000) -> Path:
             output = str(row.get("output", "")).strip()
             if not instruction or not output or len(output) < 20:
                 continue
-            # Keep English code, wrap instruction in Hindi
-            hindi_prompt = _to_hindi_explanation(instruction)
+            hindi_prompt = _honest_hindi_prompt(instruction)
             messages = [
                 {"role": "user", "content": hindi_prompt},
                 {"role": "assistant", "content": output},
