@@ -43,24 +43,15 @@ Model/Experts/registry.json
 # Datasets: Track consolidated files only
 Datasets/*.jsonl
 Datasets/**/*.jsonl
-!Datasets/tantra_master_train.jsonl
-!Datasets/tantra_master_val.jsonl
 !Datasets/tantra_hindi_conversation_train.jsonl
 !Datasets/tantra_hindi_conversation_val.jsonl
 !Datasets/tantra_math_train.jsonl
 !Datasets/tantra_math_val.jsonl
-!Datasets/gold_corpus.jsonl
-!Datasets/preference_pairs.jsonl
+!Datasets/expert_*.jsonl
 !Documents/
 !Datasets/documents/
-!Datasets/curated_seeds/**/*.jsonl
-!Datasets/curated_sft/*.jsonl
-!Datasets/curated_sft/**/*.jsonl
-!Datasets/seeds/*.jsonl
-!Datasets/seeds/**/*.jsonl
-!Datasets/build_hindi_dataset.py
-!Datasets/hindi_dataset_report.json
-!Datasets/DATASET_REVIEW.md
+!Datasets/download_prepare_hindi_datasets.py
+Datasets/raw/
 Model/memory_bank.json
 Model/saved_chats.json
 Model/tokenizer.pt
