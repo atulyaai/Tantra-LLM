@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tantra Studio • Quantum Neural Engine & Multimodal AI</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=Fira+Code:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.8/purify.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/tokyo-night-dark.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+    <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+    <!-- HEADER NAVBAR -->
+    <header>
+        <div class="brand">
+            <img src="/assets/tantra_logo.jpg" class="brand-logo-img" alt="Tantra Logo" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><circle cx=%2250%22 cy=%2250%22 r=%2245%22 fill=%22%2300f5ff%22/></svg>'">
+            <div>
+                <div class="brand-title">Tantra Studio <span class="brand-year">2026</span></div>
+                <div class="brand-badges-row">
+                    <span class="brand-badge" id="hdr-neurocore-badge">NeuroCore v3.5</span>
+                    <span class="brand-badge badge-emerald">BitNet 1.58b</span>
+                    <span class="brand-badge badge-magenta" id="hdr-layers-badge">10L ALRA O(1)</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="nav-tabs" id="nav-tabs-container">
+            <button class="tab-btn active" id="tab-btn-playground" onclick="switchTab('playground')">💬 AI Chat & RAG</button>
+            <button class="tab-btn" id="tab-btn-training" onclick="switchTab('training')">📈 Live Training</button>
+            <button class="tab-btn" id="tab-btn-multimodal" onclick="switchTab('multimodal')">🎨 Multimodal Lab</button>
+            <button class="tab-btn" id="tab-btn-compare" onclick="switchTab('compare')">⚖️ Checkpoints</button>
+            <button class="tab-btn" id="tab-btn-kg" onclick="switchTab('kg')">🌐 Knowledge Graph</button>
+            <button class="tab-btn" id="tab-btn-datasets" onclick="switchTab('datasets')">📂 Datasets</button>
+            <button class="tab-btn admin-only" id="tab-btn-moe" onclick="switchTab('moe')">🧠 MoE Matrix</button>
+            <button class="tab-btn admin-only" id="tab-btn-telemetry" onclick="switchTab('telemetry')">📊 Telemetry</button>
+            <button class="tab-btn" id="tab-btn-tokenizer" onclick="switchTab('tokenizer')">💻 Sandbox</button>
+            <button class="tab-btn admin-only" id="tab-btn-admin" onclick="switchTab('admin')">🛡️ Admin</button>
+        </div>
+
+        <div class="header-right">
+            <!-- LIVE TELEMETRY STATUS PILL -->
+            <div class="live-status-pill" id="live-status-indicator" title="Real-time system telemetry status">
+                <span class="pulse-dot"></span>
+                <span id="live-speed-text">LIVE 157.4 tok/s</span>
+            </div>
+
+            <!-- CHECKPOINT SELECTOR -->
+            <div class="refresh-control" title="Active Model Checkpoint" style="margin-right: 6px;">
+                <select id="sel-checkpoint" onchange="switchCheckpoint(this.value)" style="max-width: 170px;">
+                    <option value="">💾 Checkpoint...</option>
+                </select>
+            </div>
+
+            <!-- AUTO REFRESH SELECTOR -->
+            <div class="refresh-control" title="Auto telemetry polling frequency">
+                <select id="sel-poll-rate" onchange="changePollRate(this.value)">
+                    <option value="2000" selected>⚡ Auto 2s</option>
+                    <option value="5000">⏳ Auto 5s</option>
+                    <option value="10000">🐢 Auto 10s</option>
+                    <option value="0">⏸ Manual</option>
+                </select>
+            </div>
+
+            <div class="role-switch-box">
+                <button class="role-btn active-user" id="btn-role-user" onclick="setRole('user')">👤 User</button>
+                <button class="role-btn" id="btn-role-admin" onclick="setRole('admin')">🛡️ Admin</button>
+            </div>
+        </div>
+    </header>
+
+    <div class="app-body">
+        <!-- VIEW 1: AI CHAT STUDIO & RAG DOCS -->
+        <div class="view-panel active" id="view-playground">
+            <div class="sidebar">
+                <div class="section-header">
+                    <div class="filter-group">
+                        <button class="filter-btn active" id="btn-filter-active" onclick="setSessionFilter('active')">Active</button>
+                        <button class="filter-btn" id="btn-filter-archived" onclick="setSessionFilter('archived')">Archived</button>
+                    </div>
+                    <button class="btn-action btn-cyan" style="padding: 4px 10px; font-size: 0.75rem;" onclick="createNewSession()">+ New Chat</button>
+                </div>
+                <input type="text" id="session-search-input" class="search-input" placeholder="🔍 Search chat topics..." oninput="searchSessions(this.value)">
+                
+                <div class="chat-sessions-list" id="sessions-list-container">
+                    <!-- Dynamic Sessions rendered here -->
+                </div>
+
+                <div class="section-header">
+                    <span>📄 Local RAG Documents</span>
+                    <button class="btn-action btn-secondary" style="padding: 2px 8px; font-size: 0.7rem;" onclick="document.getElementById('rag-file-input').click()">+ Ingest</button>
+                    <input type="file" id="rag-file-input" style="display:none;" onchange="handleDocumentUpload(this)">
+                </div>
+                <div class="memory-drawer" id="rag-docs-list-container" style="max-height: 110px;">
+                    <!-- Local Documents rendered here -->
+                </div>
+
+                <div class="section-header">
+                    <span>🧠 Memory Bank</span>
+                    <button class="btn-action btn-secondary" style="padding: 2px 8px; font-size: 0.7rem;" onclick="addMemoryPrompt()">+ Add</button>
+                </div>
+                <div class="memory-drawer" id="memory-drawer-container">
+                    <!-- Stored memories rendered here -->
+                </div>
+
+                <div class="section-header">
+                    <span>⚡ Prompt Presets</span>
+                </div>
+                <div class="preset-grid">
+                    <div class="preset-chip" onclick="setPreset('coder')">💻 Python Systems</div>
+                    <div class="preset-chip" onclick="setPreset('math')">🧮 Math & Proofs</div>
+                    <div class="preset-chip" onclick="setPreset('science')">🔬 Science & Phys</div>
+                    <div class="preset-chip" onclick="setPreset('bitnet')">⚙️ BitNet 1.58b</div>
+                </div>
+
+                <div class="section-header">
+                    <span>Domain Category Adapter</span>
+                </div>
+                <select id="chat-adapter-select" class="styled-select">
+                    <option value="auto">🤖 Auto-Route (RequestRouter)</option>
+                    <option value="base">🧠 Base NeuroCore (Shared)</option>
+                    <option value="code">💻 Code Specialist Layer</option>
+                    <option value="math">🧮 Math Specialist Layer</option>
+                    <option value="science">🔬 Science Specialist Layer</option>
+                    <option value="conversation">💬 Conversation Specialist</option>
+                    <option value="general">🌐 General Specialist Layer</option>
+                    <option value="multilingual">🇮🇳 Multilingual Specialist</option>
+                </select>
+
+                <div class="section-header" style="margin-top: 6px;">
+                    <span>Inference Tuning</span>
+                </div>
+                
+                <div class="control-group">
+                    <div class="control-label">Temperature <span class="control-val" id="lbl-temp">0.35</span></div>
+                    <input type="range" id="inp-temp" min="0.1" max="1.0" step="0.05" value="0.35" oninput="document.getElementById('lbl-temp').innerText=parseFloat(this.value).toFixed(2)">
+                </div>
+
+                <div class="control-group">
+                    <div class="control-label">Top-P Nucleus <span class="control-val" id="lbl-topp">0.85</span></div>
+                    <input type="range" id="inp-topp" min="0.1" max="1.0" step="0.05" value="0.85" oninput="document.getElementById('lbl-topp').innerText=parseFloat(this.value).toFixed(2)">
+                </div>
+
+                <div class="control-group">
+                    <div class="control-label">Max Tokens <span class="control-val" id="lbl-maxtok">256</span></div>
+                    <input type="range" id="inp-maxtok" min="64" max="1024" step="64" value="256" oninput="document.getElementById('lbl-maxtok').innerText=this.value">
+                </div>
+            </div>
+
+            <div class="chat-stage">
+                <div class="chat-header-banner">
+                    <div>
+                        <div class="chat-header-title" id="chat-title-display">Tantra NeuroCore Chat</div>
+                        <div class="chat-header-sub" id="chat-sub-display">82.8M Active Parameters • ALRA Recurrent Linear Attention O(1) • BitNet 1.58-bit</div>
+                    </div>
+                    <div class="chat-header-actions">
+                        <div class="inference-stats-pill" id="live-inference-stats" style="display:none;">
+                            <span id="stat-ttft">TTFT: -- ms</span> • <span id="stat-toks">-- tok/s</span>
+                        </div>
+                        <button class="btn-action btn-danger-subtle" id="btn-stop-stream" style="display:none;" onclick="stopGeneration()">⏹ Stop</button>
+                        <button class="btn-action btn-secondary" onclick="exportChatMarkdown()" title="Export to Markdown">📥 Export MD</button>
+                        <button class="btn-action btn-secondary" onclick="clearCurrentChat()">🧹 Clear</button>
+                    </div>
+                </div>
+
+                <div class="chat-scroll-area" id="chat-messages-container">
+                    <div class="message-row assistant">
+                        <div class="avatar avatar-ai">T</div>
+                        <div class="message-bubble">
+                            <p><strong>Namaste! I am Tantra Studio</strong>, your omnimodal quantum foundation AI model engineered by <strong>Atulya AI</strong>.</p>
+                            <p>My neural core features <strong>ALRA recurrent linear attention \(O(1)\)</strong>, <strong>BitNet 1.58-bit ternary quantization</strong>, and <strong>Multi-Token Speculative Prediction</strong> for fast, privacy-first local computing.</p>
+                            <p>How can I assist your coding, mathematical reasoning, RAG documents, or creative workflows today?</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="chat-input-box">
+                    <div class="chat-input-wrapper">
+                        <textarea id="chat-input-field" placeholder="Ask Tantra anything (Math, Python, Architecture, RAG documents)... (Press Enter to Send, Shift+Enter for New Line)" rows="1" onkeydown="handleChatKey(event)" oninput="autoExpandTextarea(this)"></textarea>
+                        <button class="send-button" id="btn-send-message" onclick="sendMessage()" title="Send Message (Enter)">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+                        </button>
+                    </div>
+                    <div class="chat-input-footer">
+                        <span>💡 Tip: Ingest local documents or add long-term memory facts in the sidebar for personalized context.</span>
+                        <span id="chat-status-indicator">Ready</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- VIEW 2: LIVE AUTONOMOUS TRAINING DASHBOARD -->
+        <div class="view-panel" id="view-training">
+            <div class="view-scroll-content">
+                <div class="view-header-row">
+                    <div>
+                        <h2 class="view-title">📈 Live Autonomous Training & Alignment Telemetry</h2>
+                        <p class="view-subtitle">Real-time convergence curves, step speed, auto-growth layer depth, and active training status from <code class="inline-code">Model/training_status.json</code>.</p>
+                    </div>
+                    <div style="display:flex; gap:8px; align-items:center;">
+                        <span class="status-badge" id="train-status-pill">● IDLE</span>
+                        <button class="btn-action" id="btn-start-training" style="background:#10b981; color:#fff;" onclick="startTrainingFromUI()">▶️ Start</button>
+                        <button class="btn-action" id="btn-stop-training" style="background:#ef4444; color:#fff;" onclick="stopTrainingFromUI()">⏹️ Stop</button>
+                        <button class="btn-action btn-cyan" onclick="loadTrainingDashboard(true)">🔄 Refresh</button>
+                    </div>
+                </div>
+
+                <!-- TRAINING CONTROL CONFIG BAR -->
+                <div class="glass-card" style="margin-bottom: 20px; padding: 12px 18px; display: flex; flex-wrap: wrap; gap: 14px; align-items: center; justify-content: space-between;">
+                    <div style="display: flex; flex-wrap: wrap; gap: 12px; align-items: center;">
+                        <label style="font-size: 0.8rem; color: var(--text-muted);">Stage:
+                            <select id="train-cfg-stage" style="background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15); color: #fff; padding: 4px 8px; border-radius: 6px; margin-left: 4px;">
+                                <option value="pretrain" selected>Pretrain (Full Token)</option>
+                                <option value="sft">SFT (Instruction)</option>
+                            </select>
+                        </label>
+                        <label style="font-size: 0.8rem; color: var(--text-muted);">Steps:
+                            <input type="number" id="train-cfg-steps" value="500" style="width: 75px; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15); color: #fff; padding: 4px 8px; border-radius: 6px; margin-left: 4px;">
+                        </label>
+                        <label style="font-size: 0.8rem; color: var(--text-muted);">Batch:
+                            <input type="number" id="train-cfg-batch" value="2" style="width: 55px; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15); color: #fff; padding: 4px 8px; border-radius: 6px; margin-left: 4px;">
+                        </label>
+                        <label style="font-size: 0.8rem; color: var(--text-muted);">LR:
+                            <input type="text" id="train-cfg-lr" value="3e-4" style="width: 70px; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15); color: #fff; padding: 4px 8px; border-radius: 6px; margin-left: 4px;">
+                        </label>
+                        <label style="font-size: 0.8rem; color: var(--text-muted); display: flex; align-items: center; gap: 4px;">
+                            <input type="checkbox" id="train-cfg-resume" checked> Resume
+                        </label>
+                    </div>
+                    <div id="train-ui-msg" style="font-size: 0.8rem; font-weight: 600; color: var(--cyan);"></div>
+                </div>
+
+                <!-- PROGRESS BAR -->
+                <div class="glass-card progress-banner" style="margin-bottom: 20px; padding: 14px 20px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                        <span style="font-size: 0.85rem; font-weight: 700; color: #fff;">Training Target Progress: <span id="train-progress-text" style="color:var(--cyan);">38.5%</span></span>
+                        <span style="font-size: 0.78rem; color: var(--text-sub);">ETA: <strong id="train-eta-text" style="color:var(--emerald);">5d 06h 52m</strong> • Rolling: <strong id="train-sec-per-step">13.0s/step</strong></span>
+                    </div>
+                    <div class="progress-track">
+                        <div class="progress-fill" id="train-progress-bar" style="width: 38.5%;"></div>
+                    </div>
+                </div>
+
+                <!-- 4 HERO METRICS -->
+                <div class="stat-grid-4" style="margin-bottom: 24px;">
+                    <div class="stat-card">
+                        <div class="stat-label">CURRENT STEP</div>
+                        <div class="stat-val" id="train-stat-step">--</div>
+                        <div class="stat-sub" id="train-stat-stage" style="color: var(--emerald);">Stage: Initializing</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">TRAINING LOSS & EMA</div>
+                        <div class="stat-val" id="train-stat-loss" style="color: var(--cyan);">--</div>
+                        <div class="stat-sub">EMA Loss: <strong id="train-stat-ema">--</strong> • PPL: <strong id="train-stat-ppl">--</strong></div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">ACTIVE ARCHITECTURE</div>
+                        <div class="stat-val" id="train-stat-layers" style="color: var(--magenta);">-- Layers</div>
+                        <div class="stat-sub">AutoGrowth: <strong id="train-stat-params">--</strong> Params</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">THROUGHPUT & TOKENS</div>
+                        <div class="stat-val" id="train-stat-tokens" style="color: #ffd700;">-- tok/s</div>
+                        <div class="stat-sub">Total Tokens: <strong id="train-stat-total-tokens">--</strong></div>
+                    </div>
+                </div>
+
+                <!-- DUAL CHARTS & TIMELINE -->
+                <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 20px; margin-bottom: 24px;">
+                    <div class="glass-card" style="padding: 20px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                            <h3 style="font-size: 1rem; font-weight: 600; color: #fff;">📊 Loss & Perplexity (PPL) Convergence Curve</h3>
+                            <span style="font-size: 0.75rem; color: var(--text-muted);">Step History (Live Window)</span>
+                        </div>
+                        <div style="height: 290px; position: relative;">
+                            <canvas id="trainingLossChart"></canvas>
+                        </div>
+                    </div>
+
+                    <div class="glass-card" style="padding: 20px;">
+                        <h3 style="font-size: 1rem; font-weight: 600; margin-bottom: 16px; color: #fff;">🧬 Milestone & Checkpoint Events</h3>
+                        <div class="timeline-box" id="training-timeline-container">
+                            <!-- Dynamic Timeline Items -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- VIEW 3: MULTIMODAL PLAYGROUND -->
+        <div class="view-panel" id="view-multimodal">
+            <div class="view-scroll-content">
+                <div class="view-header-row">
+                    <div>
+                        <h2 class="view-title">🎨 Native Multimodal Playground & Waveform Lab</h2>
+                        <p class="view-subtitle">Real-time 1D Acoustic Synthesizer with Live Web Audio Oscilloscope, 2D Image VQ-VAE Tokenizer, and 3D Codec.</p>
+                    </div>
+                </div>
+
+                <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px;">
+                    <!-- Audio Studio with Live Canvas Oscilloscope -->
+                    <div class="glass-card" style="padding: 20px;">
+                        <div style="display:flex; align-items:center; gap:8px; margin-bottom:12px;">
+                            <span style="font-size:1.4rem;">🔊</span>
+                            <h3 style="font-size: 1.05rem; font-weight: 700; color:#fff;">1D Acoustic Synthesizer</h3>
+                        </div>
+                        <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 16px;">Generates native 16kHz PCM audio waveforms and visualizes live frequencies.</p>
+                        
+                        <div class="control-group">
+                            <div class="control-label">Frequency (Hz): <span class="control-val" id="lbl-audio-freq">440</span></div>
+                            <input type="range" id="inp-audio-freq" min="110" max="880" step="10" value="440" oninput="document.getElementById('lbl-audio-freq').innerText=this.value">
+                        </div>
+
+                        <div class="control-group" style="margin-top: 10px;">
+                            <div class="control-label">Duration (Seconds): <span class="control-val" id="lbl-audio-dur">1.2s</span></div>
+                            <input type="range" id="inp-audio-dur" min="0.5" max="3.0" step="0.1" value="1.2" oninput="document.getElementById('lbl-audio-dur').innerText=this.value + 's'">
+                        </div>
+
+                        <button class="btn-action btn-cyan" style="width:100%; margin-top:16px;" onclick="generateAudioSample()">⚡ Synthesize & Play Waveform</button>
+                        
+                        <!-- Live Oscilloscope Visualizer Canvas -->
+                        <div style="margin-top: 16px; background: rgba(0,0,0,0.6); border-radius: 8px; border: 1px solid var(--border-light); padding: 8px;">
+                            <div style="font-size: 0.7rem; color: var(--text-muted); margin-bottom: 4px; display:flex; justify-content:space-between;">
+                                <span>Real-Time Audio Oscilloscope</span>
+                                <span id="oscilloscope-status" style="color:var(--cyan);">Idle</span>
+                            </div>
+                            <canvas id="audioWaveCanvas" width="280" height="70" style="width:100%; height:70px; display:block;"></canvas>
+                        </div>
+
+                        <div id="audio-player-container" style="margin-top: 12px;"></div>
+                    </div>
+
+                    <!-- Image VQ-VAE Inspector -->
+                    <div class="glass-card" style="padding: 20px;">
+                        <div style="display:flex; align-items:center; gap:8px; margin-bottom:12px;">
+                            <span style="font-size:1.4rem;">🖼️</span>
+                            <h3 style="font-size: 1.05rem; font-weight: 700; color:#fff;">2D Image Tokenizer</h3>
+                        </div>
+                        <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 16px;">Encodes 2D visual patches into discrete codebook indices (16x spatial compression).</p>
+                        
+                        <button class="btn-action btn-magenta" style="width:100%;" onclick="inspectImagePatches()">🔍 Inspect Neural Patches</button>
+                        <div id="image-inspect-results" class="neural-inspect-box" style="margin-top: 16px;">
+                            <div style="color:var(--text-muted); font-size:0.78rem;">Click to inspect image patch tokens...</div>
+                        </div>
+                    </div>
+
+                    <!-- 3D Video Loop -->
+                    <div class="glass-card" style="padding: 20px;">
+                        <div style="display:flex; align-items:center; gap:8px; margin-bottom:12px;">
+                            <span style="font-size:1.4rem;">🎬</span>
+                            <h3 style="font-size: 1.05rem; font-weight: 700; color:#fff;">3D Spatio-Temporal Video</h3>
+                        </div>
+                        <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 16px;">Native video tokenization reconstructing dynamic attention dynamics across frames.</p>
+                        
+                        <div style="border-radius: 8px; overflow: hidden; border: 1px solid var(--border-light); background: #000;">
+                            <img src="/assets/tantra_hero_banner_animated.gif" style="width:100%; height:auto; display:block;" alt="Tantra Animated Dynamics" onerror="this.style.display='none'">
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- VIEW 4: CHECKPOINT COMPARISON MODE -->
+        <div class="view-panel" id="view-compare">
+            <div class="view-scroll-content">
+                <div class="view-header-row">
+                    <div>
+                        <h2 class="view-title">⚖️ Milestone Checkpoint Comparison Mode</h2>
+                        <p class="view-subtitle">Run side-by-side prompt evaluations between baseline, auto-growth, and aligned checkpoints with true token outputs.</p>
+                    </div>
+                </div>
+
+                <div class="glass-card" style="padding: 18px 24px; margin-bottom: 20px;">
+                    <div style="display: grid; grid-template-columns: 1fr 1fr auto; gap: 16px; align-items: flex-end;">
+                        <div>
+                            <label class="input-label">MODEL A (Baseline / Reference)</label>
+                            <select id="compare-model-a" class="styled-select">
+                                <option value="step_10000_baseline">Step 10,000 Baseline (8 Layers, 72.2M)</option>
+                                <option value="step_35000_intermediate">Step 35,000 Intermediate (8 Layers, 72.2M)</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="input-label">MODEL B (Evolved / Aligned)</label>
+                            <select id="compare-model-b" class="styled-select">
+                                <option value="step_59100_10layer" selected>Step 59,100 AutoGrowth (10 Layers, 82.8M)</option>
+                                <option value="step_67601_dpo">Step 67,601 DPO Aligned (+15.15 Margin)</option>
+                            </select>
+                        </div>
+                        <button class="btn-action btn-cyan" style="padding: 10px 24px;" onclick="runComparison()">⚡ Compare</button>
+                    </div>
+                    <div style="margin-top: 14px;">
+                        <label class="input-label">EVALUATION PROMPT</label>
+                        <input type="text" id="compare-prompt-input" value="Explain how photosynthesis works in green plants with high precision." class="search-input">
+                    </div>
+                </div>
+
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                    <!-- Model A Output -->
+                    <div class="glass-card" style="padding: 20px;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 12px;">
+                            <h3 style="font-size: 0.95rem; font-weight: 700; color: var(--text-muted);" id="compare-name-a">Model A (Baseline)</h3>
+                            <span class="brand-badge" id="compare-badge-a">Loss: 4.85</span>
+                        </div>
+                        <div id="compare-output-a" class="compare-output-box">
+                            Click Compare to run evaluation...
+                        </div>
+                    </div>
+
+                    <!-- Model B Output -->
+                    <div class="glass-card" style="padding: 20px; border-color: rgba(0,245,255,0.35);">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 12px;">
+                            <h3 style="font-size: 0.95rem; font-weight: 700; color: var(--cyan);" id="compare-name-b">Model B (AutoGrowth)</h3>
+                            <span class="brand-badge badge-emerald" id="compare-badge-b">Loss: 2.91</span>
+                        </div>
+                        <div id="compare-output-b" class="compare-output-box">
+                            Click Compare to run evaluation...
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- VIEW 5: KNOWLEDGE GRAPH -->
+        <div class="view-panel" id="view-kg">
+            <div style="flex: 1; position: relative; background: #07090e; overflow:hidden;">
+                <div class="kg-floating-card">
+                    <div style="font-size: 0.9rem; font-weight: 700; color: #fff;">🌐 Dynamic Concept & Memory Knowledge Graph</div>
+                    <div style="font-size: 0.74rem; color: var(--text-muted); margin-top: 2px;">Interactive physics simulation • Drag nodes to reposition • Real memory & doc connections</div>
+                    <div style="margin-top: 8px; display: flex; gap: 8px;">
+                        <button class="btn-action btn-secondary" style="padding: 2px 8px; font-size: 0.7rem;" onclick="renderKnowledgeGraph()">🔄 Reset Physics</button>
+                    </div>
+                </div>
+                <canvas id="kgCanvas" style="width: 100%; height: 100%; display:block; cursor:grab;"></canvas>
+            </div>
+        </div>
+
+        <!-- VIEW 6: DATASETS EXPLORER -->
+        <div class="view-panel" id="view-datasets">
+            <div class="view-scroll-content">
+                <div class="view-header-row">
+                    <div>
+                        <h2 class="view-title">📂 4-Track Curriculum & Foundation Datasets</h2>
+                        <p class="view-subtitle">High-speed dataset catalog with real token estimations, sample previews, and quality verification.</p>
+                    </div>
+                    <button class="btn-action btn-cyan" onclick="loadDatasets()">🔄 Refresh Catalog</button>
+                </div>
+                <div class="datasets-grid" id="datasets-grid-container">
+                    <!-- Dynamic dataset cards rendered here -->
+                </div>
+            </div>
+        </div>
+
+        <!-- VIEW 7: MOE MATRIX -->
+        <div class="view-panel" id="view-moe">
+            <div class="view-scroll-content">
+                <div class="view-header-row">
+                    <div>
+                        <h2 class="view-title">🧠 Mixture-of-Experts (MoE) Dynamic Matrix</h2>
+                        <p class="view-subtitle">Real-time load balancing, routing distribution, and domain specialty allocations.</p>
+                    </div>
+                    <button class="btn-action btn-cyan" onclick="renderExperts()">🔄 Refresh Matrix</button>
+                </div>
+                <div class="experts-grid" id="experts-grid-container">
+                    <!-- Dynamic experts rendered here -->
+                </div>
+            </div>
+        </div>
+
+        <!-- VIEW 8: TELEMETRY -->
+        <div class="view-panel" id="view-telemetry">
+            <div class="view-scroll-content">
+                <div class="view-header-row">
+                    <div>
+                        <h2 class="view-title">📊 Real Hardware & Neural Core Telemetry</h2>
+                        <p class="view-subtitle">Live hardware monitoring from PyTorch runtime, CPU cores, RAM allocation, and SIMD accelerators.</p>
+                    </div>
+                    <button class="btn-action btn-cyan" onclick="loadTelemetry()">🔄 Refresh Hardware</button>
+                </div>
+                <div class="stat-grid-4" id="telemetry-stats-container" style="margin-bottom: 24px;">
+                    <!-- Telemetry Stats Cards rendered here -->
+                </div>
+
+                <!-- DETAILED HARDWARE METRICS -->
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                    <div class="glass-card" style="padding: 20px;">
+                        <h3 style="font-size: 1rem; font-weight: 700; color: #fff; margin-bottom: 14px;">⚡ CPU Cores & SIMD Vectorization</h3>
+                        <div id="cpu-cores-container" style="display: flex; flex-direction: column; gap: 8px;">
+                            <!-- Per-core load bars rendered dynamically -->
+                        </div>
+                    </div>
+
+                    <div class="glass-card" style="padding: 20px;">
+                        <h3 style="font-size: 1rem; font-weight: 700; color: #fff; margin-bottom: 14px;">💾 Memory & Neural Tensor Breakdown</h3>
+                        <div id="memory-breakdown-container" style="display: flex; flex-direction: column; gap: 10px;">
+                            <!-- Memory bars rendered dynamically -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- VIEW 9: CODE & TOOL SANDBOX -->
+        <div class="view-panel" id="view-tokenizer">
+            <div class="view-scroll-content">
+                <div class="view-header-row">
+                    <div>
+                        <h2 class="view-title">💻 AST Tool Calling & High-Performance Python Sandbox</h2>
+                        <p class="view-subtitle">Execute code snippets safely with live stdout capturing, execution timing, and error handling.</p>
+                    </div>
+                    <div style="display: flex; gap: 8px;">
+                        <button class="btn-action btn-secondary" onclick="setSandboxSnippet('benchmark')">Benchmark Multiply</button>
+                        <button class="btn-action btn-secondary" onclick="setSandboxSnippet('bitnet')">BitNet Simulation</button>
+                        <button class="btn-action btn-secondary" onclick="setSandboxSnippet('tokenize')">Tokenizer Check</button>
+                    </div>
+                </div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                    <div class="glass-card" style="padding: 20px;">
+                        <h3 style="font-size: 0.95rem; font-weight: 700; color:#fff; margin-bottom: 12px;">Python Code Input</h3>
+                        <textarea id="sandbox-code-input" class="code-editor" style="height: 240px;">import time
+import numpy as np
+
+# Tantra High-Speed Matrix Benchmark
+a = np.random.randn(1000, 1000).astype(np.float32)
+b = np.random.randn(1000, 1000).astype(np.float32)
+
+t0 = time.perf_counter()
+c = a @ b
+elapsed_ms = (time.perf_counter() - t0) * 1000
+
+print(f"Matrix Multiply (1000x1000): {elapsed_ms:.2f} ms")
+print(f"Result checksum: {float(c.sum()):.4f}")</textarea>
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-top:12px;">
+                            <button class="btn-action btn-cyan" onclick="runSandboxCode()">⚡ Execute in Sandbox</button>
+                            <span id="sandbox-time-badge" style="font-size:0.75rem; color:var(--cyan); font-family:var(--font-mono);">Elapsed: --</span>
+                        </div>
+                    </div>
+                    <div class="glass-card" style="padding: 20px;">
+                        <h3 style="font-size: 0.95rem; font-weight: 700; color:#fff; margin-bottom: 12px;">Execution Output (Stdout / Stderr)</h3>
+                        <pre id="sandbox-output-display" class="terminal-output">Click Execute to run code...</pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- VIEW 10: ADMIN SUITE -->
+        <div class="view-panel" id="view-admin">
+            <div class="view-scroll-content">
+                <div class="view-header-row">
+                    <div>
+                        <h2 class="view-title">🛡️ Enterprise Admin & Checkpoint Management Suite</h2>
+                        <p class="view-subtitle">Hot-swap active model weights, manage system cache, and inspect runtime security parameters.</p>
+                    </div>
+                </div>
+                <div class="glass-card" style="padding: 24px; max-width: 650px;">
+                    <h3 style="font-size: 1.05rem; font-weight: 700; color: #fff; margin-bottom: 14px;">Hot-Swap Active Model Checkpoint</h3>
+                    <p style="font-size: 0.82rem; color: var(--text-muted); margin-bottom: 14px;">Instantly switches memory weights without requiring a server restart.</p>
+                    <div style="display:flex; gap: 10px;">
+                        <select id="admin-ckpt-select" class="styled-select" style="flex:1;">
+                            <option value="checkpoint_latest.pt">checkpoint_latest.pt (Active Main)</option>
+                            <option value="checkpoint_best.pt">checkpoint_best.pt (Lowest Val Loss)</option>
+                            <option value="tantra_model_clean.pt">tantra_model_clean.pt (Clean Export)</option>
+                            <option value="checkpoint_step_61000.pt">checkpoint_step_61000.pt (Step 61K)</option>
+                        </select>
+                        <button class="btn-action btn-cyan" onclick="adminSwitchCheckpoint()">⚡ Swap Weights</button>
+                    </div>
+                    <div id="admin-swap-result" style="margin-top:12px; font-size:0.8rem; color:var(--emerald);"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- SAMPLE INSPECTOR MODAL -->
+    <div id="sample-modal" class="modal-backdrop" style="display:none;" onclick="closeSampleModal(event)">
+        <div class="modal-dialog glass-card" onclick="event.stopPropagation()">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+                <h3 style="font-size:1.1rem; font-weight:700; color:#fff;" id="modal-dataset-title">Dataset Samples</h3>
+                <button class="btn-action btn-secondary" style="padding:4px 8px;" onclick="closeSampleModal()">✕</button>
+            </div>
+            <div id="modal-samples-list" style="display:flex; flex-direction:column; gap:12px; max-height:400px; overflow-y:auto;">
+                <!-- Samples injected here -->
+            </div>
+        </div>
+    </div>
+
+    <script src="/app.js"></script>
+</body>
+</html>

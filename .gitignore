@@ -1,0 +1,126 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+env/
+venv/
+.venv/
+
+# Testing
+.pytest_cache/
+.benchmarks/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# Large binary checkpoints (use releases for these)
+[Mm]odel/checkpoint_*.pt
+[Mm]odel/checkpoint_*.dna
+[Mm]odel/converted_*.pt
+[Mm]odel/corpus_sample.txt
+[Mm]odel/training_status.json
+[Mm]odel/Best/*.pt
+[Mm]odel/Checkpoints/*.pt
+[Mm]odel/Latest/*.pt
+# Any checkpoint subfolder (e.g. Model/MoE2_32K/checkpoint_*.pt)
+Model/**/checkpoint_*.pt
+Model/**/checkpoint_*.dna
+Model/**/*.tmp
+[Mm]odel/Export/
+Backup_Checkpoints/
+*.bak
+
+# Generated checkpoint sidecar metadata (written by save_checkpoint)
+Model/**/*.pt.meta.json
+Model/**/*.eval.json
+
+# Regenerated expert artifacts (built by training runs)
+Model/Experts/*.dna
+Model/Experts/registry.json
+
+# Datasets: Track consolidated files only
+Datasets/*.jsonl
+Datasets/**/*.jsonl
+!Datasets/tantra_master_train.jsonl
+!Datasets/tantra_master_val.jsonl
+!Datasets/tantra_hindi_conversation_train.jsonl
+!Datasets/tantra_hindi_conversation_val.jsonl
+!Datasets/tantra_math_train.jsonl
+!Datasets/tantra_math_val.jsonl
+!Datasets/gold_corpus.jsonl
+!Datasets/preference_pairs.jsonl
+!Documents/
+!Datasets/documents/
+!Datasets/curated_seeds/**/*.jsonl
+!Datasets/curated_sft/*.jsonl
+!Datasets/curated_sft/**/*.jsonl
+!Datasets/seeds/*.jsonl
+!Datasets/seeds/**/*.jsonl
+!Datasets/build_hindi_dataset.py
+!Datasets/hindi_dataset_report.json
+!Datasets/DATASET_REVIEW.md
+Model/memory_bank.json
+Model/saved_chats.json
+Model/tokenizer.pt
+*.parquet
+*.h5
+
+# Logs
+*.log
+logs/
+reports/
+
+# Secrets
+.env
+.env.*
+*.pem
+*.key
+secrets/
+tmp_*.json
+
+# Standalone scripts and temp files
+cleanup*.py
+check_*.py
+
+# IDE & OS
+.vscode/
+.idea/
+*.swp
+*.jpg
+*.zip
+*.tar.gz
+.DS_Store
+Thumbs.db
+*.bak
+
+# Auto-generated/tracked model artifacts (never commit)
+Model/tokenizer.json
+Model/merges.txt
+Model/vocab.json
+Model/tokenizer_config.json
+Model/special_tokens_map.json
+Model/Best/
+Model/Checkpoints/
+Model/Latest/
+Model/Export/
+Model/Adapters/
+Model/Experts/
+Model/LaptopTrain/
+Model/training_status.json
+Model/saved_chats.json
+
+# Redundant datasets (duplicates/removed)
+Datasets/tantra_coding.jsonl
+Datasets/tantra_science.jsonl
+Datasets/tantra_general.jsonl
+Datasets/tantra_conversation.jsonl
+Datasets/tantra_identity_train.jsonl
+
+# Temporary
+*.tmp
+*.log
+logs/
+reports/
+Tools/

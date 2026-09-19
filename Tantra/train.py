@@ -1,0 +1,1857 @@
+"""
+tantra/train.py — Training pipeline for NeuroCore models.
+
+Changes vs. the original:
+  * CrossEntropyLoss uses ignore_index=IGNORE_INDEX so the assistant-only
+    loss masking produced by Tantra/dataset.py actually takes effect.
+  * autocast is only enabled on cuda/mps (bf16 autocast on plain CPU adds
+    cast/dispatch overhead without a corresponding speedup on most CPUs).
+  * grad_accumulation_steps is now actually used: gradients accumulate over
+    N micro-batches before clip/step/scheduler-step, giving a larger,
+    less-noisy effective batch without more RAM. self.step_count now counts
+    real optimizer steps, not micro-batches.
+  * The LR scheduler's state is saved/restored across checkpoints, so
+    resuming training no longer resets LR back to the warmup start.
+"""
+from __future__ import annotations
+
+import os
+import math
+import time
+import json
+import copy
+import shutil
+import threading
+import torch
+
+import torch.nn as nn
+import torch.nn.functional as F
+from torch.optim import AdamW
+from typing import Any, Callable, Iterable, List, Optional, Tuple
+
+
+from Tantra.utils import get_logger, unwrap_model
+from Tantra.evolution import AutoGrowthController
+from Tantra.config import BitNetConfig
+
+log = get_logger(__name__)
+
+IGNORE_INDEX = -100
+
+
+def format_time_duration(seconds: float) -> str:
+    """Format duration into clean human-readable string (e.g. 1d 04h 12m, 2h 15m 30s, or 45s)."""
+    sec = int(max(0, seconds))
+    d, remainder = divmod(sec, 86400)
+    h, remainder = divmod(remainder, 3600)
+    m, s = divmod(remainder, 60)
+    if d > 0:
+        return f"{d}d {h:02d}h {m:02d}m"
+    elif h > 0:
+        return f"{h}h {m:02d}m {s:02d}s"
+    else:
+        return f"{m}m {s:02d}s" if m > 0 else f"{s}s"
+
+
+
+def generate_synthetic_batch(vocab_size: int = 32000, batch_size: int = 2, seq_len: int = 64) -> tuple[torch.Tensor, torch.Tensor]:
+    """Generate synthetic token sequences with LEARNABLE patterns.
+    
+    Instead of purely random data, creates sequences where the next token
+    follows a deterministic rule the model CAN learn (e.g., periodic
+    patterns, simple arithmetic progressions). This ensures the model
+    shows improvement from step 1 instead of starting at 0% accuracy
+    with loss ~log(vocab_size) ≈ 10.
+    
+    Each batch item uses a different seed but the SAME deterministic
+    pattern, so the model can memorize the pattern across samples.
+    """
+    vocab_size = max(2, vocab_size)
+    batch_size = max(1, batch_size)
+    seq_len = max(1, seq_len)
+    
+    x = torch.zeros(batch_size, seq_len, dtype=torch.long)
+    y = torch.zeros(batch_size, seq_len, dtype=torch.long)
+    
+    for b in range(batch_size):
+        # Create a learnable pattern: cycle through a small set of tokens
+        # Use a fixed period so the model can learn the sequence
+        seed = (b * 7 + 3) % min(vocab_size, 256)
+        period = min(16, max(4, seq_len // 4))  # period between 4-16
+        
+        # Build a memorable pattern: counting sequence mod period
+        # e.g., seed, seed+1, seed+2, ..., seed+period-1, seed, seed+1, ...
+        for t in range(seq_len):
+            x[b, t] = (seed + (t % period)) % min(vocab_size, 256)
+        
+        # Targets: next token in the counting sequence (shifted by 1)
+        for t in range(seq_len - 1):
+            y[b, t] = (seed + ((t + 1) % period)) % min(vocab_size, 256)
+        y[b, seq_len - 1] = (seed + (seq_len % period)) % min(vocab_size, 256)
+    
+    # Clamp to valid vocab range
+    x = torch.clamp(x, 0, vocab_size - 1)
+    y = torch.clamp(y, 0, vocab_size - 1)
+    return x, y
+
+
+def create_lr_scheduler(
+    optimizer: torch.optim.Optimizer,
+    warmup_steps: int,
+    total_steps: int,
+    min_lr_ratio: float = 0.10,
+    start_factor: float = 0.1,
+    start_step: int = 0,
+    last_epoch: int = -1,
+) -> torch.optim.lr_scheduler.LambdaLR:
+    """Creates a strictly clamped linear warmup + cosine decay LR schedule.
+
+    Calculates warmup and cosine decay relative to the active training session
+    (from start_step to total_steps). When resuming a 88K checkpoint to train
+    until 100K with lr=1.5e-4, this ensures the model actually uses the full 1.5e-4
+    learning rate across the 12,000 steps rather than collapsing to the 10% floor.
+
+    start_factor=0.1 (instead of 1e-3) ensures the first step has a meaningful
+    learning rate so the model can learn from step 1 instead of being stuck at
+    near-zero updates during warmup.
+    """
+    start_step = max(0, int(start_step))
+    total_steps = max(start_step + 1, int(total_steps))
+    session_steps = max(1, total_steps - start_step)
+    actual_warmup = max(1, min(int(warmup_steps), max(1, session_steps // 10)))
+    decay_steps = max(1, session_steps - actual_warmup)
+
+    def lr_lambda(step: int) -> float:
+        curr = step - start_step
+        if curr < 0:
+            return 1.0
+        if curr < actual_warmup:
+            return max(start_factor, float(curr) / float(actual_warmup))
+        if curr >= session_steps:
+            return min_lr_ratio
+        progress = float(curr - actual_warmup) / float(decay_steps)
+        cosine_decay = 0.5 * (1.0 + math.cos(math.pi * progress))
+        return min_lr_ratio + (1.0 - min_lr_ratio) * cosine_decay
+
+    # PyTorch LambdaLR requires 'initial_lr' in param_groups whenever last_epoch != -1
+    for group in optimizer.param_groups:
+        if "initial_lr" not in group:
+            group["initial_lr"] = group.get("lr", 1e-4)
+
+    return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda, last_epoch=last_epoch)
+
+
+class Lion(torch.optim.Optimizer):
+    """
+    Lion (EvoLved Sign Momentum) optimizer.
+    Memory-efficient on CPU: uses only 1 momentum buffer (half the memory of AdamW's 2 buffers).
+    References:
+        Chen et al., "Symbolic Discovery of Optimization Algorithms", 2023.
+    """
+    def __init__(self, params, lr: float = 1e-4, betas: Tuple[float, float] = (0.9, 0.99), weight_decay: float = 0.0):
+        if not 0.0 <= lr:
+            raise ValueError(f"Invalid learning rate: {lr}")
+        if not 0.0 <= betas[0] < 1.0 or not 0.0 <= betas[1] < 1.0:
+            raise ValueError(f"Invalid beta parameters: {betas}")
+        defaults = dict(lr=lr, betas=betas, weight_decay=weight_decay)
+        super().__init__(params, defaults)
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        loss = None
+        if closure is not None:
+            with torch.enable_grad():
+                loss = closure()
+
+        for group in self.param_groups:
+            lr = group["lr"]
+            beta1, beta2 = group["betas"]
+            weight_decay = group["weight_decay"]
+
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                grad = p.grad
+                if grad.is_sparse:
+                    raise RuntimeError("Lion does not support sparse gradients")
+
+                # Cast grad to float32 so sign/momentum math is numerically stable
+                # even when GradScaler unscales FP16 grads. The weight update is
+                # cast back to the param's original dtype.
+                grad_fp32 = grad.float()
+
+                state = self.state[p]
+                if len(state) == 0:
+                    # Momentum buffer always stored in float32 to prevent underflow
+                    state["exp_avg"] = torch.zeros_like(p, dtype=torch.float32,
+                                                        memory_format=torch.preserve_format)
+
+                exp_avg = state["exp_avg"]
+
+                # Perform decoupled weight decay
+                if weight_decay != 0:
+                    p.data.mul_(1.0 - lr * weight_decay)
+
+                # Weight update: update = sign(beta1 * exp_avg + (1 - beta1) * grad)
+                update = exp_avg.mul(beta1).add_(grad_fp32, alpha=1.0 - beta1).sign_()
+                p.data.add_(update.to(p.dtype), alpha=-lr)
+
+                # Decay momentum: exp_avg = beta2 * exp_avg + (1 - beta2) * grad
+                exp_avg.mul_(beta2).add_(grad_fp32, alpha=1.0 - beta2)
+
+        return loss
+
+
+def build_optimizer(
+    optimizer_name: str,
+    parameters: Any,
+    lr: float,
+    weight_decay: float
+) -> torch.optim.Optimizer:
+    name = (optimizer_name or "adamw").lower().strip()
+    if name == "lion":
+        try:
+            from lion_pytorch import Lion as ExternalLion
+            return ExternalLion(parameters, lr=lr, weight_decay=weight_decay)
+        except ImportError:
+            return Lion(parameters, lr=lr, weight_decay=weight_decay)
+    elif name == "adam":
+        return torch.optim.Adam(parameters, lr=lr, weight_decay=weight_decay)
+    elif name == "sgd":
+        return torch.optim.SGD(parameters, lr=lr, weight_decay=weight_decay, momentum=0.9)
+    # AdamW: use fused kernel on CUDA (PyTorch >= 2.0) for ~20% faster optimizer step on T4/A100
+    _use_fused = (
+        torch.cuda.is_available()
+        and hasattr(torch.optim, "AdamW")
+        and "fused" in torch.optim.AdamW.__init__.__code__.co_varnames
+    )
+    try:
+        return AdamW(parameters, lr=lr, weight_decay=weight_decay, fused=_use_fused)
+    except TypeError:
+        return AdamW(parameters, lr=lr, weight_decay=weight_decay)
+
+
+
+class NeuroTrainer:
+    """Minimal, robust trainer for NeuroCore models."""
+
+    def __init__(self, model: nn.Module, lr: float = 3e-4, weight_decay: float = 0.01,
+                 optimizer_name: str = "adamw",
+                 total_steps: int = 100000, warmup_steps: int = 1000,
+                 grad_accumulation_steps: int = 1, use_latent_reasoning: bool = True,
+                 use_mtp_loss: bool = True, mtp_loss_weight: float = 0.3,
+                 max_grad_norm: float = 1.0):
+        self.model = model
+        self.optimizer_name = optimizer_name.lower().strip()
+        self.use_latent_reasoning = use_latent_reasoning
+        self.use_mtp_loss = use_mtp_loss
+        self.mtp_loss_weight = float(mtp_loss_weight)
+        self.max_grad_norm = float(max_grad_norm)
+        self.device = next(model.parameters()).device if list(model.parameters()) else torch.device("cpu")
+        if self.device.type == "cpu":
+            num_threads = min(8, max(4, (os.cpu_count() or 4)))
+            try:
+                torch.set_num_threads(num_threads)
+                torch.set_flush_denormal(True)
+            except Exception:
+                pass
+        log.info(f"  NeuroTrainer initialized on device: {self.device} (type={self.device.type}, threads={torch.get_num_threads() if self.device.type == 'cpu' else 1}) | Optimizer: {self.optimizer_name}")
+
+        # Separate 2D+ weights (linear, embedding) from 1D tensors (norms, biases)
+        # Weight decay on 1D/norm parameters shrinks normalization and destabilizes training.
+        decay_params = []
+        no_decay_params = []
+        for n, p in model.named_parameters():
+            if not p.requires_grad:
+                continue
+            if p.ndim < 2 or 'bias' in n or 'norm' in n or 'scale' in n:
+                no_decay_params.append(p)
+            else:
+                decay_params.append(p)
+
+        if not decay_params and not no_decay_params:
+            raise ValueError("No trainable parameters are enabled.")
+
+        param_groups = [
+            {"params": decay_params, "weight_decay": float(weight_decay)},
+            {"params": no_decay_params, "weight_decay": 0.0},
+        ]
+        self.optimizer = build_optimizer(self.optimizer_name, param_groups, lr=lr, weight_decay=weight_decay)
+
+        # BitNet hooks for cached quantization
+        from Tantra.bitnet import BitNetTrainerHooks
+        self.bitnet_hooks = BitNetTrainerHooks(self.model, self.config if hasattr(self, 'config') else BitNetConfig())
+
+        self.total_steps = total_steps
+        self.warmup_steps = warmup_steps
+        self.lr = lr
+        self.weight_decay = weight_decay
+
+        # Non-oscillating clamped linear warmup + cosine decay
+        # min_lr_ratio=0.10 ensures at least 10% of peak LR is always active — prevents
+        # dead optimizer on resume when scheduler thinks it's past total_steps.
+        self.scheduler = create_lr_scheduler(self.optimizer, warmup_steps=warmup_steps, total_steps=total_steps, min_lr_ratio=0.10)
+
+        self.criterion = nn.CrossEntropyLoss(ignore_index=IGNORE_INDEX, label_smoothing=0.05)
+        use_amp = (self.device.type == 'cuda')
+        self.use_amp = use_amp
+        if use_amp:
+            if torch.cuda.is_bf16_supported():
+                self.amp_dtype = torch.bfloat16
+                self.scaler = torch.amp.GradScaler('cuda', enabled=False)
+            else:
+                self.amp_dtype = torch.float16
+                self.scaler = torch.amp.GradScaler('cuda', enabled=True)
+        else:
+            self.amp_dtype = torch.float32
+            self.scaler = torch.amp.GradScaler('cuda', enabled=False)
+        self.step_count = 0
+        self._is_resume = False  # Track if this trainer loaded from a checkpoint
+        self.best_loss = float('inf')
+        self.best_val_loss = float('inf')
+        self._best_model_state: Optional[dict[str, torch.Tensor]] = None
+        self.is_new_best = False
+        self.ema_loss = None
+        # Keep the last held-out measurement alongside the live training
+        # statistics.  Training loss can include auxiliary objectives and is
+        # therefore not a reliable indicator of generation quality by itself.
+        self.last_validation_metrics: dict[str, float] = {}
+        self.ema_alignment: Optional[float] = None
+
+        self.total_tokens = 0
+        self._session_tokens = 0   # tokens in THIS training run only
+        self.total_training_seconds = 0.0  # cumulative wall-clock seconds across all sessions
+        self._start_time = time.perf_counter()
+        self._status_history: list[dict] = []
+
+
+        self.grad_accumulation_steps = max(1, grad_accumulation_steps)
+        self._micro_step = 0
+        self._rollback_count = 0
+        if self.grad_accumulation_steps > 1:
+            log.info(f"  Gradient accumulation enabled: {self.grad_accumulation_steps} micro-batches per optimizer step")
+        if not self.use_mtp_loss:
+            log.info("  MTP auxiliary loss DISABLED for this run (reduced CPU output-projection work).")
+
+    def rollback_to_checkpoint(self, checkpoint_path: Optional[str] = None, lr_factor: float = 0.5,
+                                warmup_steps: Optional[int] = None) -> bool:
+        """Recover from a validation collapse: restore known-good weights from
+        `checkpoint_path` (or best snapshot / Model/Best/checkpoint_best.pt),
+        discard whatever optimizer momentum accumulated during the collapse,
+        and resume at a reduced LR.
+        """
+        if not checkpoint_path:
+            for cand in ["Model/Best/checkpoint_best.pt", "Model/Latest/checkpoint_latest.pt"]:
+                if os.path.isfile(cand):
+                    checkpoint_path = cand
+                    break
+
+        if (not checkpoint_path or not os.path.isfile(checkpoint_path)) and getattr(self, "_best_model_state", None) is None:
+            log.warning(f"Rollback requested but no checkpoint or snapshot available ({checkpoint_path}). Cannot recover.")
+            return False
+
+        pre_rollback_step = self.step_count
+        raw_m = unwrap_model(self.model)
+        if checkpoint_path and os.path.isfile(checkpoint_path):
+            self.load_checkpoint(checkpoint_path, reset_optimizer=True)
+        elif getattr(self, "_best_model_state", None) is not None:
+            raw_m.load_state_dict(self._best_model_state)
+
+        self.lr = max(self.lr * lr_factor, 1e-7)
+
+        decay_params, no_decay_params = [], []
+        for n, p in raw_m.named_parameters():
+            if not p.requires_grad:
+                continue
+            (no_decay_params if (p.ndim < 2 or 'bias' in n or 'norm' in n or 'scale' in n) else decay_params).append(p)
+        param_groups = [
+            {"params": decay_params, "weight_decay": float(self.weight_decay)},
+            {"params": no_decay_params, "weight_decay": 0.0},
+        ]
+        self.optimizer = build_optimizer(self.optimizer_name, param_groups, lr=self.lr, weight_decay=self.weight_decay)
+
+        effective_warmup = warmup_steps if warmup_steps is not None else max(1, min(self.warmup_steps, 200))
+        self.scheduler = create_lr_scheduler(
+            self.optimizer, warmup_steps=effective_warmup,
+            total_steps=max(self.total_steps - self.step_count, effective_warmup + 1),
+            min_lr_ratio=0.10,
+        )
+
+        log.warning(
+            f" [ROLLBACK EXECUTED] Restored known-good weights from step {self.step_count} "
+            f"(was at step {pre_rollback_step}) — fresh optimizer momentum, "
+            f"LR reduced to {self.lr:.2e} with a {effective_warmup}-step re-warmup."
+        )
+        return True
+
+    def refresh_optimizer(self) -> None:
+        """Rebuild/update the optimizer and LR schedule from the model's current
+        trainable parameters. Preserves momentum buffers for all existing parameters.
+        """
+        current_step = getattr(self.scheduler, "last_epoch", self.step_count)
+        current_lr = self.optimizer.param_groups[0]["lr"] if (self.optimizer and self.optimizer.param_groups) else self.lr
+
+        # Collect existing param object ids already in the optimizer
+        existing_param_ids = set()
+        if self.optimizer is not None:
+            for group in self.optimizer.param_groups:
+                for p in group.get("params", []):
+                    existing_param_ids.add(id(p))
+
+        # Find new trainable parameters that are not yet tracked
+        new_parameters = [p for p in self.model.parameters() if p.requires_grad and id(p) not in existing_param_ids]
+
+        if not existing_param_ids or self.optimizer is None:
+            decay_params = []
+            no_decay_params = []
+            for n, p in self.model.named_parameters():
+                if not p.requires_grad:
+                    continue
+                if p.ndim < 2 or 'bias' in n or 'norm' in n or 'scale' in n:
+                    no_decay_params.append(p)
+                else:
+                    decay_params.append(p)
+            if not decay_params and not no_decay_params:
+                raise ValueError("No trainable parameters are enabled after refresh.")
+            param_groups = [
+                {"params": decay_params, "weight_decay": float(self.weight_decay)},
+                {"params": no_decay_params, "weight_decay": 0.0},
+            ]
+            self.optimizer = build_optimizer(self.optimizer_name, param_groups, lr=self.lr, weight_decay=self.weight_decay)
+            self.scheduler = create_lr_scheduler(self.optimizer, warmup_steps=self.warmup_steps, total_steps=self.total_steps, min_lr_ratio=0.10)
+            if self.scheduler is not None:
+                self.scheduler.last_epoch = current_step
+                for g in self.optimizer.param_groups:
+                    g["lr"] = current_lr
+        elif new_parameters:
+            new_decay = [p for p in new_parameters if p.ndim >= 2]
+            new_no_decay = [p for p in new_parameters if p.ndim < 2]
+            if new_decay:
+                self.optimizer.add_param_group({"params": new_decay, "lr": current_lr, "weight_decay": self.weight_decay})
+            if new_no_decay:
+                self.optimizer.add_param_group({"params": new_no_decay, "lr": current_lr, "weight_decay": 0.0})
+            if self.scheduler is not None:
+                self._sync_scheduler_lambdas()
+            log.info(f"  Optimizer dynamically registered {len(new_parameters)} new parameter tensors while preserving existing momentum history.")
+
+    def _sync_scheduler_lambdas(self) -> None:
+        """Guarantees LambdaLR lr_lambdas and base_lrs lengths strictly match optimizer.param_groups."""
+        if self.scheduler is not None and self.optimizer is not None:
+            target_len = len(self.optimizer.param_groups)
+            if hasattr(self.scheduler, "base_lrs"):
+                if len(self.scheduler.base_lrs) > target_len:
+                    self.scheduler.base_lrs = self.scheduler.base_lrs[:target_len]
+                while len(self.scheduler.base_lrs) < target_len:
+                    self.scheduler.base_lrs.append(self.lr)
+            if hasattr(self.scheduler, "lr_lambdas") and self.scheduler.lr_lambdas:
+                first_lambda = self.scheduler.lr_lambdas[0]
+                if len(self.scheduler.lr_lambdas) > target_len:
+                    self.scheduler.lr_lambdas = self.scheduler.lr_lambdas[:target_len]
+                while len(self.scheduler.lr_lambdas) < target_len:
+                    self.scheduler.lr_lambdas.append(first_lambda)
+
+    def _write_training_status(self, **status: Any) -> None:
+        """Publish real training state for the local Web UI and recovery logs."""
+        # Tests construct tiny random models and would otherwise overwrite the
+        # user's live dashboard with their synthetic two-step measurements.
+        if os.environ.get("PYTEST_CURRENT_TEST"):
+            return
+        try:
+            status_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "Model", "training_status.json")
+            os.makedirs(os.path.dirname(status_path), exist_ok=True)
+            status["updated_at"] = time.time()
+            if "validation" not in status and self.last_validation_metrics:
+                status["validation"] = dict(self.last_validation_metrics)
+            _safe_ppl = status.get("ppl")
+            if _safe_ppl is not None and (math.isinf(_safe_ppl) or math.isnan(_safe_ppl) or _safe_ppl > 1e9):
+                _safe_ppl = 1e9
+            status["ppl"] = _safe_ppl
+            self._status_history.append({
+                "step": status.get("step", self.step_count), "loss": status.get("loss"),
+                "ppl": _safe_ppl, "tok_s": status.get("tok_s"),
+            })
+            status["history"] = self._status_history[-50:]
+            temporary_path = status_path + ".tmp"
+            with open(temporary_path, "w", encoding="utf-8") as handle:
+                json.dump(status, handle)
+            os.replace(temporary_path, status_path)
+        except Exception as exc:
+            log.debug(f"Could not publish training status: {exc}")
+
+    def train_step(self, x: torch.Tensor, y: torch.Tensor, use_latent_reasoning: Optional[bool] = None) -> tuple[float, Optional[float], float, float, bool]:
+        """Execute one training step (micro-batch or full step).
+
+        `use_latent_reasoning`: per-call override. Defaults to None, which
+        falls back to self.use_latent_reasoning (set at construction) —
+        but an explicit True/False passed here always wins, so callers
+        (e.g. train_dataset) can flip the flag mid-run without rebuilding
+        the trainer/optimizer/scheduler state."""
+        if use_latent_reasoning is None:
+            use_latent_reasoning = self.use_latent_reasoning
+        self.model.train()
+
+        if self._micro_step % self.grad_accumulation_steps == 0:
+            self.optimizer.zero_grad(set_to_none=True)
+
+        will_step = ((self._micro_step + 1) % self.grad_accumulation_steps == 0)
+
+        x = x.to(self.device, non_blocking=True)
+        y = y.to(self.device, non_blocking=True)
+        raw_m = unwrap_model(self.model)
+        if hasattr(raw_m, "embed") and hasattr(raw_m.embed, "weight"):
+            vsize = raw_m.embed.weight.size(0)
+            x = torch.clamp(x, 0, vsize - 1)
+
+        device_type = self.device.type if self.device.type in ('cuda', 'mps') else 'cpu'
+        autocast_enabled = bool(self.use_amp and (self.device.type in ('cuda', 'mps')))
+        amp_dtype = self.amp_dtype if autocast_enabled else torch.float32
+        with torch.autocast(device_type=device_type, dtype=amp_dtype, enabled=autocast_enabled):
+            out = self.model(token_ids=x, return_mtp=self.use_mtp_loss, use_latent_reasoning=use_latent_reasoning)
+            if isinstance(out[0], tuple):
+                logits_main, logits_mtp = out[0]
+            else:
+                logits_main = out[0]
+                logits_mtp = None
+
+            logits_flat = logits_main.reshape(-1, logits_main.size(-1))
+            y_flat = self._safe_targets(y.reshape(-1), logits_main.size(-1))
+
+            supervised_mask = (y_flat != IGNORE_INDEX)
+            if not supervised_mask.any():
+                # Micro-batch contains only prompt/pad tokens and no assistant targets.
+                # Use zero loss so backprop / grad accumulation step can proceed correctly
+                # without skipping accumulation boundaries or dropping previously accumulated gradients.
+                # BUG-01 FIX: Rate-limited gradient-death warning. If this fires frequently
+                # (or every step), your dataset has no <|assistant|> targets — switch to
+                # --stage pretrain, or fix dataset formatting so assistant turns are present.
+                _last_warn = getattr(self, "_last_zero_sup_warn_step", -500)
+                if self.step_count - _last_warn >= 500:
+                    n_ignore = (y_flat == IGNORE_INDEX).sum().item()
+                    log.warning(
+                        f"[GRADIENT DEATH @ step {self.step_count}] ALL {n_ignore} targets in this "
+                        f"micro-batch are IGNORE_INDEX (-100). Zero loss → zero gradients → model "
+                        f"cannot learn. Possible causes: (1) dataset has no <|assistant|> turns, "
+                        f"(2) assistant content is empty, (3) wrong --stage (use pretrain for raw text). "
+                        f"This warning is rate-limited to once per 500 steps."
+                    )
+                    self._last_zero_sup_warn_step = self.step_count
+                loss = logits_flat.sum() * 0.0
+            else:
+                # Memory optimization: only allocate cross-entropy softmax/backward buffers
+                # for supervised tokens rather than the full context window.
+                loss = self.criterion(logits_flat[supervised_mask], y_flat[supervised_mask])
+
+            raw_m = unwrap_model(self.model)
+            if hasattr(raw_m, "get_aux_loss"):
+                aux_loss = raw_m.get_aux_loss()
+                if aux_loss is not None and not (math.isnan(aux_loss.item()) if hasattr(aux_loss, 'item') else math.isnan(aux_loss)):
+                    loss = loss + aux_loss
+
+            # Auxiliary MTP Loss (Multi-Token Prediction) — Memory-Efficient Supervised Slicing
+            if logits_mtp is not None and y.size(1) > 1 and self.mtp_loss_weight > 0:
+                logits_mtp_flat = logits_mtp[:, :-1, :].reshape(-1, logits_mtp.size(-1))
+                y_mtp_flat = self._safe_targets(y[:, 1:].reshape(-1), logits_mtp.size(-1))
+                mtp_mask = (y_mtp_flat != IGNORE_INDEX)
+                if mtp_mask.any():
+                    mtp_loss = self.criterion(logits_mtp_flat[mtp_mask], y_mtp_flat[mtp_mask])
+                    loss = loss + self.mtp_loss_weight * mtp_loss
+
+        if math.isnan(loss.item()) or math.isinf(loss.item()):
+            log.warning("NaN or Inf detected in loss! Skipping batch update.")
+            self.optimizer.zero_grad(set_to_none=True)
+            self._micro_step += 1
+            return 0.0, 0.0, 0.0, 0.0, False
+
+        # Compute accuracy reporting metrics
+        with torch.no_grad():
+            if will_step:
+                supervised = y_flat != IGNORE_INDEX
+                total = supervised.sum().clamp(min=1)
+
+                if supervised.any():
+                    sup_indices = torch.nonzero(supervised, as_tuple=True)[0]
+                    sub_logits = logits_flat[sup_indices]
+                    sub_y = y_flat[sup_indices]
+
+                    # Top-1 Next-Token Accuracy on supervised tokens only (bypasses hundreds of pad tokens on CPU)
+                    preds = sub_logits.argmax(dim=-1)
+                    correct = (preds == sub_y).float().sum()
+                    accuracy: Optional[float] = (correct / total).item() * 100.0
+
+                    self.last_pred_tokens = preds[:40].tolist()
+                    sample_indices = sup_indices[:256]
+                    sample_logits = sub_logits[:256]
+                    sample_y = sub_y[:256]
+                    k_val = min(5, sample_logits.size(-1))
+                    _, top5_indices = torch.topk(sample_logits, k=k_val, dim=-1)
+                    correct_top5 = (top5_indices == sample_y.unsqueeze(-1)).any(dim=-1)
+                    self.last_top5_acc = (correct_top5.float().sum() / max(1, sample_indices.numel())).item() * 100.0
+                else:
+                    accuracy = 0.0
+                    self.last_pred_tokens = []
+                    self.last_top5_acc = 0.0
+            else:
+                accuracy = None
+                self.last_top5_acc = None
+
+            # BUG-12 FIX: Return inf for catastrophic loss instead of capping at exp(20)=485M.
+            # This makes dashboards immediately obvious when training has diverged.
+            _loss_for_ppl = loss.item()
+            ppl = math.exp(_loss_for_ppl) if _loss_for_ppl < 20.0 else float('inf')
+
+        if self.scaler.is_enabled():
+            self.scaler.scale(loss / self.grad_accumulation_steps).backward()
+        else:
+            (loss / self.grad_accumulation_steps).backward()
+
+        self._micro_step += 1
+
+        at_boundary = (self._micro_step % self.grad_accumulation_steps == 0)
+        if at_boundary:
+            if self.scaler.is_enabled():
+                self.scaler.unscale_(self.optimizer)
+            # BitNet: clip gradients of shadow weights before optimizer step
+            if hasattr(self, 'bitnet_hooks'):
+                self.bitnet_hooks.before_optimizer_step()
+            grad_norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.max_grad_norm).item()
+            if math.isnan(grad_norm) or math.isinf(grad_norm):
+                log.warning("NaN or Inf detected in grad_norm! Purging gradients and repairing model.")
+                self.optimizer.zero_grad(set_to_none=True)
+                if self.scaler.is_enabled():
+                    self.scaler.update()
+                grad_norm = 0.0
+            else:
+                if self.scaler.is_enabled():
+                    self.scaler.step(self.optimizer)
+                    self.scaler.update()
+                else:
+                    self.optimizer.step()
+                # BitNet: refresh quantized weight cache after optimizer step
+                if hasattr(self, 'bitnet_hooks'):
+                    self.bitnet_hooks.after_optimizer_step()
+                self._sync_scheduler_lambdas()
+                self.scheduler.step()
+                self.step_count += 1
+        else:
+            grad_norm = 0.0
+
+
+        self.total_tokens += x.numel()
+        self._session_tokens += x.numel()
+        loss_val = loss.item()
+        if self.ema_loss is None:
+            self.ema_loss = loss_val
+        else:
+            self.ema_loss = 0.95 * self.ema_loss + 0.05 * loss_val
+        # Only use training EMA loss as best_loss if held-out validation is not available
+        if math.isinf(self.best_val_loss):
+            if self.ema_loss < self.best_loss:
+                self.best_loss = self.ema_loss
+
+        return loss_val, accuracy, ppl, grad_norm, at_boundary
+
+    @staticmethod
+    def _safe_targets(y_flat: torch.Tensor, vocab_size: int) -> torch.Tensor:
+        """Clamp real token ids into vocab range while leaving IGNORE_INDEX
+        untouched (a naive clamp(0, vocab-1) would corrupt -100 into 0)."""
+        ignore_mask = y_flat == IGNORE_INDEX
+        if not ignore_mask.any():
+            return y_flat.clamp(0, vocab_size - 1)
+        out = y_flat.clone()
+        keep = ~ignore_mask
+        out[keep] = out[keep].clamp(0, vocab_size - 1)
+        return out
+
+    def evaluate_validation(self, val_loader: Iterable[Tuple[torch.Tensor, torch.Tensor]], max_val_batches: int = 20, min_delta: float = 0.0) -> dict:
+        """Evaluate model on held-out validation data stream."""
+        if val_loader is None:
+            return {}
+        raw_model = getattr(self.model, "_orig_mod", self.model)
+
+        raw_model.eval()
+        val_losses = []
+        val_accs = []
+        val_top5_accs = []
+        val_ppls = []
+
+        device_type = self.device.type if self.device.type in ('cuda', 'mps') else 'cpu'
+        autocast_enabled = bool(self.use_amp and (self.device.type in ('cuda', 'mps')))
+        amp_dtype = self.amp_dtype if autocast_enabled else torch.float32
+
+        with torch.no_grad():
+            batch_count = 0
+            for vx, vy in val_loader:
+                vx = vx.to(self.device)
+                vy = vy.to(self.device)
+                with torch.autocast(device_type=device_type, dtype=amp_dtype, enabled=autocast_enabled):
+                    outputs = raw_model(vx)
+                if isinstance(outputs, (tuple, list)):
+                    first = outputs[0]
+                    logits = first[0] if isinstance(first, (tuple, list)) else first
+                else:
+                    logits = outputs
+
+                valid_mask = vy != IGNORE_INDEX
+                if not valid_mask.any():
+                    continue
+
+                logits_flat = torch.clamp(logits.reshape(-1, logits.size(-1)), -50.0, 50.0)
+                y_flat = self._safe_targets(vy.reshape(-1), logits.size(-1))
+                loss = F.cross_entropy(logits_flat, y_flat, ignore_index=IGNORE_INDEX)
+                val_losses.append(loss.item())
+
+                # Top-1 & Top-5 Accuracy strictly on valid supervised tokens (3-5x faster on CPU)
+                valid_flat = (y_flat != IGNORE_INDEX)
+                sub_logits = logits_flat[valid_flat]
+                sub_y = y_flat[valid_flat]
+
+                preds = sub_logits.argmax(dim=-1)
+                acc = (preds == sub_y).float().mean().item() * 100.0
+                val_accs.append(acc)
+
+                k_val = min(5, sub_logits.size(-1))
+                _, top5_indices = torch.topk(sub_logits, k=k_val, dim=-1)
+                correct_top5 = (top5_indices == sub_y.unsqueeze(-1)).any(dim=-1)
+                top5_acc = correct_top5.float().mean().item() * 100.0
+                val_top5_accs.append(top5_acc)
+
+
+
+                _vl = loss.item()
+                ppl = math.exp(_vl) if _vl < 20.0 else float('inf')
+                val_ppls.append(ppl)
+
+                batch_count += 1
+                if batch_count >= max_val_batches:
+                    break
+
+        raw_model.train()
+        if not val_losses:
+            return {}
+
+        avg_val_loss = sum(val_losses) / len(val_losses)
+        avg_val_acc = sum(val_accs) / len(val_accs)
+        avg_val_top5_acc = sum(val_top5_accs) / len(val_top5_accs) if val_top5_accs else 0.0
+        avg_val_ppl = sum(val_ppls) / len(val_ppls)
+
+        is_new_best = False
+        if not hasattr(self, "best_val_loss") or self.best_val_loss is None:
+            self.best_val_loss = float('inf')
+        if avg_val_loss < (self.best_val_loss - min_delta):
+            self.best_val_loss = avg_val_loss
+            self.best_loss = avg_val_loss  # Align best_loss strictly to true generalization performance
+            is_new_best = True
+            self.is_new_best = True
+
+        metrics = {
+            "val_loss": avg_val_loss,
+            "val_acc": avg_val_acc,
+            "val_top5_acc": avg_val_top5_acc,
+            "val_ppl": avg_val_ppl,
+            "is_new_best": is_new_best,
+        }
+        self.last_validation_metrics = {
+            key: float(value) for key, value in metrics.items()
+            if key != "is_new_best"
+        }
+        return metrics
+
+
+
+
+    def train_dataset(self, data_stream: Iterable[Tuple[torch.Tensor, torch.Tensor]], max_steps: int = 100, log_every: int = 10, eval_every: int = 0, eval_callback = None, checkpoint_every: int = 0, checkpoint_callback = None, tokenizer: Optional[Any] = None, enrichment_rate: float = 0.0, use_latent_reasoning: bool = True, auto_growth: bool = False, growth_patience: int = 1000, growth_min_delta: float = 0.005, max_layers: Optional[int] = None, max_params: Optional[int] = None, val_loader: Optional[Iterable[Tuple[torch.Tensor, torch.Tensor]]] = None, early_stopping_patience: int = 8, early_stopping_min_delta: float = 0.002, max_val_batches: int = 200) -> list[float]:
+
+        """Train over an iterable dataset stream (e.g. JSONLDataset).
+
+        `tokenizer`: optional UnifiedTokenizer-like object (must expose
+        `.encode(text)` returning a list[int]) used to tokenize the built-in
+        TokenJuice identity/logic synthetic pairs. Without it, enrichment is
+        skipped (TokenJuice requires raw token IDs, not raw text).
+
+        NOTE: `max_steps` counts optimizer steps (self.step_count), not
+        micro-batches — with grad_accumulation_steps > 1 this loop will
+        consume grad_accumulation_steps times as many items from
+        data_stream to reach max_steps.
+        """
+        log.info(f"Starting dataset pre-training run (target steps: {max_steps})...")
+        # Reset session counters so tok/s and ETA reflect THIS run, not checkpoint history
+        self._session_tokens = 0
+        self._session_start_step = self.step_count
+        self._start_time = time.perf_counter()
+        log_every = max(1, int(log_every))
+        checkpoint_every = max(0, int(checkpoint_every))
+        growth_controller = None
+        if auto_growth:
+            max_params_val = max_params if max_params is not None else 500_000_000
+            growth_controller = AutoGrowthController(
+                plateau_patience=max(20, int(growth_patience)),
+                min_delta=max(0.0, float(growth_min_delta)),
+                max_layers=max_layers,
+                max_params=max_params_val,
+            )
+            log.info("  Auto-growth enabled: monitor every %d optimizer steps; depth target: %s.", growth_controller.plateau_patience, f"{max_layers} layers" if max_layers is not None else f"scaled up to {max_params_val//1_000_000:.0f}M parameter ceiling")
+        if not use_latent_reasoning:
+            log.info("  Latent CoT reasoning DISABLED for this run (~3x cheaper per step on that stage) "
+                     "— re-enable for fine-tuning/reasoning-quality passes.")
+
+        from Tantra.dataset import TokenJuiceEngine
+        juice = TokenJuiceEngine(entropy_threshold=0.3, enrichment_rate=enrichment_rate)
+        sys_tag = "<|system|>\nआप Tantra AI हैं, जो भारत में बना एक बुद्धिमान और विनम्र AI सहायक है। आप शुद्ध और स्पष्ट हिंदी में बात करते हैं।\n\n"
+        synthetic_qa_pairs = [
+            (f"{sys_tag}<|user|>\nनमस्ते!\n\n<|assistant|>\n", "नमस्ते! मैं Tantra AI हूँ। आज मैं आपकी क्या सहायता कर सकता हूँ?"),
+            (f"{sys_tag}<|user|>\nआप कौन हैं?\n\n<|assistant|>\n", "मैं Tantra AI हूँ — भारत में बना एक बुद्धिमान AI सहायक।"),
+            (f"{sys_tag}<|user|>\nआपका नाम क्या है?\n\n<|assistant|>\n", "मेरा नाम Tantra AI है। मैं हिंदी में आपकी सहायता करने के लिए यहाँ हूँ।"),
+            (f"{sys_tag}<|user|>\nआप क्या कर सकते हैं?\n\n<|assistant|>\n", "मैं हिंदी में बातचीत कर सकता हूँ, गणित के सवाल हल कर सकता हूँ, और आपके सभी प्रश्नों के उत्तर दे सकता हूँ।"),
+            (f"{sys_tag}<|user|>\nआप कैसे हैं?\n\n<|assistant|>\n", "मैं बिल्कुल ठीक हूँ, धन्यवाद! आप कैसे हैं? बताइए मैं आज आपकी क्या मदद करूँ?"),
+            (f"{sys_tag}<|user|>\nधन्यवाद!\n\n<|assistant|>\n", "आपका बहुत-बहुत स्वागत है! यदि आपका कोई और प्रश्न हो तो बेझिझक पूछें।"),
+            ("<|user|>\nनमस्ते\n\n<|assistant|>\n", "नमस्ते! बताइए, मैं आज आपकी किस प्रकार सहायता कर सकता हूँ?"),
+            ("<|user|>\nआप कौन हैं?\n\n<|assistant|>\n", "मैं Tantra AI हूँ, आपका हिंदी AI सहायक।"),
+        ]
+        if tokenizer is not None and enrichment_rate > 0.0:
+            for prompt, answer in synthetic_qa_pairs:
+                try:
+                    q_ids = tokenizer.encode(prompt)
+                    a_ids = tokenizer.encode(answer)
+                    if q_ids and a_ids:
+                        juice.register_synthetic_pair(q_ids, a_ids)
+                except Exception as e:
+                    log.warning(f"Could not tokenize TokenJuice synthetic pair ({prompt!r}): {e}")
+        else:
+            log.debug("TokenJuice enrichment disabled for this run (enrichment_rate <= 0 or no tokenizer).")
+
+        losses = []
+        progress = None
+
+        # BUG-17 FIX: Initialize loop-local variables before the loop so that
+        # _write_training_status at the end is never looking at unbound names,
+        # even if the data_stream is empty (zero-iteration loop).
+        ppl: float = 0.0
+        grad_norm: float = 0.0
+        tok_per_sec: float = 0.0
+
+
+        self._write_training_status(
+            status="running", step=self.step_count, target_steps=max_steps,
+            loss=None, ema_loss=self.ema_loss, accuracy=None, ppl=None,
+            grad_norm=None, tok_s=0.0, session_tokens=0, eta="estimating",
+            eta_seconds=None,
+        )
+
+        self._last_eval_step = getattr(self, "_last_eval_step", -1)
+        patience_counter = 0
+        collapse_counter = 0
+        early_stopped = False
+        window_losses: list[float] = []
+        window_accs: list[float] = []
+        window_top5_accs: list[float] = []
+        last_accuracy = 0.0
+        window_ppls: list[float] = []
+        window_grad_norms: list[float] = []
+        window_optimizer_steps = 0
+        self._start_time = time.perf_counter()
+        last_optimizer_time = self._start_time
+        recent_step_seconds: list[float] = []
+
+        try:
+            for i, (x, y) in enumerate(data_stream):
+                # TokenJuice: Enrich batch dynamically with synthetic high-signal logic/identity tokens
+                x, y = juice.enrich_batch(x, y)
+
+                if x.dim() == 1:
+                    x = x.unsqueeze(0)
+                if y.dim() == 1:
+                    y = y.unsqueeze(0)
+
+                loss, acc, ppl, grad_norm, at_boundary = self.train_step(x, y, use_latent_reasoning=use_latent_reasoning)
+                losses.append(loss)
+                window_losses.append(loss)
+                if acc is not None:
+                    last_accuracy = acc
+                    window_accs.append(acc)
+                if getattr(self, "last_top5_acc", None) is not None:
+                    window_top5_accs.append(self.last_top5_acc)
+                window_ppls.append(ppl)
+
+
+                elapsed = time.perf_counter() - self._start_time
+                # Use session tokens (not total_tokens which includes checkpoint history)
+                tok_per_sec = self._session_tokens / max(elapsed, 1e-6)
+
+                # Rich redraws are UI-only. Update it when a real optimizer
+                # step completes instead of every accumulation micro-batch.
+                if progress and at_boundary:
+                    progress.update(
+                        task_id,
+                        completed=min(self.step_count, max_steps),
+                        loss=loss,
+                        acc=last_accuracy,
+                        ppl=ppl,
+                        tok_s=tok_per_sec,
+                    )
+
+                if at_boundary and ((self.step_count == 1) or (self.step_count % log_every == 0) or (self.step_count == max_steps)):
+                    # Use optimizer step count (not raw micro-batch index) so ETA is correct
+                    # even when grad_accumulation_steps > 1.
+                    session_steps = max(self.step_count - self._session_start_step, 1)
+                    avg_sec_per_step = elapsed / session_steps
+                    remaining_steps = max(max_steps - self.step_count, 0)
+                    eta_sec = int(remaining_steps * avg_sec_per_step)
+
+                    # Format ETA with days
+                    d = eta_sec // 86400
+                    h = (eta_sec % 86400) // 3600
+                    m = (eta_sec % 3600) // 60
+                    s = eta_sec % 60
+                    if d > 0:
+                        eta_str = f"{d}d {h:02d}:{m:02d}:{s:02d}"
+                    else:
+                        eta_str = f"{h:02d}:{m:02d}:{s:02d}"
+
+                    pass
+
+
+                # Emit a compact, rolling optimizer-step summary even while
+                # Rich owns the progress bar.  This makes long CPU runs
+                # auditable without flooding the terminal per micro-batch.
+                if at_boundary:
+                    window_optimizer_steps += 1
+                    window_grad_norms.append(grad_norm)
+                    now = time.perf_counter()
+                    recent_step_seconds.append(now - last_optimizer_time)
+                    recent_step_seconds = recent_step_seconds[-10:]
+                    last_optimizer_time = now
+                    session_elapsed_sec = max(0.0, time.perf_counter() - self._start_time)
+                    session_steps = max(self.step_count - self._session_start_step, 1)
+                    actual_avg_step_sec = session_elapsed_sec / session_steps
+
+                    rolling_eta = "estimating"
+                    rolling_step_sec = actual_avg_step_sec
+                    rolling_eta_seconds = None
+                    total_projected_sec = None
+                    drift_str = ""
+
+                    if len(recent_step_seconds) >= 3:
+                        remaining_steps = max(max_steps - self.step_count, 0)
+                        rolling_step_sec = sum(recent_step_seconds) / len(recent_step_seconds)
+                        rolling_eta_seconds = int(remaining_steps * rolling_step_sec)
+                        rolling_eta = format_time_duration(rolling_eta_seconds)
+                        total_projected_sec = int(session_elapsed_sec + rolling_eta_seconds)
+
+                        if getattr(self, "_initial_projected_total_sec", None) is None and len(recent_step_seconds) >= 5:
+                            self._initial_projected_total_sec = total_projected_sec
+
+                        if getattr(self, "_initial_projected_total_sec", None) is not None:
+                            drift_sec = total_projected_sec - self._initial_projected_total_sec
+                            drift_sign = "+" if drift_sec >= 0 else "-"
+                            drift_str = f" ({drift_sign}{format_time_duration(abs(drift_sec))} vs initial)"
+
+                    if progress:
+                        progress.update(task_id, eta=rolling_eta)
+
+                    cum_train_sec = float(getattr(self, "total_training_seconds", 0.0)) + session_elapsed_sec
+                    elapsed_str = format_time_duration(session_elapsed_sec)
+                    total_est_str = format_time_duration(total_projected_sec) if total_projected_sec else "estimating"
+
+                    is_card_step = (session_steps == 1 or session_steps % log_every == 0 or self.step_count == max_steps)
+
+                    # Throttle training_status.json writes: write on card steps, completion, or every 5 steps
+                    if is_card_step or (session_steps % 5 == 0):
+                        self._write_training_status(
+                            status="running", step=self.step_count, target_steps=max_steps,
+                            loss=loss, ema_loss=self.ema_loss, accuracy=last_accuracy, ppl=ppl,
+                            grad_norm=grad_norm, tok_s=tok_per_sec,
+                            session_tokens=self._session_tokens,
+                            total_tokens=self.total_tokens,
+                            total_tokens_millions=round(self.total_tokens / 1e6, 3),
+                            eta=rolling_eta,
+                            eta_seconds=rolling_eta_seconds,
+                            time_telemetry={
+                                "session_elapsed_seconds": int(session_elapsed_sec),
+                                "session_elapsed_formatted": elapsed_str,
+                                "cumulative_training_seconds": int(cum_train_sec),
+                                "cumulative_training_formatted": format_time_duration(cum_train_sec),
+                                "actual_avg_sec_per_step": round(actual_avg_step_sec, 2),
+                                "rolling_sec_per_step": round(rolling_step_sec, 2),
+                                "eta_seconds": rolling_eta_seconds,
+                                "eta_formatted": rolling_eta,
+                                "total_estimated_seconds": total_projected_sec,
+                                "total_estimated_formatted": total_est_str,
+                                "initial_estimated_seconds": getattr(self, "_initial_projected_total_sec", None),
+                            }
+                        )
+
+                    if growth_controller is not None:
+                        raw_model = self.model
+                        while hasattr(raw_model, "module"):
+                            raw_model = raw_model.module
+                        while hasattr(raw_model, "_orig_mod"):
+                            raw_model = raw_model._orig_mod
+                        while hasattr(raw_model, "module"):
+                            raw_model = raw_model.module
+                        before = {id(param) for param in raw_model.parameters()}
+                        if growth_controller.observe(float(self.ema_loss), raw_model):
+                            new_params = [param for param in raw_model.parameters() if id(param) not in before]
+                            if new_params:
+                                self.refresh_optimizer()
+                                log.info("Auto-growth added %d parameters; optimizer & scheduler now track %d layers seamlessly.", sum(p.numel() for p in new_params), len(raw_model.layers))
+                    ticker_interval = max(10, log_every // 2)
+
+                    # Live step ticker on every step (or mini-interval) so user sees real-time continuous learning
+                    step_log_interval = log_every
+                    if not is_card_step and (session_steps % step_log_interval == 0):
+                        loss_color_arrow = "v" if (self.best_loss is None or loss <= self.best_loss) else "^"
+                        if last_accuracy is not None:
+                            if not hasattr(self, "_rolling_acc") or self._rolling_acc is None:
+                                self._rolling_acc = last_accuracy
+                            else:
+                                self._rolling_acc = 0.90 * self._rolling_acc + 0.10 * last_accuracy
+                        acc_disp = getattr(self, "_rolling_acc", last_accuracy)
+                        top1_str = f" Top-1: {acc_disp:.1f}%" if acc_disp is not None else ""
+                        top5_val = getattr(self, "last_top5_acc", None)
+                        top5_str = f" Top-5: {top5_val:.1f}%" if top5_val is not None else ""
+                        cur_lr_val = self.optimizer.param_groups[0]["lr"] if self.optimizer.param_groups else self.lr
+                        log.info(
+                            f"    [Step {self.step_count:,}/{max_steps:,}]  Loss: {loss:.4f} {loss_color_arrow}  "
+                            f"{top1_str}  {top5_str}   {tok_per_sec:.1f} tok/s ({actual_avg_step_sec:.2f}s/step)  "
+                            f" LR: {cur_lr_val:.2e}  ⏱ ETA: {rolling_eta}"
+                        )
+
+                    if is_card_step:
+                        first_step = self.step_count - window_optimizer_steps + 1
+
+                        avg_loss = sum(window_losses) / max(len(window_losses), 1)
+                        avg_acc = sum(window_accs) / max(len(window_accs), 1)
+                        avg_top5_acc = sum(window_top5_accs) / max(len(window_top5_accs), 1) if window_top5_accs else 0.0
+                        avg_ppl = sum(window_ppls) / max(len(window_ppls), 1)
+                        avg_grad = sum(window_grad_norms) / max(len(window_grad_norms), 1)
+                        pct = (self.step_count / max(max_steps, 1)) * 100.0
+                        loss_arrow = "" if (self.best_loss is None or avg_loss <= self.best_loss) else ""
+                        acc_arrow = "" if avg_top5_acc > 0 else ""
+
+                        current_lr = self.optimizer.param_groups[0]["lr"] if self.optimizer.param_groups else 0.0
+                        total_params = sum(p.numel() for p in self.model.parameters())
+
+                        user_snippet = ""
+                        asst_snippet = ""
+                        model_snippet = ""
+                        if tokenizer is not None:
+                            try:
+                                sample_toks = [t for t in x[0].cpu().tolist() if t > 0]
+                                decoded_text = tokenizer.decode(sample_toks)
+                                if "<|user|>" in decoded_text:
+                                    u_raw = decoded_text.split("<|user|>", 1)[1]
+                                    if "<|assistant|>" in u_raw:
+                                        user_snippet = u_raw.split("<|assistant|>", 1)[0].replace("</s>", "").replace("\n", " ").strip()[:140]
+                                    else:
+                                        user_snippet = u_raw.replace("</s>", "").replace("\n", " ").strip()[:140]
+                                else:
+                                    clean_d = decoded_text.replace("You are Tantra, a helpful, precise, and polite AI assistant created by Atulya AI. Answer clearly, accurately, and step-by-step.", "")
+                                    user_snippet = clean_d.replace("</s>", "").replace("\n", " ").strip()[:140]
+
+                                target_toks = [t for t in y[0].cpu().tolist() if t != IGNORE_INDEX and t > 0]
+                                if target_toks:
+                                    asst_snippet = tokenizer.decode(target_toks).replace("</s>", "").replace("\n", " ").strip()[:150]
+
+                                # Only show model prediction snippet if accuracy > 5% or step > 200 (avoid random early noise)
+                                pred_ids = getattr(self, "last_pred_tokens", None)
+                                if pred_ids and (avg_acc > 5.0 or self.step_count >= 200):
+                                    model_snippet = tokenizer.decode(pred_ids).replace("</s>", "").replace("\n", " ").strip()[:150]
+                            except Exception:
+                                pass
+
+                        match_score = 0.0
+                        if asst_snippet and model_snippet:
+                            t_words = {w for w in asst_snippet.lower().split() if len(w) > 2}
+                            m_words = {w for w in model_snippet.lower().split() if len(w) > 2}
+                            if len(t_words) >= 2:
+                                match_score = len(t_words & m_words) / len(t_words) * 100.0
+                                if self.ema_alignment is None:
+                                    self.ema_alignment = match_score
+                                else:
+                                    self.ema_alignment = 0.85 * self.ema_alignment + 0.15 * match_score
+
+                        header = f">>> [Step {self.step_count:,}/{max_steps:,} ({pct:.1f}%)]"
+                        val_metrics = getattr(self, "last_validation_metrics", {}) or {}
+                        val_str = f" | Val-Acc: {val_metrics['val_acc']:.1f}%" if (val_metrics and "val_acc" in val_metrics) else ""
+                        metrics_line1 = f"Loss: {avg_loss:.4f} {loss_arrow} | Batch Top-1: {avg_acc:.1f}% | Top-5: {avg_top5_acc:.1f}% {acc_arrow}{val_str} | PPL: {avg_ppl:.1f}"
+                        metrics_line2 = f"Params: {total_params/1e6:.1f}M | Speed: {tok_per_sec:.1f} tok/s ({actual_avg_step_sec:.1f}s/step) | LR: {current_lr:.2e}"
+                        metrics_line3 = f"Session: {elapsed_str} | Lifetime: {format_time_duration(cum_train_sec)} | ETA: {rolling_eta} | Total: {total_est_str}{drift_str}"
+
+                        if progress:
+                            progress.stop()
+
+                        log.info(f"+-- {header} " + "-" * (65 - len(header)))
+                        log.info(f"| {metrics_line1}")
+                        log.info(f"| {metrics_line2}")
+                        log.info(f"| {metrics_line3}")
+                        if user_snippet:
+                            log.info(f"| [Question ] : {user_snippet}")
+                        if asst_snippet:
+                            log.info(f"| [Expected ] : {asst_snippet}")
+                        if model_snippet:
+                            log.info(f"| [Predicted] : {model_snippet}")
+                        if match_score > 0:
+                            smoothed_str = f" | Smoothed: {self.ema_alignment:.1f}%" if self.ema_alignment is not None else ""
+                            log.info(f"| [Alignment] : {match_score:.1f}%{smoothed_str} (Key concept overlap)")
+                        log.info(f"+-- Streamed: {self._session_tokens/1000:.1f}K session tokens | Cumulative: {self.total_tokens/1e6:.2f}M tokens " + "-" * 15)
+
+
+
+
+
+
+                        if progress and self.step_count < max_steps:
+                            progress.start()
+
+                        window_losses.clear()
+                        window_accs.clear()
+                        window_top5_accs.clear()
+                        window_ppls.clear()
+                        window_grad_norms.clear()
+                        window_optimizer_steps = 0
+
+
+                if at_boundary and eval_every > 0 and (self.step_count % eval_every == 0) and (self.step_count != self._last_eval_step):
+                    self._last_eval_step = self.step_count
+                    if val_loader is not None:
+                        val_res = self.evaluate_validation(val_loader, max_val_batches=max_val_batches, min_delta=early_stopping_min_delta)
+                        if val_res:
+                            v_loss = val_res["val_loss"]
+                            v_acc = val_res["val_acc"]
+                            v_top5 = val_res.get("val_top5_acc", 0.0)
+                            v_ppl = val_res["val_ppl"]
+                            log.info(
+                                f"   [VAL EVAL @ Step {self.step_count}] "
+                                f"Val Loss: {v_loss:.4f}  Val Top-1: {v_acc:.2f}%  Val Top-5: {v_top5:.2f}%  Val PPL: {v_ppl:.1f}"
+                            )
+                            if (avg_acc - v_acc > 30.0) or (avg_loss > 0 and (v_loss / avg_loss) > 2.5 and avg_acc > 80.0):
+                                log.warning(
+                                    f"    [OVERFITTING DETECTED @ Step {self.step_count}] Training Accuracy ({avg_acc:.1f}%) "
+                                    f"is significantly higher than Held-Out Validation Accuracy ({v_acc:.1f}%). "
+                                    f"The model is memorizing training examples!"
+                                )
+
+                            if val_res.get("is_new_best", False):
+                                patience_counter = 0
+                                collapse_counter = 0
+                                raw_m = unwrap_model(self.model)
+                                self._best_model_state = copy.deepcopy(raw_m.state_dict())
+                                log.info(f"    [NEW BEST VAL LOSS: {v_loss:.4f}] Best checkpoint marked & model snapshot saved.")
+                            else:
+                                # Validation Collapse Guard: detect sudden catastrophic degradation (>35% spike above best loss)
+                                if (self.best_val_loss is not None and not math.isinf(self.best_val_loss) and self.best_val_loss > 0 and v_loss > (1.35 * self.best_val_loss)):
+                                    collapse_counter += 1
+                                    log.warning(
+                                        f"    [VALIDATION COLLAPSE ALERT @ Step {self.step_count}] Current val loss ({v_loss:.4f}) "
+                                        f"is {((v_loss/self.best_val_loss)-1.0)*100:.1f}% worse than best ({self.best_val_loss:.4f}) "
+                                        f"[Streak: {collapse_counter}/2]."
+                                    )
+                                    if collapse_counter >= 2 and getattr(self, "_best_model_state", None) is not None:
+                                        raw_m = unwrap_model(self.model)
+                                        raw_m.load_state_dict(self._best_model_state)
+                                        self.lr = max(self.lr * 0.5, 1e-6)
+                                        for g in self.optimizer.param_groups:
+                                            g["lr"] = self.lr
+                                        for p in raw_m.parameters():
+                                            st = self.optimizer.state.get(p)
+                                            if st and "exp_avg" in st and st["exp_avg"] is not None:
+                                                st["exp_avg"].zero_()
+                                        collapse_counter = 0
+                                        log.warning(
+                                            f"    [AUTO-ROLLBACK EXECUTED @ Step {self.step_count}] Reverted model weights to best "
+                                            f"validation checkpoint ({self.best_val_loss:.4f}), halved LR to {self.lr:.2e}, and flushed momentum!"
+                                        )
+                                else:
+                                    collapse_counter = 0
+
+                                if early_stopping_patience > 0:
+                                    patience_counter += 1
+                                    log.info(
+                                        f"   [EARLY STOPPING PATIENCE: {patience_counter}/{early_stopping_patience}] "
+                                        f"Val loss did not improve by {early_stopping_min_delta:.4f} "
+                                        f"(Current: {v_loss:.4f}, Best: {self.best_val_loss:.4f})"
+                                    )
+                                    if patience_counter >= early_stopping_patience:
+                                        log.warning(
+                                            f"    [EARLY STOPPING TRIGGERED @ Step {self.step_count}] "
+                                            f"Validation loss failed to improve for {early_stopping_patience} consecutive checks. "
+                                            f"Halting training to preserve peak model generalization."
+                                        )
+                                        early_stopped = True
+
+                    if eval_callback is not None:
+                        if progress:
+                            progress.stop()
+                        eval_callback(self.step_count)
+                        if progress and self.step_count < max_steps and not early_stopped:
+                            progress.start()
+
+                if early_stopped:
+                    break
+
+                # Lightweight recovery checkpoint: this writes only the latest
+                # resumable state.  Full sampled/archival checkpoints remain on
+                # the much less frequent evaluation schedule.
+                if at_boundary and checkpoint_every > 0 and (self.step_count % checkpoint_every == 0):
+                    if checkpoint_callback is not None:
+                        checkpoint_callback(self.step_count)
+
+                if self.step_count >= max_steps:
+                    break
+        finally:
+            if progress:
+                progress.stop()
+
+        self._write_training_status(
+            status="early_stopped" if early_stopped else ("complete" if self.step_count >= max_steps else "stopped"),
+            step=self.step_count, target_steps=max_steps,
+            loss=losses[-1] if losses else None, ema_loss=self.ema_loss,
+            accuracy=last_accuracy if losses else None, ppl=ppl if losses else None,
+            grad_norm=grad_norm if losses else None, tok_s=tok_per_sec if losses else 0.0,
+            session_tokens=self._session_tokens, eta="early_stopped" if early_stopped else ("00:00:00" if self.step_count >= max_steps else "stopped"),
+            eta_seconds=0 if (self.step_count >= max_steps or early_stopped) else None,
+        )
+        if early_stopped:
+            log.info(f" Dataset training halted by Early Stopping at step {self.step_count}. Peak validation state preserved.")
+        else:
+            log.info(f"Dataset pre-training run complete ({self.step_count} steps executed).")
+        return losses
+
+    def compute_sequence_logprobs(self, logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
+        """
+        Computes per-sequence sum of log probabilities for labeled tokens.
+        logits: (batch, seq_len, vocab_size)
+        labels: (batch, seq_len) with IGNORE_INDEX (-100) for prompt/padding tokens.
+        """
+        shift_logits = logits[:, :-1, :].contiguous()
+        shift_labels = labels[:, 1:].contiguous()
+        log_probs = torch.log_softmax(shift_logits, dim=-1)
+        loss_mask = shift_labels != -100
+        clamped_labels = torch.clamp(shift_labels, min=0)
+        per_token_logps = torch.gather(log_probs, dim=2, index=clamped_labels.unsqueeze(2)).squeeze(2)
+        return (per_token_logps * loss_mask.float()).sum(dim=1)
+
+    def train_dpo(
+        self,
+        dpo_dataloader: Any,
+        ref_model: Optional[nn.Module] = None,
+        beta: float = 0.1,
+        max_steps: int = 2000,
+        log_every: int = 25,
+        checkpoint_every: int = 500,
+        checkpoint_callback: Optional[Callable[[int, float], None]] = None,
+        eval_every: int = 500,
+        eval_callback: Optional[Callable[[int], None]] = None,
+    ) -> List[float]:
+        """Direct Preference Optimization (DPO) preference alignment training loop."""
+        import copy
+        if ref_model is None:
+            log.info("Cloning frozen reference model baseline for DPO...")
+            raw_model = unwrap_model(self.model)
+            ref_model = copy.deepcopy(raw_model).to(self.device)
+            ref_model.eval()
+            for p in ref_model.parameters():
+                p.requires_grad = False
+
+        self.model.train()
+        log.info(f" Starting DPO Preference Alignment (Target: {max_steps} steps, beta={beta})...")
+
+        dpo_iter = iter(dpo_dataloader)
+        losses: List[float] = []
+        start_step = self.step_count
+        
+        for step in range(start_step + 1, start_step + max_steps + 1):
+            self.optimizer.zero_grad(set_to_none=True)
+            accum_loss = 0.0
+            accum_win_rate = 0.0
+            accum_margin = 0.0
+            
+            actual_micro_batches = 0
+            for _ in range(self.grad_accumulation_steps):
+                try:
+                    batch = next(dpo_iter)
+                except StopIteration:
+                    dpo_iter = iter(dpo_dataloader)
+                    try:
+                        batch = next(dpo_iter)
+                    except StopIteration:
+                        log.warning("DPO dataloader is empty or exhausted. Concluding DPO phase safely.")
+                        break
+                
+                chosen_ids = batch["chosen_input_ids"].to(self.device)
+                chosen_labels = batch["chosen_labels"].to(self.device)
+                rejected_ids = batch["rejected_input_ids"].to(self.device)
+                rejected_labels = batch["rejected_labels"].to(self.device)
+                
+                # Forward current model
+                chosen_out = self.model(token_ids=chosen_ids)
+                chosen_logits = chosen_out[0] if isinstance(chosen_out, tuple) else chosen_out
+                rejected_out = self.model(token_ids=rejected_ids)
+                rejected_logits = rejected_out[0] if isinstance(rejected_out, tuple) else rejected_out
+                
+                # Forward reference model (frozen)
+                with torch.no_grad():
+                    ref_chosen_out = ref_model(chosen_ids)
+                    ref_chosen_logits = ref_chosen_out[0] if isinstance(ref_chosen_out, tuple) else ref_chosen_out
+                    ref_rejected_out = ref_model(rejected_ids)
+                    ref_rejected_logits = ref_rejected_out[0] if isinstance(ref_rejected_out, tuple) else ref_rejected_out
+                
+                # Compute log probabilities
+                pi_chosen_logps = self.compute_sequence_logprobs(chosen_logits, chosen_labels)
+                pi_rejected_logps = self.compute_sequence_logprobs(rejected_logits, rejected_labels)
+                
+                ref_chosen_logps = self.compute_sequence_logprobs(ref_chosen_logits, chosen_labels)
+                ref_rejected_logps = self.compute_sequence_logprobs(ref_rejected_logits, rejected_labels)
+                
+                # DPO loss calculation
+                pi_logratios = pi_chosen_logps - pi_rejected_logps
+                ref_logratios = ref_chosen_logps - ref_rejected_logps
+                
+                logits_diff = beta * (pi_logratios - ref_logratios)
+                loss = -torch.nn.functional.logsigmoid(logits_diff).mean()
+                
+                # Scale by actual steps we'll complete (use grad_accumulation_steps for consistent scaling)
+                loss_scaled = loss / self.grad_accumulation_steps
+                loss_scaled.backward()
+                
+                accum_loss += loss.item() / self.grad_accumulation_steps
+                win_rate = (logits_diff > 0).float().mean().item()
+                accum_win_rate += win_rate / self.grad_accumulation_steps
+                accum_margin += logits_diff.mean().item() / self.grad_accumulation_steps
+                actual_micro_batches += 1
+            
+            # Only step if gradients were actually accumulated
+            if actual_micro_batches == 0:
+                log.warning("DPO phase ended with zero micro-batches — skipping optimizer step.")
+                break
+            
+            torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
+            self.optimizer.step()
+            if self.scheduler is not None:
+                self.scheduler.step()
+            self.step_count = step
+            losses.append(accum_loss)
+            
+            if step % log_every == 0 or step == start_step + max_steps:
+                lr = self.optimizer.param_groups[0]["lr"]
+                log.info(f"    [DPO Step {step:,}/{start_step + max_steps:,}]  Loss: {accum_loss:.4f}   Chosen Win: {accum_win_rate*100:.1f}%   Margin: {accum_margin:+.3f}   LR: {lr:.2e}")
+            
+            if checkpoint_callback is not None and checkpoint_every > 0 and (step % checkpoint_every == 0):
+                checkpoint_callback(step, accum_loss)
+            if eval_callback is not None and eval_every > 0 and (step % eval_every == 0):
+                eval_callback(step)
+                
+        log.info(f"DPO Preference Alignment complete ({max_steps} steps executed).")
+        return losses
+
+    def train_demo(self, steps: int = 20, batch_size: int = 2, seq_len: int = 64, vocab_size: int = 32000) -> list[float]:
+        """Run quick training demo over synthetic batches with learnable patterns.
+        
+        Uses smaller vocab_size internally so the model CAN learn from
+        the first step, demonstrating real improvement instead of starting
+        at 0% accuracy with loss ~10.
+        """
+        # Use a smaller learnable vocab for the demo so the model
+        # can actually show improvement from step 1
+        demo_vocab = min(vocab_size, 256)
+        log.info(f"Starting training run: {steps} steps (batch={batch_size}, seq_len={seq_len}, demo_vocab={demo_vocab})...")
+        losses = []
+        for i in range(steps):
+            x, y = generate_synthetic_batch(demo_vocab, batch_size, seq_len)
+            loss, acc, ppl, grad_norm, _ = self.train_step(x, y)
+            losses.append(loss)
+            if (i + 1) % 5 == 0 or i == 0:
+                elapsed = time.perf_counter() - self._start_time
+                if elapsed < 1.0:
+                    tok_per_sec = 0.0
+                else:
+                    tok_per_sec = (batch_size * seq_len * (i + 1)) / max(elapsed, 1e-6)
+                log.info(f"Step {self.step_count:>4d}/{steps} | Loss: {loss:.4f} | PPL: {ppl:.1f} | Acc: {acc:.2f}% | GradNorm: {grad_norm:.2f} | Speed: {tok_per_sec:.1f} tok/s [Self-Repair: OK]")
+        return losses
+
+    def save_checkpoint(self, path: str, save_optimizer: bool = True, async_write: bool = False) -> None:
+        """Save model checkpoint with self-contained tokenizer and max 2 checkpoint history cleanup."""
+        raw_model = self.model
+        while hasattr(raw_model, "module"):
+            raw_model = raw_model.module
+        while hasattr(raw_model, "_orig_mod"):
+            raw_model = raw_model._orig_mod
+        while hasattr(raw_model, "module"):
+            raw_model = raw_model.module
+
+        current_num_layers = len(raw_model.layers) if hasattr(raw_model, "layers") else 8
+        if hasattr(raw_model, "config") and hasattr(raw_model.config, "block"):
+            raw_model.config.block.num_layers = current_num_layers
+
+        # Zero GPU VRAM overhead during checkpoint saving: clone directly to host CPU
+        model_sd = {}
+        for k, v in raw_model.state_dict().items():
+            if isinstance(v, torch.Tensor):
+                model_sd[k] = v.detach().cpu().half() if v.is_floating_point() else v.detach().cpu()
+            else:
+                model_sd[k] = v
+
+        opt_sd = None
+        if save_optimizer and self.optimizer is not None:
+            raw_opt_sd = self.optimizer.state_dict()
+            opt_sd = {}
+            for k, v in raw_opt_sd.items():
+                if k == "state":
+                    opt_sd["state"] = {}
+                    for param_id, p_state in v.items():
+                        opt_sd["state"][param_id] = {}
+                        for s_k, s_v in p_state.items():
+                            if isinstance(s_v, torch.Tensor):
+                                opt_sd["state"][param_id][s_k] = s_v.detach().cpu()
+                            else:
+                                opt_sd["state"][param_id][s_k] = s_v
+                else:
+                    opt_sd[k] = copy.deepcopy(v)
+
+        session_elapsed_sec = max(0.0, time.perf_counter() - self._start_time)
+        session_steps = max(self.step_count - getattr(self, "_session_start_step", 0), 1)
+        actual_avg_step_sec = session_elapsed_sec / session_steps
+        # Use recalibrated base (self.total_training_seconds already includes the
+        # legacy correction applied in load_checkpoint) and add only THIS session.
+        _base_seconds = float(getattr(self, "total_training_seconds", 0.0))
+        # Guard: base must already cover the loaded steps at minimum 1.8 s/step
+        _min_base = self.step_count * 1.8
+        if _base_seconds < _min_base:
+            _base_seconds = _min_base
+        accumulated_total_seconds = _base_seconds + session_elapsed_sec
+
+        ckpt_data = {
+            "model_state_dict": model_sd,
+            "config": copy.deepcopy(getattr(raw_model, "config", None)),
+            "step_count": self.step_count,
+            "best_loss": getattr(self, "best_loss", float('inf')),
+            "best_val_loss": getattr(self, "best_val_loss", float('inf')),
+            "ema_loss": getattr(self, "ema_loss", None),
+            "rolling_acc": getattr(self, "_rolling_acc", getattr(self, "last_accuracy", None)),
+            "last_validation_metrics": copy.deepcopy(getattr(self, "last_validation_metrics", {})),
+            "total_tokens": getattr(self, "total_tokens", 0),
+            "session_tokens": getattr(self, "_session_tokens", 0),
+            "total_training_seconds": accumulated_total_seconds,
+            "training_hours": accumulated_total_seconds / 3600.0,
+            "session_elapsed_sec": session_elapsed_sec,
+            "actual_avg_step_sec": actual_avg_step_sec,
+            "scheduler_state_dict": copy.deepcopy(self.scheduler.state_dict()),
+            "total_steps": self.total_steps,
+            "training_stage": getattr(self, "training_stage", "pretrain"),
+            "num_layers": current_num_layers,
+        }
+        if opt_sd is not None:
+            ckpt_data["optimizer_state_dict"] = opt_sd
+
+        step_num = self.step_count
+
+        def _disk_writer(data, target_path, step):
+            target_dir = os.path.dirname(target_path) or "."
+            os.makedirs(target_dir, exist_ok=True)
+            import uuid
+            unique_suffix = f"{os.getpid()}_{threading.get_ident()}_{uuid.uuid4().hex[:6]}"
+            temporary_path = f"{target_path}.{unique_suffix}.tmp"
+            try:
+                torch.save(data, temporary_path)
+                os.replace(temporary_path, target_path)
+                meta_path = target_path + ".meta.json"
+                meta_temp = f"{meta_path}.{unique_suffix}.tmp"
+                with open(meta_temp, "w", encoding="utf-8") as handle:
+                    json.dump({
+                        "num_layers": data["num_layers"],
+                        "step_count": step,
+                        "total_tokens": data["total_tokens"],
+                        "total_tokens_millions": round(data["total_tokens"] / 1e6, 3),
+                        "total_training_seconds": round(data["total_training_seconds"], 2),
+                        "total_training_time": format_time_duration(data["total_training_seconds"]),
+                        "session_elapsed_seconds": round(data.get("session_elapsed_sec", 0.0), 2),
+                        "actual_avg_step_sec": round(data.get("actual_avg_step_sec", 0.0), 2),
+                        "best_val_loss": data.get("best_val_loss"),
+                        "best_loss": data.get("best_loss"),
+                        "ema_loss": data.get("ema_loss"),
+                        "rolling_acc": data.get("rolling_acc"),
+                        "last_validation": data.get("last_validation_metrics", {}),
+                    }, handle, indent=2)
+                os.replace(meta_temp, meta_path)
+
+
+                # Save/export complete tokenizer, vocab.json, merges.txt, and tokenizer_config.json
+                NeuroTrainer.export_tokenizer_and_vocab(target_dir)
+
+            except Exception as ex:
+
+                try:
+                    if os.path.exists(temporary_path):
+                        os.remove(temporary_path)
+                except OSError:
+                    pass
+                log.warning(f"Failed checkpoint write to {target_path}: {ex}")
+                return
+            step_info = f"Step {step_num:,}" if step_num is not None else "Latest"
+            log.info(f" [CHECKPOINT SAVED] {step_info} | Target: {os.path.basename(target_path)} | Best Loss: {self.best_loss:.4f}")
+
+            if "Checkpoints" in target_dir or "checkpoints" in target_dir:
+                NeuroTrainer.prune_checkpoint_history(target_dir, max_keep=2)
+            elif "Best" in target_dir or "best" in target_dir:
+                NeuroTrainer.prune_checkpoint_history(target_dir, max_keep=4)
+
+        if not hasattr(self, "_writer_threads"):
+            self._writer_threads = []
+
+        if async_write:
+            t = threading.Thread(target=_disk_writer, args=(ckpt_data, path, step_num), daemon=False)
+            self._writer_threads.append(t)
+            t.start()
+        else:
+            _disk_writer(ckpt_data, path, step_num)
+
+    def flush_checkpoint_writers(self, timeout: float = 60.0) -> None:
+        """Synchronously wait for all background checkpoint write threads to finish."""
+        threads = getattr(self, "_writer_threads", [])
+        for t in threads:
+            if t.is_alive():
+                t.join(timeout=timeout)
+        self._writer_threads = [t for t in threads if t.is_alive()]
+
+    @staticmethod
+    def prune_checkpoint_history(checkpoints_dir: str, max_keep: int = 4) -> None:
+        """Keep only the latest max_keep checkpoints in checkpoints_dir and remove older ones with metadata."""
+        if not os.path.exists(checkpoints_dir):
+            return
+        files = []
+        for fname in os.listdir(checkpoints_dir):
+            # Never prune the primary golden best or live resume pointer
+            if fname in ("checkpoint_best.pt", "checkpoint_latest.pt", "tokenizer.json"):
+                continue
+            if fname.endswith(".pt"):
+                fpath = os.path.join(checkpoints_dir, fname)
+                try:
+                    num_str = "".join(c for c in fname if c.isdigit())
+                    step_num = int(num_str) if num_str else int(os.path.getmtime(fpath))
+                    files.append((step_num, fpath))
+                except ValueError:
+                    files.append((os.path.getmtime(fpath), fpath))
+
+        if len(files) > max_keep:
+            files.sort(key=lambda x: x[0])  # sort ascending by step/mtime
+            to_remove = files[: len(files) - max_keep]
+            for _, fpath in to_remove:
+                try:
+                    os.remove(fpath)
+                    log.info(f" [PRUNED OLD CHECKPOINT] {os.path.basename(fpath)}")
+                except Exception as e:
+                    log.warning(f"Could not remove old checkpoint {fpath}: {e}")
+                # Also prune accompanying .meta.json if present
+                meta_path = fpath + ".meta.json"
+                if os.path.exists(meta_path):
+                    try:
+                        os.remove(meta_path)
+                    except Exception:
+                        pass
+
+    @staticmethod
+    def export_tokenizer_and_vocab(target_dir: str) -> None:
+        """Export tokenizer.json, vocab.json, merges.txt, special_tokens_map.json,
+        and tokenizer_config.json into target_dir and root Model/ directory."""
+        os.makedirs(target_dir, exist_ok=True)
+        source_tok = None
+        for cand in [os.path.join("Model", "tokenizer.json"), "tokenizer.json", os.path.join(target_dir, "..", "tokenizer.json")]:
+            if os.path.exists(cand):
+                source_tok = cand
+                break
+        if not source_tok:
+            return
+
+        try:
+            dest_tok = os.path.join(target_dir, "tokenizer.json")
+            if os.path.abspath(source_tok) != os.path.abspath(dest_tok):
+                shutil.copy2(source_tok, dest_tok)
+
+            with open(source_tok, "r", encoding="utf-8") as f:
+                tok_data = json.load(f)
+
+            model_block = tok_data.get("model", {})
+            vocab = model_block.get("vocab", {})
+            if vocab:
+                with open(os.path.join(target_dir, "vocab.json"), "w", encoding="utf-8") as vf:
+                    json.dump(vocab, vf, indent=2)
+
+            merges = model_block.get("merges", [])
+            if merges:
+                formatted_merges = [" ".join(m) if isinstance(m, list) else str(m) for m in merges]
+                with open(os.path.join(target_dir, "merges.txt"), "w", encoding="utf-8") as mf:
+                    mf.write("#version: 0.2\n" + "\n".join(formatted_merges))
+
+            special_tokens = {
+                "bos_token": "<s>",
+                "eos_token": "</s>",
+                "unk_token": "<unk>",
+                "pad_token": "<pad>"
+            }
+            with open(os.path.join(target_dir, "special_tokens_map.json"), "w", encoding="utf-8") as sf:
+                json.dump(special_tokens, sf, indent=2)
+
+            tok_config = {
+                "tokenizer_class": "ByteBPETokenizer",
+                "vocab_size": len(vocab) if vocab else 32768,
+                "model_max_length": 2048,
+                "bos_token": "<s>",
+                "eos_token": "</s>",
+                "unk_token": "<unk>",
+                "pad_token": "<pad>"
+            }
+            with open(os.path.join(target_dir, "tokenizer_config.json"), "w", encoding="utf-8") as cf:
+                json.dump(tok_config, cf, indent=2)
+
+            root_model = "Model"
+            if os.path.exists(root_model) and os.path.abspath(target_dir) != os.path.abspath(root_model):
+                for fname in ["vocab.json", "merges.txt", "special_tokens_map.json", "tokenizer_config.json"]:
+                    src = os.path.join(target_dir, fname)
+                    if os.path.exists(src):
+                        shutil.copy2(src, os.path.join(root_model, fname))
+        except Exception as e:
+            log.debug(f"Could not export full tokenizer/vocab files to {target_dir}: {e}")
+
+
+
+
+    def load_checkpoint(self, path: str, reset_optimizer: bool = False) -> None:
+        """Load model + optimizer + scheduler state.
+        
+        Args:
+            reset_optimizer: If True, discard the saved optimizer state and start fresh.
+                             Use this when switching to a new dataset to prevent old Adam
+                             momentum from a different data distribution poisoning new training.
+                             Default False preserves optimizer state for same-dataset resume.
+        """
+        if path.endswith(".dna"):
+            log.info(f" Decompressing DNA checkpoint: {path} ...")
+            import tempfile, json as _json
+            from Tantra.codec import MultimodalWeightFormatter
+            from Tantra.config import CompressionConfig
+            formatter = MultimodalWeightFormatter(CompressionConfig())
+            weights = formatter.parse_weights(path)
+            meta_path = path + ".meta.json"
+            meta = {}
+            if os.path.exists(meta_path):
+                try:
+                    with open(meta_path, "r", encoding="utf-8") as f:
+                        meta = _json.load(f)
+                except Exception:
+                    pass
+            tmp_pt = tempfile.NamedTemporaryFile(suffix=".pt", delete=False)
+            torch.save({
+                "model_state_dict": weights,
+                "step_count": meta.get("step_count", 0),
+                "step":       meta.get("step_count", 0),
+                "best_loss":  meta.get("best_loss", float("inf")),
+                "total_tokens": meta.get("total_tokens", 0),
+            }, tmp_pt.name)
+            tmp_pt.close()
+            path = tmp_pt.name
+
+        from Tantra.utils import safe_load_checkpoint
+        ckpt = safe_load_checkpoint(path, map_location=self.device)
+        state_dict = ckpt["model_state_dict"]
+        raw_model = unwrap_model(self.model)
+
+        # Check and dynamically grow layers if loading a deeper checkpoint (e.g. 9/10/12 layers)
+        import re, copy
+        layer_indices = set()
+        for k in state_dict.keys():
+            m = re.search(r'layers\.(\d+)\.', k)
+            if m:
+                layer_indices.add(int(m.group(1)))
+        
+        if layer_indices and hasattr(raw_model, "layers") and isinstance(raw_model.layers, torch.nn.ModuleList):
+            ckpt_layers = max(layer_indices) + 1
+            current_layers = len(raw_model.layers)
+            if ckpt_layers > current_layers:
+                log.info(f"Dynamically growing model architecture from {current_layers} -> {ckpt_layers} layers to match checkpoint.")
+                while len(raw_model.layers) < ckpt_layers:
+                    new_l = copy.deepcopy(raw_model.layers[-1])
+                    raw_model.layers.append(new_l)
+                if hasattr(raw_model, "config") and hasattr(raw_model.config, "block"):
+                    raw_model.config.block.num_layers = len(raw_model.layers)
+                self.refresh_optimizer()
+
+        model_state = raw_model.state_dict()
+
+        # Auto-align vocabulary shape mismatches (e.g. checkpoint saved at 32000, model configured for 65536)
+        for k in ["embed.weight", "output_proj.weight", "mtp_head.weight"]:
+            if k in state_dict and k in model_state:
+                ckpt_w = state_dict[k]
+                target_w = model_state[k]
+                if ckpt_w.shape != target_w.shape:
+                    log.info(f"Auto-aligning checkpoint tensor '{k}' shape {ckpt_w.shape} -> {target_w.shape}")
+                    aligned_w = target_w.clone()
+                    min_vocab = min(ckpt_w.size(0), target_w.size(0))
+                    aligned_w[:min_vocab] = ckpt_w[:min_vocab]
+                    state_dict[k] = aligned_w
+
+        for k, v in state_dict.items():
+            if k in model_state and v.dtype != model_state[k].dtype:
+                state_dict[k] = v.to(model_state[k].dtype)
+        # strict=False tolerates pre-gate checkpoints that lack category_gates.*
+        # (and category_layers installed after a checkpoint was written); gates
+        # for trained legacy categories are opened by the sync call below.
+        load_res = raw_model.load_state_dict(state_dict, strict=False)
+        missing_base = [k for k in load_res.missing_keys if not k.startswith("category_")]
+        if getattr(raw_model, "compatibility_legacy_moe", False) and missing_base:
+            raise RuntimeError(f"Compatibility legacy MoE requires zero missing tensors, but got {len(missing_base)} missing: {missing_base[:5]}")
+        log.info(f" Checkpoint state reloaded with 0 missing base tensors.")
+        if hasattr(raw_model, "sync_category_gates_from_checkpoint"):
+            raw_model.sync_category_gates_from_checkpoint(state_dict)
+        # Optimizer is optional (only saved when save_optimizer=True).
+        # IMPORTANT: reset_optimizer=True discards saved optimizer momentum — use this
+        # when switching to a new dataset so stale Adam/Lion first/second moments from the
+        # old data distribution don't bias gradient updates on new data (prevents forgetting).
+        if not reset_optimizer and "optimizer_state_dict" in ckpt:
+            try:
+                self.optimizer.load_state_dict(ckpt["optimizer_state_dict"])
+            except ValueError as exc:
+                # Older checkpoints were written with one AdamW parameter
+                # group, while current trainers split decay/no-decay tensors.
+                # Recreate that legacy layout so its momentum is usable rather
+                # than silently throwing away the learned optimizer history.
+                saved_groups = ckpt["optimizer_state_dict"].get("param_groups", [])
+                if len(saved_groups) == 1 and isinstance(self.optimizer, AdamW):
+                    saved_group = saved_groups[0]
+                    valid_keys = {"lr", "betas", "eps", "weight_decay", "amsgrad", "maximize", "foreach", "capturable", "differentiable", "fused"}
+                    legacy_options = {
+                        key: value for key, value in saved_group.items()
+                        if key in valid_keys
+                    }
+                    legacy_options.setdefault("lr", self.lr)
+                    self.optimizer = AdamW(
+                        [param for param in self.model.parameters() if param.requires_grad],
+                        **legacy_options,
+                    )
+                    try:
+                        # Clean param groups in state dict as well to avoid unexpected kwarg errors
+                        for g in ckpt["optimizer_state_dict"].get("param_groups", []):
+                            for extra_k in list(g.keys()):
+                                if extra_k != "params" and extra_k not in valid_keys:
+                                    g.pop(extra_k, None)
+                        self.optimizer.load_state_dict(ckpt["optimizer_state_dict"])
+                        log.info("Restored optimizer momentum using legacy single-group AdamW compatibility.")
+                    except Exception as legacy_exc:
+                        log.warning("Could not restore legacy optimizer state — using fresh optimizer (%s).", legacy_exc)
+                else:
+                    log.warning("Could not restore optimizer state — using fresh optimizer (%s).", exc)
+            except Exception as exc:
+                log.warning("Could not restore optimizer state — using fresh optimizer (%s).", exc)
+        elif reset_optimizer:
+            log.info("reset_optimizer=True — discarding saved optimizer state. Fresh momentum for new dataset.")
+
+        self.step_count = ckpt.get("step_count", 0)
+        self._is_resume = True  # Mark that this trainer resumed from a checkpoint
+        self.best_loss = ckpt.get("best_loss", float('inf'))
+        self.best_val_loss = ckpt.get("best_val_loss", float('inf'))
+        self.last_validation_metrics = ckpt.get("last_validation_metrics", {}) or {}
+
+        # Restore ema_loss and _rolling_acc so the dashboard continues from where it
+        # left off instead of resetting to 0%/high-loss on every new training session.
+        saved_ema = ckpt.get("ema_loss")
+        if saved_ema is not None:
+            try:
+                _v = float(saved_ema)
+                if not math.isinf(_v) and not math.isnan(_v) and _v > 0:
+                    self.ema_loss = _v
+            except (TypeError, ValueError):
+                pass
+        saved_acc = ckpt.get("rolling_acc")
+        if saved_acc is not None:
+            try:
+                _v = float(saved_acc)
+                if not math.isnan(_v):
+                    self._rolling_acc = _v
+            except (TypeError, ValueError):
+                pass
+
+        if reset_optimizer:
+            # A fresh optimizer means a new dataset/stage — the old best_val_loss was
+            # measured on a different loss regime (e.g. raw pretraining vs assistant-only
+            # SFT loss) and isn't a meaningful floor for early stopping on the new task.
+            self.best_loss = float('inf')
+            self.best_val_loss = float('inf')
+            log.info("  best_val_loss reset to inf — establishing a fresh generalization baseline for the new dataset/stage.")
+
+        # Fallback: if loading older checkpoint without best_val_loss, check Model/Best/checkpoint_best.pt
+        if not reset_optimizer and math.isinf(self.best_val_loss):
+            parent_dir = os.path.dirname(os.path.abspath(path))
+            candidates = [
+                os.path.join(parent_dir, "..", "Best", "checkpoint_best.pt"),
+                os.path.join("Model", "Best", "checkpoint_best.pt"),
+            ]
+            for cand in candidates:
+                if os.path.exists(cand):
+                    try:
+                        from Tantra.utils import safe_load_checkpoint
+                        best_meta = safe_load_checkpoint(cand, map_location="cpu")
+                        cand_val = best_meta.get("best_val_loss", best_meta.get("best_loss", float('inf')))
+                        if cand_val is not None and not math.isinf(cand_val) and not math.isnan(cand_val) and cand_val > 0.0:
+                            self.best_val_loss = float(cand_val)
+                            self.best_loss = self.best_val_loss
+                            break
+                    except Exception:
+                        pass
+
+        self.total_tokens = ckpt.get("total_tokens", ckpt.get("tokens_processed", 0))
+        if self.total_tokens == 0 and self.step_count > 0:
+            # Automatic restoration: 31,000 steps at ~6,000 tokens/step = 186M cumulative tokens
+            self.total_tokens = int(self.step_count * 6000)
+        if not self.total_tokens and self.step_count > 0:
+            # Estimate for older checkpoints that didn't record total_tokens
+            self.total_tokens = self.step_count * max(1, self.grad_accumulation_steps) * 128
+
+        loaded_seconds = float(ckpt.get("total_training_seconds", ckpt.get("wall_clock_elapsed_sec", ckpt.get("training_hours", 0.0) * 3600.0)))
+        min_expected_sec = self.step_count * 1.8
+        if self.step_count > 5000 and loaded_seconds < min_expected_sec:
+            log.info(
+                "Legacy checkpoint detected: recorded training time (%s) is unrealistically low for %d steps. "
+                "Recalibrating cumulative training time to realistic historical run-time (%s).",
+                format_time_duration(loaded_seconds),
+                self.step_count,
+                format_time_duration(min_expected_sec),
+            )
+            self.total_training_seconds = min_expected_sec
+        else:
+            self.total_training_seconds = loaded_seconds
+        self.training_stage = ckpt.get("training_stage", None)
+
+
+        if "total_steps" in ckpt:
+            self.total_steps = max(int(self.total_steps), int(ckpt["total_steps"]))
+        if "warmup_steps" in ckpt:
+            self.warmup_steps = int(ckpt["warmup_steps"])
+
+        # Rebuild scheduler relative to current step_count and total_steps.
+        # This ensures the full requested learning rate is active over the remaining steps.
+        # Note: main.py will override this with a fresh scheduler for recovery runs.
+        self.scheduler = create_lr_scheduler(
+            self.optimizer, warmup_steps=self.warmup_steps,
+            total_steps=self.total_steps, min_lr_ratio=0.10,
+            start_step=self.step_count
+        )
+
+        if "scheduler_state_dict" in ckpt:
+            log.info("Checkpoint has scheduler_state_dict — skipping load; main.py rebuilds scheduler for recovery.")
+        elif self.step_count > 0:
+            log.warning("Checkpoint has no scheduler_state_dict (older checkpoint) — "
+                        "main.py will rebuild scheduler for recovery.")
+
+        hist_time_str = format_time_duration(self.total_training_seconds) if self.total_training_seconds > 0 else "0s"
+        log.info(f"Checkpoint loaded <- {path} (step {self.step_count:,}, tokens: {self.total_tokens/1e6:.2f}M, trained: {hist_time_str}, best_loss={self.best_loss:.4f})")
+
+
+    def _fast_forward_scheduler(self) -> None:
+        """Best-effort recovery for checkpoints saved before scheduler state
+        was tracked: replay .step() step_count times so LR lands close to
+        where it should be instead of resetting to the warmup start."""
+        import warnings
+        steps = min(self.step_count, self.total_steps)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", category=UserWarning)
+            for _ in range(steps):
+                self.scheduler.step()
