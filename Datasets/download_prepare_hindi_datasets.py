@@ -305,8 +305,12 @@ def download_indicinstruct(max_rows: int = 100_000) -> Path:
         return out
 
     count = 0
+    first_row_keys = None
     with open(out, "w", encoding="utf-8") as f:
         for row in ds:
+            if first_row_keys is None:
+                first_row_keys = list(row.keys())
+                log.info(f"  IndicInstruct first row keys: {first_row_keys}")
             text = str(row.get("text", row.get("input", row.get("instruction", "")))).strip()
             if not text or len(text) < 20:
                 continue
@@ -332,6 +336,8 @@ def download_indicinstruct(max_rows: int = 100_000) -> Path:
             if count % 10_000 == 0:
                 log.info(f"    {count:,} rows written...")
 
+    if count == 0:
+        log.warning(f"  WARNING: IndicInstruct produced 0 rows! Field names may not match. First row keys: {first_row_keys}")
     log.info(f"  IndicInstruct: {count:,} rows -> {out.name}")
     return out
 
@@ -355,13 +361,18 @@ def download_aya(max_rows: int = 100_000) -> Path:
         return out
 
     count = 0
+    first_row_keys = None
+    hindi_hit = 0
     with open(out, "w", encoding="utf-8") as f:
         for row in ds:
-            lang = str(row.get("language", "")).lower()
-            if "hindi" not in lang and "hi" not in lang:
-                continue
-            inputs = str(row.get("inputs", "")).strip()
-            targets = str(row.get("targets", "")).strip()
+            if first_row_keys is None:
+                first_row_keys = list(row.keys())
+                log.info(f"  Aya first row keys: {first_row_keys}")
+            lang = str(row.get("language", row.get("lang", ""))).lower()
+            if "hindi" in lang or "hi" in lang:
+                hindi_hit += 1
+            inputs = str(row.get("inputs", row.get("input", row.get("prompt", "")))).strip()
+            targets = str(row.get("targets", row.get("target", row.get("response", "")))).strip()
             if not inputs or not targets:
                 continue
             messages = [
@@ -375,6 +386,9 @@ def download_aya(max_rows: int = 100_000) -> Path:
             if count % 10_000 == 0:
                 log.info(f"    {count:,} rows written...")
 
+    if count == 0:
+        log.warning(f"  WARNING: Aya produced 0 rows! Field names may not match. First row keys: {first_row_keys}")
+        log.warning(f"  Hindi language matches seen: {hindi_hit} (but may have had empty inputs/targets)")
     log.info(f"  Aya: {count:,} rows -> {out.name}")
     return out
 
@@ -761,12 +775,29 @@ def main():
 
     log.info("\n" + "=" * 60)
     log.info("Done! Final file sizes:")
+    empty_warnings = []
     for f in sorted(DATASETS_DIR.glob("*.jsonl")):
         if f.name.startswith("."):
             continue
         count = _line_count(f)
         size_kb = f.stat().st_size / 1024
         log.info(f"  {f.name:50s} {count:8,} rows  {size_kb:8.1f} KB")
+        if count == 0 and f.name.startswith("expert_"):
+            empty_warnings.append(f.name)
+
+    # Also check raw files
+    for f in sorted(RAW_DIR.glob("*.jsonl")):
+        count = _line_count(f)
+        if count == 0:
+            empty_warnings.append(f"raw/{f.name}")
+
+    if empty_warnings:
+        log.warning("")
+        log.warning("WARNING: The following files have 0 rows — something went wrong:")
+        for w in empty_warnings:
+            log.warning(f"  - {w}")
+        log.warning("Check the HF dataset ID, subset name, and field names above.")
+        log.warning("Look for 'first row keys' logs to see actual field names.")
     log.info("=" * 60)
 
 
