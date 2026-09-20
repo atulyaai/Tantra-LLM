@@ -24,13 +24,13 @@ class VocabConfig:
     # there was no real id space reserved for audio/image/video tokens.
     # Call `recompute_ranges()` after changing vocab_size or the codebook
     # sizes so the four ranges stay non-overlapping and correctly sized.
-    vocab_size: int = 24609  # Real BPE tokenizer size
-    byte_bpe_vocab: int = 24609  # Real BPE tokenizer size
+    vocab_size: int = 64000  # High-capacity 64K BPE tokenizer for rich Hindi & multilingual knowledge
+    byte_bpe_vocab: int = 64000  # High-capacity 64K BPE tokenizer
     audio_codebook_size: int = 8192
     image_codebook_size: int = 8192
-    video_codebook_size: int = 111583  # 152576 - 24609 - 8192 - 8192 = 111583
+    video_codebook_size: int = 72192  # 152576 - 64000 - 8192 - 8192 = 72192
     text_range_start: int = 0
-    text_range_end: int = 24608
+    text_range_end: int = 63999
     audio_range_start: int = 24609
     audio_range_end: int = 68191
     image_range_start: int = 68192
@@ -53,8 +53,20 @@ class VocabConfig:
         "<video>": 11,
         "<tool_call>": 12,
         "<tool_result>": 13,
+        # Extended reasoning & structural tokens
+        "<thought>": 14,
+        "</thought>": 15,
+        "<code>": 16,
+        "</code>": 17,
+        # Sacred / Classical Hindi Devanagari punctuation & symbols
+        "।": 18,   # Hindi Poornaviram (danda)
+        "॥": 19,   # Hindi Deerghaviram (double danda)
+        "ॐ": 20,   # Sacred Om symbol
     })
     megabyte_patch_size: int = 8  # bytes per megabyte patch
+
+    def __post_init__(self) -> None:
+        self.recompute_ranges()
 
     def recompute_ranges(self) -> None:
         """Re-derive non-overlapping audio/image/video ranges from vocab_size
@@ -77,7 +89,7 @@ class VocabConfig:
     model_0926b_heads = 23
     model_0926b_head_dim = 64
     model_0926b_total_output_rows = 152576
-    model_0926b_text_logits_rows = 60000
+    model_0926b_text_logits_rows = 64000
 
     # ── Code & Markdown Support ─────────────────
     code_special_tokens = {

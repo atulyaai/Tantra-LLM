@@ -1397,7 +1397,7 @@ async def preview_dataset_samples(limit: int = 5):
 async def generate_multimodal_audio(request: Request):
     """Real neural TTS using edge-tts (Hindi + multilingual voices, CPU-only)."""
     body = await request.json()
-    text = body.get("text", "नमस्ते, मैं तंत्र हूँ।")
+    text = body.get("text", "नमस्ते, मैं तन्त्र हूँ।")
     voice = body.get("voice", "hi-IN-SwaraNeural")
     return await _run_edge_tts(text, voice)
 
@@ -1453,13 +1453,20 @@ async def speech_to_text(request: Request):
     Returns { transcript, language, duration }.
     """
     global _WHISPER_MODEL
+    # Support open-source openai-whisper (installed & 100% free offline CPU) or faster-whisper
+    engine = None
     try:
-        from faster_whisper import WhisperModel
+        import whisper
+        engine = "openai-whisper"
     except ImportError:
-        raise HTTPException(
-            status_code=503,
-            detail="faster-whisper not installed. Run: pip install faster-whisper"
-        )
+        try:
+            from faster_whisper import WhisperModel
+            engine = "faster-whisper"
+        except ImportError:
+            raise HTTPException(
+                status_code=503,
+                detail="Neither openai-whisper nor faster-whisper is installed. Run: pip install openai-whisper"
+            )
 
     import tempfile, os as _os
     form = await request.form()
@@ -1477,19 +1484,32 @@ async def speech_to_text(request: Request):
         tmp_path = tmp.name
 
     try:
-        if _WHISPER_MODEL is None:
-            log.info("Loading faster-whisper tiny model (first-time download ~39MB)...")
-            _WHISPER_MODEL = WhisperModel("tiny", device="cpu", compute_type="int8")
-            log.info("faster-whisper tiny model loaded.")
-
-        segments, info = _WHISPER_MODEL.transcribe(tmp_path, language="hi", beam_size=5)
-        transcript = " ".join(seg.text.strip() for seg in segments)
-        return {
-            "transcript": transcript.strip(),
-            "language": info.language,
-            "language_probability": round(info.language_probability, 3),
-            "duration": round(info.duration, 2)
-        }
+        if engine == "openai-whisper":
+            if _WHISPER_MODEL is None:
+                log.info("Loading open-source Whisper tiny model (free offline CPU, Hindi supported)...")
+                _WHISPER_MODEL = whisper.load_model("tiny", device="cpu")
+                log.info("Whisper tiny model loaded.")
+            result = _WHISPER_MODEL.transcribe(tmp_path, language="hi", fp16=False)
+            transcript = result.get("text", "").strip()
+            return {
+                "transcript": transcript,
+                "language": result.get("language", "hi"),
+                "language_probability": 0.99,
+                "duration": 0.0
+            }
+        else:
+            if _WHISPER_MODEL is None:
+                log.info("Loading faster-whisper tiny model (free offline CPU)...")
+                _WHISPER_MODEL = WhisperModel("tiny", device="cpu", compute_type="int8")
+                log.info("faster-whisper tiny model loaded.")
+            segments, info = _WHISPER_MODEL.transcribe(tmp_path, language="hi", beam_size=5)
+            transcript = " ".join(seg.text.strip() for seg in segments)
+            return {
+                "transcript": transcript.strip(),
+                "language": info.language,
+                "language_probability": round(info.language_probability, 3),
+                "duration": round(info.duration, 2)
+            }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"STT transcription failed: {e}")
     finally:

@@ -65,15 +65,13 @@ DEFAULT_CATEGORIES: List[AdapterCategory] = [
         keywords=["hello", "hi", "hey", "how are you", "tell me about", "what is", "who is",
                   "chat", "conversation", "opinion", "introduction", "yourself", "why", "explain",
                   "reason", "think", "because", "compare", "difference",
-                  # Hindi conversational keywords
-                  "namaste", "नमस्ते", "pranaam", "प्रणाम",
-                  "aap", "आप", "main", "मैं", "kya", "क्या", "kaise", "कैसे",
-                  "kya baat", "क्या बात", "achha", "अच्छा", "bure", "बुरे",
-                  "bohot", "बहुत", "kyunki", "क्योंकि", "kyun", "क्यूँ",
-                  "kahan", "कहाँ", "kab", "कब",
-                  "madad", "मदद", "sawal", "सवाल", "jawab", "जवाब",
-                  "greeting", "salutation", "बातचीत", "परिचय", "हालचाल",
-                  "बताओ", "बताइए", "विचार", "चर्चा"],
+                  # Pure Hindi Devanagari conversational keywords
+                  "नमस्ते", "प्रणाम", "नमस्कार", "तन्त्र", "तंत्र", "अतुल्य",
+                  "आप", "मैं", "क्या", "कैसे", "कैसा", "कैसी", "हालचाल",
+                  "क्या बात", "अच्छा", "बुरा", "बहुत", "क्योंकि", "क्यूँ", "क्यों",
+                  "कहाँ", "कब", "किधर", "किसका", "किसने", "मदद", "सहायता",
+                  "सवाल", "प्रश्न", "उत्तर", "जवाब", "बातचीत", "परिचय", "संवाद",
+                  "बताओ", "बताइए", "विचार", "चर्चा", "सलाह", "सुप्रभात", "शुभ संध्या"],
     ),
     AdapterCategory(
         name="math",
@@ -83,11 +81,12 @@ DEFAULT_CATEGORIES: List[AdapterCategory] = [
         keywords=["calculate", "equation", "solve", "math", "algebra", "geometry", "derivative",
                   "integral", "probability", "sum", "divide", "multiply", "square root", "logic",
                   "proof", "hypotenuse", "fraction", "percentage", "remainder", "formula",
-                  # Hindi math keywords
-                  "गणित", "जोड़", "घटाव", "गुणा", "भाग", "समीकरण", "हल", "गणना",
-                  "बीजगणित", "रेखागणित", "ज्यामिति", "त्रिकोणमिति", "अंकगणित",
-                  "वर्गमूल", "घनमूल", "भिन्न", "प्रतिशत", "औसत", "अनुपात", "प्रमेय",
-                  "सूत्र", "क्षेत्रफल", "आयतन", "परिमाप"],
+                  # Pure Hindi Devanagari math keywords
+                  "गणित", "अंकगणित", "बीजगणित", "रेखागणित", "ज्यामिति", "त्रिकोणमिति", "कलन",
+                  "जोड़", "घटाव", "गुणा", "भाग", "समीकरण", "हल", "हल करें", "गणना", "गणना करें",
+                  "वर्गमूल", "घनमूल", "भिन्न", "प्रतिशत", "औसत", "अनुपात", "समानुपात",
+                  "प्रमेय", "सूत्र", "क्षेत्रफल", "आयतन", "परिमाप", "परिधि", "त्रिज्या", "व्यास",
+                  "द्विघात", "पूर्णांक", "अभाज्य", "दशमलव", "गुणनखंड", "लघुत्तम", "महत्तम"],
     ),
     AdapterCategory(
         name="science",
@@ -97,11 +96,12 @@ DEFAULT_CATEGORIES: List[AdapterCategory] = [
         keywords=["science", "physics", "chemistry", "biology", "atom", "molecule", "gravity",
                   "enzyme", "cell", "planet", "orbit", "experiment", "hypothesis", "temperature",
                   "dna", "protein", "climate", "energy", "electrons", "photosynthesis",
-                  # Hindi science keywords
-                  "विज्ञान", "भौतिकी", "रसायन", "रसायनशास्त्र", "जीवविज्ञान",
-                  "परमाणु", "अणु", "गुरुत्वाकर्षण", "ऊर्जा", "प्रकाश संश्लेषण",
-                  "कोशिका", "तापमान", "प्रयोग", "ग्रह", "सौरमंडल", "तरंग",
-                  "चुंबक", "इलेक्ट्रॉन", "प्रोटॉन", "न्यूट्रॉन", "डीएनए"],
+                  # Pure Hindi Devanagari science keywords
+                  "विज्ञान", "भौतिकी", "भौतिकशास्त्र", "रसायन", "रसायनशास्त्र", "जीवविज्ञान", "खगोलशास्त्र",
+                  "परमाणु", "अणु", "तत्व", "यौगिक", "गुरुत्वाकर्षण", "ऊर्जा", "बल", "गति", "प्रकाश",
+                  "प्रकाश संश्लेषण", "कोशिका", "तापमान", "प्रयोग", "ग्रह", "सौरमंडल", "तारा",
+                  "तरंग", "ध्वनि", "चुंबक", "इलेक्ट्रॉन", "प्रोटॉन", "न्यूट्रॉन", "डीएनए", "आरएनए",
+                  "विद्युत", "दाब", "वातावरण", "पर्यावरण", "पारिस्थितिकी", "मानव शरीर"],
     ),
     AdapterCategory(
         name="code",
@@ -111,10 +111,10 @@ DEFAULT_CATEGORIES: List[AdapterCategory] = [
         keywords=["python", "code", "program", "function", "bug", "debug", "algorithm",
                   "compile", "library", "import", "loop", "recursion", "api", "database",
                   "syntax", "variable", "javascript", "c++", "linux", "refactor", "sql",
-                  # Hindi code keywords
-                  "कोड", "कोडिंग", "प्रोग्राम", "प्रोग्रामिंग", "फंक्शन", "एल्गोरिदम",
-                  "कलन विधि", "डिबग", "वेरिएबल", "डेटाबेस", "कंपाइलर", "सिंटेक्स",
-                  "लूप", "सॉफ्टवेयर"],
+                  # Pure Hindi Devanagari programming keywords
+                  "कोड", "कोडिंग", "प्रोग्राम", "प्रोग्रामिंग", "फंक्शन", "कलन विधि", "एल्गोरिदम",
+                  "डिबग", "त्रुटि", "वेरिएबल", "चर", "डेटाबेस", "कंपाइलर", "सिंटेक्स",
+                  "लूप", "पुनरावृत्ति", "सॉफ्टवेयर", "पायथन", "जावास्क्रिप्ट", "संरचना", "स्क्रिप्ट"],
     ),
     AdapterCategory(
         name="creative_writing",
@@ -124,9 +124,10 @@ DEFAULT_CATEGORIES: List[AdapterCategory] = [
         keywords=["write", "story", "poem", "essay", "creative", "imagine", "novel", "character",
                   "plot", "metaphor", "describe", "dialogue", "genre", "draft", "rewrite", "rhyme",
                   "scene", "narration", "inspiration",
-                  # Hindi creative writing keywords
-                  "कहानी", "कविता", "शायरी", "गीत", "निबंध", "उपन्यास", "रचना",
-                  "काल्पनिक", "पात्र", "संवाद", "पटकथा", "छंद", "अलंकार", "गद्य", "पद्य"],
+                  # Pure Hindi Devanagari creative writing keywords
+                  "कहानी", "कविता", "शायरी", "गीत", "गज़ल", "निबंध", "उपन्यास", "रचना", "साहित्य",
+                  "काल्पनिक", "पात्र", "संवाद", "पटकथा", "छंद", "अलंकार", "गद्य", "पद्य",
+                  "लेख", "लेखन", "कथा", "कल्पना", "काव्य", "रस", "दोहा", "चौपाई"],
     ),
     AdapterCategory(
         name="instructions",
@@ -136,9 +137,9 @@ DEFAULT_CATEGORIES: List[AdapterCategory] = [
         keywords=["how to", "steps", "guide", "instructions", "tutorial", "task", "plan", "list",
                   "productivity", "organize", "workflow", "schedule", "step by step", "procedure",
                   "tips", "checklist", "setup", "install", "configure",
-                  # Hindi instruction keywords
-                  "कैसे करें", "तरीका", "उपाय", "विधि", "चरण", "निर्देश", "मार्गदर्शिका",
-                  "योजना", "सुझाव", "प्रक्रिया", "कदम"],
+                  # Pure Hindi Devanagari instruction keywords
+                  "कैसे करें", "तरीका", "उपाय", "विधि", "चरण", "निर्देश", "मार्गदर्शिका", "ट्यूटोरियल",
+                  "योजना", "सुझाव", "प्रक्रिया", "कदम", "क्रमशः", "व्यवस्था", "कार्यप्रणाली", "तैयारी"],
     ),
     AdapterCategory(
         name="safety",
@@ -148,9 +149,9 @@ DEFAULT_CATEGORIES: List[AdapterCategory] = [
         keywords=["danger", "unsafe", "illegal", "harm", "ethic", "privacy", "bias", "weapon",
                   "suicide", "misinformation", "uncertain", "not sure", "does not know",
                   "safe", "responsible", "consent", "abuse", "report",
-                  # Hindi safety keywords
-                  "खतरा", "असुरक्षित", "नुकसान", "अवैध", "जहर", "हथियार",
-                  "आत्महत्या", "हिंसा", "शोषण", "हानिकारक", "गोपनीयता"],
+                  # Pure Hindi Devanagari safety keywords
+                  "खतरा", "असुरक्षित", "नुकसान", "अवैध", "गैरकानूनी", "जहर", "हथियार",
+                  "आत्महत्या", "हिंसा", "शोषण", "हानिकारक", "गोपनीयता", "सुरक्षा", "नैतिकता"],
     ),
     AdapterCategory(
         name="multilingual",
@@ -159,10 +160,11 @@ DEFAULT_CATEGORIES: List[AdapterCategory] = [
         max_depth=2,
         keywords=["english translation", "translate", "translation",
                   "translate this", "translate to", "translate sentence",
-                  "अनुवाद", "अनुवाद करें", "अनुवाद करो", "polylingual", "bilingual",
-                  "अंग्रेज़ी अनुवाद", "हिंदी अनुवाद", "का अनुवाद",
+                  # Pure Hindi Devanagari translation keywords
+                  "अनुवाद", "अनुवाद करें", "अनुवाद करो", "अंग्रेज़ी अनुवाद", "हिंदी अनुवाद",
+                  "का अनुवाद", "अंग्रेजी में अनुवाद", "हिंदी में अनुवाद", "रूपांतरण", "भाषांतर",
                   "convert to english", "transliterate", "transliteration",
-                  "translate to english", "translate to hindi", "अंग्रेजी में अनुवाद", "रूपांतरण"],
+                  "translate to english", "translate to hindi"],
     ),
 ]
 

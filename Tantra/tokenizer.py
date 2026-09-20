@@ -43,13 +43,21 @@ class ByteBPETokenizer:
         self._config = config
         self._tokenizer = None
         try:
-            from tokenizers import Tokenizer
+            from tokenizers import Tokenizer, Regex
             from tokenizers.models import BPE
-            from tokenizers.pre_tokenizers import ByteLevel
+            from tokenizers.pre_tokenizers import Split, Sequence, ByteLevel
             from tokenizers.decoders import ByteLevel as ByteLevelDecoder
 
+            # Unicode-aware regex pattern matching words + combining marks (Hindi matras \p{M})
+            # This prevents Hindi ligatures & vowels from fragmenting into individual bytes
+            unicode_split_regex = Regex(
+                r"(?i:'s|'t|'re|'ve|'m|'ll|'d)|[^\r\n\p{L}\p{N}]?[\p{L}\p{M}]+|\p{N}+|[^\s\p{L}\p{N}\p{M}]+|\s+(?!\S)|\s+"
+            )
             self._tokenizer = Tokenizer(BPE())
-            self._tokenizer.pre_tokenizer = ByteLevel(add_prefix_space=False)
+            self._tokenizer.pre_tokenizer = Sequence([
+                Split(unicode_split_regex, behavior="isolated"),
+                ByteLevel(add_prefix_space=False, use_regex=False)
+            ])
             self._tokenizer.decoder = ByteLevelDecoder()
         except ImportError:
             self._tokenizer = None
@@ -58,8 +66,20 @@ class ByteBPETokenizer:
               special_tokens: Optional[list[str]] = None) -> None:
         if self._tokenizer is None:
             return
+        from tokenizers import Regex
         from tokenizers.trainers import BpeTrainer
-        from tokenizers.pre_tokenizers import ByteLevel
+        from tokenizers.pre_tokenizers import Split, Sequence, ByteLevel
+        from tokenizers.decoders import ByteLevel as ByteLevelDecoder
+
+        unicode_split_regex = Regex(
+            r"(?i:'s|'t|'re|'ve|'m|'ll|'d)|[^\r\n\p{L}\p{N}]?[\p{L}\p{M}]+|\p{N}+|[^\s\p{L}\p{N}\p{M}]+|\s+(?!\S)|\s+"
+        )
+        self._tokenizer.pre_tokenizer = Sequence([
+            Split(unicode_split_regex, behavior="isolated"),
+            ByteLevel(add_prefix_space=False, use_regex=False)
+        ])
+        self._tokenizer.decoder = ByteLevelDecoder()
+
         if special_tokens is None:
             special_tokens = list(self._config.special_tokens.keys())
         trainer = BpeTrainer(vocab_size=vocab_size, special_tokens=special_tokens,
@@ -74,10 +94,10 @@ class ByteBPETokenizer:
                 import logging as _logging; _logging.getLogger("tantra").warning(f"Silenced exception: {e}")
         return list(text.encode("utf-8"))
 
-    def decode(self, ids: list[int]) -> str:
+    def decode(self, ids: list[int], skip_special_tokens: bool = False) -> str:
         if self._tokenizer is not None and self._tokenizer.get_vocab_size() > 0:
             try:
-                return self._tokenizer.decode(ids)
+                return self._tokenizer.decode(ids, skip_special_tokens=skip_special_tokens)
             except Exception as e:
                 import logging as _logging; _logging.getLogger("tantra").warning(f"Silenced exception: {e}")
         valid_bytes = bytes([i % 256 for i in ids])

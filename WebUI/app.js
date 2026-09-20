@@ -753,7 +753,7 @@ window.stopTrainingFromUI = stopTrainingFromUI;
 // ── 5. Native Multimodal & Web Audio Oscilloscope ───────────────────────────
 
 async function generateAudioSample() {
-    const text = document.getElementById('inp-tts-text')?.value || "नमस्ते! मैं तंत्र हूँ।";
+    const text = document.getElementById('inp-tts-text')?.value || "नमस्ते! मैं तन्त्र हूँ।";
     const voice = document.getElementById('sel-tts-voice')?.value || "hi-IN-SwaraNeural";
 
     const container = document.getElementById('audio-player-container');

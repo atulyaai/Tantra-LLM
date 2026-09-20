@@ -137,7 +137,14 @@ def format_jsonl_prompt(item: Dict[str, Any]) -> str:
     if assistant:
         parts.append(f"<|assistant|>\n{assistant}")
 
-    return "\n\n".join(parts)
+    if parts:
+        return "\n\n".join(parts)
+
+    raw_text = item.get("text", "")
+    if isinstance(raw_text, str) and raw_text.strip():
+        return raw_text.strip()
+
+    return ""
 
 
 def build_prompt_segments(item: Dict[str, Any]) -> Optional[List[Tuple[str, bool]]]:
@@ -798,9 +805,11 @@ def extract_corpus_sample(jsonl_source: Any, output_txt_path: str, max_lines: Op
                 f_size_mb = 1.0
 
             if "math" in fname:
-                per_file_max = max(15000, min(int(f_size_mb * 500), 50000))
+                per_file_max = max(3000, min(int(f_size_mb * 100), 8000))
+            elif "identity" in fname:
+                per_file_max = None  # Include all identity samples
             else:
-                per_file_max = max(30000, min(int(f_size_mb * 1000), 250000))
+                per_file_max = max(10000, min(int(f_size_mb * 200), 30000))
 
             with open(f_in_path, "r", encoding="utf-8", errors="ignore") as f_in:
                 for line in f_in:
@@ -1031,7 +1040,7 @@ class DPODataset(IterableDataset):
 
 CURRICULUM_TRACKS = {
     "expert_conversation.jsonl": ["conversation", "dialogue", "greeting", "persona", "chat", "identity",
-                                  "नमस्ते", "प्रणाम", "हालचाल", "बातचीत", "परिचय"],
+                                  "नमस्ते", "प्रणाम", "हालचाल", "बातचीत", "परिचय", "तन्त्र", "तंत्र"],
     "expert_code.jsonl": ["code", "python", "javascript", "cpp", "java", "sql", "algorithm", "function",
                           "कोड", "प्रोग्राम", "प्रोग्रामिंग", "फंक्शन"],
     "expert_math_science.jsonl": ["math", "science", "physics", "gsm8k", "algebra", "arithmetic", "chemistry", "biology",
@@ -2397,12 +2406,14 @@ def build_4track_curriculum(datasets_dir: str = "Datasets", force: bool = False)
             continue
         src_name = os.path.basename(src).lower()
         default_track = None
-        if "conversation" in src_name or "chitchat" in src_name:
+        if "conversation" in src_name or "chitchat" in src_name or "identity" in src_name or "instruct" in src_name or "alpaca" in src_name or "evol" in src_name:
             default_track = "expert_conversation.jsonl"
         elif "code" in src_name:
             default_track = "expert_code.jsonl"
-        elif "math" in src_name:
+        elif "math" in src_name or "gsm8k" in src_name:
             default_track = "expert_math_science.jsonl"
+        elif "general" in src_name or "wiki" in src_name or "indicorp" in src_name or "fineweb" in src_name or "samanantar" in src_name or "translation" in src_name:
+            default_track = "expert_general.jsonl"
 
         with open(src, "r", encoding="utf-8", errors="ignore") as f:
             for line in f:

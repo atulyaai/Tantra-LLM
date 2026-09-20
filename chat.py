@@ -6,7 +6,7 @@ from tokenizers import Tokenizer
 from Tantra.utils import safe_load_checkpoint
 from Tantra.model import NeuroCoreModel
 
-SYS_PROMPT = "आप तंत्र हैं, एक सहायक, सटीक और विनम्र AI सहायक जो अतुल्य AI द्वारा बनाया गया है। हिंदी में उत्तर दें।"
+SYS_PROMPT = "आप तन्त्र हैं, एक सहायक, सटीक और विनम्र AI सहायक जो अतुल्य AI द्वारा बनाया गया है। हिंदी में उत्तर दें।"
 
 
 def _find_latest_checkpoint():
@@ -100,7 +100,7 @@ def _speak_text(text: str):
 
 # Interactive chat
 print("=" * 60)
-print(f"  तंत्र चैट - Hindi LLM Interactive Mode {'[Voice ON]' if USE_SPEAK else '[Voice OFF (use --speak to enable)]'}")
+print(f"  तन्त्र चैट - Hindi LLM Interactive Mode {'[Voice ON]' if USE_SPEAK else '[Voice OFF (use --speak to enable)]'}")
 print("  Type 'quit' to exit")
 print("=" * 60)
 
@@ -132,6 +132,6 @@ while True:
         new_ids = new_ids[:new_ids.index(EOS)]
 
     response = tok.decode(new_ids).strip()
-    print(f"\nतंत्र: {response}")
+    print(f"\nतन्त्र: {response}")
     if USE_SPEAK:
         _speak_text(response)
