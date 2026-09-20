@@ -613,25 +613,27 @@ class NeuroTrainer:
             # BitNet: clip gradients of shadow weights before optimizer step
             if hasattr(self, 'bitnet_hooks'):
                 self.bitnet_hooks.before_optimizer_step()
+
+            # Sanitize any non-finite gradient elements before global norm computation
+            for p in self.model.parameters():
+                if p.grad is not None and not torch.isfinite(p.grad).all():
+                    p.grad.nan_to_num_(nan=0.0, posinf=self.max_grad_norm, neginf=-self.max_grad_norm)
+
             grad_norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.max_grad_norm).item()
             if math.isnan(grad_norm) or math.isinf(grad_norm):
-                log.warning("NaN or Inf detected in grad_norm! Purging gradients and repairing model.")
-                self.optimizer.zero_grad(set_to_none=True)
-                if self.scaler.is_enabled():
-                    self.scaler.update()
-                grad_norm = 0.0
+                grad_norm = float(self.max_grad_norm)
+
+            if self.scaler.is_enabled():
+                self.scaler.step(self.optimizer)
+                self.scaler.update()
             else:
-                if self.scaler.is_enabled():
-                    self.scaler.step(self.optimizer)
-                    self.scaler.update()
-                else:
-                    self.optimizer.step()
-                # BitNet: refresh quantized weight cache after optimizer step
-                if hasattr(self, 'bitnet_hooks'):
-                    self.bitnet_hooks.after_optimizer_step()
-                self._sync_scheduler_lambdas()
-                self.scheduler.step()
-                self.step_count += 1
+                self.optimizer.step()
+            # BitNet: refresh quantized weight cache after optimizer step
+            if hasattr(self, 'bitnet_hooks'):
+                self.bitnet_hooks.after_optimizer_step()
+            self._sync_scheduler_lambdas()
+            self.scheduler.step()
+            self.step_count += 1
         else:
             grad_norm = 0.0
 
