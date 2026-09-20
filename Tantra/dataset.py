@@ -558,6 +558,15 @@ class JSONLDataset(IterableDataset):
         count = 0
         lines_seen = 0
         line_idx = -1
+        dist_rank = 0
+        dist_world_size = 1
+        if torch.distributed.is_available() and torch.distributed.is_initialized():
+            dist_rank = torch.distributed.get_rank()
+            dist_world_size = torch.distributed.get_world_size()
+
+        total_parallel_workers = num_workers * dist_world_size
+        global_worker_id = dist_rank * num_workers + worker_id
+
         token_buffer: List[int] = []
         mask_buffer: List[bool] = []
         epoch = 0
@@ -565,7 +574,7 @@ class JSONLDataset(IterableDataset):
         def _process_line(raw_line: str) -> List[Tuple[torch.Tensor, torch.Tensor]]:
             nonlocal lines_seen, line_idx, token_buffer, mask_buffer
             line_idx += 1
-            if num_workers > 1 and (line_idx % num_workers) != worker_id:
+            if total_parallel_workers > 1 and (line_idx % total_parallel_workers) != global_worker_id:
                 return []
             lines_seen += 1
 

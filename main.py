@@ -225,15 +225,15 @@ def auto_detect_config(args, model_layers=None, model_dim=None, model_heads=None
 
     fresh = ckpt_path is None
 
-    # Bug 1: enforce minimum batch size >= GPU count for DataParallel
-    if torch.cuda.is_available() and torch.cuda.device_count() > 1:
+    # Enforce minimum batch size >= GPU count for DataParallel / DDP
+    if torch.cuda.is_available() and torch.cuda.device_count() > 1 and not getattr(args, "single_gpu", False):
         gpu_count = torch.cuda.device_count()
-        if args.batch_size < gpu_count:
-            log.warning(f"[Auto-Config] batch_size={args.batch_size} < GPU count={gpu_count}. Raising to {gpu_count}.")
-            args.batch_size = gpu_count
+        if batch_size < gpu_count:
+            log.warning(f"[Auto-Config] batch_size={batch_size} < GPU count={gpu_count}. Raising to {gpu_count}.")
+            batch_size = gpu_count
 
-    result = {"batch_size": args.batch_size, "seq_len": args.seq_len, "fresh": fresh}
-    log.info(f"[Auto-Config] Optimal batch_size={args.batch_size}, seq_len={args.seq_len}, fresh={fresh} (max_batch_seq={max_batch_seq}, gpu_count={gpu_count})")
+    result = {"batch_size": batch_size, "seq_len": seq_len, "fresh": fresh}
+    log.info(f"[Auto-Config] Optimal batch_size={batch_size}, seq_len={seq_len}, fresh={fresh} (max_batch_seq={max_batch_seq}, gpu_count={gpu_count})")
     return result
 
 
@@ -1435,6 +1435,7 @@ def main():
     parser.add_argument("--port", type=int, default=8000, help="Server port (serve mode)")
     parser.add_argument("--device", type=str, default="auto", help="Compute device: auto, cpu, cuda, cuda:0, mps")
     parser.add_argument("--single-gpu", "--no-data-parallel", dest="single_gpu", action="store_true", default=False, help="Force single-GPU execution even if multiple GPUs are available (avoids DataParallel PCIe overhead)")
+    parser.add_argument("--ddp", action="store_true", default=False, help="Enable DistributedDataParallel (DDP) multi-GPU training")
     parser.add_argument("--resume", action="store_true", help="Resume from latest checkpoint if available")
     parser.add_argument("--fresh", action="store_true", help="Start fresh on official 38.6M architecture without reading previous checkpoints")
     parser.add_argument("--eval-every", type=int, default=500, help="Run a qualitative generation sample and archive checkpoint every N steps")
@@ -1497,6 +1498,25 @@ def main():
     parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
     parser.add_argument("--auto-config", action="store_true", default=False, help="Auto-detect optimal batch_size/seq_len based on available VRAM; auto-select --fresh/--resume based on checkpoint availability")
     args = parser.parse_args()
+
+    # ── Multi-GPU Distributed Setup (DDP / torchrun) ──────────────────────────
+    local_rank = int(os.environ.get("LOCAL_RANK", 0))
+    global_rank = int(os.environ.get("RANK", 0))
+    world_size = int(os.environ.get("WORLD_SIZE", 1))
+    is_distributed_launch = (
+        ("LOCAL_RANK" in os.environ or getattr(args, "ddp", False))
+        and not getattr(args, "single_gpu", False)
+        and torch.cuda.is_available()
+    )
+
+    if is_distributed_launch:
+        torch.cuda.set_device(local_rank)
+        if not torch.distributed.is_initialized():
+            backend = "nccl" if torch.distributed.is_nccl_available() else "gloo"
+            torch.distributed.init_process_group(backend=backend)
+            log.info(f"[DDP Init] Initialized rank {global_rank}/{world_size} on local GPU cuda:{local_rank} (backend={backend})")
+            import atexit
+            atexit.register(lambda: torch.distributed.destroy_process_group() if torch.distributed.is_available() and torch.distributed.is_initialized() else None)
 
     #  Data Directory Support 
     # If --data-dir is specified, search it for .jsonl files
@@ -1592,8 +1612,9 @@ def main():
     if args.device == "auto":
         # Auto-detect best available device
         if torch.cuda.is_available():
-            rt.device = "cuda:0"
-            log.info(f"  [HYBRID] CUDA GPU detected → using {torch.cuda.get_device_name(0)}")
+            target_cuda_id = local_rank if torch.distributed.is_initialized() else 0
+            rt.device = f"cuda:{target_cuda_id}"
+            log.info(f"  [HYBRID] CUDA GPU detected → using {torch.cuda.get_device_name(target_cuda_id)} ({rt.device})")
         elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
             rt.device = "mps"
             log.info(f"  [HYBRID] Apple MPS detected → using Metal GPU")
@@ -1603,7 +1624,11 @@ def main():
     else:
         # Manual override with validation
         requested = args.device
-        if requested.startswith("cuda") and not torch.cuda.is_available():
+        if requested == "cuda" and torch.cuda.is_available():
+            target_cuda_id = local_rank if torch.distributed.is_initialized() else 0
+            rt.device = f"cuda:{target_cuda_id}"
+            log.info(f"  [DEVICE OVERRIDE] Target device set to: {rt.device}")
+        elif requested.startswith("cuda") and not torch.cuda.is_available():
             log.warning(f"  [DEVICE] CUDA requested but not available! Falling back to CPU.")
             rt.device = "cpu"
         elif requested == "mps" and not (hasattr(torch.backends, 'mps') and torch.backends.mps.is_available()):
@@ -1740,7 +1765,7 @@ def main():
     model = init_model(mcfg, rt.device, compatibility_legacy_moe=legacy_checkpoint_compat)
     use_ddp = (
         torch.cuda.is_available()
-        and torch.cuda.device_count() > 1
+        and (torch.cuda.device_count() > 1 or torch.distributed.is_initialized())
         and args.device in ("cuda", "auto")
         and not getattr(args, "single_gpu", False)
         and args.mode in ("train", "dataset", "auto-pilot", "dpo")
@@ -1755,8 +1780,13 @@ def main():
         and not torch.distributed.is_initialized()
     )
     if use_ddp:
-        log.info(f"  [Multi-GPU DDP] Enabling {torch.cuda.device_count()}x GPUs via DistributedDataParallel.")
-        model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[rt.device], output_device=rt.device)
+        log.info(f"  [Multi-GPU DDP] Enabling rank {global_rank}/{world_size} on GPU {local_rank} via DistributedDataParallel.")
+        model = torch.nn.parallel.DistributedDataParallel(
+            model,
+            device_ids=[local_rank],
+            output_device=local_rank,
+            find_unused_parameters=True
+        )
     elif use_dp:
         log.info(f"  [Multi-GPU DataParallel] Enabling {torch.cuda.device_count()}x GPUs for parallel batch execution.")
         model = torch.nn.DataParallel(model)
@@ -1769,7 +1799,8 @@ def main():
     if args.adapter is not None and args.mode in ("dataset", "chat", "generate", "serve"):
         model = build_adapter_model(rt)
 
-    trainer = NeuroTrainer(model, lr=1e-4, optimizer_name=args.optimizer if args.optimizer else "adamw")
+    resolved_lr_initial = args.lr if args.lr is not None else (5e-5 if (args.optimizer or "").lower() == "lion" else 1e-4)
+    trainer = NeuroTrainer(model, lr=resolved_lr_initial, optimizer_name=args.optimizer if args.optimizer else "adamw")
     # Check if a checkpoint exists for status — use LATEST_DIR constant (capital L)
     # not the literal "latest" path which never matches on Windows.
     if args.mode == "status":

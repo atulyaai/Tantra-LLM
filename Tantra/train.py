@@ -235,7 +235,7 @@ def build_optimizer(
 class NeuroTrainer:
     """Minimal, robust trainer for NeuroCore models."""
 
-    def __init__(self, model: nn.Module, lr: float = 3e-4, weight_decay: float = 0.01,
+    def __init__(self, model: nn.Module, lr: Optional[float] = None, weight_decay: Optional[float] = None,
                  optimizer_name: str = "adamw",
                  total_steps: int = 100000, warmup_steps: int = 1000,
                  grad_accumulation_steps: int = 1, use_latent_reasoning: bool = True,
@@ -243,6 +243,10 @@ class NeuroTrainer:
                  max_grad_norm: float = 1.0):
         self.model = model
         self.optimizer_name = optimizer_name.lower().strip()
+        if lr is None:
+            lr = 5e-5 if self.optimizer_name == "lion" else 1e-4
+        if weight_decay is None:
+            weight_decay = 0.05 if self.optimizer_name == "lion" else 0.01
         self.use_latent_reasoning = use_latent_reasoning
         self.use_mtp_loss = use_mtp_loss
         self.mtp_loss_weight = float(mtp_loss_weight)
@@ -1373,6 +1377,10 @@ class NeuroTrainer:
 
     def save_checkpoint(self, path: str, save_optimizer: bool = True, async_write: bool = False) -> None:
         """Save model checkpoint with self-contained tokenizer and max 2 checkpoint history cleanup."""
+        # Multi-GPU DDP guard: only rank 0 persists checkpoints to disk
+        if torch.distributed.is_available() and torch.distributed.is_initialized():
+            if torch.distributed.get_rank() != 0:
+                return
         raw_model = self.model
         while hasattr(raw_model, "module"):
             raw_model = raw_model.module
@@ -1591,6 +1599,9 @@ class NeuroTrainer:
     def export_tokenizer_and_vocab(target_dir: str) -> None:
         """Export tokenizer.json, vocab.json, merges.txt, special_tokens_map.json,
         and tokenizer_config.json into target_dir and root Model/ directory."""
+        if torch.distributed.is_available() and torch.distributed.is_initialized():
+            if torch.distributed.get_rank() != 0:
+                return
         os.makedirs(target_dir, exist_ok=True)
         source_tok = None
         for cand in [os.path.join("Model", "tokenizer.json"), "tokenizer.json", os.path.join(target_dir, "..", "tokenizer.json")]:

@@ -58,7 +58,12 @@ def get_logger(name: str) -> logging.Logger:
             handler = FlushStreamHandler(sys.stdout)
             handler.setFormatter(logging.Formatter("[%(asctime)s] %(levelname)s: %(message)s", datefmt="%H:%M:%S"))
         logger.addHandler(handler)
-        logger.setLevel(logging.INFO)
+        # Suppress non-zero DDP ranks from flooding the console with duplicate INFO logs
+        global_rank = int(os.environ.get("RANK", os.environ.get("LOCAL_RANK", 0)))
+        if global_rank != 0:
+            logger.setLevel(logging.WARNING)
+        else:
+            logger.setLevel(logging.INFO)
     return logger
 
 
