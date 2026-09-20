@@ -86,12 +86,13 @@ check_*.py
 Thumbs.db
 *.bak
 
-# Auto-generated/tracked model artifacts (never commit)
-Model/tokenizer.json
-Model/merges.txt
-Model/vocab.json
-Model/tokenizer_config.json
-Model/special_tokens_map.json
+# Model tokenizer artifacts — tracked for Kaggle/HF model uploads
+# (checkpoint .pt files excluded due to GitHub 100MB limit — use Kaggle dataset upload instead)
+!Model/tokenizer.json
+!Model/merges.txt
+!Model/vocab.json
+!Model/tokenizer_config.json
+!Model/special_tokens_map.json
 Model/Best/
 Model/Checkpoints/
 Model/Latest/
@@ -99,8 +100,11 @@ Model/Export/
 Model/Adapters/
 Model/Experts/
 Model/LaptopTrain/
+Model/corpus_sample.txt
 Model/training_status.json
 Model/saved_chats.json
+Model/memory_bank.json
+
 
 # Redundant datasets (duplicates/removed)
 Datasets/tantra_coding.jsonl
