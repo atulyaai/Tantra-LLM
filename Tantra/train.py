@@ -1552,6 +1552,42 @@ class NeuroTrainer:
                         pass
 
     @staticmethod
+    def safe_copy_checkpoint(src: str, dst: str) -> None:
+        """Safely copy a checkpoint file AND its .meta.json sidecar together.
+
+        BUG-09 PREVENTION: Always use this method instead of raw shutil.copy2()
+        when manually moving/backing up checkpoint files. Copying only the .pt
+        without the .meta.json causes a metadata desync where the auto-resume
+        system (_get_step_num) reads a stale step count from the orphaned
+        .meta.json sidecar, causing the wrong checkpoint to be loaded.
+
+        Args:
+            src: Path to the source .pt checkpoint file.
+            dst: Path to the destination .pt checkpoint file.
+        """
+        import shutil
+        os.makedirs(os.path.dirname(dst) or ".", exist_ok=True)
+
+        # Copy the .pt weights file
+        shutil.copy2(src, dst)
+        log.info(f" [SAFE COPY] {os.path.basename(src)} -> {dst}")
+
+        # Copy the .meta.json sidecar if it exists
+        src_meta = src + ".meta.json"
+        dst_meta = dst + ".meta.json"
+        if os.path.exists(src_meta):
+            shutil.copy2(src_meta, dst_meta)
+            log.info(f" [SAFE COPY] {os.path.basename(src_meta)} -> {dst_meta}")
+        else:
+            # No source meta — remove any stale destination meta to prevent desync
+            if os.path.exists(dst_meta):
+                try:
+                    os.remove(dst_meta)
+                    log.info(f" [SAFE COPY] Removed stale {os.path.basename(dst_meta)} (no source meta exists)")
+                except OSError:
+                    pass
+
+    @staticmethod
     def export_tokenizer_and_vocab(target_dir: str) -> None:
         """Export tokenizer.json, vocab.json, merges.txt, special_tokens_map.json,
         and tokenizer_config.json into target_dir and root Model/ directory."""
@@ -1847,6 +1883,27 @@ class NeuroTrainer:
 
         hist_time_str = format_time_duration(self.total_training_seconds) if self.total_training_seconds > 0 else "0s"
         log.info(f"Checkpoint loaded <- {path} (step {self.step_count:,}, tokens: {self.total_tokens/1e6:.2f}M, trained: {hist_time_str}, best_loss={self.best_loss:.4f})")
+
+        # BUG-09: Cross-check .meta.json sidecar against the .pt file's internal step_count.
+        # If they disagree, the sidecar is stale (e.g. from a manual file copy that didn't
+        # include the .meta.json twin). Warn loudly so the user can fix it.
+        _orig_path = path  # path may have been rewritten for .dna decompression
+        _meta_check_path = _orig_path + ".meta.json"
+        if os.path.exists(_meta_check_path):
+            try:
+                import json as _json_check
+                with open(_meta_check_path, "r", encoding="utf-8") as _mf:
+                    _sidecar = _json_check.load(_mf)
+                _sidecar_step = int(_sidecar.get("step_count", _sidecar.get("step", -1)))
+                if _sidecar_step >= 0 and _sidecar_step != self.step_count:
+                    log.warning(
+                        f"⚠ METADATA DESYNC: {os.path.basename(_meta_check_path)} records step={_sidecar_step} "
+                        f"but the .pt file contains step_count={self.step_count}. "
+                        f"The sidecar is stale — this can cause auto-resume to load the wrong checkpoint. "
+                        f"Use NeuroTrainer.safe_copy_checkpoint() to copy checkpoints safely."
+                    )
+            except Exception:
+                pass
 
 
     def _fast_forward_scheduler(self) -> None:

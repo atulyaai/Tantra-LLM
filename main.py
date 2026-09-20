@@ -640,7 +640,26 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
                 candidates.extend(glob.glob(os.path.join(d, "**", "*.pt"), recursive=True))
 
         def _get_step_num(p: str) -> int:
+            """Return a sort key for checkpoint ranking during auto-resume.
+
+            BUG-09 FIX: Files named 'latest' or 'best' always get top priority
+            (999999999 / 999999998) regardless of what their .meta.json says.
+            This prevents a stale/orphaned .meta.json sidecar from silently
+            lowering the rank of checkpoint_latest.pt after a manual file copy
+            that didn't include the .meta.json twin.
+            """
             import re
+            basename = os.path.basename(p).lower()
+
+            # Priority 1: "latest" and "best" files always win, unconditionally.
+            # These are the canonical checkpoints and must never be outranked by
+            # numbered checkpoints just because of a stale .meta.json step count.
+            if "latest" in basename:
+                return 999999999
+            if "best" in basename:
+                return 999999998
+
+            # Priority 2: read actual step from .meta.json sidecar (for numbered checkpoints)
             meta = p + ".meta.json"
             if os.path.exists(meta):
                 try:
@@ -651,17 +670,19 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
                             return int(recorded)
                 except Exception:
                     pass
-            m = re.search(r'(?:step_?|checkpoint_?)(\d+)', os.path.basename(p), re.IGNORECASE)
+
+            # Priority 3: extract step number from filename
+            m = re.search(r'(?:step_?|checkpoint_?)(\d+)', basename, re.IGNORECASE)
             if m:
                 return int(m.group(1))
-            if "latest" in os.path.basename(p).lower():
-                return 999999999
-            if "best" in os.path.basename(p).lower():
-                return 999999998
             return 0
 
         # Sort candidates descending by step count so highest milestone (e.g. step 31000) is loaded first
         sorted_candidates = sorted(list(set(candidates)), key=_get_step_num, reverse=True)
+        if sorted_candidates:
+            log.info(f"Auto-resume: found {len(sorted_candidates)} checkpoint candidate(s), ranked by priority:")
+            for _i, _c in enumerate(sorted_candidates[:10]):  # show top 10
+                log.info(f"  #{_i+1}: {os.path.basename(_c)} (sort_key={_get_step_num(_c)})")
         seen = set()
         for candidate in sorted_candidates:
             if candidate in seen or not os.path.isfile(candidate) or "sample" in candidate:
@@ -673,6 +694,23 @@ def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False,
                 if reset_opt:
                     log.info("  Stage is SFT — resetting optimizer for fresh momentum on new data distribution.")
                 trainer.load_checkpoint(candidate, reset_optimizer=reset_opt)
+                # BUG-09: Detect metadata desync — .meta.json step vs actual .pt step
+                _meta_path = candidate + ".meta.json"
+                if os.path.exists(_meta_path):
+                    try:
+                        with open(_meta_path, "r") as _mf:
+                            _meta_data = json.load(_mf)
+                        _meta_step = int(_meta_data.get("step", _meta_data.get("step_count", -1)))
+                        _pt_step = int(trainer.step_count)
+                        if _meta_step >= 0 and _meta_step != _pt_step:
+                            log.warning(
+                                f"  ⚠ METADATA DESYNC DETECTED: {os.path.basename(candidate)}.meta.json says step={_meta_step} "
+                                f"but the .pt file contains step={_pt_step}. The .meta.json sidecar is stale — "
+                                f"likely from a manual file copy that didn't include the .meta.json twin. "
+                                f"Using the .pt file's internal step count ({_pt_step}) as the source of truth."
+                            )
+                    except Exception:
+                        pass
                 resume_target = candidate
                 break
             except Exception as exc:
