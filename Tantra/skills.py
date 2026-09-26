@@ -43,19 +43,64 @@ def hindi(text: str) -> bool:
     return bool(DEV.search(text) or _HINGLISH.search(text))
 
 
-def indian(n: float, digits: int = 4) -> str:
-    """1234567.5 -> 12,34,567.5 (Indian grouping)."""
+# Region: how numbers, money, tax, dates and BMI are shown. Set from Settings (assistant.json "region");
+# "auto" picks from the computer's locale. The same tools work worldwide.
+REGIONS = {
+    "IN": {"currency": "₹", "grouping": "indian", "tax": "GST", "tax_rate": 18, "date_order": "dmy", "bmi": "asian"},
+    "US": {"currency": "$", "grouping": "international", "tax": "sales tax", "tax_rate": 8, "date_order": "mdy", "bmi": "who"},
+    "GB": {"currency": "£", "grouping": "international", "tax": "VAT", "tax_rate": 20, "date_order": "dmy", "bmi": "who"},
+    "EU": {"currency": "€", "grouping": "international", "tax": "VAT", "tax_rate": 20, "date_order": "dmy", "bmi": "who"},
+    "AE": {"currency": "AED ", "grouping": "international", "tax": "VAT", "tax_rate": 5, "date_order": "dmy", "bmi": "who"},
+    "AU": {"currency": "A$", "grouping": "international", "tax": "GST", "tax_rate": 10, "date_order": "dmy", "bmi": "who"},
+    "CA": {"currency": "C$", "grouping": "international", "tax": "GST", "tax_rate": 5, "date_order": "dmy", "bmi": "who"},
+    "SG": {"currency": "S$", "grouping": "international", "tax": "GST", "tax_rate": 9, "date_order": "dmy", "bmi": "asian"},
+    "JP": {"currency": "¥", "grouping": "international", "tax": "consumption tax", "tax_rate": 10, "date_order": "ymd", "bmi": "asian"},
+    "NP": {"currency": "रू ", "grouping": "indian", "tax": "VAT", "tax_rate": 13, "date_order": "dmy", "bmi": "asian"},
+    "PK": {"currency": "Rs ", "grouping": "indian", "tax": "GST", "tax_rate": 18, "date_order": "dmy", "bmi": "asian"},
+    "BD": {"currency": "৳", "grouping": "indian", "tax": "VAT", "tax_rate": 15, "date_order": "dmy", "bmi": "asian"},
+}
+REGION: Dict[str, Any] = dict(REGIONS["IN"], code="IN")
+
+
+def detect_region() -> str:
+    import locale
+    try:
+        loc = (locale.getlocale()[0] or locale.getdefaultlocale()[0] or "")
+    except Exception:
+        loc = ""
+    code = loc.replace("-", "_").split("_")[-1].upper()[:2] if "_" in loc.replace("-", "_") else ""
+    if code in REGIONS:
+        return code
+    if code in {"DE", "FR", "IT", "ES", "NL", "IE", "PT", "AT", "BE", "FI", "GR"}:
+        return "EU"
+    return "IN" if not code else "US" if code not in REGIONS else code
+
+
+def set_region(code: str = "auto", overrides: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    code = detect_region() if code in ("", "auto", None) else code.upper()
+    REGION.clear()
+    REGION.update(REGIONS.get(code, REGIONS["US"]), code=code, **(overrides or {}))
+    return REGION
+
+
+def indian(n: float, digits: int = 4, grouping: Optional[str] = None) -> str:
+    """Format a number with the region's grouping: 12,34,567.5 (Indian) or 1,234,567.5 (international)."""
     if isinstance(n, float) and (math.isinf(n) or math.isnan(n)):
         return str(n)
     neg = n < 0
     n = abs(n)
     s = f"{n:.{digits}f}".rstrip("0").rstrip(".") if isinstance(n, float) and n != int(n) else str(int(round(n)))
     whole, _, frac = s.partition(".")
-    if len(whole) > 3:
-        head, tail = whole[:-3], whole[-3:]
-        head = re.sub(r"(\d)(?=(\d\d)+$)", r"\1,", head)
-        whole = head + "," + tail
+    if (grouping or REGION.get("grouping")) == "indian":
+        if len(whole) > 3:
+            head, tail = whole[:-3], whole[-3:]
+            whole = re.sub(r"(\d)(?=(\d\d)+$)", r"\1,", head) + "," + tail
+    else:
+        whole = f"{int(whole):,}"
     return ("-" if neg else "") + whole + ("." + frac if frac else "")
+
+
+fmt_num = indian   # clearer name for new code; same function
 
 
 # ── calculator (safe: only numbers and arithmetic, no names or calls) ───────
@@ -163,6 +208,12 @@ _UNITS = {  # name -> (kind, factor to base)
     "thousand": ("num", 1e3), "hazar": ("num", 1e3), "हज़ार": ("num", 1e3), "हजार": ("num", 1e3),
     "lakh": ("num", 1e5), "lac": ("num", 1e5), "लाख": ("num", 1e5), "million": ("num", 1e6), "मिलियन": ("num", 1e6),
     "crore": ("num", 1e7), "करोड़": ("num", 1e7), "billion": ("num", 1e9), "अरब": ("num", 1e9), "arab": ("num", 1e9),
+    "acre": ("area", 4046.8564224), "acres": ("area", 4046.8564224), "एकड़": ("area", 4046.8564224),
+    "hectare": ("area", 1e4), "hectares": ("area", 1e4), "हेक्टेयर": ("area", 1e4),
+    "sqft": ("area", .09290304), "sq.ft": ("area", .09290304), "sqm": ("area", 1), "gaj": ("area", .83612736),
+    "गज": ("area", .83612736), "bigha": ("area", 2529.29), "बीघा": ("area", 2529.29),
+    "km/h": ("speed", 1 / 3.6), "kmph": ("speed", 1 / 3.6), "mph": ("speed", .44704), "m/s": ("speed", 1),
+    "kb": ("data", 1e3), "mb": ("data", 1e6), "gb": ("data", 1e9), "tb": ("data", 1e12),
     "c": ("temp", "c"), "celsius": ("temp", "c"), "°c": ("temp", "c"), "सेल्सियस": ("temp", "c"),
     "f": ("temp", "f"), "fahrenheit": ("temp", "f"), "°f": ("temp", "f"), "फ़ारेनहाइट": ("temp", "f"),
 }
@@ -293,7 +344,10 @@ def handle(text: str, ctx: Optional[Dict[str, Any]] = None) -> Optional[Skill]:
     if not text or len(text) > 500:
         return None
     ctx = ctx or {}
-    for fn in (lambda t: assistant_skills(t, ctx), calculator, units, lambda t: time_date(t, ctx.get("now"))):
+    from Tantra.tools import bmi, dates, money, random_tools, words
+    today = (ctx.get("now") or dt.datetime.now()).date()
+    for fn in (lambda t: assistant_skills(t, ctx), money, lambda t: dates(t, today), words, bmi, random_tools,
+               calculator, units, lambda t: time_date(t, ctx.get("now"))):
         try:
             r = fn(text)
         except Exception:   # a skill must never break chat

@@ -145,6 +145,7 @@
         <div class="orb-wrap">
           <button id="orb" class="orb" aria-label="Start or stop voice conversation"><span class="bars"><i></i><i></i><i></i><i></i><i></i></span></button>
           <span id="voice-state" class="voice-state">Tap to start</span>
+          <span id="voice-ready" class="hint"></span>
           <p id="voice-live" class="voice-live"></p>
           <span class="hint">Say “रुको” or press Space to interrupt. Speech-to-text runs offline (Whisper).</span>
         </div>
@@ -301,6 +302,12 @@
               <label>Tagline <input id="cfg-tagline"></label>
               <label>Reply language for built-in answers
                 <select id="cfg-language"><option value="auto">auto (same as the question)</option><option value="hi">हिंदी</option><option value="en">English</option></select></label>
+              <label>Region — currency, tax, date order, number words, BMI
+                <select id="cfg-region"><option value="auto">Automatic (this computer)</option><option value="IN">India ₹ GST</option>
+                  <option value="US">United States $ sales tax</option><option value="GB">United Kingdom £ VAT</option><option value="EU">Europe € VAT</option>
+                  <option value="AE">UAE AED VAT</option><option value="AU">Australia A$ GST</option><option value="CA">Canada C$ GST</option>
+                  <option value="SG">Singapore S$ GST</option><option value="JP">Japan ¥</option><option value="NP">Nepal रू VAT</option>
+                  <option value="PK">Pakistan Rs GST</option><option value="BD">Bangladesh ৳ VAT</option></select></label>
               <label class="check"><input id="cfg-early_model_note" type="checkbox"> Show the “model still early in training” notice</label>
               <button class="primary">Save</button>
             </form>

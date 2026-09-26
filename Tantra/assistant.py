@@ -21,12 +21,17 @@ DEFAULTS: Dict[str, Any] = {
     "name_hi": "तन्त्र",
     "tagline": "Hindi-first AI",
     "language": "auto",                 # auto | hi | en : reply language for built-in answers
+    "region": "auto",                   # auto (from this computer) | IN US GB EU AE AU CA SG JP NP PK BD: money, tax, dates, BMI
     "suggestions": ["नमस्ते, आप कौन हैं?", "250 × 18 + 5%", "आज कौन सा दिन है?",
                     "10 मिनट बाद याद दिलाना चाय बनानी है", "5 lakh in million", "भारत की राजधानी क्या है?"],
     "skill_examples": [["Calculator", "250 × 18 + 5%"], ["समय / तारीख", "आज कौन सा दिन है?"],
                        ["Units", "5 lakh in million"], ["Remember", "याद रखो: "],
                        ["Reminder", "10 मिनट बाद याद दिलाना "], ["Daily brief", "आज का brief"],
-                       ["System status", "training कैसी चल रही है?"], ["Find files", "files: "]],
+                       ["System status", "training कैसी चल रही है?"], ["Find files", "files: "],
+                       ["Loan EMI", "EMI for 5 lakh at 9% for 3 years"], ["Tax", "18% tax on 2500"],
+                       ["Discount", "20% discount on 1499"], ["Days until", "how many days until 25 December"],
+                       ["Number in words", "1234567 in words"], ["BMI", "BMI 70 kg 175 cm"],
+                       ["Coin / dice", "toss a coin"], ["Password", "generate a password"]],
     "small_talk": [
         {"match": ["hi", "hello", "hey", "hii", "helo", "नमस्ते", "नमस्कार", "namaste", "namaskar", "हाय", "हेलो"],
          "hi": ["नमस्ते! मैं {name_hi} हूँ। बताइए, क्या मदद करूँ?"], "en": ["Hello! I'm {name}. How can I help?"]},

@@ -458,7 +458,7 @@ function speakText(text) {
   const clean = String(text).replace(/```[\s\S]*?```/g, " (code) ").replace(/[*_`#>]/g, "").slice(0, 1200);
   stopSpeaking();
   return new Promise(async (resolve) => {
-    if (status.speech?.tts) {
+    if (status.speech?.tts && status.speech?.tts_ready) {
       try {
         const r = await fetch("/api/tts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: clean }) });
         if (!r.ok) throw new Error((await r.json()).detail);
@@ -568,6 +568,11 @@ async function refreshStatus() {
   const sel = $("#category");
   (m.categories || []).forEach((c) => { if (![...sel.options].some((o) => o.value === c)) sel.append(new Option(c, c)); });
   sel.value = [...sel.options].some((o) => o.value === settings.category) ? settings.category : "auto";
+  const sp = s.speech || {};
+  $("#voice-ready").textContent = !sp.stt ? "Speech input is not installed — Settings → System health → Fix."
+    : sp.loading?.length ? `Getting ready: loading ${sp.loading.join(", ")} (first time downloads it — about a minute)…`
+    : `Ready · hearing: Whisper${sp.tts_ready ? " · voice: Tantra (Kokoro)" : " · voice: this computer"}`;
+  $("#voice-ready").className = `hint ${sp.loading?.length ? "warn" : sp.stt ? "ok" : "bad"}`;
   $("#mic").title = s.speech?.stt ? "Speak (Whisper)" : "Speech-to-text not installed (pip install openai-whisper)";
   $("#mic").style.opacity = s.speech?.stt ? 1 : 0.45;
   qualityBanner(s);
@@ -576,7 +581,7 @@ async function refreshStatus() {
   if (tab === "home") renderHome(s);
   if (tab === "training") renderTraining(s);
   if (tab === "model") renderModel(s);
-  schedule(document.hidden ? 30000 : busyJob && tab !== "chat" ? 2000 : 10000);
+  schedule(document.hidden ? 30000 : (busyJob && tab !== "chat") || (tab === "voice" && sp.loading?.length) ? 2500 : 10000);
 }
 document.addEventListener("visibilitychange", () => { if (!document.hidden) refreshStatus(); });
 
@@ -1098,7 +1103,7 @@ async function loadConfig() {
 }
 function fillSettingsForm() {
   const set = (id, v) => { const e = $(id); if (e) { if (e.type === "checkbox") e.checked = !!v; else e.value = v ?? ""; } };
-  ["name", "name_hi", "tagline", "language", "early_model_note", "auto_repair"].forEach((k) => set(`#cfg-${k}`, CFG[k]));
+  ["name", "name_hi", "tagline", "language", "region", "early_model_note", "auto_repair"].forEach((k) => set(`#cfg-${k}`, CFG[k]));
   set("#cfg-wake_words", (CFG.wake_words || []).join(", ")); set("#cfg-stop_words", (CFG.stop_words || []).join(", "));
   ["silence_ms", "max_seconds", "whisper_model"].forEach((k) => set(`#cfg-voice-${k}`, CFG.voice?.[k]));
   $("#cfg-json").value = JSON.stringify(CFG, null, 2);
@@ -1108,7 +1113,7 @@ async function saveConfig(changes, msg = "Settings saved.") {
   catch (e) { toast(e.message, "error"); }
 }
 $("#cfg-identity").onsubmit = (e) => { e.preventDefault(); saveConfig({ name: $("#cfg-name").value.trim() || "Tantra", name_hi: $("#cfg-name_hi").value.trim() || "तन्त्र",
-  tagline: $("#cfg-tagline").value.trim(), language: $("#cfg-language").value, early_model_note: $("#cfg-early_model_note").checked }); };
+  tagline: $("#cfg-tagline").value.trim(), language: $("#cfg-language").value, region: $("#cfg-region").value, early_model_note: $("#cfg-early_model_note").checked }); };
 $("#cfg-voice").onsubmit = (e) => {
   e.preventDefault();
   const list = (id) => $(id).value.split(",").map((x) => x.trim()).filter(Boolean);

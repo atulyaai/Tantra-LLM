@@ -361,6 +361,10 @@ def daily_brief(hi: bool) -> str:
 
 
 def skill_ctx() -> Dict[str, Any]:
+    from Tantra.skills import REGION, set_region
+    if REGION.get("_setting") != cfg().get("region", "auto"):   # currency, tax, date order, BMI standard
+        set_region(cfg().get("region", "auto"))
+        REGION["_setting"] = cfg().get("region", "auto")
     return {"memory": memory(), "status": training_summary, "brief": daily_brief,
             "files": search_files, "apps": allowed_apps()}
 
@@ -770,9 +774,13 @@ def job_log(name: str, lines: int = 200):
 
 # ── status / checkpoints ─────────────────────────────────────────────────────
 
-def _speech_available() -> Dict[str, bool]:
-    return {"stt": importlib.util.find_spec("whisper") is not None,
-            "tts": importlib.util.find_spec("kokoro") is not None}
+def _speech_available() -> Dict[str, Any]:
+    stt = importlib.util.find_spec("whisper") is not None
+    tts = importlib.util.find_spec("kokoro") is not None
+    if (stt or tts) and not _warm["started"]:
+        warm_speech()
+    return {"stt": stt, "tts": tts, "stt_ready": "whisper" in _speech, "tts_ready": "a" in _speech or "h" in _speech,
+            "loading": _warm["loading"], "error": _warm["error"]}
 
 
 def _datasets() -> List[Dict[str, Any]]:
@@ -1037,6 +1045,38 @@ def access_info():
 # ── speech (optional, offline) ───────────────────────────────────────────────
 
 _speech: Dict[str, Any] = {}
+_warm: Dict[str, Any] = {"started": False, "loading": [], "error": None}
+
+
+def _kokoro(lang: str):
+    if lang not in _speech:   # first use downloads the 82M model (~330 MB) once
+        from kokoro import KPipeline
+        _speech[lang] = KPipeline(lang_code=lang, repo_id="hexgrad/Kokoro-82M")
+    return _speech[lang]
+
+
+def warm_speech() -> None:
+    """Load (and on first run download) the speech models in the background, so voice answers at once later."""
+    if _warm["started"]:
+        return
+    _warm["started"] = True
+
+    def run():
+        jobs = []
+        if importlib.util.find_spec("whisper"):
+            jobs.append(("speech input", whisper_model))
+        if importlib.util.find_spec("kokoro"):
+            jobs += [("Tantra's voice (English)", lambda: _kokoro("a")), ("Tantra's voice (Hindi)", lambda: _kokoro("h"))]
+        for name, fn in jobs:
+            _warm["loading"].append(name)
+            try:
+                fn()
+            except Exception as exc:   # never break the server; the browser voice is the fallback
+                _warm["error"] = f"{name}: {exc}"
+                log.warning(f"speech warm-up failed ({name}): {exc}")
+            finally:
+                _warm["loading"].remove(name)
+    threading.Thread(target=run, daemon=True, name="speech-warmup").start()
 
 
 def _wav_to_array(data: bytes):
@@ -1105,16 +1145,15 @@ async def text_to_speech(request: Request):
     text = (body.get("text") or "").strip()[:1000]
     if not text:
         raise HTTPException(400, "No text.")
-    try:
-        import numpy as np
-        from kokoro import KPipeline
-    except ImportError:
-        raise HTTPException(503, "Text-to-speech not installed. Run: pip install kokoro soundfile")
+    import numpy as np
+    if importlib.util.find_spec("kokoro") is None:
+        raise HTTPException(503, "Text-to-speech not installed. Settings → System health → Fix.")
     hindi = bool(re.search(r"[ऀ-ॿ]", text))
     lang, voice = ("h", body.get("voice") or "hf_alpha") if hindi else ("a", body.get("voice") or "af_heart")
+    if lang not in _speech:        # still loading: answer at once so the browser voice speaks instead of waiting
+        warm_speech()
+        raise HTTPException(503, "Tantra's voice is still loading — using the computer's voice for now.")
     try:
-        if lang not in _speech:   # first use downloads the 82M model (~330 MB) once
-            _speech[lang] = KPipeline(lang_code=lang, repo_id="hexgrad/Kokoro-82M")
         chunks = await asyncio.to_thread(lambda: [np.asarray(a) for _, _, a in _speech[lang](text, voice=voice)])
     except Exception as exc:
         raise HTTPException(503, f"Text-to-speech failed: {exc}")
@@ -1139,6 +1178,7 @@ def start_server(host: str = "127.0.0.1", port: int = 8000) -> None:
     global API_KEY
     import uvicorn
     state["port"], state["lan"] = port, host not in ("127.0.0.1", "localhost", "::1")
+    warm_speech()   # load speech models now, not when you first talk
     if cfg().get("auto_repair", True):   # install missing packages quietly in the background
         try:
             from Tantra.doctor import CHECKS
