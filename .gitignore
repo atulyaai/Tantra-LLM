@@ -37,3 +37,7 @@ _old_code/
 # local only
 Claude outputs/
 .benchmarks/
+
+# built locally / downloaded
+Model/smriti.db*
+Datasets/raw/

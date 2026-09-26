@@ -202,6 +202,13 @@ class BitLinear(nn.Module):
         self.register_parameter('weight', None)
         self.is_inference = True
 
+    def rebuild_from_packed(self) -> None:
+        """Refresh the runtime ternary matrix from `packed_weight` (call after loading a packed checkpoint)."""
+        W_q = self.quantizer.unpack(self.packed_weight, (self.out_features, self.in_features))
+        self.w_ternary = W_q.to(torch.float32)
+        self.pos_mask = self.neg_mask = self.packed_weight_u8 = None
+        self._cached_w_ternary = self._cached_scale = None
+
     def _update_quantization_cache(self) -> None:
         """Update cached quantized weights (called after optimizer step)."""
         if self.weight is None:

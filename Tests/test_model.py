@@ -107,6 +107,26 @@ def test_load_model_rebuilds_grown_model_with_categories(tmp_path):
         assert q(ids)[0].shape == (1, 8, 300)
 
 
+def test_exports_reload_with_same_outputs(tmp_path):
+    from Tantra.export import export_clean_checkpoint
+    for bitnet in (False, True):
+        cfg = NeuroCoreConfig.tiny()
+        cfg.vocab.vocab_size = cfg.vocab.byte_bpe_vocab = 300
+        cfg.bitnet.enabled = bitnet
+        m = NeuroCoreModel(cfg, use_mtp=False).eval()
+        ids = torch.randint(21, 300, (1, 12))
+        with torch.no_grad():
+            ref = m(ids, use_latent_reasoning=False)[0]
+        src, dst = tmp_path / f"src{bitnet}.pt", tmp_path / f"out{bitnet}.pt"
+        torch.save({"model_state_dict": m.state_dict(), "config": cfg, "step_count": 1}, src)
+        export_clean_checkpoint(str(src), str(dst))
+        loaded, _ = load_model(str(dst))
+        with torch.no_grad():
+            out = loaded(ids, use_latent_reasoning=False)[0]
+        assert torch.allclose(ref, out, rtol=0.02, atol=0.02), f"bitnet={bitnet}"
+        assert dst.stat().st_size < src.stat().st_size
+
+
 def test_moe_and_mtp_forward():
     cfg = NeuroCoreConfig.tiny()
     cfg.vocab.vocab_size = 300
