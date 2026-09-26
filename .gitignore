@@ -48,3 +48,4 @@ Model/logs/
 Datasets/feedback.jsonl
 Model/assistant.json
 .venv/
+kaggle_upload/
