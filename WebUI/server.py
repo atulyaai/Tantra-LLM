@@ -361,6 +361,10 @@ def daily_brief(hi: bool) -> str:
 
 
 def skill_ctx() -> Dict[str, Any]:
+    from Tantra.skills import REGION, set_region
+    if REGION.get("_setting") != cfg().get("region", "auto"):   # currency, tax, date order, BMI standard
+        set_region(cfg().get("region", "auto"))
+        REGION["_setting"] = cfg().get("region", "auto")
     return {"memory": memory(), "status": training_summary, "brief": daily_brief,
             "files": search_files, "apps": allowed_apps()}
 

@@ -89,3 +89,29 @@ def test_assistant_api(tmp_path, monkeypatch):
     assert r["skill"] == "knowledge" and "204" in r["choices"][0]["message"]["content"]
     assert c.post("/api/code/run", json={"code": "print(6*7)"}).json()["stdout"].strip() == "42"
     assert c.post("/api/open", json={"name": "not-an-app"}).status_code == 404
+
+
+def test_money_date_word_tools_follow_the_region():
+    from Tantra.skills import set_region
+    now = {"now": dt.datetime(2026, 9, 27, 10, 0)}
+    try:
+        set_region("IN")
+        assert handle("EMI for 5 lakh at 9% for 3 years", now).text.startswith("EMI: ₹15,899.87")
+        assert handle("simple interest on 50000 at 7% for 2 years", now).card["result"] == "₹57,000"
+        assert "₹450" in handle("18% GST on 2500", now).text
+        assert "Base ₹2,500" in handle("2950 including 18% GST", now).text
+        assert handle("20% discount on 1499", now).card["result"] == "₹1,199.2"
+        assert handle("days between 1 Jan 2026 and 26 Jan 2026", now).card["result"] == "25 days"
+        assert "शनिवार" in handle("15 August 2026 ko kaun sa din hai", now).text
+        assert handle("how many days until 25 December", now).card["result"] == "89 days"
+        assert handle("12,34,567 in words", now).text.startswith("बारह लाख चौंतीस हज़ार पाँच सौ सड़सठ")
+        assert "normal" in handle("BMI 70 kg 175 cm", now).text
+        assert handle("2 acre in bigha", now).text.endswith("3.2 bigha")
+        set_region("US")
+        assert handle("tax on 2500", now).text == "sales tax $200, total $2,700"
+        assert "One million two hundred" in handle("1234567 in words", now).text
+        assert "4 Mar 2026" in handle("03/04/2026 ko kaun sa din hai", now).text
+        set_region("GB")
+        assert handle("tax on 2500", now).text.startswith("VAT £500")
+    finally:
+        set_region("IN")

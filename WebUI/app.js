@@ -1103,7 +1103,7 @@ async function loadConfig() {
 }
 function fillSettingsForm() {
   const set = (id, v) => { const e = $(id); if (e) { if (e.type === "checkbox") e.checked = !!v; else e.value = v ?? ""; } };
-  ["name", "name_hi", "tagline", "language", "early_model_note", "auto_repair"].forEach((k) => set(`#cfg-${k}`, CFG[k]));
+  ["name", "name_hi", "tagline", "language", "region", "early_model_note", "auto_repair"].forEach((k) => set(`#cfg-${k}`, CFG[k]));
   set("#cfg-wake_words", (CFG.wake_words || []).join(", ")); set("#cfg-stop_words", (CFG.stop_words || []).join(", "));
   ["silence_ms", "max_seconds", "whisper_model"].forEach((k) => set(`#cfg-voice-${k}`, CFG.voice?.[k]));
   $("#cfg-json").value = JSON.stringify(CFG, null, 2);
@@ -1113,7 +1113,7 @@ async function saveConfig(changes, msg = "Settings saved.") {
   catch (e) { toast(e.message, "error"); }
 }
 $("#cfg-identity").onsubmit = (e) => { e.preventDefault(); saveConfig({ name: $("#cfg-name").value.trim() || "Tantra", name_hi: $("#cfg-name_hi").value.trim() || "तन्त्र",
-  tagline: $("#cfg-tagline").value.trim(), language: $("#cfg-language").value, early_model_note: $("#cfg-early_model_note").checked }); };
+  tagline: $("#cfg-tagline").value.trim(), language: $("#cfg-language").value, region: $("#cfg-region").value, early_model_note: $("#cfg-early_model_note").checked }); };
 $("#cfg-voice").onsubmit = (e) => {
   e.preventDefault();
   const list = (id) => $(id).value.split(",").map((x) => x.trim()).filter(Boolean);
