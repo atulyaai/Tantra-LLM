@@ -458,7 +458,7 @@ function speakText(text) {
   const clean = String(text).replace(/```[\s\S]*?```/g, " (code) ").replace(/[*_`#>]/g, "").slice(0, 1200);
   stopSpeaking();
   return new Promise(async (resolve) => {
-    if (status.speech?.tts) {
+    if (status.speech?.tts && status.speech?.tts_ready) {
       try {
         const r = await fetch("/api/tts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: clean }) });
         if (!r.ok) throw new Error((await r.json()).detail);
@@ -568,6 +568,11 @@ async function refreshStatus() {
   const sel = $("#category");
   (m.categories || []).forEach((c) => { if (![...sel.options].some((o) => o.value === c)) sel.append(new Option(c, c)); });
   sel.value = [...sel.options].some((o) => o.value === settings.category) ? settings.category : "auto";
+  const sp = s.speech || {};
+  $("#voice-ready").textContent = !sp.stt ? "Speech input is not installed — Settings → System health → Fix."
+    : sp.loading?.length ? `Getting ready: loading ${sp.loading.join(", ")} (first time downloads it — about a minute)…`
+    : `Ready · hearing: Whisper${sp.tts_ready ? " · voice: Tantra (Kokoro)" : " · voice: this computer"}`;
+  $("#voice-ready").className = `hint ${sp.loading?.length ? "warn" : sp.stt ? "ok" : "bad"}`;
   $("#mic").title = s.speech?.stt ? "Speak (Whisper)" : "Speech-to-text not installed (pip install openai-whisper)";
   $("#mic").style.opacity = s.speech?.stt ? 1 : 0.45;
   qualityBanner(s);
@@ -576,7 +581,7 @@ async function refreshStatus() {
   if (tab === "home") renderHome(s);
   if (tab === "training") renderTraining(s);
   if (tab === "model") renderModel(s);
-  schedule(document.hidden ? 30000 : busyJob && tab !== "chat" ? 2000 : 10000);
+  schedule(document.hidden ? 30000 : (busyJob && tab !== "chat") || (tab === "voice" && sp.loading?.length) ? 2500 : 10000);
 }
 document.addEventListener("visibilitychange", () => { if (!document.hidden) refreshStatus(); });
 
