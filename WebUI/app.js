@@ -86,7 +86,7 @@ window.addEventListener("hashchange", () => showTab(location.hash.slice(1)));
 const activeTab = () => $(".rail > button.active")?.dataset.tab;
 
 // ── generation settings (saved in this browser) ─────────────────────────────
-const DEFAULTS = { temperature: 0.3, top_p: 0.9, repetition_penalty: 1.15, max_tokens: 256, history: 3, auto_speak: false, system: "", category: "auto", smriti: true, knowledge_first: true };
+const DEFAULTS = { temperature: 0.3, top_p: 0.9, repetition_penalty: 1.15, max_tokens: 256, history: 3, auto_speak: false, system: "", category: "auto", smriti: true, knowledge_first: true, force_model: false };
 let settings = { ...DEFAULTS, ...store.get("settings", {}) };
 function bindSettings() {
   for (const [k, v] of Object.entries(settings)) {
@@ -291,7 +291,7 @@ async function generate() {
         messages, stream: true, temperature: settings.temperature, top_p: settings.top_p,
         repetition_penalty: settings.repetition_penalty, max_tokens: settings.max_tokens,
         history: settings.history, category: $("#category").value, smriti: settings.smriti && !!status.smriti,
-        knowledge_first: settings.knowledge_first, mode: $("#mode").value,
+        knowledge_first: settings.knowledge_first, mode: $("#mode").value, force_model: settings.force_model,
       }),
     });
     const reader = r.body.getReader();
@@ -376,7 +376,9 @@ function renderChatList() {
         e.stopPropagation();
         if (!confirm(`Delete “${c.title}”?`)) return;
         await api(`/api/chats/${encodeURIComponent(c.id)}`, { method: "DELETE" }).catch((err) => toast(err.message, "error"));
-        if (c.id === chat.id) newChat(); else loadChatList();
+        delete chatsCache[c.id];
+        if (c.id === chat.id) newChat();
+        loadChatList();
       };
       li.append(del);
       li.onclick = () => { if (controller) return; chat = { id: c.id, title: c.title, messages: c.messages }; renderMessages(); renderChatList(); $("#chats").classList.remove("open"); };

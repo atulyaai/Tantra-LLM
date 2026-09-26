@@ -60,6 +60,7 @@ DEFAULTS: Dict[str, Any] = {
     "stop_words": ["रुको", "रुक जाओ", "stop", "ruko", "बस"],
     "voice": {"silence_ms": 1100, "max_seconds": 15, "min_threshold": 4, "whisper_model": "base", "language": ""},
     "knowledge": {"min_same_question": 0.65, "answer_from_documents": True},
+    "model_gate": {"enabled": True, "max_val_loss": 3.5},   # below this validation loss the model may answer freely
     "auto_repair": True,                # install missing Python packages automatically at start
 }
 

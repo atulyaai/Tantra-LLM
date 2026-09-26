@@ -498,6 +498,25 @@ async def chat_completions(request: Request):
         return {"id": rid, "object": "chat.completion", "created": created, "model": "tantra",
                 "choices": [{"index": 0, "message": {"role": "assistant", "content": text_out}, "finish_reason": "stop"}],
                 **extra}
+    gate = cfg().get("model_gate") or {}
+    val = (state["info"].get("val") or {}).get("loss")
+    if gate.get("enabled", True) and val is not None and val > float(gate.get("max_val_loss", 3.5)) and not body.get("force_model"):
+        # Too early in training: its free answers would be word salad — say so instead (Settings can change this).
+        from Tantra.skills import hindi
+        hi_q = hindi(query)
+        note = cfg()["no_model_reply"]["hi" if hi_q else "en"] + (
+            f"\n\n(मॉडल अभी सीख रहा है: validation loss {val:.2f}, जवाब देने के लिए {gate.get('max_val_loss', 3.5)} से कम चाहिए।)" if hi_q else
+            f"\n\n(The model is still learning: validation loss {val:.2f}; it answers freely below {gate.get('max_val_loss', 3.5)}.)")
+        extra = {"skill": "no_model", "card": {}, "sources": sources,
+                 "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}, "timing": {"seconds": 0}}
+        if body.get("stream"):
+            async def sse_gate():
+                yield chunk({"content": note})
+                yield chunk({}, "stop", **extra)
+                yield "data: [DONE]\n\n"
+            return StreamingResponse(sse_gate(), media_type="text/event-stream")
+        return {"id": rid, "object": "chat.completion", "created": created, "model": "tantra",
+                "choices": [{"index": 0, "message": {"role": "assistant", "content": note}, "finish_reason": "stop"}], **extra}
     category = pick_category(model, query, body.get("category"))
     ids = torch.tensor([tok.encode(prompt)], device=next(model.parameters()).device)
     gen_args = dict(max_new_tokens=int(_num(body, "max_tokens", 256, 1, 2048)),

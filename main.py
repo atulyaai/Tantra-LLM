@@ -13,6 +13,7 @@ main.py — Tantra command line. Every task is one --mode.
   python main.py --mode dpo --prefs FILE      preference tuning from chosen/rejected pairs
   python main.py --mode adapter               list / install category specialist layers
   python main.py --mode hardware              show CPU / RAM / GPU
+  python main.py --mode pack [--with-checkpoint]   files for training on Kaggle -> kaggle_upload/
   python main.py --mode doctor [--fix]        check every part; --fix installs / builds what is missing
 
 Folders:  Datasets/ (your .jsonl)   Model/ (tokenizer + checkpoints)   Tantra/ (engine)   WebUI/   Tests/
@@ -216,6 +217,15 @@ def run_train(args, hw) -> None:
 
     growth = AutoGrowthController(plateau_patience=args.growth_patience, max_layers=args.max_layers) \
         if args.auto_growth else None
+    if args.max_hours:   # e.g. Kaggle's 12 h session limit: stop cleanly (checkpoint saved) before it is cut off
+        import threading
+        from Tantra.train import STOP_FILE
+        def _time_up() -> None:
+            log.warning(f"--max-hours {args.max_hours} reached: saving and stopping.")
+            open(STOP_FILE, "w").close()
+        timer = threading.Timer(args.max_hours * 3600, _time_up)
+        timer.daemon = True
+        timer.start()
     try:
         trainer.fit(loader, max_steps=args.steps, log_every=args.log_every, eval_every=args.eval_every,
                     val_loader=val_loader, val_batches=args.val_batches, on_eval=on_eval,
@@ -345,6 +355,37 @@ def run_data(args) -> None:
     print("\nDone. Next: python main.py --mode tokenizer (once), then python main.py --mode train --stage pretrain")
 
 
+def run_pack(args) -> None:
+    """Put everything a Kaggle (or any GPU machine) training run needs into kaggle_upload/ (hard links: no extra space)."""
+    out = os.path.join(ROOT, "kaggle_upload")
+    os.makedirs(out, exist_ok=True)
+    files = [os.path.join(MODEL_DIR, "tokenizer.json")] + [os.path.join(DATA_DIR, n) for n in
+             ("pretrain.jsonl", "sft.jsonl", "val_pretrain.jsonl", "val_sft.jsonl", "probe_50.jsonl", "feedback.jsonl")]
+    if args.with_checkpoint:
+        files += [os.path.join(args.model_dir, n) for n in ("latest.pt", "latest.pt.meta.json", "training_status.json",
+                                                            "probe_history.jsonl")]
+    total = 0
+    for src in files:
+        if not os.path.isfile(src):
+            continue
+        dst = os.path.join(out, os.path.basename(src))
+        if os.path.exists(dst):
+            os.remove(dst)
+        try:
+            os.link(src, dst)
+        except OSError:
+            shutil.copy2(src, dst)
+        total += os.path.getsize(src)
+        print(f"  + {os.path.basename(src):28s} {os.path.getsize(src) / 2**20:9.1f} MB")
+    with open(os.path.join(out, "dataset-metadata.json"), "w", encoding="utf-8") as f:
+        json.dump({"title": "tantra-data", "id": f"{args.kaggle_user or 'YOUR_KAGGLE_USERNAME'}/tantra-data",
+                   "licenses": [{"name": "other"}]}, f, indent=1)
+    print(f"\n  {total / 2**30:.2f} GB in {out}\n"
+          "  Upload: kaggle.com → Datasets → New dataset → drag these files in, name it 'tantra-data'\n"
+          "  (or: kaggle datasets create -p kaggle_upload   /  kaggle datasets version -p kaggle_upload -m update)\n"
+          "  Then open kaggle_train.ipynb on Kaggle, add the dataset, GPU on, Run all.")
+
+
 def run_smriti(args) -> None:
     from Tantra.smriti import build as build_smriti
     files = [f for f in (args.data or "").split(",") if f] or \
@@ -374,7 +415,7 @@ def main() -> None:
                                 epilog=__doc__)
     p.add_argument("--mode", default="train",
                    choices=["train", "chat", "generate", "eval", "serve", "export", "data", "tokenizer", "smriti",
-                            "dpo", "adapter", "hardware", "doctor"])
+                            "dpo", "adapter", "hardware", "doctor", "pack"])
     # data
     p.add_argument("--data", help="training .jsonl, comma-separated for several (default: Datasets/pretrain.jsonl "
                                   "or sft.jsonl for the stage)")
@@ -407,6 +448,9 @@ def main() -> None:
     p.add_argument("--val-batches", type=int, default=50)
     p.add_argument("--early-stop", type=int, default=0, help="stop after N evals without val improvement (0 = never)")
     p.add_argument("--auto-growth", action="store_true")
+    p.add_argument("--with-checkpoint", action="store_true", help="pack: include Model/latest.pt to continue training")
+    p.add_argument("--kaggle-user", help="pack: your Kaggle username (for dataset-metadata.json)")
+    p.add_argument("--max-hours", type=float, default=0, help="stop cleanly after this many hours (0 = no limit)")
     p.add_argument("--growth-patience", type=int, default=1000)
     p.add_argument("--max-layers", type=int, default=24)
     p.add_argument("--adapter", help="train only this category's specialist layer")
@@ -446,6 +490,8 @@ def main() -> None:
             fix(args.only) if args.only else fix_all(auto_only=args.auto)
             print("\n" + report())
         return
+    if args.mode == "pack":
+        return run_pack(args)
     if args.mode == "data":
         return run_data(args)
     if args.mode == "smriti":
