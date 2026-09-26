@@ -106,10 +106,16 @@ def main() -> None:
         src, dst = os.path.join(data, name), os.path.join("Datasets", name)
         if name.endswith(".jsonl") and not os.path.exists(dst):
             os.symlink(src, dst)                                    # big files: link, not copy
-    tok = os.path.join(data, "tokenizer.json")
-    if not os.path.isfile(tok):
-        sys.exit("✗ tokenizer.json is missing from the data folder (it is in kaggle_upload/).")
-    shutil.copy(tok, "Model/tokenizer.json")
+    # tokenizer: one uploaded with the data, anywhere in the inputs, else the copy that ships with the code
+    cands = [os.path.join(data, "tokenizer.json")] + glob.glob("/kaggle/input/**/tokenizer.json", recursive=True)
+    tok = next((c for c in cands if os.path.isfile(c)), None)
+    if tok:
+        shutil.copy(tok, "Model/tokenizer.json")
+        say(f"Tokenizer: {tok}")
+    elif os.path.isfile("Model/tokenizer.json"):
+        say("Tokenizer: the one included with the code (Model/tokenizer.json)")
+    else:
+        sys.exit("✗ tokenizer.json not found (it is in kaggle_upload/ and in the GitHub repo's Model folder).")
 
     # continue from the newest latest.pt: previous output first, then one uploaded with the data
     if not args.fresh and not os.path.isfile(os.path.join(out, "latest.pt")):
