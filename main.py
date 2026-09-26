@@ -108,7 +108,7 @@ def build_config(args, vocab_size: int) -> NeuroCoreConfig:
 # Check that folder, then delete it yourself.
 LEGACY = [
     "ARCHITECTURE.md", "ROADMAP.md", "SECURITY.md", "CONTRIBUTING.md", "CHANGELOG.md", "pyproject.toml",
-    "benchmark.py", "chat.py", "train.bat", "tantra.ps1", "tantra_kaggle_training.ipynb", "tools", ".benchmarks",
+    "benchmark.py", "chat.py", "train.bat", "tantra.ps1", "tantra_kaggle_training.ipynb", "tools",
     # (Tantra/Smriti.py from v1 is NOT listed: Windows paths ignore case and v2 has Tantra/smriti.py)
     "Tantra/Chitta.py", "Tantra/CognitiveOS.py", "Tantra/Manas.py", "Tantra/Nirikshak.py",
     "Tantra/Vivek.py", "Tantra/config_0926b.py", "Tantra/benchmark.py", "Tantra/cli_hardware_dispatch.py",
