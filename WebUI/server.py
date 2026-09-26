@@ -191,7 +191,14 @@ async def lan_guard(request: Request, call_next):
 
 @app.get("/", include_in_schema=False)
 def index():
-    return FileResponse(os.path.join(WEB_DIR, "index.html"), headers=_NO_CACHE)
+    """index.html with ?v=<file time> on app.css / app.js, so browsers never keep an old copy after an update."""
+    from fastapi.responses import HTMLResponse
+    with open(os.path.join(WEB_DIR, "index.html"), encoding="utf-8") as f:
+        html = f.read()
+    for name in ("app.css", "app.js"):
+        v = int(os.path.getmtime(os.path.join(WEB_DIR, name)))
+        html = html.replace(f'"/{name}"', f'"/{name}?v={v}"')
+    return HTMLResponse(html, headers=_NO_CACHE)
 
 
 @app.get("/app.js", include_in_schema=False)

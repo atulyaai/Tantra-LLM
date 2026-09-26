@@ -245,3 +245,45 @@ td:last-child { text-align: right; }
   .voice-log { grid-template-columns: 1fr; } .msg.user .bubble, .msg.assistant .bubble { max-width: 100%; }
   kbd { display: none; } .home-head h1 { font-size: 32px; }
 }
+
+/* ── responsive fitting: every control shrinks with its box; layouts follow the space they get ── */
+html, body { overflow-x: hidden; }
+main, .page, .card, .tile, .chat, .grid > * { min-width: 0; }
+label > input, label > select, label > textarea, .form input, .form select { width: 100%; min-width: 0; max-width: 100%; }
+label.check > input { width: auto; }
+select { text-overflow: ellipsis; }
+.form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.grid { grid-template-columns: repeat(auto-fit, minmax(min(330px, 100%), 1fr)); }
+.tiles { grid-template-columns: repeat(auto-fit, minmax(min(150px, 100%), 1fr)); }
+.mem-grid { grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr)); }
+.log { max-width: 100%; overflow-wrap: anywhere; }
+.card { container-type: inline-size; }
+@container (max-width: 520px) {
+  .form { grid-template-columns: minmax(0, 1fr); }
+  .skills { grid-template-columns: minmax(0, 1fr); }
+  dl { grid-template-columns: minmax(0, 1fr); } dt { margin-top: 6px; }
+}
+.ask-box { flex-wrap: wrap; } .ask-box input { min-width: 0; }
+.page-head > * { min-width: 0; } .page-head form { flex-wrap: wrap; }
+.chat-head { flex-wrap: nowrap; overflow-x: auto; }
+.voice-head { row-gap: 8px; }
+
+/* phones: the side menu becomes a bottom bar */
+@media (max-width: 600px) {
+  body { font-size: 15px; }
+  .app { flex-direction: column-reverse; }
+  .rail { width: 100%; height: 60px; flex-direction: row; justify-content: space-around; padding: 4px; border-right: 0; border-top: 1px solid var(--line); gap: 0; overflow-x: auto; }
+  .rail .brand, .rail .grow, .rail .server-box { display: none; }
+  .rail > button { flex-direction: column; gap: 2px; padding: 6px 8px; font-size: 10px; min-width: 52px; }
+  .rail > button span:not(.dot) { display: inline; font-size: 10px; }
+  main { height: calc(100dvh - 60px); }
+  .chats { left: 0; top: 0; bottom: 60px; }
+  .page { padding: 14px 12px; gap: 14px; }
+  .home-head h1, .page-head h1 { font-size: 28px; }
+  .pill-btn { width: 100%; justify-content: center; }
+  .chat-head { padding: 0 10px; } .chat-head .mode { font-size: 12px; }
+  #composer { padding: 8px 10px 10px; } .chips { flex-wrap: nowrap; overflow-x: auto; }
+  .orb { width: 160px; height: 160px; } .orb .bars { width: 108px; height: 108px; }
+  .voice { padding: 14px 12px; } .voice-live { font-size: 20px; }
+  table { font-size: 13px; } td, th { padding: 6px 4px; }
+}
