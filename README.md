@@ -125,6 +125,10 @@ python main.py --mode train --device cuda --batch-size 32 --grad-accum 1
 
 | Tab | What you get |
 | :--- | :--- |
+| **Home** | Greeting, ask box, model / Smriti / training tiles, live loss chart, skills, reminders, daily brief, recent chats |
+| **Voice** | Hands-free: talk, pause, Tantra answers out loud (Whisper in, Kokoro or Windows voices out), optional wake word "तन्त्र" |
+| **Memory** | What Tantra remembers about you ("याद रखो …"), reminders ("10 मिनट बाद याद दिलाना …"), answers you taught with 👎 |
+| **Documents** | Drop .txt/.md/.docx/.html/.pdf files; chat answers from them and shows the source |
 | **Chat** | Streaming replies with **Stop**, markdown/code, copy · regenerate · edit · read aloud, saved & searchable chats, settings (temperature, top-p, repetition penalty, max tokens, system prompt), voice input, "still training" notice |
 | **Training** | Live tiles (status, step, loss, val loss, speed, ETA, tokens), progress bar, **loss chart**, **remembered X/50 chart**, start/stop with options, live log |
 | **Model** | Loaded model + hardware, checkpoint table (step, val loss, size, date) with Load / INT8, **Run test**, **Export**, datasets |
@@ -132,6 +136,12 @@ python main.py --mode train --device cuda --batch-size 32 --grad-accum 1
 API: OpenAI-compatible `POST /v1/chat/completions` (stream or not). Set `TANTRA_API_KEY` to protect training/checkpoint actions. Binds to 127.0.0.1 only.
 
 ---
+
+### 🧰 Skills (exact, instant, no model needed)
+Calculator with steps (`250 × 18 + 5%`), time/date in Hindi or English, units incl. lakh/crore, memory, reminders & timers,
+daily brief, training status, file-name search in folders you allow, open allowed apps (with confirmation), run Python
+code blocks (isolated, 10 s limit), translate / tutor modes, and knowledge answers from Smriti or your documents.
+Phone: `python main.py --mode serve --lan` (same Wi-Fi, key required).
 
 ## 🗂️ Folders
 
