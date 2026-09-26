@@ -46,3 +46,5 @@ Model/docs.db*
 Model/docs_index.json
 Model/logs/
 Datasets/feedback.jsonl
+Model/assistant.json
+.venv/

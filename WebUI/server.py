@@ -27,6 +27,7 @@ import json
 import os
 import re
 import secrets
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -190,7 +191,14 @@ async def lan_guard(request: Request, call_next):
 
 @app.get("/", include_in_schema=False)
 def index():
-    return FileResponse(os.path.join(WEB_DIR, "index.html"), headers=_NO_CACHE)
+    """index.html with ?v=<file time> on app.css / app.js, so browsers never keep an old copy after an update."""
+    from fastapi.responses import HTMLResponse
+    with open(os.path.join(WEB_DIR, "index.html"), encoding="utf-8") as f:
+        html = f.read()
+    for name in ("app.css", "app.js"):
+        v = int(os.path.getmtime(os.path.join(WEB_DIR, name)))
+        html = html.replace(f'"/{name}"', f'"/{name}?v={v}"')
+    return HTMLResponse(html, headers=_NO_CACHE)
 
 
 @app.get("/app.js", include_in_schema=False)
@@ -274,6 +282,18 @@ def memory():
     return state["memory"]
 
 
+def settings():
+    path = os.path.join(MODEL_DIR, "assistant.json")
+    if state.get("settings") is None or state["settings"].path != path:
+        from Tantra.assistant import Settings
+        state["settings"] = Settings(path)
+    return state["settings"]
+
+
+def cfg() -> Dict[str, Any]:
+    return settings().get()
+
+
 def documents():
     from Tantra.documents import Documents
     return Documents(os.path.join(MODEL_DIR, "docs.db"))
@@ -285,7 +305,7 @@ DEFAULT_APPS = {"notepad": ["notepad.exe"], "calculator": ["calc.exe"], "calc": 
 
 
 def allowed_apps() -> Dict[str, List[str]]:
-    return {**DEFAULT_APPS, **(memory().settings.get("apps") or {})}
+    return {**(cfg().get("apps") or DEFAULT_APPS), **(memory().settings.get("apps") or {})}
 
 
 def search_files(query: str, limit: int = 20) -> List[str]:
@@ -351,6 +371,11 @@ def direct_answer(text: str, body: dict) -> Optional[Dict[str, Any]]:
     r = handle(text, skill_ctx())
     if r:
         return {"skill": r.name, "text": r.text, "card": r.card, "sources": []}
+    from Tantra.assistant import small_talk
+    from Tantra.skills import hindi
+    reply = small_talk(text, cfg(), hindi(text) if cfg().get("language") == "auto" else cfg().get("language") == "hi")
+    if reply:
+        return {"skill": "small_talk", "text": reply, "card": {}, "sources": []}
     t = memory().taught_answer(text)
     if t:
         return {"skill": "taught", "text": t["answer"], "card": {"question": t["question"]}, "sources": []}
@@ -450,7 +475,25 @@ async def chat_completions(request: Request):
 
     messages, sources = await asyncio.to_thread(with_context, messages, query, body)
     prompt = build_prompt(messages, int(_num(body, "history", 3, 0, 20)))
-    model, tok = await asyncio.to_thread(get_model)
+    try:
+        model, tok = await asyncio.to_thread(get_model)
+    except HTTPException as exc:
+        if exc.status_code not in (503, 409):
+            raise
+        from Tantra.skills import hindi
+        note = cfg()["no_model_reply"]["hi" if hindi(query) else "en"]
+        text_out = note + (f"\n\n({exc.detail})" if exc.status_code == 409 else "")
+        extra = {"skill": "no_model", "card": {}, "sources": sources,
+                 "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}, "timing": {"seconds": 0}}
+        if body.get("stream"):
+            async def sse_note():
+                yield chunk({"content": text_out})
+                yield chunk({}, "stop", **extra)
+                yield "data: [DONE]\n\n"
+            return StreamingResponse(sse_note(), media_type="text/event-stream")
+        return {"id": rid, "object": "chat.completion", "created": created, "model": "tantra",
+                "choices": [{"index": 0, "message": {"role": "assistant", "content": text_out}, "finish_reason": "stop"}],
+                **extra}
     category = pick_category(model, query, body.get("category"))
     ids = torch.tensor([tok.encode(prompt)], device=next(model.parameters()).device)
     gen_args = dict(max_new_tokens=int(_num(body, "max_tokens", 256, 1, 2048)),
@@ -553,7 +596,7 @@ def delete_chat(cid: str):
 
 # ── background jobs: train / eval / export ───────────────────────────────────
 
-JOB_NAMES = ("train", "eval", "export", "data", "smriti")
+JOB_NAMES = ("train", "eval", "export", "data", "smriti", "doctor")
 
 
 def _log_path(name: str) -> str:
@@ -613,8 +656,7 @@ def training_running() -> bool:
     if job_info("train")["running"]:
         return True
     t = _read_json(STATUS_FILE, {})
-    return t.get("status") == "running" and time.time() - float(t.get("updated_at", 0)) < 300 \
-        and _pid_alive(t.get("pid"))
+    return t.get("status") == "running" and _pid_alive(t.get("pid"))
 
 
 @app.post("/api/training/start", dependencies=[Depends(require_key)])
@@ -756,8 +798,10 @@ def _probe_history() -> List[dict]:
 def status():
     training = _read_json(STATUS_FILE, {"status": "idle"})
     if training.get("status") == "running":
-        stale = time.time() - float(training.get("updated_at", 0)) > 300
-        if stale or (training.get("pid") and not _pid_alive(training["pid"]) and not job_info("train")["running"]):
+        # Dead only if the training process is gone (a slow CPU can go many minutes between updates).
+        pid = training.get("pid")
+        alive = _pid_alive(pid) if pid else time.time() - float(training.get("updated_at", 0)) < 1800
+        if not alive and not job_info("train")["running"]:
             training["status"] = "interrupted"
     training["launched_here"] = job_info("train")["running"]
     ckpts = []
@@ -785,6 +829,48 @@ async def switch(request: Request):
     async with gen_lock:   # never swap the model in the middle of a reply
         await asyncio.to_thread(load, path, body.get("int8"))
     return state["info"]
+
+
+# ── self-repair ──────────────────────────────────────────────────────────────
+
+@app.get("/api/doctor")
+def doctor_report():
+    from Tantra.doctor import run_checks
+    return {"checks": run_checks(), "job": job_info("doctor")}
+
+
+@app.post("/api/doctor/fix", dependencies=[Depends(require_key)])
+async def doctor_fix(request: Request):
+    body = await request.json() if (await request.body()) else {}
+    only = body.get("id")
+    from Tantra.doctor import CHECKS
+    if only and only not in {c["id"] for c in CHECKS}:
+        raise HTTPException(404, "Unknown check.")
+    if only in ("data", "smriti") and training_running():
+        raise HTTPException(409, "Stop training first — this rewrites files training reads.")
+    return start_job("doctor", ["--only", only] if only else ["--fix"])
+
+
+# ── assistant settings (Model/assistant.json) ────────────────────────────────
+
+@app.get("/api/config")
+def config_get():
+    from Tantra.assistant import DEFAULTS
+    return {"config": cfg(), "defaults": DEFAULTS}
+
+
+@app.post("/api/config", dependencies=[Depends(require_key)])
+async def config_set(request: Request):
+    body = await request.json()
+    if not isinstance(body, dict):
+        raise HTTPException(400, "Send a JSON object.")
+    return {"config": settings().update(body)}
+
+
+@app.post("/api/config/reset", dependencies=[Depends(require_key)])
+async def config_reset(request: Request):
+    key = (await request.json()).get("key") if (await request.body()) else None
+    return {"config": settings().reset(key)}
 
 
 # ── memory, reminders, teach, documents, brief ───────────────────────────────
@@ -953,30 +1039,64 @@ def access_info():
 _speech: Dict[str, Any] = {}
 
 
+def _wav_to_array(data: bytes):
+    """16-bit PCM WAV (what the WebUI sends) -> float32 mono 16 kHz array. No ffmpeg needed."""
+    import numpy as np
+    with wave.open(io.BytesIO(data)) as w:
+        rate, ch, width = w.getframerate(), w.getnchannels(), w.getsampwidth()
+        pcm = w.readframes(w.getnframes())
+    if width != 2:
+        raise ValueError("WAV must be 16-bit")
+    x = np.frombuffer(pcm, dtype="<i2").astype(np.float32) / 32768.0
+    if ch > 1:
+        x = x.reshape(-1, ch).mean(axis=1)
+    if rate != 16000 and len(x):
+        n = int(len(x) * 16000 / rate)
+        x = np.interp(np.linspace(0, len(x) - 1, n), np.arange(len(x)), x).astype(np.float32)
+    return x
+
+
+def whisper_model():
+    if "whisper" not in _speech:   # first use downloads the model once (~140 MB for "base")
+        import whisper
+        _speech["whisper"] = whisper.load_model(os.environ.get("TANTRA_WHISPER") or cfg()["voice"].get("whisper_model", "base"), device="cpu")
+    return _speech["whisper"]
+
+
 @app.post("/api/stt")
 async def speech_to_text(request: Request):
     form = await request.form()
     audio = form.get("audio")
     if audio is None:
         raise HTTPException(400, "Send the recording as form field 'audio'.")
-    try:
-        import whisper
-    except ImportError:
-        raise HTTPException(503, "Speech-to-text not installed. Run: pip install openai-whisper  (needs ffmpeg)")
+    if importlib.util.find_spec("whisper") is None:
+        raise HTTPException(503, "Speech-to-text not installed. Open Settings → System health → Fix (installs openai-whisper).")
     data = await audio.read()
-    with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as f:
-        f.write(data)
-        tmp = f.name
+    lang = form.get("language") or None
     try:
-        if "whisper" not in _speech:   # first use downloads the model once
-            _speech["whisper"] = whisper.load_model(os.environ.get("TANTRA_WHISPER", "base"), device="cpu")
-        lang = form.get("language") or None
-        result = await asyncio.to_thread(_speech["whisper"].transcribe, tmp, language=lang, fp16=False)
+        model = await asyncio.to_thread(whisper_model)
+        if data[:4] == b"RIFF":                       # WAV from the WebUI: decoded here, no ffmpeg
+            src = _wav_to_array(data)
+            if len(src) < 16000 * 0.3:
+                return {"text": "", "language": None}
+        else:                                         # other formats need ffmpeg on PATH
+            if not shutil.which("ffmpeg"):
+                raise HTTPException(503, "This audio format needs ffmpeg. Send WAV, or install ffmpeg.")
+            with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as f:
+                f.write(data)
+                src = f.name
+        try:
+            result = await asyncio.to_thread(model.transcribe, src, language=lang, fp16=False,
+                                             initial_prompt="नमस्ते। Hello. तन्त्र।")
+        finally:
+            if isinstance(src, str):
+                os.unlink(src)
         return {"text": result.get("text", "").strip(), "language": result.get("language")}
+    except HTTPException:
+        raise
     except Exception as exc:
+        log.exception("speech-to-text failed")
         raise HTTPException(503, f"Speech-to-text failed: {exc}")
-    finally:
-        os.unlink(tmp)
 
 
 @app.post("/api/tts")
@@ -1019,6 +1139,14 @@ def start_server(host: str = "127.0.0.1", port: int = 8000) -> None:
     global API_KEY
     import uvicorn
     state["port"], state["lan"] = port, host not in ("127.0.0.1", "localhost", "::1")
+    if cfg().get("auto_repair", True):   # install missing packages quietly in the background
+        try:
+            from Tantra.doctor import CHECKS
+            if any(c.get("auto") and not c["check"]() for c in CHECKS):
+                start_job("doctor", ["--fix", "--auto"])
+                print("  Self-repair: installing missing packages in the background (Settings → System health).")
+        except Exception as exc:   # never block startup
+            log.warning(f"self-repair skipped: {exc}")
     if state["lan"] and not API_KEY:
         API_KEY = secrets.token_urlsafe(9)
     print(f"\n  Tantra WebUI → http://127.0.0.1:{port}\n")

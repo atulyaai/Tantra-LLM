@@ -31,7 +31,7 @@ def client(tmp_path, monkeypatch):
 
 
 def test_chat_plain_and_stream(client):
-    msgs = [{"role": "user", "content": "नमस्ते"}]
+    msgs = [{"role": "user", "content": "दुनिया के बारे में लिखो"}]   # not small talk: the model answers
     r = client.post("/v1/chat/completions", json={"messages": msgs, "max_tokens": 5})
     assert r.status_code == 200 and r.json()["usage"]["completion_tokens"] <= 5
     s = client.post("/v1/chat/completions", json={"messages": msgs, "max_tokens": 5, "stream": True})
