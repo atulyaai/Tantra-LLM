@@ -171,4 +171,7 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    finally:
+        os.chdir(START)   # hand the notebook back where it was, so re-running the clone cell works
