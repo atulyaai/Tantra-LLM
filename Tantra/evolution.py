@@ -1,9 +1,10 @@
 """
-tantra/evolution.py — Auto-Growth & Self-Repair Controller for NeuroCore.
+Tantra/evolution.py — Growing the model while it trains.
 
-Provides:
-  - Loss Plateau Detection & Dynamic Layer/Expert Insertion
-  - Self-Repair Engine (Detects NaNs, dead neurons, and exploded weight tensors)
+AutoGrowthController     adds a layer when loss plateaus. The new layer starts as an
+                         exact identity (output unchanged), so growth never causes a
+                         loss spike or forgetting. Off by default (--auto-growth).
+CategoryGrowthController grows/shrinks a category's specialist layers (adapters).
 """
 from __future__ import annotations
 
@@ -14,6 +15,43 @@ from typing import Dict, List, Any, Optional
 from Tantra.utils import get_logger
 
 log = get_logger("tantra.evolution")
+
+
+def effective_rank_ratio(weight: torch.Tensor) -> float:
+    """exp(entropy(singular values)) / min(shape). 1.0 = every dimension used."""
+    with torch.no_grad():
+        w = weight.detach().float()
+        s = torch.linalg.svdvals(w)
+        s = s[s > 0]
+        if s.numel() == 0:
+            return 0.0
+        p = s / s.sum()
+        erank = torch.exp(-(p * p.log()).sum()).item()
+        return float(erank / min(w.shape))
+
+
+def zero_residual_outputs(block: nn.Module) -> None:
+    """Zero the residual-branch output projections so a pre-norm block is identity."""
+    with torch.no_grad():
+        attn = getattr(block, "attn", None)
+        if attn is not None and hasattr(attn, "w_o"):
+            attn.w_o.weight.zero_()
+            if getattr(attn.w_o, "bias", None) is not None:
+                attn.w_o.bias.zero_()
+        mlp = getattr(block, "mlp", None)
+        for name in ("w_down", "w_out", "down_proj", "w2"):
+            lin = getattr(mlp, name, None) if mlp is not None else None
+            if lin is not None and hasattr(lin, "weight"):
+                lin.weight.zero_()
+                if getattr(lin, "bias", None) is not None:
+                    lin.bias.zero_()
+        experts = getattr(mlp, "experts", None) if mlp is not None else None
+        if experts is not None:
+            for e in experts:
+                for name in ("w_down", "w_out", "down_proj", "w2"):
+                    lin = getattr(e, name, None)
+                    if lin is not None and hasattr(lin, "weight"):
+                        lin.weight.zero_()
 
 
 class AutoGrowthController:
@@ -73,19 +111,20 @@ class AutoGrowthController:
                     act_score = min(1.0, float(mlp._last_active_ratio) / target_ratio)
                     saturation_scores.append(act_score)
 
-            # 2. Linear projection dimensional participation ratio:
+            # 2. Effective-rank ratio of the attention output projection.
+            #    (The old test, "row variance > 1e-5", is true for almost any
+            #    trained weight, so it always reported ~100% and growth fired
+            #    on every loss plateau.) Effective rank = exp(entropy of the
+            #    normalised singular values); ratio -> 1.0 only when the layer
+            #    really uses all of its dimensions.
             w_candidate = None
-            if mlp is not None and hasattr(mlp, "w_down") and hasattr(mlp.w_down, "weight"):
-                w_candidate = mlp.w_down.weight
-            elif hasattr(layer, "attn") and hasattr(layer.attn, "w_o") and hasattr(layer.attn.w_o, "weight"):
+            if hasattr(layer, "attn") and hasattr(layer.attn, "w_o") and hasattr(layer.attn.w_o, "weight"):
                 w_candidate = layer.attn.w_o.weight
+            elif mlp is not None and hasattr(mlp, "w_down") and hasattr(mlp.w_down, "weight"):
+                w_candidate = mlp.w_down.weight
 
             if w_candidate is not None and w_candidate.ndim == 2:
-                with torch.no_grad():
-                    w_data = w_candidate.detach().float()
-                    row_vars = torch.var(w_data, dim=-1)
-                    active_dims = (row_vars > 1e-5).float().mean().item()
-                    saturation_scores.append(active_dims)
+                saturation_scores.append(effective_rank_ratio(w_candidate))
 
         if not saturation_scores:
             return 0.85
@@ -170,14 +209,14 @@ class AutoGrowthController:
                 )
                 return False
 
-            # Duplicate and perturb last layer to grow depth
+            # Duplicate the last layer, then make it an exact identity at birth:
+            # zero its two residual output projections so block(x) == x.
+            # The model's outputs are unchanged by growth (no loss spike, no
+            # forgetting) and the new layer learns only what it adds.
             import copy
             new_layer = copy.deepcopy(last_layer)
-            
-            # Small random perturbation to break symmetry
-            for p in new_layer.parameters():
-                p.data.add_(torch.randn_like(p.data) * 0.001)
-                
+            zero_residual_outputs(new_layer)
+
             actual_model.layers.append(new_layer)
             if hasattr(actual_model, "config") and hasattr(actual_model.config, "block"):
                 actual_model.config.block.num_layers = len(actual_model.layers)
@@ -207,115 +246,6 @@ class AutoGrowthController:
             self.growth_events.append({"type": "add_layer", "new_total": len(actual_model.layers), "total_params": new_total_params})
             return True
         return False
-
-
-class SelfRepairEngine:
-    """Scans neural network tensors, gradients, and predictions for anomalies, repairing them on the fly.
-    
-    Tantra Autonomous Self-Healing Laws:
-    1. Law of Numerical Integrity: Auto-repairs NaNs, Infs, and exploded weights.
-    2. Law of Gradient Sanity: Auto-clips and purges corrupted optimizer momentum buffers.
-    3. Law of Representation Diversity: Detects mode collapse and restores prediction entropy.
-    4. Law of Layer Stability: Keeps LayerNorm scales strictly bounded within healthy ranges.
-    """
-
-    def scan_and_repair(self, model: nn.Module, max_norm: float = 50.0) -> Dict[str, int]:
-        """Scan all module parameters and repair corrupted/exploded values."""
-        repaired_nans = 0
-        repaired_explosions = 0
-        repaired_dead = 0
-
-        for name, param in model.named_parameters():
-            if param.data is None:
-                continue
-
-            # 1. Repair NaNs / Infs
-            nans_mask = torch.isnan(param.data) | torch.isinf(param.data)
-            if nans_mask.any():
-                count = int(nans_mask.sum().item())
-                repaired_nans += count
-                param.data.copy_(torch.nan_to_num(param.data, nan=0.0, posinf=0.02, neginf=-0.02))
-                param.data[nans_mask] += torch.randn_like(param.data[nans_mask]) * 0.01
-
-            # 2. Repair Exploded Weights (scaled by sqrt(numel) for proper element RMS threshold)
-            # Default threshold: max per-element RMS of 50.0 (very high — only catches truly corrupted values)
-            elem_rms = torch.sqrt(torch.mean(param.data ** 2))
-            if not torch.isnan(elem_rms) and not torch.isinf(elem_rms) and elem_rms > 50.0:
-                param.data.mul_(5.0 / (elem_rms + 1e-6))
-                repaired_explosions += 1
-
-            # 3. Repair Dead Neurons (zero weights in multi-neuron linear projections)
-            if "weight" in name and param.dim() == 2 and param.size(0) > 1 and "w_scale" not in name and "gate" not in name:
-                row_norms = param.data.norm(dim=1)
-                dead_rows = row_norms < 1e-6
-                if dead_rows.any():
-                    count_dead = int(dead_rows.sum().item())
-                    repaired_dead += count_dead
-                    param.data[dead_rows] = torch.randn_like(param.data[dead_rows]) * 0.02
-
-        if repaired_nans > 0 or repaired_explosions > 0 or repaired_dead > 0:
-            log.info(f"Self-Repair triggered: Repaired {repaired_nans} NaNs, {repaired_explosions} exploded tensors, {repaired_dead} dead neurons.")
-            # Invalidate any BitLinear cached quantized weights so they are refreshed
-            for m in model.modules():
-                if hasattr(m, "_cache_valid"):
-                    m._cache_valid = False
-
-        return {
-            "repaired_nans": repaired_nans,
-            "repaired_explosions": repaired_explosions,
-            "repaired_dead": repaired_dead,
-        }
-
-    def purge_corrupted_optimizer_state(self, optimizer: torch.optim.Optimizer) -> int:
-        """Purge and reset any NaN or Inf entries in optimizer momentum buffers."""
-        purged = 0
-        for group in optimizer.param_groups:
-            for p in group["params"]:
-                state = optimizer.state.get(p)
-                if state:
-                    for key in ["exp_avg", "exp_avg_sq"]:
-                        if key in state and state[key] is not None:
-                            bad_mask = torch.isnan(state[key]) | torch.isinf(state[key])
-                            if bad_mask.any():
-                                state[key][bad_mask] = 0.0
-                                purged += int(bad_mask.sum().item())
-        return purged
-
-    def sanitize_optimizer_momentum(self, optimizer: torch.optim.Optimizer, grad_norm: float, threshold: float = 8.0) -> bool:
-        """Law 2: Sanitize optimizer momentum if gradient explosion occurs."""
-        self.purge_corrupted_optimizer_state(optimizer)
-        if grad_norm <= threshold:
-            return False
-        for group in optimizer.param_groups:
-            for p in group["params"]:
-                state = optimizer.state.get(p)
-                if state and "exp_avg" in state and state["exp_avg"] is not None:
-                    state["exp_avg"].mul_(0.5)  # Dampen runaway momentum
-        return True
-
-    def monitor_entropy(self, logits_flat: torch.Tensor, min_entropy: float = 0.3) -> float:
-        """Law 3: Real-time prediction entropy monitor to detect mode collapse risk.
-        Returns the current entropy value. A value below min_entropy indicates
-        the model may be collapsing to a narrow distribution.
-        Note: This is a passive monitor — intervene via LR scheduling or loss
-        reweighting if entropy drops consistently below min_entropy.
-        """
-        with torch.no_grad():
-            probs = torch.softmax(logits_flat[:100], dim=-1)
-            entropy = -(probs * torch.log(probs + 1e-10)).sum(dim=-1).mean().item()
-            return entropy
-
-    def stabilize_layer_norms(self, model: nn.Module) -> int:
-        """Law 4: Keep norm gain parameters safely bounded."""
-        repaired = 0
-        for name, param in model.named_parameters():
-            if "norm" in name and "weight" in name and param.data is not None:
-                out_of_bounds = (param.data < 0.01) | (param.data > 10.0)
-                if out_of_bounds.any():
-                    param.data.clamp_(0.01, 10.0)
-                    repaired += 1
-        return repaired
-
 
 
 class CategoryGrowthController:

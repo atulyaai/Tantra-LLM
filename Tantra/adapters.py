@@ -394,7 +394,7 @@ def install_category_layers(model: NeuroCoreModel, categories: List[AdapterCateg
     return installed
 
 
-def build_adapter_checkpoint(base: str, target: str, vocab_size: int = 32768) -> Dict[str, object]:
+def build_adapter_checkpoint(base: str, target: str, vocab_size: int = 64000) -> Dict[str, object]:
     """Create a category-layer checkpoint without modifying its source.
 
     This is reusable checkpoint-management logic. The command-line wrapper
@@ -414,14 +414,10 @@ def build_adapter_checkpoint(base: str, target: str, vocab_size: int = 32768) ->
     if isinstance(cfg, dict):
         cfg = NeuroCoreConfig._from_dict(cfg)
     cfg.vocab.vocab_size = vocab_size
-    has_legacy_router = any(".router." in key for key in base_state)
-    use_real_top1 = bool(getattr(cfg.moe, "real_top1", False) and getattr(cfg.moe, "num_experts", 1) > 1)
-    use_legacy_compat = bool(has_legacy_router and not use_real_top1 and getattr(cfg.moe, "num_experts", 1) > 1)
     model = NeuroCoreModel(
         cfg,
-        use_mtp=getattr(cfg, "use_mtp", True),
-        use_moe=use_real_top1 or use_legacy_compat,
-        compatibility_legacy_moe=use_legacy_compat,
+        use_mtp=any(k.startswith("mtp_head") for k in base_state),
+        use_moe=bool(getattr(cfg.moe, "real_top1", False) and getattr(cfg.moe, "num_experts", 1) > 1),
     )
     model.load_state_dict(base_state, strict=False)
 

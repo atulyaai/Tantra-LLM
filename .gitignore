@@ -1,121 +1,39 @@
 # Python
 __pycache__/
 *.py[cod]
-*$py.class
-*.so
-env/
-venv/
 .venv/
-
-# Testing
+venv/
 .pytest_cache/
-.benchmarks/
-.coverage
-htmlcov/
-.mypy_cache/
-.ruff_cache/
 
-# Large binary checkpoints (use releases for these)
-[Mm]odel/checkpoint_*.pt
-[Mm]odel/checkpoint_*.dna
-[Mm]odel/converted_*.pt
-[Mm]odel/corpus_sample.txt
-[Mm]odel/training_status.json
-[Mm]odel/Best/*.pt
-[Mm]odel/Checkpoints/*.pt
-[Mm]odel/Latest/*.pt
-# Any checkpoint subfolder (e.g. Model/MoE2_32K/checkpoint_*.pt)
-Model/**/checkpoint_*.pt
-Model/**/checkpoint_*.dna
-Model/**/*.tmp
-[Mm]odel/Export/
-Backup_Checkpoints/
-*.bak
-
-# Generated checkpoint sidecar metadata (written by save_checkpoint)
+# Model files (too big for git — share via Kaggle / releases)
+Model/**/*.pt
 Model/**/*.pt.meta.json
-Model/**/*.eval.json
-
-# Regenerated expert artifacts (built by training runs)
-Model/Experts/*.dna
-Model/Experts/registry.json
-
-# Datasets: Track consolidated files only
-Datasets/*.jsonl
-Datasets/**/*.jsonl
-!Datasets/tantra_hindi_conversation_train.jsonl
-!Datasets/tantra_hindi_conversation_val.jsonl
-!Datasets/tantra_math_train.jsonl
-!Datasets/tantra_math_val.jsonl
-!Datasets/expert_*.jsonl
-!Documents/
-!Datasets/documents/
-!Datasets/download_prepare_hindi_datasets.py
-Datasets/raw/
-Model/memory_bank.json
+Model/**/*.tmp
+Model/_old/
+Model/STOP
+Model/train_log.txt
+Model/logs/
+Model/eval_report.json
+Model/training_status.json
+Model/probe_history.jsonl
 Model/saved_chats.json
-Model/tokenizer.pt
-*.parquet
-*.h5
+Model/Adapters/registry.json
 
-# Logs
-*.log
-logs/
-reports/
+# Datasets (big) — the fixed probe is tracked
+Datasets/**/*.jsonl
+!Datasets/probe_50.jsonl
 
-# Secrets
+# Secrets / OS / IDE
 .env
 .env.*
-*.pem
-*.key
-secrets/
-tmp_*.json
-
-# Standalone scripts and temp files
-cleanup*.py
-check_*.py
-
-# IDE & OS
 .vscode/
 .idea/
-*.swp
-*.jpg
-*.zip
-*.tar.gz
-.DS_Store
 Thumbs.db
-*.bak
+.DS_Store
 
-# Model tokenizer artifacts — tracked for Kaggle/HF model uploads
-# (checkpoint .pt files excluded due to GitHub 100MB limit — use Kaggle dataset upload instead)
-!Model/tokenizer.json
-!Model/merges.txt
-!Model/vocab.json
-!Model/tokenizer_config.json
-!Model/special_tokens_map.json
-Model/Best/
-Model/Checkpoints/
-Model/Latest/
-Model/Export/
-Model/Adapters/
-Model/Experts/
-Model/LaptopTrain/
-Model/corpus_sample.txt
-Model/training_status.json
-Model/saved_chats.json
-Model/memory_bank.json
+# moved-aside old files (delete when happy)
+_old_code/
 
-
-# Redundant datasets (duplicates/removed)
-Datasets/tantra_coding.jsonl
-Datasets/tantra_science.jsonl
-Datasets/tantra_general.jsonl
-Datasets/tantra_conversation.jsonl
-Datasets/tantra_identity_train.jsonl
-
-# Temporary
-*.tmp
-*.log
-logs/
-reports/
-Tools/
+# local only
+Claude outputs/
+.benchmarks/
