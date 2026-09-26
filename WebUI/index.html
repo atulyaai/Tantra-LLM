@@ -32,6 +32,7 @@
     <button data-tab="docs" role="tab"><svg><use href="#i-docs"/></svg><span>Documents</span></button>
     <button data-tab="training" role="tab"><svg><use href="#i-train"/></svg><span>Training <i id="train-dot" class="dot" hidden></i></span></button>
     <button data-tab="model" role="tab"><svg><use href="#i-model"/></svg><span>Model</span></button>
+    <button data-tab="settings" role="tab"><svg><use href="#i-gear"/></svg><span>Settings</span></button>
     <div class="grow"></div>
     <div class="server-box"><span><i id="conn" class="conn"></i><span id="conn-text">connecting…</span></span><small id="model-badge"></small></div>
   </nav>
@@ -276,6 +277,51 @@
             <div id="access-info"><p class="hint">Start with <code>python main.py --mode serve --lan</code> to open Tantra from your phone on the same Wi-Fi. A key is required from other devices.</p></div>
           </div>
           <div class="card"><h2>Dataset files</h2><ul id="dataset-list" class="list"></ul></div>
+        </div>
+      </div>
+    </section>
+    <!-- ═════════ SETTINGS ═════════ -->
+    <section id="tab-settings" class="tab">
+      <div class="page">
+        <header class="page-head"><div><h1 class="display">Settings</h1>
+          <span class="muted-2">Everything here is saved in Model/assistant.json — no code changes needed.</span></div></header>
+        <div class="grid">
+          <section class="card wide">
+            <div class="card-head"><h2>System health</h2>
+              <span class="row"><button id="doctor-refresh">↻ Check again</button><button id="doctor-fix-all" class="primary">Fix everything</button></span></div>
+            <ul id="doctor-list" class="list"></ul>
+            <pre id="doctor-log" class="log small" hidden></pre>
+            <label class="check"><input id="cfg-auto_repair" type="checkbox"> Install missing packages automatically when Tantra starts</label>
+          </section>
+          <section class="card">
+            <h2>Identity</h2>
+            <form id="cfg-identity" class="form-col">
+              <label>Name <input id="cfg-name"></label>
+              <label>Name in Hindi <input id="cfg-name_hi"></label>
+              <label>Tagline <input id="cfg-tagline"></label>
+              <label>Reply language for built-in answers
+                <select id="cfg-language"><option value="auto">auto (same as the question)</option><option value="hi">हिंदी</option><option value="en">English</option></select></label>
+              <label class="check"><input id="cfg-early_model_note" type="checkbox"> Show the “model still early in training” notice</label>
+              <button class="primary">Save</button>
+            </form>
+          </section>
+          <section class="card">
+            <h2>Voice</h2>
+            <form id="cfg-voice" class="form-col">
+              <label>Wake words (comma separated) <input id="cfg-wake_words"></label>
+              <label>Stop words (comma separated) <input id="cfg-stop_words"></label>
+              <label>Pause that ends a sentence (ms) <input id="cfg-voice-silence_ms" type="number" min="400" max="4000" step="100"></label>
+              <label>Longest recording (seconds) <input id="cfg-voice-max_seconds" type="number" min="3" max="60"></label>
+              <label>Speech model <select id="cfg-voice-whisper_model"><option>tiny</option><option>base</option><option>small</option><option>medium</option></select></label>
+              <button class="primary">Save</button>
+            </form>
+          </section>
+          <section class="card wide">
+            <div class="card-head"><h2>Advanced — edit any setting</h2>
+              <span class="row"><button id="cfg-json-reset">Reset all to defaults</button><button id="cfg-json-save" class="primary">Save JSON</button></span></div>
+            <p class="hint">Small talk replies, suggestions, skill examples, apps Tantra may open, the no-model reply… <code>{name}</code> / <code>{name_hi}</code> are replaced with the name.</p>
+            <textarea id="cfg-json" class="log" spellcheck="false"></textarea>
+          </section>
         </div>
       </div>
     </section>

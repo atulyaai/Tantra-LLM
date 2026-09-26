@@ -13,6 +13,7 @@ main.py — Tantra command line. Every task is one --mode.
   python main.py --mode dpo --prefs FILE      preference tuning from chosen/rejected pairs
   python main.py --mode adapter               list / install category specialist layers
   python main.py --mode hardware              show CPU / RAM / GPU
+  python main.py --mode doctor [--fix]        check every part; --fix installs / builds what is missing
 
 Folders:  Datasets/ (your .jsonl)   Model/ (tokenizer + checkpoints)   Tantra/ (engine)   WebUI/   Tests/
 """
@@ -373,7 +374,7 @@ def main() -> None:
                                 epilog=__doc__)
     p.add_argument("--mode", default="train",
                    choices=["train", "chat", "generate", "eval", "serve", "export", "data", "tokenizer", "smriti",
-                            "dpo", "adapter", "hardware"])
+                            "dpo", "adapter", "hardware", "doctor"])
     # data
     p.add_argument("--data", help="training .jsonl, comma-separated for several (default: Datasets/pretrain.jsonl "
                                   "or sft.jsonl for the stage)")
@@ -428,12 +429,23 @@ def main() -> None:
     p.add_argument("--max-new-tokens", type=int, default=200)
     p.add_argument("--int8", action="store_true", help="CPU: run with 8-bit weights (~2x faster)")
     p.add_argument("--port", type=int, default=8000)
+    p.add_argument("--fix", action="store_true", help="doctor: repair what is missing")
+    p.add_argument("--only", help="doctor: repair just this check id")
+    p.add_argument("--auto", action="store_true", help="doctor: only the safe automatic repairs (package installs)")
     p.add_argument("--lan", action="store_true", help="serve: also reachable from your phone on the same Wi-Fi (key required)")
     args = p.parse_args()
 
     print_banner()
     move_legacy_files()
     set_seed(args.seed)
+    if args.mode == "doctor":
+        from Tantra.doctor import fix, fix_all, report
+        print(report())
+        if args.fix or args.only:
+            print()
+            fix(args.only) if args.only else fix_all(auto_only=args.auto)
+            print("\n" + report())
+        return
     if args.mode == "data":
         return run_data(args)
     if args.mode == "smriti":

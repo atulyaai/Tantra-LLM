@@ -35,7 +35,7 @@ class Skill:
     card: Dict[str, Any] = field(default_factory=dict)   # structured extras for the UI
 
 
-_HINGLISH = re.compile(r"\b(kya|hai|hain|kaise|kitna|kitne|mujhe|tumhe|yaad|kaun|kab|kahan|bhai|yaar|aaj|kal|baje|nahi)\b", re.I)
+_HINGLISH = re.compile(r"\b(kya|hai|hain|kaise|kitna|kitne|mujhe|tumhe|yaad|kaun|kab|kahan|bhai|yaar|aaj|kal|baje|nahi|namaste|namaskar|dhanyavad|shukriya|theek|accha|haan)\b", re.I)
 
 
 def hindi(text: str) -> bool:

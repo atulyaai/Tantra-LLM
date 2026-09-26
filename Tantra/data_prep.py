@@ -307,6 +307,22 @@ def build(data_dir: str, raw_dir: Optional[str] = None, val_fraction: float = 0.
                 if i and i % 200_000 == 0:
                     log.info(f"  {i:,} rows")
 
+    # Answers taught in the WebUI (👎 Teach Tantra): the model learns from its own corrections.
+    fb = os.path.join(data_dir, "feedback.jsonl")
+    if os.path.isfile(fb):
+        n = 0
+        with open(fb, encoding="utf-8") as f:
+            for line in f:
+                try:
+                    rec = {"messages": json.loads(line)["messages"]}
+                except (ValueError, KeyError):
+                    continue
+                emit("feedback.jsonl", "sft", rec)
+                for _ in range(2):          # corrections count extra
+                    out["sft"].add(rec)
+                n += 1
+        log.info(f"Added {n} taught answers from feedback.jsonl")
+
     for name, (kind_hint, limit, repeat) in SOURCES.items():
         if not glob.glob(os.path.join(raw_dir, name, "*.parquet")):
             log.warning(f"Skipping {name}: not downloaded (Datasets/raw/{name}/)")

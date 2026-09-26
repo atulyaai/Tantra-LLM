@@ -114,7 +114,7 @@ let chatsCache = {};
 let controller = null;
 let status = {};
 
-const SUGGESTIONS = ["नमस्ते, आप कौन हैं?", "भारत की राजधानी क्या है?", "Bhai, Python me list ko sort kaise karte hain?", "Explain photosynthesis in simple words.", "2 + 2 × 3 कितना होता है?"];
+let CFG = { suggestions: [], skill_examples: [], wake_words: ["तन्त्र", "tantra"], stop_words: ["रुको", "stop"], voice: { silence_ms: 1100, max_seconds: 15, min_threshold: 4 }, name: "Tantra", name_hi: "तन्त्र" };
 
 function nearBottom() { const m = $("#messages"); return m.scrollHeight - m.scrollTop - m.clientHeight < 80; }
 function scrollDown(force) { const m = $("#messages"); if (force || nearBottom()) m.scrollTop = m.scrollHeight; }
@@ -124,9 +124,9 @@ function renderMessages() {
   box.innerHTML = "";
   if (!chat.messages.length) {
     const e = el("div", "empty");
-    e.innerHTML = `<h1>तन्त्र</h1><p>नमस्ते! Ask anything in Hindi, Hinglish or English.</p>`;
+    e.innerHTML = `<h1>${esc(CFG.name_hi)}</h1><p>नमस्ते! Ask anything in Hindi, Hinglish or English.</p>`;
     const sug = el("div", "suggestions");
-    SUGGESTIONS.forEach((q) => { const b = el("button", null, q); b.onclick = () => send(q); sug.append(b); });
+    (CFG.suggestions || []).forEach((q) => { const b = el("button", null, q); b.onclick = () => send(q); sug.append(b); });
     e.append(sug);
     box.append(e);
     return;
@@ -137,12 +137,13 @@ function renderMessages() {
 
 const SKILL_LABEL = { calculator: "Calculator · exact", time: "Time & date", units: "Unit converter", memory: "Memory",
   reminder: "Reminder", brief: "Daily brief", status: "System status", files: "File search", open: "Open app",
-  taught: "Answer you taught", knowledge: "From knowledge (Smriti / documents)" };
+  taught: "Answer you taught", knowledge: "From knowledge (Smriti / documents)", small_talk: "", no_model: "Model still training" };
 
 function skillBody(m, body) {
   const c = m.card || {};
   body.innerHTML = "";
-  body.append(el("div", "skill-tag", SKILL_LABEL[m.skill] || m.skill));
+  const label = SKILL_LABEL[m.skill] ?? m.skill;
+  if (label) body.append(el("div", "skill-tag", label));
   if (m.skill === "calculator" && c.result) {
     const box = el("div", "calc");
     if ((c.steps || []).length > 1) box.append(el("div", "steps", c.steps.join("\n")));
@@ -218,7 +219,7 @@ function messageEl(m, i) {
     btn("⧉", "Copy", () => navigator.clipboard.writeText(m.content).then(() => toast("Copied.")));
     btn("🔊", "Read aloud", () => speakText(m.content));
     if (i === chat.messages.length - 1 && !m.skill) btn("↻", "Regenerate", regenerate);
-    if (!["calculator", "time", "units", "memory", "reminder"].includes(m.skill)) btn("👎", "Wrong? Teach the right answer", () => teachBox(d, i));
+    if (!["calculator", "time", "units", "memory", "reminder", "small_talk"].includes(m.skill)) btn("👎", "Wrong? Teach the right answer", () => teachBox(d, i));
   } else {
     btn("✎", "Edit and resend", () => editMessage(i));
   }
@@ -322,7 +323,7 @@ async function generate() {
   if (final?.category) parts.push(final.category);
   if (controller.signal.aborted) parts.push("stopped");
   else if (final?.choices?.[0]?.finish_reason === "length") parts.push("hit max tokens");
-  reply.info = final?.skill ? "instant · no model needed" : parts.join(" · ");
+  reply.info = final?.skill === "no_model" ? "" : final?.skill ? "instant · no model needed" : parts.join(" · ");
   if (final?.skill) { reply.skill = final.skill; reply.card = final.card || {}; }
   if (final?.sources?.length) reply.sources = final.sources;
   if (final?.skill === "reminder" || final?.skill === "memory") refreshReminders();
@@ -392,6 +393,32 @@ $("#new-chat").onclick = newChat;
 $("#chat-search").oninput = renderChatList;
 $("#sidebar-toggle").onclick = () => { showTab("chat"); $("#chats").classList.toggle("open"); };
 
+// ── speech-to-text: the browser converts the recording to 16 kHz mono WAV (no ffmpeg needed) ──
+async function toWav(blob) {
+  const raw = await blob.arrayBuffer();
+  const ctx = new AudioContext();
+  const decoded = await ctx.decodeAudioData(raw);
+  ctx.close();
+  const off = new OfflineAudioContext(1, Math.ceil(decoded.duration * 16000), 16000);
+  const src = off.createBufferSource(); src.buffer = decoded; src.connect(off.destination); src.start();
+  const pcm = (await off.startRendering()).getChannelData(0);
+  const buf = new ArrayBuffer(44 + pcm.length * 2), v = new DataView(buf);
+  const w = (o, s) => [...s].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
+  w(0, "RIFF"); v.setUint32(4, 36 + pcm.length * 2, true); w(8, "WAVE"); w(12, "fmt ");
+  v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true); v.setUint32(24, 16000, true);
+  v.setUint32(28, 32000, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true); w(36, "data"); v.setUint32(40, pcm.length * 2, true);
+  for (let i = 0; i < pcm.length; i++) v.setInt16(44 + i * 2, Math.max(-1, Math.min(1, pcm[i])) * 0x7fff, true);
+  return new Blob([buf], { type: "audio/wav" });
+}
+async function transcribe(blob) {
+  const fd = new FormData(); fd.append("audio", await toWav(blob), "speech.wav");
+  const key = store.get("apiKey", "");
+  const r = await fetch("/api/stt", { method: "POST", body: fd, headers: key ? { "X-API-Key": key } : {} });
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.detail || "Speech-to-text failed");
+  return (j.text || "").trim();
+}
+
 // ── voice ──
 let recorder = null;
 $("#mic").onclick = async () => {
@@ -405,13 +432,11 @@ $("#mic").onclick = async () => {
   recorder.onstop = async () => {
     stream.getTracks().forEach((t) => t.stop());
     $("#mic").classList.remove("recording"); recorder = null;
-    const fd = new FormData(); fd.append("audio", new Blob(parts, { type: "audio/webm" }), "speech.webm");
-    toast("Transcribing…");
+    toast("Transcribing… (the first time also loads the speech model)");
     try {
-      const r = await fetch("/api/stt", { method: "POST", body: fd });
-      const j = await r.json();
-      if (!r.ok) throw new Error(j.detail);
-      $("#input").value = ($("#input").value + " " + j.text).trim(); autosize(); $("#input").focus();
+      const text = await transcribe(new Blob(parts, { type: recorder?.mimeType || "audio/webm" }));
+      if (!text) { toast("I didn't catch that — try again a little louder.", "error"); return; }
+      $("#input").value = ($("#input").value + " " + text).trim(); autosize(); $("#input").focus();
     } catch (e) { toast(e.message, "error"); }
   };
   recorder.start(); $("#mic").classList.add("recording"); toast("Recording… click the mic again to stop.");
@@ -566,6 +591,7 @@ function qualityBanner(s) {
       msg = `The model is still early in training (step ${fmt(m.step, 0)}${vl != null ? `, val loss ${fmt(vl, 2)}` : ""}${probe ? `, remembered ${probe.hits}/50` : ""}): ` +
         `its own replies are mostly random for now. Skills, memory and knowledge answers are exact already.`;
   }
+  if (CFG.early_model_note === false) msg = "";
   b.innerHTML = msg; b.hidden = !msg;
 }
 
@@ -766,21 +792,19 @@ $("#load-int8").onchange = () => refreshStatus();
 window.addEventListener("resize", () => { if (activeTab() === "training") renderTraining(status); });
 
 // ── home ─────────────────────────────────────────────────────────────────────
-const SKILLS = [
-  ["Calculator", "250 × 18 + 5%"], ["समय / तारीख", "आज कौन सा दिन है?"], ["Units", "5 lakh in million"],
-  ["Remember", "याद रखो: "], ["Reminder", "10 मिनट बाद याद दिलाना "], ["Daily brief", "आज का brief"],
-  ["System status", "training कैसी चल रही है?"], ["Find files", "files: "],
-];
 function useSkill(example) {
   showTab("chat");
   if (example.endsWith(" ") || example.endsWith(": ")) { $("#input").value = example; $("#input").focus(); autosize(); }
   else send(example);
 }
-SKILLS.forEach(([name, ex]) => {
-  const b = el("button"); b.type = "button"; b.append(el("b", null, name), el("span", null, `“${ex.trim()}”`));
-  b.onclick = () => useSkill(ex); $("#home-skills").append(b);
-  const c = el("button", "chip", name); c.type = "button"; c.onclick = () => useSkill(ex); $("#skill-chips").append(c);
-});
+function renderSkills() {
+  $("#home-skills").innerHTML = ""; $("#skill-chips").innerHTML = "";
+  (CFG.skill_examples || []).forEach(([name, ex]) => {
+    const b = el("button"); b.type = "button"; b.append(el("b", null, name), el("span", null, `“${ex.trim()}”`));
+    b.onclick = () => useSkill(ex); $("#home-skills").append(b);
+    const c = el("button", "chip", name); c.type = "button"; c.onclick = () => useSkill(ex); $("#skill-chips").append(c);
+  });
+}
 $("#home-ask").onsubmit = (e) => { e.preventDefault(); const q = $("#home-q").value.trim(); if (!q) return; $("#home-q").value = ""; showTab("chat"); newChat(); send(q); };
 
 function greeting() {
@@ -791,7 +815,7 @@ async function renderHome(s) {
   const now = new Date(), m = s.model || {}, t = s.training || {}, sm = s.smriti;
   $("#home-date").textContent = now.toLocaleDateString("hi-IN", { weekday: "long", day: "numeric", month: "long" }) + " · " +
     now.toLocaleTimeString("hi-IN", { hour: "numeric", minute: "2-digit" });
-  $("#home-greet").textContent = `${greeting()} — मैं Tantra हूँ`;
+  $("#home-greet").textContent = `${greeting()} — मैं ${CFG.name} हूँ`;
   const pct = t.target_steps ? Math.min(100, (100 * (t.step || 0)) / t.target_steps) : 0;
   $("#home-sub").textContent = [t.status === "running" ? `Training ${pct.toFixed(0)}% done` : null,
     sm ? `Smriti knows ${fmtTokens(sm.facts)} facts` : null, "Ask me anything."].filter(Boolean).join(". ") + "";
@@ -968,7 +992,7 @@ async function voiceStart() {
   V.on = true; V.ctx = new AudioContext();
   const src = V.ctx.createMediaStreamSource(V.stream), an = V.ctx.createAnalyser(); an.fftSize = 1024; src.connect(an);
   const buf = new Uint8Array(an.fftSize);
-  let speaking = false, silentSince = 0, parts = [];
+  let speaking = false, silentSince = 0, parts = [], noise = 0, calib = 0, startedAt = 0;
   const bars = $$("#orb .bars i");
   const loop = () => {
     if (!V.on) return;
@@ -977,18 +1001,21 @@ async function voiceStart() {
     const level = Math.sqrt(sum / buf.length);
     if (!V.busy) bars.forEach((b, i) => { b.style.height = `${16 + Math.min(56, level * (2 + (i % 3)))}px`; });
     const now = performance.now();
+    if (calib < 40) { noise = Math.max(noise, level); calib++; V.raf = requestAnimationFrame(loop); return; }   // ~0.7 s: learn room noise
+    const threshold = Math.max(CFG.voice?.min_threshold || 4, noise * 2 + 2);
     if (!V.busy) {
-      if (level > 9) {
+      if (speaking && now - startedAt > (CFG.voice?.max_seconds || 15) * 1000) { speaking = false; V.rec?.state === "recording" && V.rec.stop(); }   // max 15 s
+      if (level > threshold) {
         silentSince = 0;
         if (!speaking) {
-          speaking = true; parts = [];
+          speaking = true; parts = []; startedAt = now;
           V.rec = new MediaRecorder(V.stream); V.rec.ondataavailable = (e) => parts.push(e.data);
-          V.rec.onstop = () => handleUtterance(new Blob(parts, { type: "audio/webm" }));
+          V.rec.onstop = () => handleUtterance(new Blob(parts, { type: V.rec?.mimeType || "audio/webm" }));
           V.rec.start(); voiceState("listening", "…");
         }
       } else if (speaking) {
         silentSince ||= now;
-        if (now - silentSince > 1100) { speaking = false; V.rec?.state === "recording" && V.rec.stop(); }
+        if (now - silentSince > (CFG.voice?.silence_ms || 1100)) { speaking = false; V.rec?.state === "recording" && V.rec.stop(); }
       }
     }
     V.raf = requestAnimationFrame(loop);
@@ -1003,20 +1030,19 @@ function voiceStop() {
   V.stream?.getTracks().forEach((t) => t.stop()); V.ctx?.close();
   stopSpeaking(); V.busy = false; voiceState("idle", "");
 }
-const WAKE = /^(\s*(hey|ok|अरे|हे)?\s*)(तन्त्र|तंत्र|टंत्र|tantra|tantr|tanthra)[\s,!.।]*/i;
+const escRe = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const wakeRe = () => new RegExp(`^(\\s*(hey|ok|अरे|हे)?\\s*)(${(CFG.wake_words || ["tantra"]).map(escRe).join("|")})[\\s,!.।]*`, "i");
+const stopRe = () => new RegExp(`^(${(CFG.stop_words || ["stop"]).map(escRe).join("|")})[\\s.!।]*$`, "i");
 async function handleUtterance(blob) {
-  if (!V.on || blob.size < 3000) { if (V.on) voiceState("listening"); return; }
-  V.busy = true; voiceState("thinking", "…");
+  if (!V.on || blob.size < 2000) { if (V.on) voiceState("listening"); return; }
+  V.busy = true; voiceState("thinking", "सुन रहा हूँ… / transcribing…");
   try {
-    const fd = new FormData(); fd.append("audio", blob, "speech.webm");
-    const r = await fetch("/api/stt", { method: "POST", body: fd }); const j = await r.json();
-    if (!r.ok) throw new Error(j.detail);
-    let text = (j.text || "").trim();
+    let text = await transcribe(blob);
     if (!text) { V.busy = false; voiceState("listening", ""); return; }
-    if (/^(रुको|रुक जाओ|stop|ruko)[\s.!।]*$/i.test(text)) { stopSpeaking(); V.busy = false; voiceState("listening", "ठीक है।"); return; }
+    if (stopRe().test(text)) { stopSpeaking(); V.busy = false; voiceState("listening", "ठीक है।"); return; }
     if ($("#wake").checked) {
-      if (!WAKE.test(text)) { V.busy = false; voiceState("listening", "Say “तन्त्र …” to wake me"); return; }
-      text = text.replace(WAKE, "").trim() || "नमस्ते";
+      if (!wakeRe().test(text)) { V.busy = false; voiceState("listening", "Say “तन्त्र …” to wake me"); return; }
+      text = text.replace(wakeRe(), "").trim() || "नमस्ते";
     }
     voiceState("thinking", `“${text}”`);
     const res = await postJSON("/v1/chat/completions", {
@@ -1028,7 +1054,7 @@ async function handleUtterance(blob) {
     voiceState("speaking", answer.length > 220 ? answer.slice(0, 220) + "…" : answer);
     await speakText(answer);
     if (res.skill === "reminder" || res.skill === "memory") refreshReminders();
-  } catch (e) { toast(e.message, "error"); }
+  } catch (e) { toast(e.message, "error"); $("#voice-live").textContent = `⚠ ${e.message}`; }
   V.busy = false;
   if (V.on) voiceState("listening", "");
 }
@@ -1061,7 +1087,80 @@ async function renderAccess() {
   } catch { /* shown only on this computer */ }
 }
 
+// ── settings (Model/assistant.json) + system health ──────────────────────────
+async function loadConfig() {
+  try { CFG = (await getJSON("/api/config")).config; } catch { return; }
+  $(".brand-text b").textContent = CFG.name_hi; $(".brand-text small").textContent = CFG.tagline;
+  $(".mark").textContent = (CFG.name_hi || "त")[0];
+  document.title = CFG.name;
+  renderSkills();
+  if (!chat.messages.length) renderMessages();
+}
+function fillSettingsForm() {
+  const set = (id, v) => { const e = $(id); if (e) { if (e.type === "checkbox") e.checked = !!v; else e.value = v ?? ""; } };
+  ["name", "name_hi", "tagline", "language", "early_model_note", "auto_repair"].forEach((k) => set(`#cfg-${k}`, CFG[k]));
+  set("#cfg-wake_words", (CFG.wake_words || []).join(", ")); set("#cfg-stop_words", (CFG.stop_words || []).join(", "));
+  ["silence_ms", "max_seconds", "whisper_model"].forEach((k) => set(`#cfg-voice-${k}`, CFG.voice?.[k]));
+  $("#cfg-json").value = JSON.stringify(CFG, null, 2);
+}
+async function saveConfig(changes, msg = "Settings saved.") {
+  try { CFG = (await postJSON("/api/config", changes)).config; toast(msg, "ok"); await loadConfig(); fillSettingsForm(); }
+  catch (e) { toast(e.message, "error"); }
+}
+$("#cfg-identity").onsubmit = (e) => { e.preventDefault(); saveConfig({ name: $("#cfg-name").value.trim() || "Tantra", name_hi: $("#cfg-name_hi").value.trim() || "तन्त्र",
+  tagline: $("#cfg-tagline").value.trim(), language: $("#cfg-language").value, early_model_note: $("#cfg-early_model_note").checked }); };
+$("#cfg-voice").onsubmit = (e) => {
+  e.preventDefault();
+  const list = (id) => $(id).value.split(",").map((x) => x.trim()).filter(Boolean);
+  saveConfig({ wake_words: list("#cfg-wake_words"), stop_words: list("#cfg-stop_words"),
+    voice: { silence_ms: +$("#cfg-voice-silence_ms").value, max_seconds: +$("#cfg-voice-max_seconds").value, whisper_model: $("#cfg-voice-whisper_model").value } });
+};
+$("#cfg-auto_repair").onchange = (e) => saveConfig({ auto_repair: e.target.checked });
+$("#cfg-json-save").onclick = () => {
+  let obj; try { obj = JSON.parse($("#cfg-json").value); } catch (e) { toast(`Not valid JSON: ${e.message}`, "error"); return; }
+  saveConfig(obj);
+};
+$("#cfg-json-reset").onclick = async () => {
+  if (!confirm("Reset ALL settings to defaults?")) return;
+  try { CFG = (await postJSON("/api/config/reset", {})).config; await loadConfig(); fillSettingsForm(); toast("Defaults restored.", "ok"); } catch (e) { toast(e.message, "error"); }
+};
+
+async function renderDoctor() {
+  let d; try { d = await getJSON("/api/doctor"); } catch (e) { toast(e.message, "error"); return; }
+  const ul = $("#doctor-list"); ul.innerHTML = "";
+  d.checks.forEach((c) => {
+    const li = el("li");
+    const left = el("span"); left.innerHTML = `<b class="${c.ok ? "ok" : "bad"}">${c.ok ? "✓" : "✗"}</b> <b>${esc(c.title)}</b> <span class="muted">— ${esc(c.why)}</span>`;
+    li.append(left);
+    if (!c.ok) {
+      const a = el("div", "actions");
+      if (/^install|^run:/.test(c.fix)) {
+        const b = el("button", "primary", "Fix"); b.title = c.fix; b.disabled = !!d.job.running;
+        b.onclick = async () => { try { await postJSON("/api/doctor/fix", { id: c.id }); toast(`Fixing: ${c.title}…`); watchDoctor(); } catch (e) { toast(e.message, "error"); } };
+        a.append(b);
+      } else a.append(el("span", "hint", c.fix));
+      li.append(a);
+    }
+    ul.append(li);
+  });
+  $("#doctor-fix-all").disabled = !!d.job.running || d.checks.every((c) => c.ok || !/^install|^run:/.test(c.fix));
+  if (d.job.started) refreshLog("doctor", $("#doctor-log"), "force");
+  return d;
+}
+let doctorTimer = 0;
+function watchDoctor() {
+  clearInterval(doctorTimer);
+  doctorTimer = setInterval(async () => {
+    const d = await renderDoctor();
+    if (d && !d.job.running) { clearInterval(doctorTimer); status = {}; refreshStatus(); toast("Repair finished — see System health.", "ok"); }
+  }, 2500);
+}
+$("#doctor-refresh").onclick = renderDoctor;
+$("#doctor-fix-all").onclick = async () => { try { await postJSON("/api/doctor/fix", {}); toast("Repairing everything that can be repaired…"); watchDoctor(); } catch (e) { toast(e.message, "error"); } };
+$$('.rail > button[data-tab="settings"]').forEach((b) => b.addEventListener("click", () => { fillSettingsForm(); renderDoctor(); }));
+
 // ── start ──
+loadConfig().then(() => { if (activeTab() === "settings") { fillSettingsForm(); renderDoctor(); } });
 renderMessages();
 loadChatList().then(() => refreshStatus());
 refreshReminders();
