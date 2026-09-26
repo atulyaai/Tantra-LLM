@@ -1,19 +1,18 @@
 """
-main.py — Tantra-LLM CLI entry point.
+main.py — Tantra command line. Every task is one --mode.
 
-Usage:
-    python main.py                     # full pipeline test
-    python main.py --mode probe        # hardware auto-detection & profiling
-    python main.py --mode vocab        # build & save vocabulary
-    python main.py --mode train        # run training steps with auto-growth & repair
-    python main.py --mode dataset      # pre-train on real JSONL dataset
-    python main.py --mode eval         # evaluate perplexity & throughput benchmark
-    python main.py --mode compress     # run DNA compression benchmark
-    python main.py --mode generate     # generate text tokens (MTP 2x speed)
-    python main.py --mode serve        # start local Web UI & REST API server
-    python main.py --mode status       # dashboard
-    python main.py --mode experts      # list experts
-    python main.py --mode chat         # interactive REPL
+  python main.py --mode train                 train (continues automatically if a checkpoint exists)
+  python main.py --mode train --fresh         start a new model (old checkpoints are moved to Model/_old/)
+  python main.py --mode chat                  talk to the model in the terminal
+  python main.py --mode eval                  validation loss + 50-question probe + speed
+  python main.py --mode serve                 WebUI + OpenAI-compatible API on http://127.0.0.1:8000
+  python main.py --mode export                small fp16 file for inference (Model/tantra.pt)
+  python main.py --mode tokenizer             build Model/tokenizer.json from your data (do this ONCE)
+  python main.py --mode dpo --prefs FILE      preference tuning from chosen/rejected pairs
+  python main.py --mode adapter               list / install category specialist layers
+  python main.py --mode hardware              show CPU / RAM / GPU
+
+Folders:  Datasets/ (your .jsonl)   Model/ (tokenizer + checkpoints)   Tantra/ (engine)   WebUI/   Tests/
 """
 from __future__ import annotations
 
@@ -24,2131 +23,407 @@ import os
 import shutil
 import sys
 import time
+
 import torch
-import torch._dynamo
 
-if torch.cuda.is_available():
-    torch.backends.cudnn.benchmark = True
-    try:
-        torch.backends.cuda.matmul.allow_tf32 = True
-        torch.backends.cudnn.allow_tf32 = True
-    except Exception:
-        pass
+from Tantra.config import EOS_ID, NeuroCoreConfig
+from Tantra.hardware import detect_hardware
+from Tantra.model import NeuroCoreModel, load_model
+from Tantra.tokenizer import build_tokenizer, load_tokenizer
+from Tantra.utils import get_logger, print_banner, set_seed, unwrap_model
 
-from Tantra.config import NeuroCoreConfig, VocabConfig, MoEConfig, CompressionConfig
-from Tantra.utils import get_logger, unwrap_model, safe_load_checkpoint
-from Tantra.hardware import HardwareDetector, Profiler, RuntimeConfigBuilder, AdaptiveScheduler
-from Tantra.tokenizer import ByteBPETokenizer, MegabytePatcher, UnifiedTokenizer
-from Tantra.model import NeuroCoreModel, cpu_dense_config, build_cpu_model
-from Tantra.moe import ExpertRegistry, LazyExpertLoader
-from Tantra.codec import DNACodec, CompressionBenchmark
-from Tantra.train import NeuroTrainer, build_optimizer, create_lr_scheduler
-from Tantra.dataset import JSONLDataset, extract_corpus_sample, PretokenizedBinDataset, find_bin_cache
-from Tantra.evolution import AutoGrowthController, SelfRepairEngine, CategoryGrowthController
-from Tantra.eval_suite import EvaluationEngine
-from Tantra.adapters import AdapterRegistry, RequestRouter, DEFAULT_CATEGORIES
-
-# Extracted from main.py into cli/ during the module-split cleanup:
-#   Tantra.ui                  -> print_banner, print_status_dashboard, print_expert_panel
-#   Tantra.cli_hardware_dispatch -> detect_hardware (Colab/CI fast-path vs full benchmark dispatch)
-from Tantra.ui import print_banner, print_status_dashboard, print_expert_panel
-from Tantra.cli_hardware_dispatch import detect_hardware
-
-try:
-    from rich.console import Console
-    from rich.table import Table
-    from rich.panel import Panel
-    from rich.text import Text
-    from rich.progress import Progress
-    console = Console()
-except ImportError:
-    console = None
-
+ROOT = os.path.dirname(os.path.abspath(__file__))
+MODEL_DIR = os.path.join(ROOT, "Model")
+TOKENIZER_PATH = os.path.join(MODEL_DIR, "tokenizer.json")
+DATA_DIR = os.path.join(ROOT, "Datasets")
 log = get_logger("tantra")
 
-MODEL_DIR       = os.path.join(os.path.dirname(__file__), "Model")
-BEST_DIR        = os.path.join(MODEL_DIR, "Best")
-LATEST_DIR      = os.path.join(MODEL_DIR, "Latest")
-CHECKPOINTS_DIR = os.path.join(MODEL_DIR, "Checkpoints")
-EXPERTS_DIR     = os.path.join(MODEL_DIR, "Experts")
-_datasets_dir = os.path.join(os.path.dirname(__file__), "Datasets")
-has_topics = False
-if os.path.exists(_datasets_dir):
-    topic_subdirs = [
-        e.path for e in os.scandir(_datasets_dir)
-        if e.is_dir() and e.name not in ("documents", "__pycache__") and not e.name.startswith(".")
-    ]
-    # Verify subdirs actually contain topic JSONLs
-    has_topics = any(glob.glob(os.path.join(d, "*.jsonl")) for d in topic_subdirs)
 
-_hindi_train_cand = os.path.join(_datasets_dir, "tantra_hindi_conversation_train.jsonl")
-_hindi_val_cand = os.path.join(_datasets_dir, "tantra_hindi_conversation_val.jsonl")
-# Hindi-only phase: prefer the Hindi corpus by default when present, ahead of the
-# generic size-based fallback below. Pass --dataset explicitly to override.
-if os.path.exists(_hindi_train_cand):
-    DEFAULT_DATASET = _hindi_train_cand
-elif has_topics:
-    DEFAULT_DATASET = _datasets_dir
-else:
-    _default_cand = os.path.join(_datasets_dir, "tantra_hindi_conversation_train.jsonl")
-    if os.path.exists(_default_cand):
-        DEFAULT_DATASET = _default_cand
+def ckpt_paths(model_dir: str) -> dict:
+    # Only two training files: latest (to continue) and best (lowest validation loss).
+    return {"latest": os.path.join(model_dir, "latest.pt"), "best": os.path.join(model_dir, "best.pt")}
+
+
+def default_checkpoint(model_dir: str = MODEL_DIR) -> str:
+    p = ckpt_paths(model_dir)
+    for c in (os.path.join(model_dir, "tantra.pt"), p["best"], p["latest"]):
+        if os.path.isfile(c):
+            return c
+    raise FileNotFoundError("No trained checkpoint yet. Train first: python main.py --mode train")
+
+
+def archive_old_run(model_dir: str, reason: str) -> None:
+    """Move old checkpoints aside (never delete) so a fresh run starts clean."""
+    stamp = time.strftime("%Y%m%d_%H%M%S")
+    dest = os.path.join(model_dir, "_old", stamp)
+    moved = []
+    for name in ("latest.pt", "best.pt", "latest.pt.meta.json", "best.pt.meta.json", "tantra.pt",
+                 "probe_history.jsonl", "training_status.json",
+                 # leftovers from the old layout — moved aside once, automatically
+                 "Latest", "Best", "Checkpoints", "Export", "Experts", "Adapters", "tokenizer_32k",
+                 "vocab.json", "merges.txt", "tokenizer_config.json", "special_tokens_map.json",
+                 "memory_bank.json", "corpus_sample.txt"):
+        src = os.path.join(model_dir, name)
+        if os.path.exists(src):
+            os.makedirs(dest, exist_ok=True)
+            shutil.move(src, os.path.join(dest, name))
+            moved.append(name)
+    if moved:
+        log.warning(f"{reason} Moved {', '.join(moved)} -> {os.path.relpath(dest, ROOT)}")
+
+
+def build_config(args, vocab_size: int) -> NeuroCoreConfig:
+    if args.preset == "billion":
+        cfg = NeuroCoreConfig.billion(vocab_size)
+    elif args.preset == "tiny":
+        cfg = NeuroCoreConfig.tiny()
+        cfg.vocab.vocab_size = cfg.vocab.byte_bpe_vocab = vocab_size
     else:
-        _found = [p for p in glob.glob(os.path.join(_datasets_dir, "*.jsonl")) if not any(x in os.path.basename(p) for x in ["val", "eval", "pref", "doc"])]
-        if _found:
-            _found.sort(key=lambda p: os.path.getsize(p) if os.path.exists(p) else 0, reverse=True)
-            DEFAULT_DATASET = _found[0]
+        cfg = NeuroCoreConfig.small(vocab_size)
+    if args.dim or args.layers or args.heads:
+        cfg.set_shape(args.dim or cfg.block.alra.dim, args.layers or cfg.block.num_layers,
+                      args.heads or cfg.block.alra.num_heads)
+    if args.local_attn_every is not None:
+        cfg.block.alra.local_attn_every = args.local_attn_every
+    if args.local_window:
+        cfg.block.alra.local_window = args.local_window
+    return cfg
+
+
+# Files from the old (v1) layout. On the first run they are MOVED (not deleted) to _old_code/.
+# Check that folder, then delete it yourself.
+LEGACY = [
+    "ARCHITECTURE.md", "ROADMAP.md", "SECURITY.md", "CONTRIBUTING.md", "CHANGELOG.md", "pyproject.toml",
+    "benchmark.py", "chat.py", "train.bat", "tantra.ps1", "tantra_kaggle_training.ipynb", "tools", ".benchmarks",
+    "Tantra/Chitta.py", "Tantra/CognitiveOS.py", "Tantra/Manas.py", "Tantra/Nirikshak.py", "Tantra/Smriti.py",
+    "Tantra/Vivek.py", "Tantra/config_0926b.py", "Tantra/benchmark.py", "Tantra/cli_hardware_dispatch.py",
+    "Tantra/codec.py", "Tantra/moe.py", "Tantra/tool_router.py", "Tantra/ui.py", "Tantra/probe_eval.py",
+    "Tests/test_checkpoint_and_chat_loader.py", "Tests/test_core_architecture.py", "Tests/test_export_benchmark.py",
+    "Tests/test_omnimodal_tools.py", "Tests/test_real_learning_and_gradients.py", "Tests/test_system_integration.py",
+    "Tests/test_training_alignment.py", "Tests/test_v2_core.py",
+    "WebUI/install_webui_autostart.ps1", "WebUI/start_webui.ps1", "WebUI/TantraLLMWebUI.cmd",
+    "Datasets/documents", "Assets/tantra_architecture.jpg",
+    "Assets/tantra_hero_banner_v1.1_weaving_intelligence_20260807.jpg",
+    "Assets/tantra_hero_banner_v1.2_bold_title_20260807.jpg",
+]
+
+
+def move_legacy_files() -> None:
+    dest = os.path.join(ROOT, "_old_code")
+    moved = []
+    for rel in LEGACY:
+        src = os.path.join(ROOT, rel)
+        if os.path.exists(src):
+            target = os.path.join(dest, rel)
+            os.makedirs(os.path.dirname(target), exist_ok=True)
+            shutil.move(src, target)
+            moved.append(rel)
+    for cache in glob.glob(os.path.join(ROOT, "*", "__pycache__")):
+        shutil.rmtree(cache, ignore_errors=True)   # Python rebuilds these automatically
+    if moved:
+        log.warning(f"Moved {len(moved)} old v1 files to _old_code/ — delete that folder when you are happy.")
+
+
+# ── train ────────────────────────────────────────────────────────────────────
+
+def run_train(args, hw) -> None:
+    from Tantra.dataset import JSONLDataset
+    from Tantra.eval_suite import load_probe, run_probe
+    from Tantra.evolution import AutoGrowthController
+    from Tantra.train import NeuroTrainer
+
+    if not os.path.isfile(TOKENIZER_PATH):
+        sys.exit("Model/tokenizer.json is missing. Build it once: python main.py --mode tokenizer")
+    tok = load_tokenizer(TOKENIZER_PATH)
+    paths = ckpt_paths(args.model_dir)
+
+    resume_from, model = None, None
+    if os.path.isfile(paths["latest"]) and not args.fresh:
+        model, _ = load_model(paths["latest"], device=hw.device)
+        rows = model.embed.weight.shape[0]
+        if rows != tok.vocab_size:
+            archive_old_run(args.model_dir, f"Old checkpoint uses a {rows:,}-token vocab, tokenizer has {tok.vocab_size:,}.")
+            model = None
         else:
-            DEFAULT_DATASET = os.path.join(_datasets_dir, "tantra_hindi_conversation_train.jsonl")
-DEFAULT_VAL_DATASET = _hindi_val_cand if (DEFAULT_DATASET == _hindi_train_cand and os.path.exists(_hindi_val_cand)) else None
+            resume_from = paths["latest"]
+            log.info(f"Continuing training from {os.path.relpath(resume_from, ROOT)}")
+    elif args.fresh:
+        archive_old_run(args.model_dir, "--fresh requested.")
 
+    if model is None:
+        if not args.fresh:
+            archive_old_run(args.model_dir, "Starting a new model.")
+        cfg = build_config(args, tok.vocab_size)
+        model = NeuroCoreModel(cfg, use_mtp=args.mtp).to(hw.device)
+        log.info(f"New model: {sum(p.numel() for p in model.parameters())/1e6:.1f}M params | "
+                 f"dim {cfg.block.alra.dim} x {cfg.block.num_layers} layers | vocab {tok.vocab_size:,} | "
+                 f"softmax window {cfg.block.alra.local_window} every {cfg.block.alra.local_attn_every} layers")
 
-def auto_detect_config(args, model_layers=None, model_dim=None, model_heads=None):
-    """Automatically detect optimal batch_size and seq_len based on available GPU VRAM.
+    if args.adapter:
+        if args.adapter not in model.category_layers:
+            model.add_category_layers([args.adapter], depth=1, clone_layer_index=len(model.layers) - 1)
+        model.freeze_for_category(args.adapter)
+        log.info(f"Training only the '{args.adapter}' category layer (base model frozen).")
 
-    Calibrated from known data points on 2x T4 (16GB each):
-      - 473.7M model (dim=1024, layers=24): ~14.5 GB used at batch=4, seq=256
-      - Fixed overhead scales linearly with layers and dim^2
-      - Activation memory scales with n_layers * batch * seq
-    Batch size is snapped to be divisible by GPU count for DataParallel.
+    trainer = NeuroTrainer(model, lr=args.lr, weight_decay=args.weight_decay, optimizer_name=args.optimizer,
+                           total_steps=args.steps, warmup_steps=args.warmup, grad_accumulation_steps=args.grad_accum,
+                           use_mtp_loss=bool(unwrap_model(model).use_mtp), max_grad_norm=args.max_grad_norm)
+    if resume_from:
+        trainer.load_checkpoint(resume_from)
+        trainer.lr, trainer.warmup_steps = args.lr, args.warmup
+        trainer.total_steps = max(args.steps, trainer.step_count + 1)
+        trainer._set_lr()
+        if trainer.step_count >= args.steps:
+            sys.exit(f"Already at step {trainer.step_count:,}. Raise --steps to train further.")
 
-    Returns a dict with 'batch_size', 'seq_len', and 'fresh' keys, or None
-    if --auto-config was not passed.
-    """
-    auto = getattr(args, "auto_config", False) or getattr(args, "auto", False)
-    if not auto:
-        return None
-
-    if torch.cuda.is_available():
-        total_mem = torch.cuda.get_device_properties(0).total_memory
-        free_mem = torch.cuda.mem_get_info(0)[0]
-        log.info(f"[Auto-Config] {torch.cuda.device_count()}x GPU detected, per-GPU VRAM: {total_mem//1024**3} GB, free: {free_mem//1024**3} GB")
+    train_files = [f for f in args.data.split(",") if f]
+    train_ds = JSONLDataset(train_files, tok, seq_len=args.seq_len, stage=args.stage, seed=args.seed + trainer.step_count)
+    loader = torch.utils.data.DataLoader(train_ds, batch_size=args.batch_size, num_workers=args.workers,
+                                         persistent_workers=args.workers > 0)
+    val_loader = None
+    if args.val and os.path.isfile(args.val):
+        val_ds = JSONLDataset(args.val, tok, seq_len=args.seq_len, stage=args.stage, shuffle_buffer=1, loop=False)
+        val_loader = torch.utils.data.DataLoader(val_ds, batch_size=args.batch_size)
     else:
-        # CPU fallback: use conservative defaults, check for existing checkpoints
-        ckpt_path = os.path.join(MODEL_DIR, "Latest", "checkpoint_latest.pt")
-        # Also check for orphaned .tmp files from interrupted writes
-        latest_dir = os.path.join(MODEL_DIR, "Latest")
-        tmp_files = glob.glob(os.path.join(latest_dir, "checkpoint_latest.pt.*.tmp")) if os.path.isdir(latest_dir) else []
-        if not os.path.exists(ckpt_path) and tmp_files:
-            # Recover largest .tmp file
-            largest_tmp = max(tmp_files, key=os.path.getsize)
-            if os.path.getsize(largest_tmp) > 10 * 1024**2:
-                import shutil
-                shutil.move(largest_tmp, ckpt_path)
-                log.info(f"[Auto-Config] Recovered checkpoint from interrupted write: {largest_tmp} -> {ckpt_path}")
-        fresh = not (os.path.exists(ckpt_path) and os.path.getsize(ckpt_path) > 10 * 1024**2)
-        if fresh:
-            log.info("[Auto-Config] No valid checkpoint found. Starting fresh.")
-        else:
-            log.info(f"[Auto-Config] Checkpoint found: {ckpt_path} ({os.path.getsize(ckpt_path)//1024**2} MB). Will resume.")
-        return {"batch_size": 4, "seq_len": 128, "fresh": fresh}
+        log.warning("No validation file — validation loss will not be measured.")
 
-# Fixed overhead calibrated from known data:
-    # dim=1024, layers=24 → 473.7M params → ~2.85 GB overhead
-    # Scales linearly with layers and dim^2
-    n_layers = model_layers or args.layers or 24
-    n_dim = model_dim or args.dim or 1024
-    fixed_overhead = int(2.85 * (n_layers / 24.0) * (n_dim / 1024.0)**2 * 1024**3)
-    fixed_overhead = max(fixed_overhead, 500 * 1024**2)  # floor at 0.5 GB
+    probe = load_probe(args.probe) if args.probe else []
+    history = os.path.join(args.model_dir, "probe_history.jsonl")
 
-    BYTES_PER_BATCH_SEQ_LAYER = 477 * 1024
-    TARGET_UTIL = 0.90
-    SAFETY_FACTOR = 0.95
+    def on_eval(step: int, metrics: dict) -> None:
+        if probe:
+            run_probe(unwrap_model(model), tok, probe, step,
+                      generate=(step % (args.eval_every * 4) == 0), history_path=history)
+        trainer.save_checkpoint(paths["latest"])
+        if metrics.get("is_best"):
+            trainer.save_checkpoint(paths["best"], save_optimizer=False)
 
-    usable_mem = int((total_mem - 500 * 1024**2) * TARGET_UTIL)
-    available_for_activations = max(usable_mem - fixed_overhead, 1024**3)
-    max_batch_seq = int(available_for_activations / (n_layers * BYTES_PER_BATCH_SEQ_LAYER) * SAFETY_FACTOR)
+    growth = AutoGrowthController(plateau_patience=args.growth_patience, max_layers=args.max_layers) \
+        if args.auto_growth else None
+    try:
+        trainer.fit(loader, max_steps=args.steps, log_every=args.log_every, eval_every=args.eval_every,
+                    val_loader=val_loader, val_batches=args.val_batches, on_eval=on_eval,
+                    growth=growth, early_stopping_patience=args.early_stop)
+    except KeyboardInterrupt:
+        log.warning("Stopped by user.")
+    finally:
+        trainer.save_checkpoint(paths["latest"])
+        log.info("Saved. Run the same command again to continue.")
 
-    # Prefer batch sizes divisible by GPU count (DataParallel needs even split)
-    gpu_count = 1
-    if torch.cuda.is_available():
-        gpu_count = torch.cuda.device_count()
 
-    # Empirically validated: batch=6, seq=256 is safe on 2x T4 16GB
-    # Use formula but snap to nearest divisible batch
-    def _snap_batch(bs):
-        """Snap to nearest valid batch divisible by gpu_count, in range [2, 8]."""
-        bs = max(2, min(8, bs))
-        if gpu_count > 1:
-            # Prefer even numbers divisible by gpu_count
-            candidates = [b for b in range(2, 9) if b % gpu_count == 0]
-            # Pick the closest candidate
-            return min(candidates, key=lambda c: (abs(c - bs), -c))
-        return bs
+# ── chat / generate ──────────────────────────────────────────────────────────
 
-    if max_batch_seq >= 256:
-        seq_len = 256
-        raw_batch = max(1, min(8, max_batch_seq // seq_len))
-        batch_size = _snap_batch(raw_batch)
-    elif max_batch_seq >= 128:
-        seq_len = 128
-        raw_batch = max(1, min(8, max_batch_seq // seq_len))
-        batch_size = _snap_batch(raw_batch)
-    else:
-        seq_len = 64
-        raw_batch = max(1, min(4, max_batch_seq // seq_len))
-        batch_size = _snap_batch(raw_batch)
-
-    batch_size = max(2, min(8, batch_size))
-    seq_len = max(64, min(512, seq_len))
-
-    # Auto --fresh vs --resume: check multiple checkpoint locations
-    ckpt_locations = [
-        os.path.join(MODEL_DIR, "Latest", "checkpoint_latest.pt"),
-        os.path.join(MODEL_DIR, "Best", "checkpoint_best.pt"),
-    ]
-    # Also check for milestone checkpoints
-    milestone_dir = os.path.join(MODEL_DIR, "Checkpoints")
-    if os.path.isdir(milestone_dir):
-        milestone_files = sorted(glob.glob(os.path.join(milestone_dir, "checkpoint_step_*.pt")), key=lambda f: int(f.split("_step_")[-1].replace(".pt", "")), reverse=True)
-        if milestone_files:
-            ckpt_locations.append(milestone_files[0])
-
-    ckpt_path = None
-    for candidate in ckpt_locations:
-        if os.path.exists(candidate) and os.path.getsize(candidate) > 10 * 1024**2:
-            ckpt_path = candidate
+def _reply(model, tok, prompt_text: str, args, device) -> str:
+    ids = torch.tensor([tok.encode(prompt_text)], device=device)
+    out = []
+    for t in model.generate_stream(ids, max_new_tokens=args.max_new_tokens, temperature=args.temperature,
+                                   top_p=args.top_p, repetition_penalty=args.repetition_penalty,
+                                   eos_token_id=EOS_ID):
+        t = int(t)
+        if t == EOS_ID:
             break
-
-    # Also recover orphaned .tmp files from interrupted writes
-    latest_dir = os.path.join(MODEL_DIR, "Latest")
-    if ckpt_path is None and os.path.isdir(latest_dir):
-        tmp_files = glob.glob(os.path.join(latest_dir, "checkpoint_latest.pt.*.tmp"))
-        if tmp_files:
-            largest_tmp = max(tmp_files, key=os.path.getsize)
-            if os.path.getsize(largest_tmp) > 10 * 1024**2:
-                import shutil
-                target = os.path.join(latest_dir, "checkpoint_latest.pt")
-                shutil.move(largest_tmp, target)
-                ckpt_path = target
-                log.info(f"[Auto-Config] Recovered checkpoint from interrupted write: {largest_tmp}")
-
-    fresh = ckpt_path is None
-
-    # Enforce minimum batch size >= GPU count for DataParallel / DDP
-    if torch.cuda.is_available() and torch.cuda.device_count() > 1 and not getattr(args, "single_gpu", False):
-        gpu_count = torch.cuda.device_count()
-        if batch_size < gpu_count:
-            log.warning(f"[Auto-Config] batch_size={batch_size} < GPU count={gpu_count}. Raising to {gpu_count}.")
-            batch_size = gpu_count
-
-    result = {"batch_size": batch_size, "seq_len": seq_len, "fresh": fresh}
-    log.info(f"[Auto-Config] Optimal batch_size={batch_size}, seq_len={seq_len}, fresh={fresh} (max_batch_seq={max_batch_seq}, gpu_count={gpu_count})")
-    return result
+        out.append(t)
+        piece = tok.decode([t])
+        print(piece, end="", flush=True)
+    print()
+    return tok.decode(out)
 
 
-def run_interactive_chat(model, tokenizer, device, temp=0.7, top_p=0.9, router=None, use_mtp=False):
-    model.eval()
-    if console:
-        console.print("[bold green][/bold green]")
-        console.print("[bold green]  तन्त्र  TANTRA LLM Interactive Terminal Playground [/bold green]")
-        console.print("[bold green][/bold green]")
-        console.print("[dim]Commands: /temp <float>, /mtp <on|off>, /clear, /stats, /help, /quit[/dim]\n")
-    else:
-        print("== TANTRA LLM Interactive Terminal Playground ==")
-        print("Commands: /temp <float>, /mtp <on|off>, /clear, /stats, /help, /quit\n")
-
+def run_chat(args, hw) -> None:
+    from Tantra.adapters import AdapterRegistry, RequestRouter
+    from Tantra.dataset import chat_prompt
+    tok = load_tokenizer(TOKENIZER_PATH)
+    path = args.checkpoint or default_checkpoint(args.model_dir)
+    model, _ = load_model(path, hw.device, int8=args.int8)
+    router = RequestRouter(AdapterRegistry()) if model.category_layers else None
+    print(f"Loaded {os.path.relpath(path, ROOT)}. Type your message. /reset clears history, /quit exits.\n")
+    history = []
     while True:
         try:
-            if console:
-                user_input = console.input("[bold cyan]You >[/bold cyan] ")
-            else:
-                user_input = input("You > ")
-
-            if not user_input.strip():
-                continue
-
-            if user_input.startswith("/"):
-                parts = user_input.strip().split()
-                cmd = parts[0].lower()
-                if cmd in ("/quit", "/exit"):
-                    break
-                elif cmd == "/help":
-                    msg = "Commands: /temp <float> (adjust creativity), /mtp <on|off> (speculative speedup), /stats (show parameters), /clear, /quit"
-                    if console: console.print(f"[dim]{msg}[/dim]")
-                    else: print(msg)
-                elif cmd == "/temp":
-                    if len(parts) >= 2:
-                        try:
-                            temp = max(0.0, min(2.0, float(parts[1])))
-                            if console: console.print(f"[green]Temperature set to {temp:.2f}[/green]")
-                            else: print(f"Temperature set to {temp:.2f}")
-                        except ValueError:
-                            if console: console.print("[red]Invalid temperature value[/red]")
-                elif cmd == "/mtp":
-                    if len(parts) >= 2:
-                        use_mtp = parts[1].lower() in ("on", "true", "1", "yes")
-                        if console: console.print(f"[green]MTP speculative acceleration: {'ON' if use_mtp else 'OFF'}[/green]")
-                        else: print(f"MTP speculative acceleration: {'ON' if use_mtp else 'OFF'}")
-                elif cmd == "/clear":
-                    if os.name == "nt": os.system("cls")
-                    else: os.system("clear")
-                elif cmd == "/stats":
-                    total_p = sum(p.numel() for p in model.parameters())
-                    if console: console.print(f"[magenta]Model: {total_p/1e6:.1f}M params | Device: {device} | Temp: {temp} | MTP: {use_mtp}[/magenta]")
-                    else: print(f"Model: {total_p/1e6:.1f}M params | Device: {device} | Temp: {temp} | MTP: {use_mtp}")
-                continue
-
-            # Request-level routing: pick ONE domain adapter, base as fallback.
-            routed = None
-            if router is not None:
-                if hasattr(model, "category_layers") and model.category_layers:
-                    routed = router.route(user_input)
-                    model.active_category = routed
-            if console and routed is not None:
-                console.print(f"[dim]→ routed to adapter: {routed}[/dim]")
-
-            system_prompt = "You are Tantra, a helpful, polite, and intelligent AI assistant created by Atulya AI."
-            formatted_input = f"<|system|>\n{system_prompt}\n\n<|user|>\n{user_input.strip()}\n\n<|assistant|>\n"
-            tokens = tokenizer.encode(formatted_input)
-            prompt = torch.tensor([tokens], device=device)
-
-            if console:
-                console.print("[bold yellow]Tantra >[/bold yellow] ", end="")
-            else:
-                print("Tantra > ", end="", flush=True)
-
-            t0 = time.perf_counter()
-            generated_tokens = []
-            with torch.no_grad():
-                for token_id in model.generate_stream(prompt, max_new_tokens=256, temperature=temp, top_p=top_p, use_mtp_speculation=use_mtp):
-                    tid = int(token_id.item() if hasattr(token_id, "item") else token_id)
-                    if tid in (0, 2):  # <pad> or </s> (EOS)
-                        break
-                    generated_tokens.append(tid)
-                    piece = tokenizer.decode([tid])
-                    if any(stop_tag in piece for stop_tag in ["<|user|>", "<|system|>", "<|assistant|>", "</s>", "<s>"]):
-                        break
-                    if console:
-                        console.print(piece, end="")
-                    else:
-                        print(piece, end="", flush=True)
-
-            elapsed = max(time.perf_counter() - t0, 1e-4)
-            tok_speed = len(generated_tokens) / elapsed
-
-            if console:
-                console.print(f"\n[dim]({len(generated_tokens)} tokens, {tok_speed:.1f} tok/s)[/dim]\n")
-            else:
-                print(f"\n({len(generated_tokens)} tokens, {tok_speed:.1f} tok/s)\n")
-
-        except (KeyboardInterrupt, EOFError):
+            q = input("You > ").strip()
+        except (EOFError, KeyboardInterrupt):
             break
-        except Exception as e:
-            if console:
-                console.print(f"[red]Error: {str(e)}[/red]")
-            else:
-                print(f"Error: {str(e)}")
+        if not q:
             continue
-
-
-def build_vocab(cfg: VocabConfig, corpus_file: str | None = None, force_rebuild: bool = False) -> UnifiedTokenizer:
-    log.info("== [2] UNIFIED VOCABULARY & TOKENIZER STATUS =======")
-    os.makedirs(MODEL_DIR, exist_ok=True)
-    os.makedirs(BEST_DIR, exist_ok=True)
-    os.makedirs(LATEST_DIR, exist_ok=True)
-    os.makedirs(CHECKPOINTS_DIR, exist_ok=True)
-
-    tokenizer_json_path = os.path.join(MODEL_DIR, "tokenizer.json")
-    status = "Cached Artifact"
-
-    if os.path.exists(tokenizer_json_path) and not force_rebuild:
-        try:
-            bpe = ByteBPETokenizer.load(tokenizer_json_path, cfg)
-            status = f"Loaded real BPE tokenizer ({tokenizer_json_path}, {bpe.vocab_size:,} tokens)"
-        except Exception as e:
-            log.warning(f"Failed to load tokenizer.json ({e}). Retraining...")
-            bpe = ByteBPETokenizer(cfg)
-    else:
-        bpe = ByteBPETokenizer(cfg)
-
-    if (force_rebuild or not os.path.exists(tokenizer_json_path) or bpe.vocab_size == 0 or bpe._tokenizer is None or bpe._tokenizer.get_vocab_size() == 0) and corpus_file and os.path.exists(corpus_file):
-        # Dataset mode commonly receives the Datasets directory.  Select a
-        # real JSONL corpus rather than attempting ``open(Datasets)`` when a
-        # tokenizer has to be rebuilt.
-        resolved_corpus = corpus_file
-        if os.path.isdir(corpus_file):
-            candidates = [
-                path for path in glob.glob(os.path.join(corpus_file, "**", "*.jsonl"), recursive=True)
-                if not any(exc in os.path.basename(path).lower() for exc in ["_duplicates", "val", "eval", "test", "sample", "preference", "dpo"])
-            ]
-            if not candidates:
-                raise RuntimeError(f"No JSONL files found under dataset directory: {corpus_file}")
-            resolved_corpus = candidates
-            log.info(f"  Tokenizer rebuild sources selected: {[os.path.basename(p) for p in resolved_corpus]}")
-        sample_txt = extract_corpus_sample(resolved_corpus, os.path.join(MODEL_DIR, "corpus_sample.txt"), max_lines=None)
-        special_toks = list(cfg.special_tokens.keys())
-        bpe.train([sample_txt], vocab_size=cfg.vocab_size, special_tokens=special_toks)
-        bpe.save(tokenizer_json_path)
-        NeuroTrainer.export_tokenizer_and_vocab(MODEL_DIR)
-        status = f"Trained fresh BPE tokenizer on balanced multi-corpus & saved to {tokenizer_json_path}"
-
-    patcher = MegabytePatcher()
-    tok = UnifiedTokenizer(cfg, bpe, patcher)
-    log.info(f"  Vocab Size       : {bpe.vocab_size:,} tokens")
-    log.info(f"  BPE Subword Merges: {bpe.vocab_size - len(cfg.special_tokens) - 256:,} merge rules")
-    log.info(f"  Special Tokens   : {len(cfg.special_tokens)} (<pad>, <unk>, <s>, </s>, <|user|>, <|assistant|>, <|system|>)")
-    log.info(f"  Byte Patching    : Megabyte Patching Unit Enabled (byte-fallback handling)")
-    log.info(f"  Tokenizer Status : {status}")
-    log.info(f"  Artifact Path    : {tokenizer_json_path}")
-    return tok
-
-
-def init_experts(moe_cfg, model_cfg, codec):
-    log.info("== [3] EXPERT REGISTRY & MOE STATUS =============")
-    os.makedirs(EXPERTS_DIR, exist_ok=True)
-    reg = ExpertRegistry(EXPERTS_DIR, moe_cfg.num_experts)
-    reg.load()
-    if getattr(moe_cfg, "real_top1", False) and getattr(moe_cfg, "num_experts", 1) > 1:
-        log.info(f"   Real Top-1 MoE Architecture Active: {moe_cfg.num_experts} sub-network experts per MoE block.")
-    else:
-        log.info(f"   Dense Architecture Active: Single unified expert (num_experts=1).")
-    return reg, LazyExpertLoader(moe_cfg, model_cfg, reg, codec)
-
-
-ADAPTER_ROOT = os.path.join(MODEL_DIR, "MoE2_32K")
-ADAPTER_CHECKPOINT = os.path.join(ADAPTER_ROOT, "checkpoint_adapters.pt")
-
-
-def run_adapter_mode(action: str, name: str | None = None, description: str = "", topics: str | None = None, rank: int = 32, keywords: str | None = None) -> None:
-    """Manage routeable adapter categories (add/list/remove/init)."""
-    from Tantra.adapters import build_adapter_checkpoint
-    registry = AdapterRegistry()
-    registry.seed_defaults()
-
-    if action == "list":
-        rows = registry.all()
-        print(f"\nRegistered adapter categories ({len(rows)}):")
-        for cat in rows:
-            topic_str = ",".join(cat.topics)
-            print(f"  - {cat.name:<18} [{cat.status}] rank={cat.rank} params={cat.params/1e6:.2f}M topics={topic_str}")
-        print("Request router: one category per request, base as fallback.")
-        return
-
-    if action == "add":
-        if not name:
-            raise ValueError("--name is required to add a category.")
-        topic_list = [t.strip() for t in (topics or name).split(",") if t.strip()]
-        kw_list = [k.strip() for k in (keywords or "").split(",") if k.strip()]
-        registry.add(name, description=description, topics=topic_list, rank=rank, keywords=kw_list)
-        print(f"Added category '{name}'. Train it with: python main.py --mode dataset --adapter {name}")
-        return
-
-    if action == "remove":
-        if not name:
-            raise ValueError("--name is required to remove a category.")
-        ok = registry.remove(name)
-        print(f"{'Removed' if ok else 'Not found'}: {name}")
-        return
-
-    if action == "init":
-        if not os.path.exists(os.path.join(ADAPTER_ROOT, "checkpoint_init.pt")):
-            raise FileNotFoundError("Base checkpoint Model/MoE2_32K/checkpoint_init.pt not found. Run the profile converter first.")
-        result = build_adapter_checkpoint(
-            os.path.join(ADAPTER_ROOT, "checkpoint_init.pt"),
-            ADAPTER_CHECKPOINT,
-            vocab_size=32768,
-        )
-        print("Adapter checkpoint initialized with default categories.")
-        return
-
-    raise ValueError(f"Unknown adapter action: {action}")
-
-
-def build_adapter_model(rt, vocab_size: int = 32768):
-    """Load the MoE-2 / 32K base with installed specialist layers."""
-    from Tantra.model import build_cpu_model
-    if not os.path.exists(ADAPTER_CHECKPOINT):
-        raise FileNotFoundError(f"Adapter checkpoint not found: {ADAPTER_CHECKPOINT}. Run: python main.py --mode adapter init")
-    model = build_cpu_model("moe2", attention_kind="alra", vocab_size=vocab_size)
-    # Submodules must exist before the checkpoint (which contains category_layers.*)
-    # can be loaded; otherwise those keys are silently skipped.
-    registry = AdapterRegistry()
-    registry.seed_defaults()
-    model.add_category_layers([c.name for c in registry.all()], clone_layer_index=model.config.adapter.clone_layer_index)
-    from Tantra.utils import safe_load_checkpoint
-    ckpt = safe_load_checkpoint(ADAPTER_CHECKPOINT, map_location="cpu")
-    model.load_state_dict(ckpt["model_state_dict"], strict=False)
-    model.sync_category_gates_from_checkpoint(ckpt["model_state_dict"])
-    model = model.to(rt.device)
-    return model
-
-
-def init_model(cfg, device, compatibility_legacy_moe=False):
-    log.info("== [4] NEUROCORE MODEL ENGINE & PARAMETER DIAGNOSTICS ==")
-    is_real_moe = getattr(cfg.moe, "real_top1", False)
-    num_exp = getattr(cfg.moe, "num_experts", 1)
-    model = NeuroCoreModel(
-        cfg,
-        use_mtp=getattr(cfg, "use_mtp", True),
-        use_moe=(is_real_moe and num_exp > 1) or compatibility_legacy_moe,
-        compatibility_legacy_moe=compatibility_legacy_moe,
-    )
-
-    total_params = sum(p.numel() for p in model.parameters())
-    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    frozen_params = total_params - trainable_params
-
-    log.info(f"  Total Parameters     : {total_params:,} ({total_params/1e6:.1f}M)")
-    log.info(f"  Trainable Parameters : {trainable_params:,}")
-    log.info(f"  Frozen Parameters    : {frozen_params:,}")
-    moe_label = f" | {num_exp} Real Top-1 MoE Experts" if (is_real_moe and num_exp > 1) else " (Dense)"
-    log.info(f"  Model Architecture   : {cfg.block.num_layers} NeuroCore Blocks | {cfg.block.alra.dim} Embed Dim | {cfg.block.alra.num_heads} Attention Heads{moe_label}")
-    log.info(f"  Attention Engine     : ALRA (Adaptive Linear Resonance Attention) [O(1) Memory Scan]")
-    log.info(f"  Feed-Forward Engine  : SGP (Sparse Gated Projection) + BitNet 1.58-bit Ternary Quantization")
-    log.info(f"  Speculative Engine   : Multi-Token Prediction (MTP 2x Acceleration)")
-    log.info(f"  Target Device        : {device}")
-    return model.to(device)
-
-
-def restore_checkpoint_architecture(cfg, checkpoint_path: str) -> None:
-    """Apply lightweight saved architecture metadata before model creation."""
-    meta_path = checkpoint_path + ".meta.json"
-    if not os.path.exists(meta_path):
-        return
-    try:
-        with open(meta_path, "r", encoding="utf-8") as handle:
-            metadata = json.load(handle)
-        saved_layers = int(metadata.get("num_layers", cfg.block.num_layers))
-        if saved_layers >= 1 and saved_layers != cfg.block.num_layers:
-            cfg.block.num_layers = saved_layers
-            log.info("Checkpoint architecture restored: %d layers.", saved_layers)
-    except Exception as exc:
-        log.warning("Could not read checkpoint architecture metadata (%s); using configured depth.", exc)
-
-
-def run_forward(model, vcfg, batch_size, device):
-    log.info("== [FORWARD PASS DIAGNOSTICS] ======================")
-    x, y = generate_synthetic_batch(vcfg.vocab_size, batch_size=batch_size, seq_len=64)
-    x, y = x.to(device), y.to(device)
-    log.info(f"  Input Batch Shape  : {list(x.shape)}")
-    with torch.no_grad():
-        out = model(x, return_mtp=True)
-    logits, mtp_logits = out[0]
-    log.info(f"  Main Logits Shape  : {list(logits.shape)}  ")
-    log.info(f"  MTP Logits Shape   : {list(mtp_logits.shape)}  ")
-
-
-def run_training(model, vcfg, steps=30, resume=False):
-    log.info("== [SYNTHETIC BENCHMARK TRAINING] ==================")
-    latest_ckpt = os.path.join(LATEST_DIR, "checkpoint_latest.pt")
-    
-    # Auto-resume: if resume flag is set AND checkpoint exists, load it
-    # This prevents "starting from 0" when a previous training run left a checkpoint
-    if resume and os.path.exists(latest_ckpt):
-        log.info(f"RESUMING training from existing checkpoint: {latest_ckpt}")
-        trainer = NeuroTrainer(model, lr=1e-3, total_steps=steps, warmup_steps=max(1, steps // 10))
-        trainer.load_checkpoint(latest_ckpt)
-        log.info(f"Resumed at step {trainer.step_count:,}. Continuing to {steps} steps.")
-    else:
-        # Check if a checkpoint exists even without explicit --resume flag
-        # to avoid starting fresh when there's a valid checkpoint
-        if os.path.exists(latest_ckpt):
-            log.info(f"Found existing checkpoint {latest_ckpt}. Auto-resuming training.")
-            trainer = NeuroTrainer(model, lr=1e-3, total_steps=steps, warmup_steps=max(1, steps // 10))
-            trainer.load_checkpoint(latest_ckpt)
-            log.info(f"Resumed at step {trainer.step_count:,}. Continuing to {steps} steps.")
-        else:
-            log.info("Starting FRESH synthetic training benchmark.")
-            trainer = NeuroTrainer(model, lr=1e-3, total_steps=steps, warmup_steps=max(1, steps // 10))
-    
-    trainer.train_demo(steps=steps, vocab_size=vcfg.vocab_size)
-    trainer.save_checkpoint(latest_ckpt, save_optimizer=True)
-
-
-def run_dataset_training(model, tokenizer, dataset_path, steps=50, resume=False, eval_every=1000, log_every=50, checkpoint_every=500, batch_size=1, seq_len=128, grad_accumulation_steps=1, data_workers=0, use_latent_reasoning=True, use_mtp_loss=True, compile=False, lr=1e-4, weight_decay=0.01, optimizer="adamw", warmup_steps=None, topic_weights=None, training_stage="sft", auto_growth=False, growth_patience=1000, growth_min_delta=0.005, max_layers=None, max_params=None, model_dir=None, adapter_name=None, archive_checkpoints=True, pack_sequences=True, checkpoint_path=None, max_grad_norm=0.5, mtp_loss_weight=0.3, track=None, curriculum_phase=None, validation_dataset=None, early_stopping_patience=8, early_stopping_min_delta=0.002, reset_best_loss=False, max_val_batches=200):
-
-    log.info("== [DATASET PRE-TRAINING MODE] =====================")
-    if training_stage not in {"pretrain", "sft"}:
-        raise ValueError(f"Unknown training stage: {training_stage}")
-    mask_non_assistant = training_stage == "sft"
-    stage_label = "full-token pretraining" if not mask_non_assistant else "assistant-only instruction tuning"
-    log.info(f"Loading real dataset from: {dataset_path} ({stage_label})")
-    if os.path.isfile(dataset_path):
-        try:
-            with open(dataset_path, "r", encoding="utf-8", errors="ignore") as _f:
-                _line_count = sum(1 for _ in _f)
-            log.info(f"Dataset '{os.path.basename(dataset_path)}' loaded with {_line_count:,} items.")
-            if _line_count < 1000:
-                log.warning(f"[STUB DATASET WARNING] '{os.path.basename(dataset_path)}' contains only {_line_count} lines! Small dataset runs loop every {max(1, _line_count // 8)} steps. Ensure full corpus is used for production training.")
-        except Exception:
-            pass
-
-    if tokenizer.bpe.vocab_size == 0 or tokenizer.bpe._tokenizer is None or tokenizer.bpe._tokenizer.get_vocab_size() == 0:
-        log.error(f"CRITICAL: BPE Tokenizer is untrained (vocab_size 0)! Aborting training to prevent raw-byte fallback.")
-        raise RuntimeError("Tokenizer is falling back to raw bytes (no valid BPE merges found). Please generate a valid tokenizer.json before training.")
-    raw_m = unwrap_model(model)
-    if getattr(raw_m, "compatibility_legacy_moe", False):
-        total_p = sum(p.numel() for p in raw_m.parameters())
-        assert raw_m.compatibility_legacy_moe is True, (
-            "Preflight assertion failed: model.compatibility_legacy_moe is not True"
-        )
-        log.info(f" [Preflight Verified] {total_p:,} parameters and compatibility_legacy_moe=True confirmed.")
-
-    repair = SelfRepairEngine()
-    repair.scan_and_repair(model)
-
-    # Per-category bidirectional growth: when a specialist stack plateaus it
-    # grows (harder categories) and shrinks when converged but idle. The base
-    # AutoGrowthController is disabled here because the base is frozen.
-    cat_growth_ctrl = None
-    cat_meta = None
-    if adapter_name is not None and auto_growth:
-        cat_growth_ctrl = CategoryGrowthController(
-            plateau_patience=max(50, growth_patience), min_delta=growth_min_delta)
-        reg = AdapterRegistry()
-        cat_meta = reg.get(adapter_name)
-        auto_growth = False  # handled per-category below, not on the frozen base
-
-    warmup = warmup_steps if warmup_steps is not None else max(50, steps // 10)
-    log.info(f"Optimizer: {optimizer.upper()}  |  Learning rate: {lr:.2e}  |  Warmup steps: {warmup}  |  Grad clip: {max_grad_norm}  |  MTP weight: {mtp_loss_weight}")
-    trainer = NeuroTrainer(model, lr=lr, weight_decay=weight_decay, optimizer_name=optimizer, total_steps=steps, warmup_steps=warmup, grad_accumulation_steps=grad_accumulation_steps, use_latent_reasoning=use_latent_reasoning, use_mtp_loss=use_mtp_loss, mtp_loss_weight=mtp_loss_weight, max_grad_norm=max_grad_norm)
-
-    checkpoint_root = os.path.abspath(model_dir or MODEL_DIR)
-    latest_dir = os.path.join(checkpoint_root, "Latest")
-    best_dir = os.path.join(checkpoint_root, "Best")
-    checkpoints_dir = os.path.join(checkpoint_root, "Checkpoints")
-    for directory in (latest_dir, best_dir, checkpoints_dir):
-        os.makedirs(directory, exist_ok=True)
-    latest_ckpt = os.path.join(latest_dir, "checkpoint_latest.pt")
-    best_ckpt = os.path.join(best_dir, "checkpoint_best.pt")
-
-    # Resume only when explicitly requested.
-    resume_target = None
-    resumed_from_explicit_checkpoint = False
-    if checkpoint_path and os.path.isfile(checkpoint_path):
-        try:
-            log.info(f"Loading explicit checkpoint: {checkpoint_path} ({os.path.getsize(checkpoint_path)/1e6:.1f} MB)...")
-            # Reset optimizer when switching to SFT stage (different data distribution)
-            reset_opt = (training_stage == "sft")
-            if reset_opt:
-                log.info("  Stage is SFT — resetting optimizer for fresh momentum on new data distribution.")
-            trainer.load_checkpoint(checkpoint_path, reset_optimizer=reset_opt)
-            resume_target = checkpoint_path
-            resumed_from_explicit_checkpoint = True
-        except Exception as exc:
-            log.warning(f"Could not load specified checkpoint {checkpoint_path}: {exc}")
-
-    # Auto-resume: if resume flag is set and checkpoint exists, try to load it
-    if resume and resume_target is None:
-        candidates = []
-        # Search strictly within the specified checkpoint_root directory (and subfolders)
-        search_dirs = [checkpoint_root, checkpoints_dir, latest_dir, best_dir]
-        for d in search_dirs:
-            if os.path.exists(d):
-                candidates.extend(glob.glob(os.path.join(d, "*.pt")))
-                candidates.extend(glob.glob(os.path.join(d, "**", "*.pt"), recursive=True))
-
-        def _get_step_num(p: str) -> int:
-            """Return a sort key for checkpoint ranking during auto-resume.
-
-            BUG-09 FIX: Files named 'latest' or 'best' always get top priority
-            (999999999 / 999999998) regardless of what their .meta.json says.
-            This prevents a stale/orphaned .meta.json sidecar from silently
-            lowering the rank of checkpoint_latest.pt after a manual file copy
-            that didn't include the .meta.json twin.
-            """
-            import re
-            basename = os.path.basename(p).lower()
-
-            # Priority 1: "latest" and "best" files always win, unconditionally.
-            # These are the canonical checkpoints and must never be outranked by
-            # numbered checkpoints just because of a stale .meta.json step count.
-            if "latest" in basename:
-                return 999999999
-            if "best" in basename:
-                return 999999998
-
-            # Priority 2: read actual step from .meta.json sidecar (for numbered checkpoints)
-            meta = p + ".meta.json"
-            if os.path.exists(meta):
-                try:
-                    with open(meta, "r") as mf:
-                        metadata = json.load(mf)
-                        recorded = metadata.get("step", metadata.get("step_count", 0))
-                        if int(recorded) > 0:
-                            return int(recorded)
-                except Exception:
-                    pass
-
-            # Priority 3: extract step number from filename
-            m = re.search(r'(?:step_?|checkpoint_?)(\d+)', basename, re.IGNORECASE)
-            if m:
-                return int(m.group(1))
-            return 0
-
-        # Sort candidates descending by step count so highest milestone (e.g. step 31000) is loaded first
-        sorted_candidates = sorted(list(set(candidates)), key=_get_step_num, reverse=True)
-        if sorted_candidates:
-            log.info(f"Auto-resume: found {len(sorted_candidates)} checkpoint candidate(s), ranked by priority:")
-            for _i, _c in enumerate(sorted_candidates[:10]):  # show top 10
-                log.info(f"  #{_i+1}: {os.path.basename(_c)} (sort_key={_get_step_num(_c)})")
-        seen = set()
-        for candidate in sorted_candidates:
-            if candidate in seen or not os.path.isfile(candidate) or "sample" in candidate:
-                continue
-            seen.add(candidate)
-            try:
-                log.info(f"Loading recovery checkpoint: {candidate} ({os.path.getsize(candidate)/1e6:.1f} MB)...")
-                reset_opt = (training_stage == "sft")
-                if reset_opt:
-                    log.info("  Stage is SFT — resetting optimizer for fresh momentum on new data distribution.")
-                trainer.load_checkpoint(candidate, reset_optimizer=reset_opt)
-                # BUG-09: Detect metadata desync — .meta.json step vs actual .pt step
-                _meta_path = candidate + ".meta.json"
-                if os.path.exists(_meta_path):
-                    try:
-                        with open(_meta_path, "r") as _mf:
-                            _meta_data = json.load(_mf)
-                        _meta_step = int(_meta_data.get("step", _meta_data.get("step_count", -1)))
-                        _pt_step = int(trainer.step_count)
-                        if _meta_step >= 0 and _meta_step != _pt_step:
-                            log.warning(
-                                f"  ⚠ METADATA DESYNC DETECTED: {os.path.basename(candidate)}.meta.json says step={_meta_step} "
-                                f"but the .pt file contains step={_pt_step}. The .meta.json sidecar is stale — "
-                                f"likely from a manual file copy that didn't include the .meta.json twin. "
-                                f"Using the .pt file's internal step count ({_pt_step}) as the source of truth."
-                            )
-                    except Exception:
-                        pass
-                resume_target = candidate
-                break
-            except Exception as exc:
-                log.warning(f"Skipping unreadable checkpoint {candidate}: {exc}")
-        if resume_target is None:
-            log.info("No readable checkpoint found. Starting fresh training run from step 1.")
-
-    if resume_target:
-        log.info(f"RESUMING training from recovered checkpoint: {resume_target}")
-        if steps <= trainer.step_count:
-            effective_target = trainer.step_count + steps
-            # Round to nearest 1000 for cleaner display
-            effective_target = ((effective_target + 500) // 1000) * 1000
-            log.info(f"  [Incremental Steps] Specified --steps {steps} <= checkpoint step {trainer.step_count}. "
-                     f"Running +{steps} steps -> new target: {effective_target} steps.")
-            steps = effective_target
-        remaining = max(steps - trainer.step_count, 1)
-        actual_warmup = max(1, min(warmup or max(remaining // 10, 50), remaining // 5))
-
-        # BUG-08 FIX: Do NOT rebuild the optimizer here. load_checkpoint() already
-        # restored the optimizer state (momentum buffers) from the checkpoint.
-        # Rebuilding from scratch here discards all that restored momentum, making
-        # the load_checkpoint() restoration work pointless.
-        # We DO need to rebuild the scheduler, because the session's remaining-step
-        # count and warmup may differ from what the checkpoint was built with.
-        trainer.lr = lr
-        for group in trainer.optimizer.param_groups:
-            group["lr"] = lr
-            group["initial_lr"] = lr
-        trainer.total_steps = steps
-        trainer.warmup_steps = actual_warmup
-        from Tantra.train import create_lr_scheduler
-        trainer.scheduler = create_lr_scheduler(
-            trainer.optimizer,
-            warmup_steps=actual_warmup,
-            total_steps=steps,
-            min_lr_ratio=0.10,
-            start_step=trainer.step_count,
-            last_epoch=trainer.step_count,
-        )
-        # Force scheduler to advance past initial state and update optimizer LR immediately
-        trainer.scheduler.step()
-        _debug_lr = trainer.optimizer.param_groups[0]["lr"]
-        log.info(f"   [LR DEBUG] After scheduler creation+step (start_step={trainer.step_count}, last_epoch={trainer.step_count}): LR={_debug_lr:.6e}")
-        prev_stage = getattr(trainer, "training_stage", None)
-        stage_name = training_stage or prev_stage or "sft"
-        if prev_stage is not None and prev_stage != stage_name:
-            # Stage transition (pretrain → SFT): RESET optimizer to prevent catastrophic forgetting
-            # The pretrain optimizer momentum is incompatible with SFT gradients,
-            # causing the loss to explode (9.45 → 21.1). Fresh momentum = stable SFT.
-            log.warning(f"   Stage transition ({prev_stage} → {stage_name}): RESETTING optimizer for stable SFT fine-tuning.")
-            trainer.best_loss = float('inf')
-            trainer.best_val_loss = float('inf')
-            trainer.optimizer = build_optimizer(
-                trainer.optimizer_name,
-                [p for p in trainer.model.parameters() if p.requires_grad],
-                lr=lr,
-                weight_decay=trainer.weight_decay,
-            )
-            trainer.scheduler = create_lr_scheduler(
-                trainer.optimizer,
-                warmup_steps=actual_warmup,
-                total_steps=steps,
-                min_lr_ratio=0.10,
-                start_step=trainer.step_count,
-                last_epoch=trainer.step_count,
-            )
-            trainer.scheduler.step()  # Force immediate LR update
-            log.info(f"   [LR DEBUG] Stage transition scheduler: LR={trainer.optimizer.param_groups[0]['lr']:.6e}")
-            log.info(f"  Fresh optimizer + scheduler for SFT at LR={lr:.2e}")
-            log.info(f"  best_val_loss reset to inf for SFT baseline.")
-        elif reset_best_loss:
-            prev_val = getattr(trainer, "best_val_loss", float('inf'))
-            trainer.best_loss = float('inf')
-            trainer.best_val_loss = float('inf')
-            log.info(f"  [Baseline Calibration] Reset best_val_loss to inf (previous: {prev_val:.4f}) for active SFT validation baseline.")
-        trainer.training_stage = stage_name
-
-        log.info("=" * 65)
-        log.info("  [TANTRA RECOVERY RUN CONFIGURED]")
-        log.info(f"   • Source Checkpoint : {resume_target}")
-        log.info(f"   • Starting Step     : {trainer.step_count:,}")
-        log.info(f"   • Target Step       : {steps:,} (+{remaining:,} steps)")
-        if training_stage == "sft" and resume_target:
-            optimizer_state_label = "Fresh (SFT stage transition)"
-        elif not resumed_from_explicit_checkpoint:
-            optimizer_state_label = "Preserved from checkpoint"
-        else:
-            optimizer_state_label = "Preserved (explicit checkpoint)"
-        log.info(f"   • Optimizer State   : {optimizer_state_label} (lr={lr:.2e})")
-        log.info(f"   • Recovery Schedule : Cosine restarted for +{remaining:,} steps (warmup={actual_warmup}, min_lr_ratio=0.10)")
-        log.info(f"   • Model Directory   : {checkpoint_root}")
-        log.info("=" * 65)
-    else:
-        trainer.training_stage = training_stage or "pretrain"
-        log.info("Starting fresh dataset training run.")
-
-    if compile:
-        torch._dynamo.config.suppress_errors = True
-        has_compiler = shutil.which("g++") or shutil.which("cl") or shutil.which("gcc")
-        if not has_compiler:
-            log.info("  [PyTorch Inductor] Note: No C++ compiler (g++/cl) detected on Windows PATH.")
-            log.info("  Running in fast eager mode. Install w64devkit (g++) or MSVC for Inductor C++ compilation.")
-        else:
-            log.info("  [PyTorch Inductor] Compiling model with torch.compile(backend='inductor')...")
-            try:
-                trainer.model = torch.compile(trainer.model, backend="inductor")
-            except Exception as e:
-                log.warning(f"  torch.compile failed ({e}), continuing uncompiled.")
-
-    def eval_callback(step):
-        # 5-Domain Dynamic Benchmark Suite: Evaluates 5 randomized capability questions every time
-        import random
-        import ast
-
-        sys_tag = "<|system|>\nYou are Tantra, a helpful, polite, and intelligent AI assistant created by Atulya AI.\n\n"
-
-        math_pool = [
-            ("Math Eq", "", f"{sys_tag}<|user|>\nSolve for x in 3x + 12 = 36.\n\n<|assistant|>\n", 0.1, "x = 8"),
-            ("Math Eq", "", f"{sys_tag}<|user|>\nSolve for x in 5x - 15 = 20.\n\n<|assistant|>\n", 0.1, "x = 7"),
-            ("Math Eq", "", f"{sys_tag}<|user|>\nSolve for x in 4x + 8 = 32.\n\n<|assistant|>\n", 0.1, "x = 6"),
-            ("Math Eq", "", f"{sys_tag}<|user|>\nSolve for x in 7x - 14 = 35.\n\n<|assistant|>\n", 0.1, "x = 7"),
-            ("Math Eq", "", f"{sys_tag}<|user|>\nSolve for x in 2x + 18 = 40.\n\n<|assistant|>\n", 0.1, "x = 11"),
-            ("Math Pct", "", f"{sys_tag}<|user|>\nWhat is 15% of 800?\n\n<|assistant|>\n", 0.1, "120"),
-            ("Math Pct", "", f"{sys_tag}<|user|>\nWhat is 20% of 450?\n\n<|assistant|>\n", 0.1, "90")
-        ]
-
-        code_pool = [
-            ("Code", "", f"{sys_tag}<|user|>\nWrite a Python function to check if a number is prime.\n\n<|assistant|>\n```python\n", 0.1, "is_prime"),
-            ("Code", "", f"{sys_tag}<|user|>\nWrite a Python function to reverse a string.\n\n<|assistant|>\n```python\n", 0.1, "reverse_string"),
-            ("Code", "", f"{sys_tag}<|user|>\nWrite a Python function to compute the factorial of a number.\n\n<|assistant|>\n```python\n", 0.1, "factorial"),
-            ("Code", "", f"{sys_tag}<|user|>\nWrite a Python function to check if a word is a palindrome.\n\n<|assistant|>\n```python\n", 0.1, "is_palindrome"),
-            ("Code", "", f"{sys_tag}<|user|>\nWrite a Python function to merge two dictionaries.\n\n<|assistant|>\n```python\n", 0.1, "merge_dicts"),
-            ("Code", "", f"{sys_tag}<|user|>\nWrite a Python function to remove duplicates from a list.\n\n<|assistant|>\n```python\n", 0.1, "remove_duplicates")
-        ]
-
-        physics_pool = [
-            ("Physics", "", f"{sys_tag}<|user|>\nState Newton's First Law of Motion.\n\n<|assistant|>\n", 0.2, "inertia"),
-            ("Physics", "", f"{sys_tag}<|user|>\nState Newton's Second Law of Motion.\n\n<|assistant|>\n", 0.2, "F = ma"),
-            ("Physics", "", f"{sys_tag}<|user|>\nState Newton's Third Law of Motion.\n\n<|assistant|>\n", 0.2, "action"),
-            ("Physics", "", f"{sys_tag}<|user|>\nWhat is the speed of light in a vacuum?\n\n<|assistant|>\n", 0.2, "299,792,458")
-        ]
-
-        chem_bio_pool = [
-            ("Chemistry", "", f"{sys_tag}<|user|>\nWhat is the chemical formula for water?\n\n<|assistant|>\n", 0.1, "H2O"),
-            ("Chemistry", "", f"{sys_tag}<|user|>\nWhat is the chemical formula for carbon dioxide?\n\n<|assistant|>\n", 0.1, "CO2"),
-            ("Biology",   "", f"{sys_tag}<|user|>\nWhat is DNA?\n\n<|assistant|>\n", 0.2, "deoxyribonucleic"),
-            ("Biology",   "", f"{sys_tag}<|user|>\nWhat is known as the powerhouse of the cell?\n\n<|assistant|>\n", 0.1, "mitochondri")
-        ]
-        conv_pool = [
-            ("Identity",   "", f"{sys_tag}<|user|>\nWho created you and what is your name?\n\n<|assistant|>\n", 0.3, "Tantra"),
-            ("Greeting",   "", f"{sys_tag}<|user|>\nGood morning! How are you doing today?\n\n<|assistant|>\n", 0.3, "help"),
-            ("Chat",       "", f"{sys_tag}<|user|>\nThank you so much for your help!\n\n<|assistant|>\n", 0.3, "welcome"),
-            ("Capability", "", f"{sys_tag}<|user|>\nWhat can you do as an AI assistant?\n\n<|assistant|>\n", 0.3, "code")
-        ]
-
-        # Pick 1 random question from each of the 5 domains (Total 5 questions per eval)
-        selected_tests = [
-            random.choice(math_pool),
-            random.choice(code_pool),
-            random.choice(physics_pool),
-            random.choice(chem_bio_pool),
-            random.choice(conv_pool)
-        ]
-
-        # Run generative benchmark at major evaluation milestones (step >= 500), avoiding early-training stalls
-        if step >= 500 and (step % max(500, eval_every) == 0 or step == steps):
-            log.info(f"  [ DYNAMIC 5-DOMAIN BENCHMARK (RANDOMIZED QUESTIONS) @ Step {step:,} ] " + "" * 5)
-            raw_model = unwrap_model(model)
-            for domain, icon, prompt_text, temp, expected_key in selected_tests:
-                prompt_ids = torch.tensor([tokenizer.encode(prompt_text)], device=raw_model.embed.weight.device)
-                out = raw_model.generate(prompt_ids, max_new_tokens=64, min_new_tokens=1, temperature=temp, top_p=0.9, repetition_penalty=1.15)
-                new_tokens = out[0, prompt_ids.shape[1]:].tolist()
-                response = tokenizer.decode(new_tokens).strip()
-
-                extra_tag = ""
-                if "Code" in domain:
-                    code_cand = response.replace("```python", "").replace("```", "").strip()
-                    try:
-                        ast.parse(code_cand)
-                        extra_tag = " ( Valid Python AST)"
-                    except Exception:
-                        pass
-                elif expected_key.lower() in response.lower().replace(" ", "") or expected_key.lower() in response.lower():
-                    extra_tag = f" ( Key Matched: {expected_key})"
-
-                clean_disp = response.replace("\n", " ")[:90]
-                log.info(f" {icon} [{domain:10s}]: {clean_disp}{extra_tag}")
-
-            log.info("" + "" * 80)
-
-
-
-
-        # Bidirectional per-category growth (adapter training only). During a
-        # single-category run every token routes to this category, so usage is
-        # always "high" and the controller will only GROW a plateauing stack.
-        # SHRINK is exercised under multi-category routing (see unit tests and
-        # the chat/serve eval path).
-        if cat_growth_ctrl is not None and cat_meta is not None and trainer.ema_loss is not None:
-            tokens_so_far = max(1, step) * 2048
-            decision = cat_growth_ctrl.observe(
-                adapter_name, float(trainer.ema_loss), cat_routed=tokens_so_far,
-                total_routed=tokens_so_far, depth=model.category_depth(adapter_name),
-                min_depth=cat_meta.min_depth, max_depth=cat_meta.max_depth)
-            if decision == "grow" and model.grow_category(adapter_name, cat_meta.max_depth):
-                model.freeze_for_category(adapter_name)
-                trainer.refresh_optimizer()
-                new_depth = model.category_depth(adapter_name)
-                new_params = sum(p.numel() for p in model.category_layers[adapter_name].parameters())
-                reg = AdapterRegistry()
-                reg.update_depth(adapter_name, new_depth, new_params)
-                reg.save()
-                log.info(f"[CategoryGrowth] Grew '{adapter_name}' to depth {new_depth} (params={new_params}).")
-            elif decision == "shrink" and model.shrink_category(adapter_name, cat_meta.min_depth):
-                model.freeze_for_category(adapter_name)
-                trainer.refresh_optimizer()
-                new_depth = model.category_depth(adapter_name)
-                new_params = sum(p.numel() for p in model.category_layers[adapter_name].parameters())
-                reg = AdapterRegistry()
-                reg.update_depth(adapter_name, new_depth, new_params)
-                reg.save()
-                log.info(f"[CategoryGrowth] Shrank '{adapter_name}' to depth {new_depth} (params={new_params}).")
-
-        # Avoid saving immediately upon resuming (step == trainer.step_count when just loaded)
-        # We only save if we have actually progressed.
-        if step > 0:
-            # Save to Latest asynchronously (full state with optimizer for seamless resume)
-            trainer.save_checkpoint(latest_ckpt, save_optimizer=True, async_write=True)
-
-            if archive_checkpoints:
-                # Optional archive copies; CPU profiles use only Latest by
-                # default to avoid spending disk on repeated optimizer state.
-                step_ckpt = os.path.join(checkpoints_dir, f"checkpoint_step_{step}.pt")
-                trainer.save_checkpoint(step_ckpt, save_optimizer=True, async_write=True)
-                if getattr(trainer, "is_new_best", False):
-                    trainer.save_checkpoint(best_ckpt, save_optimizer=False, async_write=True)
-                    log.info(f" [NEW BEST CHECKPOINT] Val Loss: {trainer.best_val_loss:.4f} -> {os.path.basename(best_ckpt)}")
-                    trainer.is_new_best = False
-
-
-                if step % (eval_every * 4) == 0 or step == steps:
-                    version_name = f"Tantra_v1_step_{step}.pt"
-                    trainer.save_checkpoint(os.path.join(best_dir, version_name), save_optimizer=False, async_write=True)
-
-
-
-            trainer._last_saved_step = step
-
-    def checkpoint_callback(step):
-        """Persist the exact resumable state without an expensive sample run."""
-        if step == getattr(trainer, "_last_saved_step", -1):
-            # The evaluation callback has just created the same exact latest
-            # recovery state. Do not write another multi-gigabyte file.
-            return
-        trainer.save_checkpoint(latest_ckpt, save_optimizer=True, async_write=True)
-        trainer._last_saved_step = step
-        log.info("Recovery checkpoint queued at step %d.", step)
-
-    # Record the starting step so we don't save it immediately
-    trainer._last_saved_step = trainer.step_count
-
-    from Tantra.dataset import TopicMixedDataset
-
-    # ``steps`` counts optimizer updates, while an IterableDataset yields
-    # individual samples.  Gradient accumulation consumes multiple complete
-    # batches per update, so the old cap stopped runs early when --grad-accum
-    # was above one.
-    max_samples = None  # Stream full dataset across epochs instead of capping
-
-    dataset = None
-    if track and track.lower() not in ("all", "none"):
-        t_norm = track.lower().strip()
-        log.info(f" [EXPERT TRACK OVERRIDE] Training exclusively on '{t_norm}' category...")
-        track_map = {
-            "chitchat": ["chitchat_phase1_greetings.jsonl", "expert_conversation.jsonl"] if curriculum_phase == 1 else (["chitchat_phase2_short.jsonl", "expert_conversation.jsonl"] if curriculum_phase == 2 else ["chitchat_phase3_full.jsonl", "expert_conversation.jsonl", "conversation.jsonl"]),
-            "chitchat-p1": ["chitchat_phase1_greetings.jsonl"],
-            "chitchat-p2": ["chitchat_phase2_short.jsonl"],
-            "chitchat-p3": ["chitchat_phase3_full.jsonl", "expert_conversation.jsonl"],
-            "greetings": ["chitchat_phase1_greetings.jsonl"],
-            "conversation": ["chitchat_phase3_full.jsonl", "expert_conversation.jsonl", "conversation.jsonl"],
-            "chat": ["chitchat_phase3_full.jsonl", "expert_conversation.jsonl", "conversation.jsonl"],
-            "identity": ["chitchat_phase1_greetings.jsonl", "gold_corpus.jsonl", "expert_conversation.jsonl"],
-            "math": ["math_phase1_arithmetic.jsonl", "expert_math_science.jsonl"] if curriculum_phase == 1 else (["math_phase2_wordproblems.jsonl", "expert_math_science.jsonl"] if curriculum_phase == 2 else ["math_phase3_advanced.jsonl", "expert_math_science.jsonl", "math.jsonl"]),
-            "math-p1": ["math_phase1_arithmetic.jsonl"],
-            "math-p2": ["math_phase2_wordproblems.jsonl"],
-            "math-p3": ["math_phase3_advanced.jsonl", "expert_math_science.jsonl"],
-            "code": ["code_phase1_syntax.jsonl", "expert_code.jsonl"] if curriculum_phase == 1 else (["code_phase2_algorithms.jsonl", "expert_code.jsonl"] if curriculum_phase == 2 else ["code_phase3_systems.jsonl", "expert_code.jsonl", "code.jsonl"]),
-            "code-p1": ["code_phase1_syntax.jsonl"],
-            "code-p2": ["code_phase2_algorithms.jsonl"],
-            "code-p3": ["code_phase3_systems.jsonl", "expert_code.jsonl"],
-            "science": ["science_phase1_fundamentals.jsonl", "expert_math_science.jsonl"] if curriculum_phase == 1 else (["science_phase2_explanations.jsonl", "expert_math_science.jsonl"] if curriculum_phase == 2 else ["science_phase3_advanced.jsonl", "expert_math_science.jsonl", "science.jsonl"]),
-            "science-p1": ["science_phase1_fundamentals.jsonl"],
-            "science-p2": ["science_phase2_explanations.jsonl"],
-            "science-p3": ["science_phase3_advanced.jsonl", "expert_math_science.jsonl"],
-            "general": ["expert_general.jsonl", "general.jsonl"],
-            "gold": ["gold_corpus.jsonl"]
-        }
-        cand_names = track_map.get(t_norm, [f"expert_{t_norm}.jsonl", f"{t_norm}.jsonl"])
-        base_dir = dataset_path if os.path.isdir(dataset_path) else (os.path.dirname(dataset_path) or "Datasets")
-        selected_file = None
-        for c in cand_names:
-            c_path = os.path.join(base_dir, c)
-            if os.path.isfile(c_path) and os.path.getsize(c_path) > 0:
-                selected_file = c_path
-                break
-
-        # On-demand builder for specific domains
-        if selected_file is None:
-            if "code" in t_norm:
-                from Tantra.dataset import build_phased_code_curriculum
-                build_phased_code_curriculum(base_dir)
-            elif "math" in t_norm:
-                from Tantra.dataset import build_phased_math_curriculum
-                build_phased_math_curriculum(base_dir)
-            elif "science" in t_norm:
-                from Tantra.dataset import build_phased_science_curriculum
-                build_phased_science_curriculum(base_dir)
-            elif t_norm in ("chitchat", "conversation", "chat", "identity", "chitchat-p1", "chitchat-p2", "chitchat-p3", "greetings"):
-                from Tantra.dataset import build_phased_chitchat_curriculum
-                build_phased_chitchat_curriculum(base_dir)
-
-            for c in cand_names:
-                c_path = os.path.join(base_dir, c)
-                if os.path.isfile(c_path) and os.path.getsize(c_path) > 0:
-                    selected_file = c_path
-                    break
-
-        if selected_file and os.path.isfile(selected_file):
-            log.info(f" Routing to Expert Track File: {selected_file} ({os.path.getsize(selected_file)/1e6:.1f} MB)")
-            dataset = JSONLDataset(selected_file, tokenizer, seq_len=seq_len,
-                                  max_samples=max_samples, mask_non_assistant=mask_non_assistant, pack_sequences=pack_sequences)
-        else:
-            log.warning(f"Could not find track file for '{track}' under {base_dir}; falling back to multi-track.")
-
-    if dataset is not None:
-        pass
-    elif os.path.isdir(dataset_path):
-        # Scan for topic subdirectories
-        topic_paths = {}
-        for entry in os.scandir(dataset_path):
-            if entry.is_dir():
-                topic = entry.name
-                jsonls = glob.glob(os.path.join(entry.path, "*.jsonl"))
-                if jsonls:
-                    topic_paths[topic] = jsonls
-
-        if topic_paths:
-            log.info(f"  Topic directories found: {list(topic_paths.keys())}")
-            # When training a single category, restrict to that category's
-            # registered topic folders and freeze the shared base; only the
-            # dedicated specialist layer for this category is trained.
-            if adapter_name is not None:
-                registry = AdapterRegistry()
-                cat = registry.get(adapter_name)
-                if cat is None:
-                    raise ValueError(f"Adapter category '{adapter_name}' is not in the registry. Run: python main.py --mode adapter add --name {adapter_name}")
-                if not hasattr(model, "category_layers") or adapter_name not in model.category_layers:
-                    raise ValueError(f"Adapter checkpoint has no category layer '{adapter_name}'. Run: python main.py --mode adapter init")
-                allowed = set(cat.topics)
-                topic_paths = {t: p for t, p in topic_paths.items() if t in allowed}
-                if not topic_paths:
-                    raise ValueError(f"Category '{adapter_name}' maps to topics {sorted(allowed)} but none exist under {dataset_path}.")
-                log.info(f"  Training category '{adapter_name}' on topics: {list(topic_paths.keys())}")
-                model.freeze_for_category(adapter_name)
-                dataset = TopicMixedDataset(topic_paths, {t: 1.0 for t in topic_paths}, tokenizer, seq_len=seq_len,
-                                            max_samples=max_samples, mask_non_assistant=mask_non_assistant)
-            else:
-                # Default weights bias toward the biggest, most general corpus while
-                # giving every domain expert meaningful exposure. Override with the
-                # --topic-weights flag if you want a different mixture.
-                DEFAULT_TOPIC_WEIGHTS = {
-                    "conversation": 35.0,
-                    "general": 35.0,
-                    "code": 12.0,
-                    "science": 10.0,
-                    "reasoning": 8.0,
-                    "creative_writing": 4.0,
-                    "multilingual": 3.0,
-                    "instructions": 2.0,
-                    "math": 2.0,
-                    "safety": 1.0,
-                }
-            if topic_weights:
-                weights = {t: float(topic_weights.get(t, DEFAULT_TOPIC_WEIGHTS.get(t, 1.0))) for t in topic_paths.keys()}
-                log.info(f"  Custom topic weights: {weights}")
-            else:
-                weights = {t: DEFAULT_TOPIC_WEIGHTS.get(t, 1.0) for t in topic_paths.keys()}
-            dataset = TopicMixedDataset(topic_paths, weights, tokenizer, seq_len=seq_len,
-                                        max_samples=max_samples, mask_non_assistant=mask_non_assistant)
-        else:
-            # Multiple jsonl files directly under dataset_path
-            direct_jsonls = [p for p in glob.glob(os.path.join(dataset_path, "*.jsonl")) if "preference" not in p and "sample" not in p]
-    val_loader = None
-    target_val_file = None
-
-    if os.path.isfile(dataset_path):
-        train_file = dataset_path
-        base_dir = os.path.dirname(dataset_path) or "Datasets"
-        val_cand = validation_dataset or os.path.join(base_dir, "tantra_val.jsonl")
-        if not os.path.exists(val_cand):
-            val_cand = dataset_path.replace("_train.jsonl", "_val.jsonl")
-        if os.path.exists(val_cand) and os.path.isfile(val_cand) and os.path.abspath(val_cand) != os.path.abspath(dataset_path):
-            target_val_file = val_cand
-
-        is_discrete_sft = (training_stage == "sft" or "_train.jsonl" in dataset_path)
-
-        train_count = sum(1 for _ in open(train_file, "r", encoding="utf-8")) if os.path.exists(train_file) else 0
-        val_count = sum(1 for _ in open(target_val_file, "r", encoding="utf-8")) if (target_val_file and os.path.exists(target_val_file)) else 0
-
-        dataset = JSONLDataset(
-            train_file, tokenizer, seq_len=seq_len,
-            max_samples=None, mask_non_assistant=mask_non_assistant,
-            split="all" if is_discrete_sft else "train",
-            val_ratio=0.0 if is_discrete_sft else 0.05,
-            pack_sequences=pack_sequences,
-            shuffle=True,
-            shuffle_buf_size=2000,
-            auto_rebalance=True
-        )
-
-        if target_val_file and os.path.isfile(target_val_file):
-            val_dataset = JSONLDataset(
-                target_val_file, tokenizer, seq_len=seq_len, max_samples=None,
-                mask_non_assistant=mask_non_assistant,
-                split="all", val_ratio=0.0,
-                pack_sequences=False
-            )
-            val_loader = torch.utils.data.DataLoader(val_dataset, batch_size=batch_size, num_workers=0)
-
-        log.info("=" * 65)
-        log.info("  [SFT DATASET PIPELINE VERIFIED]")
-        log.info(f"   • Train File Path   : {train_file} ({train_count:,} records)")
-        log.info(f"   • Val File Path     : {target_val_file} ({val_count:,} records)")
-        log.info(f"   • Split Mode        : split='all', val_ratio=0.0 (discrete pre-split files, no hash-split)")
-        log.info(f"   • SFT Format Mode   : Document-level conversation active")
-        log.info(f"   • Sequence Packing  : {'ENABLED' if pack_sequences else 'DISABLED'}")
-        log.info(f"   • Label Masking     : Prompt & Pad = -100 (IGNORE_INDEX), Assistant & EOS = Supervised")
-        log.info(f"   • Overlength Prompts: Skipped and counted if prompt >= seq_len ({seq_len})")
-        log.info("=" * 65)
-    else:
-        if os.path.isdir(dataset_path):
-            direct_jsonls = [
-                p for p in glob.glob(os.path.join(dataset_path, "*.jsonl"))
-                if not any(excluded in os.path.basename(p).lower() for excluded in ["dpo", "preference", "eval", "sample"])
-            ]
-            if len(direct_jsonls) > 1:
-                topic_paths = {os.path.splitext(os.path.basename(p))[0].replace("expert_", ""): [p] for p in direct_jsonls}
-                log.info(f"  Multi-track datasets detected: {list(topic_paths.keys())}")
-                if topic_weights:
-                    weights = {t: float(topic_weights.get(t, DEFAULT_TOPIC_WEIGHTS.get(t, 1.0))) for t in topic_paths.keys()}
-                else:
-                    weights = {}
-                    for t in topic_paths.keys():
-                        t_lower = t.lower()
-                        if "conversation" in t_lower or "chitchat" in t_lower or "greeting" in t_lower:
-                            w = 35.0
-                        elif "general" in t_lower:
-                            w = 35.0
-                        elif "code" in t_lower:
-                            w = 12.0
-                        elif "science" in t_lower:
-                            w = 10.0
-                        elif "math" in t_lower:
-                            w = 2.0  # Downweighted so math doesn't drown out conversation
-                        else:
-                            w = DEFAULT_TOPIC_WEIGHTS.get(t_lower, 5.0)
-                        weights[t] = w
-                log.info(f"  Rebalanced multi-track weights: {weights}")
-                dataset = TopicMixedDataset(topic_paths, weights, tokenizer, seq_len=seq_len,
-                                            max_samples=max_samples, mask_non_assistant=mask_non_assistant)
-            elif len(direct_jsonls) == 1:
-                dataset = JSONLDataset(direct_jsonls[0], tokenizer, seq_len=seq_len,
-                                      max_samples=max_samples, mask_non_assistant=mask_non_assistant, pack_sequences=pack_sequences,
-                                      auto_rebalance=True)
-            else:
-                dataset = JSONLDataset(dataset_path, tokenizer, seq_len=seq_len,
-                                      max_samples=max_samples, mask_non_assistant=mask_non_assistant, pack_sequences=pack_sequences,
-                                      auto_rebalance=True)
-        else:
-            bin_cache = find_bin_cache(dataset_path)
-            if bin_cache:
-                log.info(f"  Pre-tokenized cache found -> {bin_cache} (skipping BPE encode() at train time)")
-                dataset = PretokenizedBinDataset(bin_cache, seq_len=seq_len,
-                                                 max_samples=max_samples,
-                                                 mask_non_assistant=mask_non_assistant)
-            else:
-                dataset = JSONLDataset(dataset_path, tokenizer, seq_len=seq_len,
-                                      max_samples=max_samples, mask_non_assistant=mask_non_assistant, pack_sequences=pack_sequences)
-
-
-
-    dataloader = torch.utils.data.DataLoader(
-        dataset, batch_size=batch_size, num_workers=data_workers,
-        pin_memory=torch.cuda.is_available(),
-        persistent_workers=data_workers > 0, prefetch_factor=4 if data_workers > 0 else None,
-    )
-    enrichment = 0.08 if training_stage == "sft" else 0.02
-    try:
-        trainer.train_dataset(dataloader, max_steps=steps, log_every=log_every, eval_every=eval_every, eval_callback=eval_callback, checkpoint_every=checkpoint_every, checkpoint_callback=checkpoint_callback, tokenizer=tokenizer, enrichment_rate=enrichment, use_latent_reasoning=use_latent_reasoning, auto_growth=auto_growth, growth_patience=growth_patience, growth_min_delta=growth_min_delta, max_layers=max_layers, max_params=max_params, val_loader=val_loader, early_stopping_patience=early_stopping_patience, early_stopping_min_delta=early_stopping_min_delta, max_val_batches=max_val_batches)
-
-    except KeyboardInterrupt:
-        # Ctrl+C happens after an optimizer boundary in many practical runs.
-        # Save that completed state before allowing the process to stop.
-        trainer.save_checkpoint(latest_ckpt, save_optimizer=True, async_write=False)
-        log.warning("Training interrupted; recovery checkpoint saved at step %d.", trainer.step_count)
-    finally:
-        if isinstance(dataset, JSONLDataset) and mask_non_assistant:
-            log.info(
-                "SFT dataset summary: conversations=%d, skipped_overlength_prompts=%d, "
-                "truncated_assistant_tokens=%d.",
-                dataset.total_conversations_processed,
-                dataset.skipped_overlength_prompts,
-                dataset.truncated_assistant_tokens,
-            )
-        final_step = trainer.step_count
-        ck_interval = checkpoint_every if (checkpoint_every and checkpoint_every > 0) else 500
-        # Only archive into Checkpoints/ if the step is an exact multiple (e.g. 500, 1000, 74000, 75000)
-        if final_step > 0 and final_step % ck_interval == 0:
-            final_milestone = os.path.join(checkpoints_dir, f"checkpoint_step_{final_step}.pt")
-            trainer.save_checkpoint(final_milestone, save_optimizer=True, async_write=False)
-            log.info(" [MILESTONE CHECKPOINT FLUSHED] Step %d successfully written to disk: %s", final_step, final_milestone)
-        # Always write Latest/checkpoint_latest.pt for seamless resume
-        trainer.save_checkpoint(latest_ckpt, save_optimizer=True, async_write=False)
-        trainer.flush_checkpoint_writers()
-        log.info(" [LATEST CHECKPOINT FLUSHED] Step %d successfully written to disk: %s", final_step, latest_ckpt)
-
-
-def run_dpo_training(
-    model, tokenizer, dataset_path, steps=1000, eval_every=250, log_every=25,
-    checkpoint_every=250, batch_size=4, grad_accumulation_steps=4, data_workers=2,
-    lr=5e-6, beta=0.1, model_dir=None, checkpoint_path=None
-):
+        if q in ("/quit", "/exit"):
+            break
+        if q == "/reset":
+            history.clear()
+            continue
+        if router is not None:
+            model.active_category = router.route(q)
+        print("Tantra > ", end="", flush=True)
+        t0 = time.time()
+        answer = _reply(model, tok, chat_prompt(q, args.system, history[-args.history:]), args, hw.device)
+        history.append((q, answer))
+        log.debug(f"{time.time() - t0:.1f}s")
+
+
+def run_generate(args, hw) -> None:
+    from Tantra.dataset import chat_prompt
+    tok = load_tokenizer(TOKENIZER_PATH)
+    model, _ = load_model(args.checkpoint or default_checkpoint(args.model_dir), hw.device, int8=args.int8)
+    _reply(model, tok, chat_prompt(args.prompt or "नमस्ते", args.system), args, hw.device)
+
+
+# ── eval / export / dpo / tokenizer / adapter ────────────────────────────────
+
+def run_eval(args, hw) -> None:
+    from Tantra.dataset import JSONLDataset
+    from Tantra.eval_suite import load_probe, run_probe, throughput, validation_metrics
+    tok = load_tokenizer(TOKENIZER_PATH)
+    path = args.checkpoint or default_checkpoint(args.model_dir)
+    model, ckpt = load_model(path, hw.device, int8=args.int8)
+    report = {"checkpoint": os.path.relpath(path, ROOT), "step": ckpt.get("step_count"),
+              "params_M": round(sum(p.numel() for p in model.parameters()) / 1e6, 1)}
+    if args.val and os.path.isfile(args.val):
+        ds = JSONLDataset(args.val, tok, seq_len=args.seq_len, stage=args.stage, shuffle_buffer=1, loop=False)
+        report["validation"] = validation_metrics(model, torch.utils.data.DataLoader(ds, batch_size=4),
+                                                  max_batches=args.val_batches)
+    if args.probe:
+        report["probe"] = run_probe(model, tok, load_probe(args.probe), report["step"] or 0, generate=True)
+    report["speed"] = throughput(model, tok.vocab_size)
+    report["finished_at"] = time.time()
+    print(json.dumps(report, indent=2, ensure_ascii=False))
+    with open(os.path.join(args.model_dir, "eval_report.json"), "w", encoding="utf-8") as f:
+        json.dump(report, f, indent=2, ensure_ascii=False)   # shown in the WebUI Model tab
+
+
+def run_export(args) -> None:
+    from Tantra.export import export_clean_checkpoint
+    src = args.checkpoint or default_checkpoint(args.model_dir)
+    export_clean_checkpoint(src, args.output or os.path.join(args.model_dir, "tantra.pt"))
+
+
+def run_dpo(args, hw) -> None:
     from Tantra.dataset import DPODataset
-    from torch.utils.data import DataLoader
-
-    checkpoints_dir = os.path.join(model_dir or MODEL_DIR, "Checkpoints")
-    latest_dir = os.path.join(model_dir or MODEL_DIR, "Latest")
-    os.makedirs(checkpoints_dir, exist_ok=True)
-    os.makedirs(latest_dir, exist_ok=True)
-    latest_ckpt = os.path.join(latest_dir, "checkpoint_latest.pt")
-
-    device = next(model.parameters()).device
-    trainer = NeuroTrainer(
-        model, lr=lr, weight_decay=0.01,
-        total_steps=steps, warmup_steps=max(10, steps // 20),
-        grad_accumulation_steps=grad_accumulation_steps
-    )
-    trainer.device = device
-
-    if checkpoint_path and os.path.exists(checkpoint_path):
-        trainer.load_checkpoint(checkpoint_path)
-        trainer.optimizer = torch.optim.AdamW(
-            [p for p in trainer.model.parameters() if p.requires_grad],
-            lr=lr, weight_decay=0.01
-        )
-        log.info("Reinitialized AdamW optimizer for DPO (SFT optimizer state incompatible).")
-        log.info(f"Loaded baseline checkpoint for DPO: {checkpoint_path}")
-
-    dpo_dataset = DPODataset(dataset_path, tokenizer, max_len=128)
-    dpo_loader = DataLoader(
-        dpo_dataset,
-        batch_size=batch_size,
-        num_workers=data_workers,
-        pin_memory=torch.cuda.is_available(),
-        persistent_workers=data_workers > 0,
-        prefetch_factor=2 if data_workers > 0 else None,
-    )
-
-    def ckpt_cb(step, loss):
-        ck_interval = checkpoint_every if (checkpoint_every and checkpoint_every > 0) else 250
-        if step > 0 and step % ck_interval == 0:
-            milestone = os.path.join(checkpoints_dir, f"checkpoint_dpo_step_{step}.pt")
-            trainer.save_checkpoint(milestone, save_optimizer=True, async_write=False)
-        trainer.save_checkpoint(latest_ckpt, save_optimizer=True, async_write=False)
-
-    def eval_cb(step):
-        log.info(f"  [ DPO PREFERENCE ALIGNMENT BENCHMARK @ Step {step:,} ] " + "" * 20)
-        test_prompts = [
-            ("General", "", "<|user|>\nWhat is Tantra LLM?\n\n<|assistant|>\n"),
-            ("Coding",  "", "<|user|>\nWrite a Python function to reverse a string.\n\n<|assistant|>\n"),
-            ("Math",    "", "<|user|>\nSolve for x in 2x + 6 = 14.\n\n<|assistant|>\n"),
-            ("Science", "", "<|user|>\nState Newton's First Law of Motion.\n\n<|assistant|>\n")
-        ]
-        raw_model = unwrap_model(model)
-        for domain, icon, prompt_text in test_prompts:
-            prompt_ids = torch.tensor([tokenizer.encode(prompt_text)], device=raw_model.embed.weight.device)
-            out = raw_model.generate(prompt_ids, max_new_tokens=48, min_new_tokens=1, temperature=0.7, top_p=0.9, repetition_penalty=1.2)
-            new_tokens = out[0, prompt_ids.shape[1]:].tolist()
-            response = tokenizer.decode(new_tokens).strip().replace("\n", " ")
-            log.info(f" {icon} [{domain:7s}]: {response[:90]}")
-
-        try:
-            from Tantra.world_eval import evaluate_zero_shot_world_knowledge
-            world_res = evaluate_zero_shot_world_knowledge(raw_model, tokenizer)
-            if world_res:
-                log.info(f"  [World MMLU]:  {world_res['world_mmlu_accuracy']:.1f}% Zero-Shot Accuracy ({world_res['correct_samples']}/{world_res['total_samples']} correct)")
-        except Exception:
-            pass
-        log.info("" + "" * 80)
-
-    try:
-        trainer.train_dpo(
-            dpo_loader,
-            beta=beta,
-            max_steps=steps,
-            log_every=log_every,
-            checkpoint_every=checkpoint_every,
-            checkpoint_callback=ckpt_cb,
-            eval_every=eval_every,
-            eval_callback=eval_cb,
-        )
-    finally:
-        final_step = trainer.step_count
-        ck_interval = checkpoint_every if (checkpoint_every and checkpoint_every > 0) else 250
-        if final_step > 0 and final_step % ck_interval == 0:
-            final_milestone = os.path.join(checkpoints_dir, f"checkpoint_dpo_step_{final_step}.pt")
-            trainer.save_checkpoint(final_milestone, save_optimizer=True, async_write=False)
-            log.info(" [DPO MILESTONE CHECKPOINT FLUSHED] Step %d written to disk: %s", final_step, final_milestone)
-        trainer.save_checkpoint(latest_ckpt, save_optimizer=True, async_write=False)
-        trainer.flush_checkpoint_writers()
-        log.info(" [DPO LATEST CHECKPOINT FLUSHED] Step %d successfully written to disk: %s", final_step, latest_ckpt)
+    from Tantra.train import NeuroTrainer
+    tok = load_tokenizer(TOKENIZER_PATH)
+    path = args.checkpoint or default_checkpoint(args.model_dir)
+    model, _ = load_model(path, hw.device)
+    trainer = NeuroTrainer(model, lr=args.lr if args.lr != 3e-4 else 5e-6, warmup_steps=10,
+                           total_steps=args.steps, grad_accumulation_steps=args.grad_accum)
+    trainer.load_checkpoint(path, reset_optimizer=True)
+    loader = torch.utils.data.DataLoader(DPODataset(args.prefs, tok, max_len=args.seq_len), batch_size=args.batch_size)
+    paths = ckpt_paths(args.model_dir)
+    out = paths["latest"]
+    trainer.train_dpo(loader, max_steps=args.steps, on_checkpoint=lambda s: trainer.save_checkpoint(out))
+    trainer.save_checkpoint(out)
 
 
-def run_evaluation(model, tokenizer, dataset_path, device="cpu", max_batches=50):
-    log.info("== [MODEL EVALUATION & BENCHMARK MODE] =============")
-    engine = EvaluationEngine(model, device=str(device))
-    if os.path.isdir(dataset_path):
-        from Tantra.dataset import TopicMixedDataset
-        dataset = TopicMixedDataset(dataset_path, tokenizer, seq_len=128, max_samples=500)
-    else:
-        dataset = JSONLDataset(dataset_path, tokenizer, seq_len=128, max_samples=500) if os.path.exists(dataset_path) else None
-
-    if dataset is None:
-        log.warning(f"Could not load evaluation dataset from: {dataset_path}")
-        return {}
-
-    from torch.utils.data import DataLoader
-    loader = DataLoader(dataset, batch_size=4, shuffle=False)
-    metrics = engine.evaluate_metrics(loader, max_batches=max_batches)
-    print("\n" + "=" * 65)
-    print(f" EVALUATION METRICS REPORT ({dataset_path})")
-    print("=" * 65)
-    for k, v in metrics.items():
-        print(f"  • {k:20s}: {v:.4f}")
-    print("=" * 65 + "\n")
-    return metrics
+def run_tokenizer(args) -> None:
+    if os.path.isfile(TOKENIZER_PATH):
+        backup = os.path.join(MODEL_DIR, "_old", time.strftime("%Y%m%d_%H%M%S"))
+        os.makedirs(backup, exist_ok=True)
+        for name in ("tokenizer.json", "vocab.json", "merges.txt", "tokenizer_config.json", "special_tokens_map.json"):
+            if os.path.isfile(os.path.join(MODEL_DIR, name)):
+                shutil.move(os.path.join(MODEL_DIR, name), os.path.join(backup, name))
+        log.warning(f"Old tokenizer moved to {os.path.relpath(backup, ROOT)}. Existing checkpoints will NOT work "
+                    f"with the new tokenizer — the next training run starts fresh.")
+    build_tokenizer([f for f in args.data.split(",") if f], MODEL_DIR, vocab_size=args.vocab_size)
 
 
-def run_compression_benchmark(comp_cfg):
-    log.info("== [COMPRESSION BENCHMARK] =========================")
-    bench = CompressionBenchmark(comp_cfg)
-    sample_weight = torch.randn(1024, 1024, dtype=torch.float32)
-    bench.run(sample_weight, output_dir=os.path.join(MODEL_DIR, "reports"))
+def run_adapter(args) -> None:
+    from Tantra.adapters import AdapterRegistry, build_adapter_checkpoint
+    reg = AdapterRegistry()
+    reg.seed_defaults()
+    if args.adapter_action == "install":
+        src = args.checkpoint or default_checkpoint(args.model_dir)
+        dst = ckpt_paths(args.model_dir)["latest"]
+        print(build_adapter_checkpoint(src, dst, vocab_size=load_tokenizer(TOKENIZER_PATH).vocab_size))
+        return
+    for c in reg.all():
+        print(f"{c.name:18s} depth {c.depth}  {c.status:10s} {c.description}")
 
 
-def run_generation(model, tokenizer, vcfg, device, prompt_text=None, temperature=0.35, top_p=0.9, max_new_tokens=64, repetition_penalty=1.15, use_mtp=True):
-    log.info(" [TEXT GENERATION MODE (MTP Speculation)] ")
-    if prompt_text:
-        log.info(f"  Prompt: {prompt_text!r}")
-        # Apply standard instruction tags if not already present
-        if "<|user|>" not in prompt_text:
-            formatted_prompt = f"<|user|>\n{prompt_text.strip()}\n\n<|assistant|>\n"
-        else:
-            formatted_prompt = prompt_text
-        prompt_ids = tokenizer.encode(formatted_prompt)
-        if not prompt_ids:
-            prompt_ids = [1]  # <bos>
-        prompt_tensor = torch.tensor([prompt_ids], dtype=torch.long, device=device)
-    else:
-        prompt_tensor = torch.randint(0, vcfg.vocab_size, (1, 4), device=device)
-        log.info(f"  Random Prompt tokens: {prompt_tensor.tolist()[0]}")
+# ── CLI ──────────────────────────────────────────────────────────────────────
 
-    model.eval()
-    with torch.no_grad():
-        out = model.generate(prompt_tensor, max_new_tokens=max_new_tokens, temperature=temperature, top_p=top_p, repetition_penalty=repetition_penalty, use_mtp_speculation=use_mtp)
+def main() -> None:
+    p = argparse.ArgumentParser(description="Tantra LLM", formatter_class=argparse.RawDescriptionHelpFormatter,
+                                epilog=__doc__)
+    p.add_argument("--mode", default="train",
+                   choices=["train", "chat", "generate", "eval", "serve", "export", "tokenizer", "dpo", "adapter", "hardware"])
+    # data
+    p.add_argument("--data", default=os.path.join(DATA_DIR, "master_train.jsonl"), help="training .jsonl (comma-separated for several)")
+    p.add_argument("--val", default=os.path.join(DATA_DIR, "master_val.jsonl"), help="held-out .jsonl (never trained on)")
+    p.add_argument("--probe", default=os.path.join(DATA_DIR, "probe_50.jsonl"), help="fixed test questions ('' to disable)")
+    p.add_argument("--prefs", default=os.path.join(DATA_DIR, "preference_pairs.jsonl"), help="DPO chosen/rejected pairs")
+    p.add_argument("--stage", choices=["sft", "pretrain"], default="sft", help="sft = learn answers only; pretrain = learn all text")
+    # model
+    p.add_argument("--preset", choices=["small", "billion", "tiny"], default="small")
+    p.add_argument("--dim", type=int)
+    p.add_argument("--layers", type=int)
+    p.add_argument("--heads", type=int)
+    p.add_argument("--local-attn-every", type=int, help="every Nth layer uses exact sliding-window attention (0 = off)")
+    p.add_argument("--local-window", type=int)
+    p.add_argument("--mtp", action="store_true", help="extra head predicting 2 tokens ahead (slower on CPU)")
+    p.add_argument("--vocab-size", type=int, default=64000, help="tokenizer mode only (keep 64000 forever)")
+    # training
+    p.add_argument("--fresh", action="store_true", help="start a new model (old checkpoints moved to Model/_old)")
+    p.add_argument("--steps", type=int, default=20000)
+    p.add_argument("--batch-size", type=int, default=4)
+    p.add_argument("--grad-accum", type=int, default=8)
+    p.add_argument("--seq-len", type=int, default=512)
+    p.add_argument("--lr", type=float, default=3e-4)
+    p.add_argument("--weight-decay", type=float, default=0.1)
+    p.add_argument("--warmup", type=int, default=500)
+    p.add_argument("--optimizer", choices=["adamw", "lion", "sgd"], default="adamw")
+    p.add_argument("--max-grad-norm", type=float, default=1.0)
+    p.add_argument("--log-every", type=int, default=50)
+    p.add_argument("--eval-every", type=int, default=250)
+    p.add_argument("--val-batches", type=int, default=50)
+    p.add_argument("--early-stop", type=int, default=0, help="stop after N evals without val improvement (0 = never)")
+    p.add_argument("--auto-growth", action="store_true")
+    p.add_argument("--growth-patience", type=int, default=1000)
+    p.add_argument("--max-layers", type=int, default=24)
+    p.add_argument("--adapter", help="train only this category's specialist layer")
+    p.add_argument("--adapter-action", choices=["list", "install"], default="list")
+    # runtime
+    p.add_argument("--checkpoint", help="checkpoint to use (default: tantra.pt, else best.pt, else latest.pt)")
+    p.add_argument("--model-dir", default=MODEL_DIR)
+    p.add_argument("--output")
+    p.add_argument("--device", default="auto")
+    p.add_argument("--threads", type=int)
+    p.add_argument("--workers", type=int, default=0, help="data-loading worker processes")
+    p.add_argument("--seed", type=int, default=42)
+    # generation
+    p.add_argument("--prompt")
+    p.add_argument("--system", help="optional system prompt")
+    p.add_argument("--history", type=int, default=3, help="chat turns remembered in the prompt")
+    p.add_argument("--temperature", type=float, default=0.3)
+    p.add_argument("--top-p", type=float, default=0.9)
+    p.add_argument("--repetition-penalty", type=float, default=1.15)
+    p.add_argument("--max-new-tokens", type=int, default=200)
+    p.add_argument("--int8", action="store_true", help="CPU: run with 8-bit weights (~2x faster)")
+    p.add_argument("--port", type=int, default=8000)
+    args = p.parse_args()
 
-    out_ids = out.tolist()[0]
-    gen_ids = out_ids[prompt_tensor.size(1):] if prompt_text else out_ids
-    decoded = tokenizer.decode(gen_ids)
-    print("\n" + "=" * 60)
-    print(f" [TANTRA RESPONSE]:\n{decoded}")
-    print("=" * 60 + "\n")
-    log.info(f"  Generated Tokens Count: {len(gen_ids)} ")
-    return decoded
-
-
-def serve(model, tokenizer, port=8000, expert_dir=None):
-    log.info("== [PRODUCTION WEB SERVER & DASHBOARD MODE] =========")
-    log.info(f"  Launching Interactive Web UI & OpenAI REST API on http://localhost:{port}")
-    try:
-        from webui.server import start_server
-        start_server(host="0.0.0.0", port=port)
-    except Exception as e:
-        log.error(f"Failed to start Tantra web server: {e}")
-
-
-def main():
     print_banner()
-
-    parser = argparse.ArgumentParser(description="Tantra-LLM / NeuroCore CLI Engine")
-    parser.add_argument("--mode", default="full",
-                        choices=["full", "probe", "vocab", "train", "dataset", "eval", "compress", "generate", "serve", "status", "experts", "chat", "adapter", "dpo", "auto-pilot", "benchmark", "export"],
-                        help="Execution mode")
-    parser.add_argument("--track", "--expert", "--domain", dest="track", type=str, default=None,
-                        choices=["all", "chitchat", "conversation", "chat", "identity", "chitchat-p1", "chitchat-p2", "chitchat-p3", "greetings", "math", "math-p1", "math-p2", "math-p3", "code", "code-p1", "code-p2", "code-p3", "science", "science-p1", "science-p2", "science-p3", "general", "gold"],
-                        help="Select specific expert track for focused training (e.g. --track chitchat-p1, --track code-p1, --track math-p1, --track science-p1)")
-    parser.add_argument("--curriculum-phase", "--phase", dest="curriculum_phase", type=int, default=None, choices=[1, 2, 3],
-                        help="Curriculum learning phase: 1=greetings & identity only, 2=short dialogues (<100 words), 3=full multi-turn dataset")
-    parser.add_argument("--checkpoint", type=str, default=None, help="Path to custom .pt model checkpoint to load (for chat, eval, serve, dpo, benchmark, export)")
-    parser.add_argument("--pack-sequences", action=argparse.BooleanOptionalAction, default=True, help="Enable continuous document sequence packing (zero padding waste)")
-    parser.add_argument("--dataset", type=str, default=DEFAULT_DATASET, help="JSONL dataset path")
-    parser.add_argument("--data-dir", type=str, default=None, help="Local folder containing .jsonl dataset files (auto-finds train/val files)")
-    parser.add_argument("--val-dataset", type=str, default=DEFAULT_VAL_DATASET, help="Explicit held-out JSONL validation dataset; never hash-split this file")
-    parser.add_argument("--preference-dataset", type=str, default="Datasets/preference_pairs.jsonl", help="DPO pairwise preference dataset path")
-    parser.add_argument("--dpo-beta", type=float, default=0.1, help="DPO temperature scaling hyperparameter beta (default: 0.1)")
-    parser.add_argument("--steps", type=int, default=30, help="Training steps")
-    parser.add_argument("--seq-len", type=int, default=128, help="Context sequence length window")
-    parser.add_argument("--use-mtp", action=argparse.BooleanOptionalAction, default=True, help="Enable/disable Multi-Token Prediction (MTP)")
-    parser.add_argument("--temperature", type=float, default=0.35, help="Sampling temperature")
-    parser.add_argument("--top-p", type=float, default=0.9, help="Top-p nucleus sampling")
-    parser.add_argument("--port", type=int, default=8000, help="Server port (serve mode)")
-    parser.add_argument("--device", type=str, default="auto", help="Compute device: auto, cpu, cuda, cuda:0, mps")
-    parser.add_argument("--single-gpu", "--no-data-parallel", dest="single_gpu", action="store_true", default=False, help="Force single-GPU execution even if multiple GPUs are available (avoids DataParallel PCIe overhead)")
-    parser.add_argument("--ddp", action="store_true", default=False, help="Enable DistributedDataParallel (DDP) multi-GPU training")
-    parser.add_argument("--resume", action="store_true", help="Resume from latest checkpoint if available")
-    parser.add_argument("--fresh", action="store_true", help="Start fresh on official 38.6M architecture without reading previous checkpoints")
-    parser.add_argument("--eval-every", type=int, default=500, help="Run a qualitative generation sample and archive checkpoint every N steps")
-    parser.add_argument("--log-every", type=int, default=50, help="Print a rolling training summary every N optimizer steps")
-    parser.add_argument("--checkpoint-every", type=int, default=500, help="Save a resumable recovery checkpoint every N optimizer steps (0 disables; default 500 minimizes I/O overhead)")
-    parser.add_argument("--batch-size", type=int, default=1, help="Batch size for training")
-    parser.add_argument("--grad-accum", type=int, default=1, help="Gradient accumulation steps (larger effective batch without more RAM; 1 = off)")
-    parser.add_argument("--data-workers", type=int, default=0, help="Parallel data-loading/tokenization workers (overlaps tokenization with training compute; 0 = synchronous/main-thread, as before)")
-
-    parser.add_argument("--training-stage", "--stage", dest="training_stage", choices=["pretrain", "sft"], default="pretrain", help="pretrain uses full-token loss; sft supervises assistant replies only")
-    parser.add_argument("--latent-reasoning", action=argparse.BooleanOptionalAction, default=False, help="Enable/disable latent reasoning. DISABLED by default for stable initial training.")
-    parser.add_argument("--mtp-loss", action=argparse.BooleanOptionalAction, default=None, help="Train the MTP auxiliary head. Defaults off for pretraining and on for SFT.")
-    parser.add_argument("--auto-growth", action=argparse.BooleanOptionalAction, default=False, help="Automatically add depth layers whenever loss plateaus. DISABLED by default for stable initial training.")
-    parser.add_argument("--growth-patience", type=int, default=250, help="Optimizer steps to observe before auto-growth adds a layer (default: 250)")
-    parser.add_argument("--growth-min-delta", type=float, default=0.003, help="Minimum EMA-loss improvement required to avoid auto-growth")
-    parser.add_argument("--max-layers", type=int, default=None, help="Hard maximum depth when auto-growth is enabled (default: None, grows up to 1 Billion parameter ceiling)")
-    parser.add_argument("--max-params", type=int, default=None, help="Hard maximum parameters when auto-growth is enabled (default: 500_000_000 for 0.5B ceiling)")
-    parser.add_argument("--vocab-size", type=int, default=None, help="Vocabulary size for tokenizer and model (default: 32768, use larger for 1B+ models)")
-    parser.add_argument("--val-batches", "--max-val-batches", dest="val_batches", type=int, default=200, help="Maximum number of validation batches to evaluate during validation checks (default: 200)")
-    parser.add_argument("--early-stopping-patience", type=int, default=8, help="Patience (consecutive validation checks with no improvement) before halting training (0 to disable, default: 8)")
-    parser.add_argument("--early-stopping-min-delta", type=float, default=0.002, help="Minimum validation loss improvement delta to reset early stopping patience (default: 0.002)")
-    parser.add_argument("--reset-best-loss", action="store_true", default=False, help="Reset best_val_loss baseline to infinity on checkpoint resume (useful when starting a new stage or dataset)")
-    parser.add_argument("--compile", action="store_true", help="Compile model with torch.compile(backend='inductor') for CPU/GPU kernel fusion")
-    parser.add_argument("--optimizer", type=str, choices=["adamw", "adam", "lion", "sgd"], default="adamw", help="Optimizer choice (default: adamw)")
-    parser.add_argument("--lr", type=float, default=None, help="Learning rate (default: 1e-4 for AdamW, 5e-5 for Lion)")
-    parser.add_argument("--weight-decay", type=float, default=None, help="Weight decay (default: 0.01 for AdamW, 0.05 for Lion)")
-    parser.add_argument("--warmup", "--warmup-steps", dest="warmup", type=int, default=None, help="LR warmup steps (default: steps // 10)")
-    parser.add_argument("--topic-weights", type=str, default=None, help="JSON dict of topic weights, e.g. '{\"general\":40,\"code\":15}'")
-    parser.add_argument("--model-dir", "--checkpoint-dir", dest="model_dir", type=str, default=None, help="Custom root directory for model checkpoints (e.g. Kaggle/Google Drive)")
-    parser.add_argument("--mask-non-assistant", action="store_true", default=None, help="Supervise assistant replies only during training")
-    parser.add_argument("--adapter-action", default="list", choices=["list", "add", "remove", "init"],
-                        help="--mode adapter sub-action")
-    parser.add_argument("--adapter", type=str, default=None,
-                        help="Category to train (dataset mode) or force for chat/generate. None routes per-request.")
-    parser.add_argument("--adapter-desc", type=str, default="", help="Description when adding a category")
-    parser.add_argument("--adapter-topics", type=str, default=None, help="Comma list of Datasets/<topic> folders for a new category")
-    parser.add_argument("--dim", type=int, default=512, help="Embedding dimension (default: 512)")
-    parser.add_argument("--layers", type=int, default=8, help="Number of NeuroCore layers (default: 8)")
-    parser.add_argument("--heads", type=int, default=8, help="Number of attention heads (default: 8)")
-    #  MoE Expert Configuration 
-    parser.add_argument("--num-experts", type=int, default=0,
-                        help="Number of real Top-1 MoE experts per MoE layer (0 = dense, no MoE). "
-                             "Recommended: 4 for Dual-T4 Kaggle runs. Odd layers get MoE blocks.")
-    parser.add_argument("--real-moe", action="store_true", default=False,
-                        help="Enable real Top-1 MoE routing (requires --num-experts >= 2). "
-                             "When off, the model is a dense transformer regardless of --num-experts.")
-    #  Automatic Curriculum Sequencer 
-    parser.add_argument("--curriculum-order", action="store_true", default=False,
-                        help="Run the full phased curriculum in order automatically: "
-                             "chitchat-p1 -> p2 -> p3 -> math-p1 -> p2 -> p3 -> code-p1 -> p2 -> p3 -> science-p1 -> p2 -> p3. "
-                             "Each phase gets steps/12 of the total --steps budget. "
-                             "Conversation phases get 3x weight to prioritize greetings & grammar first.")
-    parser.add_argument("--output", type=str, default=None, help="Output path for model export mode")
-    parser.add_argument("--suite", choices=["all", "industry", "60"], default="60", help="Benchmark suite to run (60, industry, all)")
-    parser.add_argument("--prompt", type=str, default=None, help="Text prompt for --mode generate")
-    parser.add_argument("--max-new-tokens", type=int, default=64, help="Max new tokens to generate")
-    parser.add_argument("--repetition-penalty", type=float, default=1.15, help="Repetition penalty for generation (default: 1.15)")
-    parser.add_argument("--max-grad-norm", type=float, default=0.5, help="Max gradient norm clipping threshold (default: 0.5)")
-    parser.add_argument("--mtp-weight", type=float, default=0.3, help="Auxiliary MTP loss weight factor (default: 0.3)")
-    parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
-    parser.add_argument("--auto-config", action="store_true", default=False, help="Auto-detect optimal batch_size/seq_len based on available VRAM; auto-select --fresh/--resume based on checkpoint availability")
-    args = parser.parse_args()
-
-    # ── Multi-GPU Distributed Setup (DDP / torchrun) ──────────────────────────
-    local_rank = int(os.environ.get("LOCAL_RANK", 0))
-    global_rank = int(os.environ.get("RANK", 0))
-    world_size = int(os.environ.get("WORLD_SIZE", 1))
-    is_distributed_launch = (
-        ("LOCAL_RANK" in os.environ or getattr(args, "ddp", False))
-        and not getattr(args, "single_gpu", False)
-        and torch.cuda.is_available()
-    )
-
-    if is_distributed_launch:
-        torch.cuda.set_device(local_rank)
-        if not torch.distributed.is_initialized():
-            backend = "nccl" if torch.distributed.is_nccl_available() else "gloo"
-            torch.distributed.init_process_group(backend=backend)
-            log.info(f"[DDP Init] Initialized rank {global_rank}/{world_size} on local GPU cuda:{local_rank} (backend={backend})")
-            import atexit
-            atexit.register(lambda: torch.distributed.destroy_process_group() if torch.distributed.is_available() and torch.distributed.is_initialized() else None)
-
-    #  Data Directory Support 
-    # If --data-dir is specified, search it for .jsonl files
-    if args.data_dir is not None and os.path.isdir(args.data_dir):
-        jsonl_files = sorted([f for f in os.listdir(args.data_dir) if f.endswith(".jsonl")])
-        if jsonl_files:
-            train_file = os.path.join(args.data_dir, jsonl_files[0])
-            # Find val file (look for val/eval in name)
-            val_files = [f for f in jsonl_files if "val" in f.lower() or "eval" in f.lower() or "test" in f.lower()]
-            if val_files:
-                args.dataset = train_file
-                args.val_dataset = os.path.join(args.data_dir, val_files[0])
-            else:
-                args.dataset = train_file
-            log.info(f"[Data Dir] Found {len(jsonl_files)} files in {args.data_dir}: {jsonl_files}")
-            log.info(f"[Data Dir] Train: {args.dataset}")
-            if args.val_dataset:
-                log.info(f"[Data Dir] Val: {args.val_dataset}")
-        else:
-            log.warning(f"[Data Dir] No .jsonl files found in {args.data_dir}")
-
-    #  Auto-Configuration 
-    auto_cfg = auto_detect_config(args)
-    if auto_cfg:
-        args.batch_size = auto_cfg["batch_size"]
-        args.seq_len = auto_cfg["seq_len"]
-        if auto_cfg["fresh"] and not args.fresh:
-            args.fresh = True
-        log.info(f"[Auto-Config] Applied: batch_size={args.batch_size}, seq_len={args.seq_len}, fresh={args.fresh}")
-
-    from Tantra.utils import set_seed
+    move_legacy_files()
     set_seed(args.seed)
-
-    vcfg = VocabConfig()
-    if args.vocab_size is not None:
-        vcfg.vocab_size = args.vocab_size
-        log.info(f"Using custom vocab_size: {args.vocab_size:,}")
-    mcfg = NeuroCoreConfig()
-    mcfg.block.alra.dim = args.dim
-    mcfg.block.sgp.dim = args.dim
-    mcfg.block.num_layers = args.layers
-    mcfg.block.alra.num_heads = args.heads
-    mcfg.block.alra.head_dim = max(1, args.dim // args.heads)
-    mcfg.use_mtp = args.use_mtp
-
-    #  Wire MoE configuration from CLI flags 
-    # Default config has num_experts=10 but real_top1=False (dense transformer).
-    # --num-experts N --real-moe enables real Top-1 conditional compute.
-    # Without --real-moe the model stays dense regardless of --num-experts.
-    _num_experts = getattr(args, "num_experts", 0) or 0
-    _real_moe    = getattr(args, "real_moe", False)
-    if _real_moe and _num_experts >= 2:
-        mcfg.moe.num_experts = _num_experts
-        mcfg.moe.real_top1   = True
-        log.info(f" [Real MoE] Enabled: {_num_experts} Top-1 experts per MoE layer (odd layers only)")
-    else:
-        # Dense mode: num_experts=1 disables all MoE paths in NeuroCoreBlock
-        mcfg.moe.num_experts = 1
-        mcfg.moe.real_top1   = False
-        if _real_moe and _num_experts < 2:
-            log.warning("--real-moe requires --num-experts >= 2. Running dense (no MoE).")
-
-    moe  = MoEConfig()
-    ccfg = CompressionConfig()
-
-    # Adapter management needs no model/hardware; handle it immediately.
+    if args.mode == "tokenizer":
+        return run_tokenizer(args)
     if args.mode == "adapter":
-        run_adapter_mode(
-            args.adapter_action,
-            name=args.adapter,
-            description=args.adapter_desc,
-            topics=args.adapter_topics,
-            rank=32,
-            keywords=args.adapter_keywords,
-        )
-        return
-
-    if args.mode == "probe":
-        detect_hardware()
-        return
-
-    if args.mode == "vocab":
-        build_vocab(vcfg, args.dataset, force_rebuild=True)
-        return
-
-    if args.mode == "compress":
-        run_compression_benchmark(ccfg)
-        return
-
-    rt, sched = detect_hardware()
-
-    #  Hybrid Device Selection: GPU if available, else CPU 
-    if args.device == "auto":
-        # Auto-detect best available device
-        if torch.cuda.is_available():
-            target_cuda_id = local_rank if torch.distributed.is_initialized() else 0
-            rt.device = f"cuda:{target_cuda_id}"
-            log.info(f"  [HYBRID] CUDA GPU detected → using {torch.cuda.get_device_name(target_cuda_id)} ({rt.device})")
-        elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
-            rt.device = "mps"
-            log.info(f"  [HYBRID] Apple MPS detected → using Metal GPU")
-        else:
-            rt.device = "cpu"
-            log.info(f"  [HYBRID] No GPU found → using CPU ({os.cpu_count()} threads)")
-    else:
-        # Manual override with validation
-        requested = args.device
-        if requested == "cuda" and torch.cuda.is_available():
-            target_cuda_id = local_rank if torch.distributed.is_initialized() else 0
-            rt.device = f"cuda:{target_cuda_id}"
-            log.info(f"  [DEVICE OVERRIDE] Target device set to: {rt.device}")
-        elif requested.startswith("cuda") and not torch.cuda.is_available():
-            log.warning(f"  [DEVICE] CUDA requested but not available! Falling back to CPU.")
-            rt.device = "cpu"
-        elif requested == "mps" and not (hasattr(torch.backends, 'mps') and torch.backends.mps.is_available()):
-            log.warning(f"  [DEVICE] MPS requested but not available! Falling back to CPU.")
-            rt.device = "cpu"
-        else:
-            rt.device = requested
-            log.info(f"  [DEVICE OVERRIDE] Target device explicitly set to: {rt.device}")
-    tok = build_vocab(vcfg, args.dataset)
-    codec = DNACodec(ccfg)
-    reg, loader = init_experts(moe, mcfg, codec)
-    # The persisted registry is the authoritative MoE layout for local
-    # checkpoints.  Keeping the model at ``small()``'s default of 10 while
-    # the registry/checkpoint contains 8 experts makes checkpoint restore
-    # fail on every router tensor.
-    if len(reg) > 0:
-        mcfg.moe.num_experts = len(reg)
-    legacy_checkpoint_compat = False
-    if getattr(args, "fresh", False):
-        mcfg = NeuroCoreConfig.billion()
-        mcfg.vocab.vocab_size = vcfg.vocab_size
-        mcfg.vocab.audio_codebook_size = 0
-        mcfg.vocab.image_codebook_size = 0
-        mcfg.vocab.video_codebook_size = 0
-        mcfg.vocab.recompute_ranges()
-        mcfg.block.num_layers = args.layers
-        mcfg.dim = args.dim
-        mcfg.block.alra.dim = args.dim
-        mcfg.block.sgp.dim = args.dim
-        mcfg.block.sgp.implementation = "swiglu"
-        mcfg.block.alra.num_heads = args.heads
-        mcfg.block.alra.head_dim = args.dim // args.heads
-        mcfg.training.gradient_checkpointing = (args.device in ("cuda", "auto"))
-        log.info(f"Initialized fresh model with user architecture: {args.layers} layers, dim={args.dim}, heads={args.heads} (SwiGLU, GradCheckpoint={mcfg.training.gradient_checkpointing})")
-    else:
-        ckpt_candidates = []
-        if args.checkpoint and os.path.exists(args.checkpoint):
-            ckpt_candidates.append(args.checkpoint)
-        ckpt_candidates.extend([
-            os.path.join(args.model_dir or MODEL_DIR, "Latest", "checkpoint_latest.pt"),
-            os.path.join(args.model_dir or MODEL_DIR, "checkpoint_latest.pt"),
-            os.path.join(MODEL_DIR, "Latest", "checkpoint_latest.pt"),
-            os.path.join(MODEL_DIR, "checkpoint_latest.pt"),
-        ])
-        latest_ckpt_file = next((p for p in ckpt_candidates if os.path.exists(p) and os.path.getsize(p) > 10 * 1024 * 1024), ckpt_candidates[0])
-        # Only restore checkpoint architecture if user explicitly passed different values
-        # If user passed --layers or --dim, use those; don't let checkpoint override
-        user_overrode_arch = (
-            (getattr(args, 'layers', None) is not None and args.layers != 8) or
-            (getattr(args, 'dim', None) is not None and args.dim != 512)
-        )
-        if not user_overrode_arch:
-            restore_checkpoint_architecture(mcfg, latest_ckpt_file)
-        else:
-            log.info(f"User explicitly set --layers={args.layers} --dim={args.dim}; CLI architecture set, but train.py may still grow layers to match checkpoint weights.")
-        legacy_checkpoint_compat = False
-        _ckpt_path = latest_ckpt_file
-        if os.path.exists(_ckpt_path) and os.path.getsize(_ckpt_path) > 10 * 1024 * 1024 and mcfg is not None:
-            try:
-                log.info(f"Reading model config from checkpoint: {_ckpt_path} ({os.path.getsize(_ckpt_path)/1e6:.1f} MB)...")
-                if _ckpt_path.endswith(".dna"):
-                    import json as _json
-                    _meta_path = _ckpt_path + ".meta.json"
-                    if os.path.exists(_meta_path):
-                        with open(_meta_path, "r", encoding="utf-8") as _mf:
-                            _meta = _json.load(_mf)
-                        _nl = _meta.get("num_layers", 0)
-                        if _nl > 0 and hasattr(mcfg, "block") and mcfg.block.num_layers != _nl:
-                            mcfg.block.num_layers = _nl
-                            log.info(f"Detected {_nl} layers from DNA metadata sidecar; initialized architecture accordingly.")
-                    _ckpt = None
-                else:
-                    _ckpt = safe_load_checkpoint(_ckpt_path, map_location="cpu")
-                if isinstance(_ckpt, dict):
-                    _ckpt_cfg = _ckpt.get("config", None)
-                    if _ckpt_cfg is not None:
-                        _ckpt_cfg.vocab.vocab_size = vcfg.vocab_size
-                        # Detect if checkpoint was actually trained with BitLinear
-                        # by checking for ternary/shadow state keys in the state dict
-                        sdict_for_check = _ckpt.get("model_state_dict", {})
-                        has_ternary_state = any(
-                            "ternary" in k or "shadow" in k
-                            for k in sdict_for_check
-)
-                        if getattr(_ckpt_cfg.bitnet, "enabled", False) and not has_ternary_state:
-                            # Config says BitNet but weights were trained with nn.Linear
-                            _ckpt_cfg.bitnet.enabled = False
-                            log.info("  [BitNet] Disabled — checkpoint was trained with nn.Linear (no ternary state).")
-                        # When resuming a checkpoint, preserve its BitNet setting — do not override
-                        # BitNet state based on whether the checkpoint was disabled. Only enable
-                        # BitNet on a genuinely fresh model (no checkpoint loaded).
-                        # Only use checkpoint config if user did NOT explicitly override architecture
-                        if not user_overrode_arch:
-                            mcfg = _ckpt_cfg
-                        else:
-                            # Keep our CLI architecture but copy other settings from checkpoint
-                            # (bitnet settings, vocab, etc.)
-                            log.info(f"Keeping CLI architecture (layers={args.layers}, dim={args.dim}) from checkpoint config.")
-                            # Still apply bitnet settings from checkpoint
-                            if hasattr(mcfg, 'bitnet') and hasattr(_ckpt_cfg, 'bitnet'):
-                                mcfg.bitnet.enabled = _ckpt_cfg.bitnet.enabled
-                                mcfg.bitnet.quantize_mode = _ckpt_cfg.bitnet.quantize_mode
-                                mcfg.bitnet.use_shadow_weights = _ckpt_cfg.bitnet.use_shadow_weights
-                            # Force CLI architecture parameters
-                            mcfg.block.num_layers = args.layers
-                            mcfg.dim = args.dim
-                            log.info(f"Forced architecture: layers={args.layers}, dim={args.dim}")
-
-                        # Also check state_dict layer keys for dynamically grown models
-                        sdict = _ckpt.get("model_state_dict", {})
-                        has_legacy_router = any(".router." in key for key in sdict)
-                        use_real_top1 = bool(
-                            getattr(mcfg.moe, "real_top1", False)
-                            and getattr(mcfg.moe, "num_experts", 1) > 1
-                        )
-                        legacy_checkpoint_compat = bool(
-                            has_legacy_router
-                            and not use_real_top1
-                            and getattr(mcfg.moe, "num_experts", 1) > 1
-                        )
-                        import re
-                        layer_indices = [int(m.group(1)) for k in sdict.keys() for m in [re.search(r'layers\.(\d+)\.', k)] if m]
-                        if layer_indices and mcfg is not None and hasattr(mcfg, "block") and not user_overrode_arch:
-                            ckpt_num_layers = max(layer_indices) + 1
-                            if ckpt_num_layers != mcfg.block.num_layers:
-                                mcfg.block.num_layers = ckpt_num_layers
-                                log.info(f"Detected {ckpt_num_layers} layers in checkpoint weights; initialized architecture accordingly.")
-
-                        log.info("Rebuilt model architecture from checkpoint "
-                                 f"(dim={mcfg.block.alra.dim}, layers={mcfg.block.num_layers}, vocab={mcfg.vocab.vocab_size}).")
-            except Exception as _exc:
-                log.warning(f"Could not read checkpoint config: {_exc}; using default architecture.")
-    # Create model from mcfg (either fresh user architecture or checkpoint config)
-    model = init_model(mcfg, rt.device, compatibility_legacy_moe=legacy_checkpoint_compat)
-    use_ddp = (
-        torch.cuda.is_available()
-        and (torch.cuda.device_count() > 1 or torch.distributed.is_initialized())
-        and args.device in ("cuda", "auto")
-        and not getattr(args, "single_gpu", False)
-        and args.mode in ("train", "dataset", "auto-pilot", "dpo")
-        and torch.distributed.is_initialized()
-    )
-    use_dp = (
-        torch.cuda.is_available()
-        and torch.cuda.device_count() > 1
-        and args.device in ("cuda", "auto")
-        and not getattr(args, "single_gpu", False)
-        and args.mode in ("train", "dataset", "auto-pilot", "dpo")
-        and not torch.distributed.is_initialized()
-    )
-    if use_ddp:
-        log.info(f"  [Multi-GPU DDP] Enabling rank {global_rank}/{world_size} on GPU {local_rank} via DistributedDataParallel.")
-        model = torch.nn.parallel.DistributedDataParallel(
-            model,
-            device_ids=[local_rank],
-            output_device=local_rank,
-            find_unused_parameters=True
-        )
-    elif use_dp:
-        log.info(f"  [Multi-GPU DataParallel] Enabling {torch.cuda.device_count()}x GPUs for parallel batch execution.")
-        model = torch.nn.DataParallel(model)
-    else:
-        log.info(f"  [Direct Device Execution] Running directly on {rt.device} without DataParallel wrapper.")
-
-    # When a category is requested for dataset/chat/generate/serve, load the
-    # MoE-2 / 32K adapter checkpoint (shared base + specialist layers) instead
-    # of the 178M general model.
-    if args.adapter is not None and args.mode in ("dataset", "chat", "generate", "serve"):
-        model = build_adapter_model(rt)
-
-    resolved_lr_initial = args.lr if args.lr is not None else (5e-5 if (args.optimizer or "").lower() == "lion" else 1e-4)
-    trainer = NeuroTrainer(model, lr=resolved_lr_initial, optimizer_name=args.optimizer if args.optimizer else "adamw")
-    # Check if a checkpoint exists for status — use LATEST_DIR constant (capital L)
-    # not the literal "latest" path which never matches on Windows.
-    if args.mode == "status":
-        latest_ckpt_status = os.path.join(args.model_dir or MODEL_DIR, "Latest", "checkpoint_latest.pt")
-        if os.path.exists(latest_ckpt_status):
-            try:
-                trainer.load_checkpoint(latest_ckpt_status)
-            except Exception as e:
-                log.warning(f"Could not load latest checkpoint for status: {e}")
-        print_status_dashboard(model, trainer, reg, rt)
-        sched.stop()
-        return
-
-    if args.mode == "experts":
-        print_expert_panel(reg)
-        sched.stop()
-        return
-
-    if args.mode == "chat":
-        # Load custom checkpoint if passed or automatically load highest available milestone
-        ckpt_to_load = args.checkpoint
-        if ckpt_to_load is None:
-            cand_list = []
-            for d in [os.path.join(MODEL_DIR, "Checkpoints"), os.path.join(MODEL_DIR, "Best"), os.path.join(MODEL_DIR, "Latest"), os.path.join(MODEL_DIR, "Archive")]:
-                if os.path.exists(d):
-                    cand_list.extend(glob.glob(os.path.join(d, "*.pt")))
-
-            def _step_val(p):
-                import re
-                m = re.search(r'step_(\d+)', os.path.basename(p))
-                return int(m.group(1)) if m else 0
-
-            sorted_cands = sorted([p for p in cand_list if "sample" not in p], key=_step_val, reverse=True)
-            if sorted_cands:
-                ckpt_to_load = sorted_cands[0]
-
-        if args.checkpoint is not None:
-            if not os.path.exists(args.checkpoint):
-                log.error(f" Checkpoint file not found: '{args.checkpoint}'")
-                # Try finding matching checkpoints
-                cand_find = [p for p in glob.glob("**/*.pt", recursive=True) if "sample" not in p]
-                if cand_find:
-                    log.info(f"Available checkpoints found on disk: {cand_find[:5]}")
-            else:
-                ckpt_to_load = args.checkpoint
-
-        if ckpt_to_load and os.path.exists(ckpt_to_load):
-            try:
-                # Auto-decompress .dna format checkpoints before loading
-                if ckpt_to_load.endswith(".dna"):
-                    log.info(f" Decompressing DNA checkpoint: {ckpt_to_load} ...")
-                    import tempfile, json as _json
-                    from Tantra.codec import MultimodalWeightFormatter as _MWF
-                    from Tantra.config import CompressionConfig as _CC
-                    _formatter = _MWF(_CC())
-                    _weights = _formatter.parse_weights(ckpt_to_load)
-                    # Read sidecar metadata if available
-                    _meta = {}
-                    _meta_path = ckpt_to_load + ".meta.json"
-                    if os.path.exists(_meta_path):
-                        with open(_meta_path) as _f:
-                            _meta = _json.load(_f)
-                    _tmp_pt = tempfile.NamedTemporaryFile(suffix=".pt", delete=False)
-                    torch.save({
-                        "model_state_dict": _weights,
-                        "step_count": _meta.get("step_count", 0),
-                        "step":       _meta.get("step_count", 0),
-                        "best_loss":  _meta.get("best_loss", float("inf")),
-                        "total_tokens": _meta.get("total_tokens", 0),
-                    }, _tmp_pt.name)
-                    _tmp_pt.close()
-                    ckpt_to_load = _tmp_pt.name
-                    log.info(f" DNA decompressed → step={_meta.get('step_count', 0):,} | {ckpt_to_load}")
-                trainer.load_checkpoint(ckpt_to_load)
-                log.info(f" Loaded checkpoint for chat: {ckpt_to_load} (Step {trainer.step_count:,})")
-            except Exception as e:
-                log.error(f"Failed to load checkpoint {ckpt_to_load}: {e}")
-        else:
-            log.warning(" No valid checkpoint loaded! Model is running on random untrained weights.")
-
-        if args.adapter is not None:
-            if args.adapter not in model.category_layers:
-                log.warning(f"Category '{args.adapter}' not in adapter checkpoint; ignoring --adapter.")
-            else:
-                model.active_category = args.adapter
-        else:
-            router = RequestRouter(AdapterRegistry())
-            router._model = model  # allow per-request routing to set active category
-            run_interactive_chat(model, tok, rt.device, args.temperature, args.top_p, router=router, use_mtp=args.use_mtp)
-        sched.stop()
-        return
-
-
-    if args.mode == "train":
-        run_training(model, vcfg, steps=args.steps, resume=args.resume)
-    elif args.mode == "dataset":
-        topic_weights = None
-        if args.topic_weights:
-            import json as _json
-            try:
-                topic_weights = _json.loads(args.topic_weights)
-            except Exception as e:
-                log.warning(f"Could not parse --topic-weights ({e}); using defaults.")
-        use_latent_reasoning = args.latent_reasoning
-        if use_latent_reasoning is None:
-            use_latent_reasoning = False  # DISABLED for stable initial training
-        use_mtp_loss = args.mtp_loss
-        if use_mtp_loss is None:
-            use_mtp_loss = (args.training_stage == "sft")
-
-        # Optimizer-specific hyperparameter defaults
-        resolved_optimizer = (args.optimizer or "adamw").lower().strip()
-        if args.lr is not None:
-            resolved_lr = args.lr
-        else:
-            resolved_lr = 5e-5 if resolved_optimizer == "lion" else 1e-4
-
-        if args.weight_decay is not None:
-            resolved_wd = args.weight_decay
-        else:
-            resolved_wd = 0.05 if resolved_optimizer == "lion" else 0.01
-
-        if getattr(args, "curriculum_order", False):
-            #  AUTOMATED SEQUENTIAL CURRICULUM ORDER 
-            # Prioritizes Conversation / Greetings / Grammar FIRST (55% total budget),
-            # followed by Code (24%), Math (21%), and Science (15% normalized).
-            curriculum_stages = [
-                ("chitchat-p1", 0.20, " CONVERSATION PHASE 1: Pure Greetings, Pleasantries & Identity Reflexes"),
-                ("chitchat-p2", 0.20, " CONVERSATION PHASE 2: Short Natural Turn-Taking & Conversational Grammar"),
-                ("chitchat-p3", 0.15, " CONVERSATION PHASE 3: Deep Multi-Turn Conversations & Instruction Fluency"),
-                ("code-p1",     0.08, " CODE PHASE 1: Python Syntax & Standard Library Primitives"),
-                ("code-p2",     0.08, " CODE PHASE 2: Algorithmic Logic & Functional Implementation"),
-                ("code-p3",     0.08, " CODE PHASE 3: Full Software Systems & Debugging"),
-                ("math-p1",     0.07, " MATH PHASE 1: Arithmetic & Linear Equations"),
-                ("math-p2",     0.07, " MATH PHASE 2: GSM8K Multi-Step Reasoning & Word Problems"),
-                ("math-p3",     0.07, " MATH PHASE 3: MetaMathQA Advanced Symbolic Math & Proofs"),
-                ("science-p1",  0.05, " SCIENCE PHASE 1: Fundamental Physical Laws & Core Definitions"),
-                ("science-p2",  0.05, " SCIENCE PHASE 2: Explanatory Natural Sciences & Biology/Physics"),
-                ("science-p3",  0.05, " SCIENCE PHASE 3: Advanced Multidisciplinary Science & Logic"),
-            ]
-            total_target_steps = args.steps
-            log.info("=" * 80)
-            log.info(f" [AUTO CURRICULUM SEQUENCER] Running 12-Stage Phased Curriculum ({total_target_steps:,} total steps)")
-            log.info(" PRIORITY: Conversation / Greetings / Grammar (55% budget) FIRST -> Code -> Math -> Science")
-            log.info("=" * 80)
-
-            for stage_idx, (track_name, budget_ratio, stage_desc) in enumerate(curriculum_stages, 1):
-                stage_steps = max(50, int(total_target_steps * budget_ratio))
-                log.info(f"\n [{stage_idx}/12] Launching: {stage_desc}")
-                log.info(f"   Track: '{track_name}' | Steps: +{stage_steps:,} ({budget_ratio*100:.0f}% of total budget)")
-
-                run_dataset_training(
-                    model, tok, args.dataset, steps=stage_steps, resume=True,
-                    eval_every=args.eval_every, log_every=args.log_every,
-                    checkpoint_every=args.checkpoint_every, batch_size=args.batch_size,
-                    seq_len=args.seq_len, grad_accumulation_steps=args.grad_accum,
-                    data_workers=args.data_workers, use_latent_reasoning=use_latent_reasoning,
-                    use_mtp_loss=use_mtp_loss, compile=args.compile, lr=resolved_lr,
-                    weight_decay=resolved_wd, optimizer=resolved_optimizer, warmup_steps=args.warmup,
-                    topic_weights=topic_weights, training_stage=args.training_stage,
-                    auto_growth=args.auto_growth, growth_patience=args.growth_patience,
-                    growth_min_delta=args.growth_min_delta, max_layers=args.max_layers,
-                    max_params=args.max_params,
-                    adapter_name=args.adapter, model_dir=(ADAPTER_ROOT if args.adapter is not None else args.model_dir),
-                    pack_sequences=args.pack_sequences, checkpoint_path=args.checkpoint, validation_dataset=args.val_dataset,
-                    max_grad_norm=args.max_grad_norm, mtp_loss_weight=args.mtp_weight,
-                    track=track_name, curriculum_phase=None,
-                    early_stopping_patience=args.early_stopping_patience, early_stopping_min_delta=args.early_stopping_min_delta,
-                    reset_best_loss=getattr(args, "reset_best_loss", False),
-                    max_val_batches=getattr(args, "val_batches", 200)
-                )
-        else:
-            run_dataset_training(model, tok, args.dataset, steps=args.steps, resume=args.resume, eval_every=args.eval_every, log_every=args.log_every, checkpoint_every=args.checkpoint_every, batch_size=args.batch_size, seq_len=args.seq_len, grad_accumulation_steps=args.grad_accum, data_workers=args.data_workers, use_latent_reasoning=use_latent_reasoning, use_mtp_loss=use_mtp_loss, compile=args.compile, lr=resolved_lr, weight_decay=resolved_wd, optimizer=resolved_optimizer, warmup_steps=args.warmup, topic_weights=topic_weights, training_stage=args.training_stage, auto_growth=args.auto_growth, growth_patience=args.growth_patience, growth_min_delta=args.growth_min_delta, max_layers=args.max_layers, max_params=args.max_params, adapter_name=args.adapter, model_dir=(ADAPTER_ROOT if args.adapter is not None else args.model_dir), pack_sequences=args.pack_sequences, checkpoint_path=args.checkpoint, max_grad_norm=args.max_grad_norm, mtp_loss_weight=args.mtp_weight, track=args.track, curriculum_phase=args.curriculum_phase, validation_dataset=args.val_dataset, early_stopping_patience=args.early_stopping_patience, early_stopping_min_delta=args.early_stopping_min_delta, reset_best_loss=getattr(args, "reset_best_loss", False), max_val_batches=getattr(args, "val_batches", 200))
-
-    elif args.mode == "dpo":
-        dpo_ckpt = args.checkpoint
-        if dpo_ckpt is None:
-            cand_list = []
-            for d in [os.path.join(args.model_dir or MODEL_DIR, "Checkpoints"), os.path.join(args.model_dir or MODEL_DIR, "Best"), os.path.join(args.model_dir or MODEL_DIR, "Latest")]:
-                if os.path.exists(d):
-                    cand_list.extend(glob.glob(os.path.join(d, "*.pt")))
-            if cand_list:
-                import re
-                dpo_ckpt = max([p for p in cand_list if "sample" not in p], key=lambda p: int(re.search(r'step_(\d+)', p).group(1)) if re.search(r'step_(\d+)', p) else 0)
-
-        run_dpo_training(
-            model, tok, args.preference_dataset, steps=args.steps,
-            eval_every=args.eval_every, log_every=args.log_every,
-            checkpoint_every=args.checkpoint_every, batch_size=args.batch_size,
-            grad_accumulation_steps=args.grad_accum, data_workers=args.data_workers,
-            lr=args.lr or 5e-6, beta=args.dpo_beta, model_dir=args.model_dir,
-            checkpoint_path=dpo_ckpt
-        )
-
-    elif args.mode == "auto-pilot":
-        total_steps = args.steps
-        sft_steps = int(total_steps * 0.90)
-        dpo_steps = max(1, total_steps - sft_steps)
-
-        growth_label = "SFT + Auto-Growth" if args.auto_growth else "SFT (No Auto-Growth)"
-        log.info("=" * 80)
-        log.info(f" [AUTO-PILOT PIPELINE] Total: {total_steps:,} Steps  Phase 1 ({growth_label}): {sft_steps:,} Steps  Phase 2 (DPO Preference Alignment): {dpo_steps:,} Steps")
-        log.info("=" * 80)
-
-        # Ensure datasets are ready
-        from Tantra.dataset import build_4track_curriculum, generate_gold_datasets
-        curriculum_dir = args.dataset if os.path.isdir(args.dataset) else (os.path.dirname(args.dataset) or "Datasets")
-        build_4track_curriculum(datasets_dir=curriculum_dir)
-        if args.preference_dataset and not os.path.exists(args.preference_dataset):
-            log.info(f"Preference dataset {args.preference_dataset} not found. Auto-generating DPO pairs...")
-            generate_gold_datasets(datasets_dir=os.path.dirname(args.preference_dataset) or "Datasets")
-
-        # Phase 1: High-Density SFT with Dynamic Auto-Growth
-        log.info(" [AUTO-PILOT PHASE 1/2] Starting High-Density SFT & Auto-Growth...")
-        resolved_optimizer = (args.optimizer or "adamw").lower().strip()
-        resolved_lr = args.lr if args.lr is not None else (5e-5 if resolved_optimizer == "lion" else 1e-4)
-        resolved_wd = args.weight_decay if args.weight_decay is not None else (0.05 if resolved_optimizer == "lion" else 0.01)
-
-        # OOM recovery loop: auto-reduce batch/seq if out of memory
-        _phase1_batch = args.batch_size
-        _phase1_seq = args.seq_len
-        _phase1_ok = False
-        while not _phase1_ok:
-            try:
-                run_dataset_training(
-                    model, tok, args.dataset, steps=sft_steps, resume=args.resume,
-                    eval_every=args.eval_every, log_every=args.log_every,
-                    checkpoint_every=args.checkpoint_every, batch_size=_phase1_batch,
-                    seq_len=_phase1_seq, grad_accumulation_steps=args.grad_accum,
-                    data_workers=args.data_workers,
-                    use_latent_reasoning=(args.latent_reasoning if args.latent_reasoning is not None else True),
-                    use_mtp_loss=(args.mtp_loss if args.mtp_loss is not None else True),
-                    compile=args.compile, lr=resolved_lr, weight_decay=resolved_wd,
-                    optimizer=resolved_optimizer, warmup_steps=args.warmup,
-                    training_stage="sft", auto_growth=args.auto_growth,
-                    growth_patience=args.growth_patience, growth_min_delta=args.growth_min_delta,
-                    max_layers=args.max_layers, max_params=args.max_params, model_dir=args.model_dir,
-                    pack_sequences=args.pack_sequences, checkpoint_path=args.checkpoint, validation_dataset=args.val_dataset,
-                    max_grad_norm=args.max_grad_norm, mtp_loss_weight=args.mtp_weight,
-                    track=args.track,
-                    early_stopping_patience=args.early_stopping_patience,
-                    early_stopping_min_delta=args.early_stopping_min_delta,
-                    reset_best_loss=getattr(args, "reset_best_loss", False),
-                    max_val_batches=getattr(args, "val_batches", 200)
-                )
-                _phase1_ok = True
-            except RuntimeError as _e:
-                if "out of memory" in str(_e).lower() or "OOM" in str(_e):
-                    log.warning(f"[OOM Recovery] Phase 1 OOM detected ({_e}). Reducing batch/seq...")
-                    _phase1_batch = max(1, _phase1_batch // 2)
-                    _phase1_seq = max(64, _phase1_seq // 2)
-                    torch.cuda.empty_cache()
-                    log.info(f"[OOM Recovery] Retrying with batch_size={_phase1_batch}, seq_len={_phase1_seq}")
-                else:
-                    raise
-
-        # Phase 2: DPO Alignment
-        log.info(" [AUTO-PILOT PHASE 2/2] Phase 1 complete! Autonomously starting Phase 2 (DPO Preference Alignment)...")
-        latest_ckpt = os.path.join(args.model_dir or MODEL_DIR, "Latest", "checkpoint_latest.pt")
-        run_dpo_training(
-            model, tok, args.preference_dataset, steps=dpo_steps,
-            eval_every=args.eval_every, log_every=args.log_every,
-            checkpoint_every=args.checkpoint_every, batch_size=args.batch_size,
-            grad_accumulation_steps=args.grad_accum, data_workers=args.data_workers,
-            lr=5e-6, beta=args.dpo_beta, model_dir=args.model_dir,
-            checkpoint_path=latest_ckpt if os.path.exists(latest_ckpt) else None
-        )
-        log.info(" [AUTO-PILOT PIPELINE COMPLETE] Multi-Stage Autonomous Training & Alignment Finished!")
-
-    elif args.mode == "benchmark":
-        from Tantra.benchmark import run_benchmarks, run_60_benchmark
-        if args.suite in ("industry", "all"):
-            run_benchmarks(args.checkpoint, str(rt.device))
-        if args.suite in ("60", "all"):
-            run_60_benchmark(checkpoint_path=args.checkpoint, device=str(rt.device))
-    elif args.mode == "export":
-        from Tantra.export import export_clean_checkpoint
-        export_clean_checkpoint(args.checkpoint, args.output or args.model_dir or "Model/Export/checkpoint_clean.pt")
-    elif args.mode == "eval":
-        ckpt_to_load = args.checkpoint
-        if ckpt_to_load is None:
-            cand_list = []
-            for d in [os.path.join(MODEL_DIR, "Checkpoints"), os.path.join(MODEL_DIR, "Best"), os.path.join(MODEL_DIR, "Latest")]:
-                if os.path.exists(d):
-                    cand_list.extend(glob.glob(os.path.join(d, "*.pt")))
-            if cand_list:
-                import re
-                ckpt_to_load = max([p for p in cand_list if "sample" not in p], key=lambda p: int(re.search(r'step_(\d+)', p).group(1)) if re.search(r'step_(\d+)', p) else 0)
-
-        if ckpt_to_load and os.path.exists(ckpt_to_load):
-            try:
-                trainer.load_checkpoint(ckpt_to_load)
-                log.info(f"Loaded checkpoint for evaluation: {ckpt_to_load}")
-            except Exception as e:
-                log.warning(f"Could not load checkpoint {ckpt_to_load}: {e}")
-        run_evaluation(model, tok, args.dataset, device=rt.device)
+        return run_adapter(args)
+    if args.mode == "export":
+        return run_export(args)
+    hw = detect_hardware(args.device, args.threads)
+    if args.mode == "hardware":
+        print(json.dumps(hw.as_dict(), indent=2))
+    elif args.mode == "train":
+        run_train(args, hw)
+    elif args.mode == "chat":
+        run_chat(args, hw)
     elif args.mode == "generate":
-        ckpt_to_load = args.checkpoint
-        if ckpt_to_load is None:
-            cand_list = []
-            for d in [os.path.join(MODEL_DIR, "Checkpoints"), os.path.join(MODEL_DIR, "Best"), os.path.join(MODEL_DIR, "Latest")]:
-                if os.path.exists(d):
-                    cand_list.extend(glob.glob(os.path.join(d, "*.pt")))
-            if cand_list:
-                import re
-                ckpt_to_load = max([p for p in cand_list if "sample" not in p], key=lambda p: int(re.search(r'step_(\d+)', p).group(1)) if re.search(r'step_(\d+)', p) else 0)
-
-        if ckpt_to_load and os.path.exists(ckpt_to_load):
-            try:
-                trainer.load_checkpoint(ckpt_to_load)
-                log.info(f"Loaded checkpoint for generation: {ckpt_to_load}")
-            except Exception as e:
-                log.warning(f"Could not load checkpoint {ckpt_to_load}: {e}")
-
-        run_generation(
-            model, tok, vcfg, rt.device,
-            prompt_text=args.prompt,
-            temperature=args.temperature,
-            top_p=args.top_p,
-            max_new_tokens=args.max_new_tokens,
-            repetition_penalty=args.repetition_penalty,
-            use_mtp=args.use_mtp
-        )
+        run_generate(args, hw)
+    elif args.mode == "eval":
+        run_eval(args, hw)
+    elif args.mode == "dpo":
+        run_dpo(args, hw)
     elif args.mode == "serve":
-        ckpt_to_load = args.checkpoint
-        if ckpt_to_load is None:
-            for cand in [
-                os.path.join(MODEL_DIR, "Checkpoints", "checkpoint_step_30000.pt"),
-                os.path.join(MODEL_DIR, "Best", "checkpoint_best.pt"),
-                os.path.join(MODEL_DIR, "Latest", "checkpoint_latest.pt"),
-            ]:
-                if os.path.exists(cand):
-                    ckpt_to_load = cand
-                    break
-        if ckpt_to_load and os.path.exists(ckpt_to_load):
-            try:
-                trainer.load_checkpoint(ckpt_to_load)
-                log.info(f"Loaded checkpoint for serve: {ckpt_to_load}")
-            except Exception as e:
-                log.warning(f"Could not load checkpoint {ckpt_to_load}: {e}")
-        serve(model, tok, port=args.port, expert_dir=EXPERTS_DIR)
-    else:  # full mode
-        run_forward(model, vcfg, rt.batch_size, rt.device)
-        run_evaluation(model, tok, args.dataset)
-        run_generation(model, vcfg, rt.device)
-
-    log.info("Pipeline complete -- NeuroCore ready!")
-    sched.stop()
+        os.environ["TANTRA_INT8"] = "1" if args.int8 else os.environ.get("TANTRA_INT8", "0")
+        from WebUI.server import start_server
+        start_server(port=args.port)
 
 
 if __name__ == "__main__":

@@ -1,256 +1,177 @@
 """
-Tantra/eval_suite.py — Industry-Standard Evaluation Suite for Tantra-LLM.
-Implements the 4 standard evaluation pillars used by top frontier AI labs:
-  1. Real GSM8K Exact-Match Math Accuracy (Numerical parser & derivation checker)
-  2. Real HumanEval Python Code Execution Sandbox (Subprocess unit test execution pass@1)
-  3. Real Zero-Shot MMLU Log-Likelihood Multi-Choice Scoring
-  4. Real Held-Out Cross-Entropy Validation Perplexity (PPL)
-"""
+Tantra/eval_suite.py — Honest evaluation.
 
-import sys
+1. validation_metrics(): loss / perplexity / next-token accuracy on held-out data.
+2. throughput(): tokens per second on this machine.
+3. run_probe(): the fixed 50-question recall test (Datasets/probe_50.jsonl).
+     answer_loss  how surprised the model is by the right answer (lower = better,
+                  moves early in training)
+     hit_rate     greedy answer contains an expected keyword ("remembered X/50")
+   Same questions every time -> numbers are comparable across steps and runs.
+   Results are appended to Model/probe_history.jsonl.
+"""
+from __future__ import annotations
+
+import json
 import math
-import subprocess
-import tempfile
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
+import os
 import time
-from typing import Dict, Any, List, Optional
+from typing import Any, Dict, List, Optional
+
+import torch
+import torch.nn.functional as F
+
+from Tantra.config import EOS_ID
 from Tantra.utils import get_logger
 
 log = get_logger("tantra.eval")
+IGNORE_INDEX = -100
 
 
-class EvaluationEngine:
-    """Evaluates model Perplexity (PPL), throughput, and memory performance."""
-
-    def __init__(self, model: nn.Module, device: str = "cpu"):
-        self.model = model
-        self.device = torch.device(device)
-        self.model.to(self.device)
-
-    @torch.no_grad()
-    def evaluate_metrics(self, dataloader: Any, max_batches: int = 20) -> Dict[str, float]:
-        """Calculate PPL, Top-1 Acc, Top-5 Acc, Exact Match (EM), BLEU, and ROUGE-L metrics."""
-        self.model.eval()
-        criterion = nn.CrossEntropyLoss(ignore_index=-100)
-        total_loss = 0.0
-        total_top1_correct = 0
-        total_top5_correct = 0
-        total_em_matches = 0
-        total_sequences = 0
-        total_tokens = 0
-        total_batches = 0
-
-        for i, batch in enumerate(dataloader):
-            if isinstance(batch, (tuple, list)):
-                x, y = batch[0], batch[1]
-            else:
-                x = batch
-                y = torch.roll(x, -1, dims=-1)
-
-            if x.dim() == 1:
-                x = x.unsqueeze(0)
-            if y.dim() == 1:
-                y = y.unsqueeze(0)
-
-            x, y = x.to(self.device), y.to(self.device)
-            logits, _ = self.model(x)
-            if isinstance(logits, tuple):
-                logits = logits[0]
-
-            logits_flat = torch.clamp(logits.view(-1, logits.size(-1)), -50.0, 50.0)
-            y_flat = y.view(-1)
-            loss = criterion(logits_flat, y_flat)
-
-            if not torch.isnan(loss) and not torch.isinf(loss):
-                total_loss += loss.item()
-                top1_preds = logits_flat.argmax(dim=-1)
-                _, top5_preds = logits_flat.topk(5, dim=-1)
-                
-                valid_mask = (y_flat >= 0) & (y_flat < logits.size(-1))
-                if valid_mask.any():
-                    valid_y = y_flat[valid_mask]
-                    total_top1_correct += (top1_preds[valid_mask] == valid_y).sum().item()
-                    total_top5_correct += (top5_preds[valid_mask] == valid_y.unsqueeze(-1)).any(dim=-1).sum().item()
-                    total_tokens += valid_mask.sum().item()
-                else:
-                    total_tokens += y_flat.numel()
-
-                top1_preds_seq = top1_preds.view(y.shape)
-                y_seq = y.view(y.shape)
-                total_em_matches += (top1_preds_seq == y_seq).all(dim=-1).sum().item()
-                total_sequences += y_seq.shape[0]
-                total_batches += 1
-
-            if total_batches >= max_batches:
-                break
-
-        avg_loss = total_loss / max(total_batches, 1)
-        ppl = math.exp(min(avg_loss, 20.0))
-        top1_acc = (total_top1_correct / max(total_tokens, 1)) * 100.0
-        top5_acc = (total_top5_correct / max(total_tokens, 1)) * 100.0
-        em_score = (total_em_matches / max(total_sequences, 1)) * 100.0
-        bleu_1 = round(min(1.0, (top1_acc / 100.0) * 1.25) * 100.0, 2)
-        rouge_l = round(min(1.0, (top5_acc / 100.0) * 0.95) * 100.0, 2)
-
-        return {
-            "loss": round(avg_loss, 4),
-            "perplexity": round(ppl, 2),
-            "top1_accuracy_percent": round(top1_acc, 2),
-            "top5_accuracy_percent": round(top5_acc, 2),
-            "exact_match_percent": round(em_score, 2),
-            "bleu_1_score": bleu_1,
-            "rouge_l_score": rouge_l,
-        }
-
-    @torch.no_grad()
-    def benchmark_throughput(self, batch_size: int = 1, seq_len: int = 128, num_runs: int = 10, vocab_size: int = 32000) -> Dict[str, float]:
-        """Benchmark forward-pass throughput (tokens/sec)."""
-        self.model.eval()
-        dummy_input = torch.randint(0, vocab_size, (batch_size, seq_len), device=self.device)
-        for _ in range(3):
-            _ = self.model(dummy_input)
-
-        start = time.perf_counter()
-        for _ in range(num_runs):
-            _ = self.model(dummy_input)
-        elapsed = time.perf_counter() - start
-
-        total_tokens = batch_size * seq_len * num_runs
-        tok_per_sec = total_tokens / max(elapsed, 1e-6)
-        ms_per_token = (elapsed * 1000) / total_tokens
-
-        return {
-            "total_tokens": float(total_tokens),
-            "elapsed_seconds": elapsed,
-            "tokens_per_sec": round(tok_per_sec, 2),
-            "ms_per_token": round(ms_per_token, 4),
-        }
+def _logits(out: Any) -> torch.Tensor:
+    first = out[0] if isinstance(out, (tuple, list)) else out
+    return first[0] if isinstance(first, (tuple, list)) else first
 
 
-class IndustryBenchmarkSuite:
-    def __init__(self, model: nn.Module, tokenizer: Any, device: torch.device):
-        self.model = model
-        self.tokenizer = tokenizer
-        self.device = device
-        
-    def evaluate_gsm8k_math(self, problems: List[Dict[str, str]]) -> Dict[str, Any]:
-        """Evaluates mathematical reasoning via step-by-step extraction and numerical exact-match."""
-        self.model.eval()
-        correct = 0
-        total = len(problems)
-        
-        for item in problems:
-            question = item["question"]
-            expected_num = str(item["answer"]).strip()
-            
-            prompt_tokens = self.tokenizer.encode(f"<|user|>\n{question}\n<|assistant|>\n")
-            inp = torch.tensor([prompt_tokens], dtype=torch.long, device=self.device)
-            
-            with torch.no_grad():
-                raw_model = self.model.module if hasattr(self.model, "module") else self.model
-                out = raw_model.generate(inp, max_new_tokens=96, temperature=0.1)
-                
-            generated = self.tokenizer.decode(out[0].tolist())
-            
-            # Extract final answer
-            if expected_num in generated or f"x = {expected_num}" in generated or f"= {expected_num}" in generated:
-                correct += 1
-                
-        acc = (correct / total * 100.0) if total > 0 else 0.0
-        return {"gsm8k_accuracy": acc, "correct": correct, "total": total}
+@torch.no_grad()
+def validation_metrics(model: torch.nn.Module, loader: Any, max_batches: int = 50) -> Dict[str, float]:
+    was_training = model.training
+    model.eval()
+    device = next(model.parameters()).device
+    loss_sum = 0.0
+    n_tok = top1 = top5 = 0
+    for i, batch in enumerate(loader):
+        if i >= max_batches:
+            break
+        x, y = batch[0].to(device), batch[1].to(device)
+        logits = _logits(model(x, use_latent_reasoning=False)).float()
+        flat, tgt = logits.reshape(-1, logits.size(-1)), y.reshape(-1)
+        valid = tgt != IGNORE_INDEX
+        if not valid.any():
+            continue
+        loss_sum += F.cross_entropy(flat[valid], tgt[valid], reduction="sum").item()
+        n_tok += int(valid.sum())
+        top1 += int((flat[valid].argmax(-1) == tgt[valid]).sum())
+        top5 += int((flat[valid].topk(5, dim=-1).indices == tgt[valid, None]).any(-1).sum())
+    if was_training:
+        model.train()
+    loss = loss_sum / max(n_tok, 1)
+    return {"loss": round(loss, 4), "perplexity": round(math.exp(min(loss, 20.0)), 2),
+            "top1_accuracy_percent": round(100.0 * top1 / max(n_tok, 1), 2),
+            "top5_accuracy_percent": round(100.0 * top5 / max(n_tok, 1), 2), "tokens": n_tok}
 
-    def evaluate_humaneval_code(self, test_cases: List[Dict[str, str]]) -> Dict[str, Any]:
-        """Evaluates code generation by executing generated Python code in an isolated subprocess against unit test assertions (pass@1)."""
-        self.model.eval()
-        passed = 0
-        total = len(test_cases)
-        
-        for case in test_cases:
-            prompt = case["prompt"]
-            unit_test_code = case["test"]
-            
-            prompt_tokens = self.tokenizer.encode(f"<|user|>\n{prompt}\n<|assistant|>\n")
-            inp = torch.tensor([prompt_tokens], dtype=torch.long, device=self.device)
-            
-            with torch.no_grad():
-                raw_model = self.model.module if hasattr(self.model, "module") else self.model
-                out = raw_model.generate(inp, max_new_tokens=128, temperature=0.1)
-                
-            generated_text = self.tokenizer.decode(out[0].tolist())
-            
-            # Extract python code block if present
-            code_to_test = generated_text
-            if "```python" in generated_text:
-                parts = generated_text.split("```python")
-                if len(parts) > 1:
-                    code_to_test = parts[1].split("```")[0]
-            elif "```" in generated_text:
-                parts = generated_text.split("```")
-                if len(parts) > 1:
-                    code_to_test = parts[1]
-                    
-            full_script = f"{code_to_test}\n\n{unit_test_code}"
-            
-            # Execute in sandbox subprocess with 2-second timeout
-            with tempfile.NamedTemporaryFile("w", suffix=".py", delete=False, encoding="utf-8") as f:
-                f.write(full_script)
-                temp_name = f.name
-                
-            try:
-                res = subprocess.run([sys.executable, temp_name], capture_output=True, timeout=2.0)
-                if res.returncode == 0:
-                    passed += 1
-            except Exception:
-                pass
-                
-        pass_at_1 = (passed / total * 100.0) if total > 0 else 0.0
-        return {"humaneval_pass_at_1": pass_at_1, "passed": passed, "total": total}
 
-    def evaluate_held_out_perplexity(self, val_dataset: Any, max_batches: int = 50) -> Dict[str, Any]:
-        """Calculates exact cross-entropy loss and Perplexity (PPL) on held-out test data."""
-        self.model.eval()
-        total_loss = 0.0
-        batches = 0
-        criterion = nn.CrossEntropyLoss(ignore_index=-100)
-        
-        with torch.no_grad():
-            for i, batch in enumerate(val_dataset):
-                if i >= max_batches:
-                    break
-                x, y = batch[0].to(self.device), batch[1].to(self.device)
-                logits = self.model(x)
-                loss = criterion(logits.view(-1, logits.size(-1)), y.view(-1))
-                if not torch.isnan(loss):
-                    total_loss += loss.item()
-                    batches += 1
-                    
-        avg_loss = (total_loss / batches) if batches > 0 else 0.0
-        ppl = math.exp(min(avg_loss, 20.0))
-        return {"val_loss": avg_loss, "val_perplexity": ppl}
+@torch.no_grad()
+def throughput(model: torch.nn.Module, vocab_size: int, seq_len: int = 256, runs: int = 5) -> Dict[str, float]:
+    model.eval()
+    device = next(model.parameters()).device
+    x = torch.randint(0, vocab_size, (1, seq_len), device=device)
+    model(x, use_latent_reasoning=False)
+    t = time.perf_counter()
+    for _ in range(runs):
+        model(x, use_latent_reasoning=False)
+    dt = time.perf_counter() - t
+    return {"forward_tokens_per_sec": round(seq_len * runs / dt, 1)}
 
-    def evaluate_world_mmlu(self, questions: List[Dict[str, Any]] = None) -> Dict[str, Any]:
-        """Evaluates zero-shot multi-choice accuracy on MMLU world knowledge questions."""
-        self.model.eval()
-        if not questions:
-            questions = [
-                {"question": "What is the powerhouse of the cell?", "options": {"A": "Nucleus", "B": "Mitochondria", "C": "Ribosome", "D": "Golgi"}, "answer": "B"},
-                {"question": "What is the capital of France?", "options": {"A": "Berlin", "B": "Rome", "C": "Paris", "D": "Madrid"}, "answer": "C"},
-                {"question": "What is the SI unit of force?", "options": {"A": "Joule", "B": "Watt", "C": "Newton", "D": "Pascal"}, "answer": "C"},
-                {"question": "What is the chemical symbol for Gold?", "options": {"A": "Ag", "B": "Au", "C": "Fe", "D": "Pb"}, "answer": "B"}
-            ]
-        correct = 0
-        total = len(questions)
-        for q in questions:
-            prompt = f"<|user|>\nQuestion: {q['question']}\nOptions:\n" + "\n".join(f"{k}: {v}" for k, v in q['options'].items()) + "\nAnswer:\n<|assistant|>\n"
-            input_ids = torch.tensor([self.tokenizer.encode(prompt)], dtype=torch.long, device=self.device)
-            with torch.no_grad():
-                raw = self.model.module if hasattr(self.model, "module") else self.model
-                out = raw.generate(input_ids, max_new_tokens=4, temperature=0.1)
-            gen = self.tokenizer.decode(out[0].tolist())
-            if q["answer"] in gen.upper():
-                correct += 1
-        acc = (correct / total * 100.0) if total > 0 else 0.0
-        return {"world_mmlu_accuracy": acc, "correct_samples": correct, "total_samples": total}
 
+# ── Fixed 50-question probe ──────────────────────────────────────────────────
+
+USER_TAG = "<|user|>\n"
+ASSISTANT_TAG = "<|assistant|>\n"
+
+
+def build_prompt(question: str) -> str:
+    # Must match Tantra/dataset.py chat formatting exactly.
+    return f"{USER_TAG}{question.strip()}\n\n{ASSISTANT_TAG}"
+
+
+def load_probe(path: str) -> List[Dict[str, Any]]:
+    items: List[Dict[str, Any]] = []
+    if not path or not os.path.exists(path):
+        return items
+    with open(path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                items.append(json.loads(line))
+    return items
+
+
+def _encode(tokenizer: Any, text: str) -> List[int]:
+    try:
+        return list(tokenizer.encode(text, modality="text"))
+    except TypeError:
+        return list(tokenizer.encode(text))
+
+
+@torch.no_grad()
+def run_probe(model: torch.nn.Module, tokenizer: Any, items: List[Dict[str, Any]],
+              step: int, generate: bool = True, max_new_tokens: int = 40,
+              history_path: Optional[str] = None) -> Dict[str, Any]:
+    if not items:
+        return {}
+    was_training = model.training
+    model.eval()
+    device = next(model.parameters()).device
+    t0 = time.time()
+
+    losses: List[float] = []
+    per_cat: Dict[str, List[int]] = {}
+    hits = 0
+    samples: List[Dict[str, str]] = []
+
+    for it in items:
+        prompt_ids = _encode(tokenizer, build_prompt(it["question"]))
+        ans_ids = _encode(tokenizer, it["reference"]) + [EOS_ID]
+        ids = torch.tensor([prompt_ids + ans_ids], device=device)
+        logits = _logits(model(ids, use_latent_reasoning=False)).float()
+        # positions predicting the answer tokens
+        start = len(prompt_ids) - 1
+        pred = logits[0, start:start + len(ans_ids)]
+        tgt = ids[0, len(prompt_ids):len(prompt_ids) + len(ans_ids)]
+        losses.append(F.cross_entropy(pred, tgt).item())
+
+        if generate:
+            p = torch.tensor([prompt_ids], device=device)
+            out = model.generate(p, max_new_tokens=max_new_tokens, temperature=0.0,
+                                 top_p=1.0, repetition_penalty=1.1, no_repeat_ngram_size=3,
+                                 eos_token_id=EOS_ID, min_new_tokens=1)
+            text = tokenizer.decode(out[0, len(prompt_ids):].tolist())
+            ok = any(k.lower() in text.lower() for k in it["keywords"])
+            hits += int(ok)
+            per_cat.setdefault(it.get("category", "all"), []).append(int(ok))
+            if len(samples) < 3 or ok:
+                samples.append({"q": it["question"][:60], "a": text.replace("\n", " ")[:80], "hit": ok})
+
+    if was_training:
+        model.train()
+
+    result: Dict[str, Any] = {
+        "step": int(step),
+        "answer_loss": round(sum(losses) / len(losses), 4),
+        "answer_ppl": round(math.exp(min(20.0, sum(losses) / len(losses))), 2),
+        "n": len(items),
+        "seconds": round(time.time() - t0, 1),
+        "time": int(time.time()),
+    }
+    if generate:
+        result["hit_rate"] = round(hits / len(items), 4)
+        result["hits"] = hits
+        result["by_category"] = {k: f"{sum(v)}/{len(v)}" for k, v in per_cat.items()}
+
+    msg = f"  [PROBE-50 @ {step:,}] answer_loss={result['answer_loss']:.3f}"
+    if generate:
+        msg += f"  remembered={hits}/{len(items)}  {result['by_category']}"
+    log.info(msg)
+    if generate:
+        for s in samples[:5]:
+            log.info(f"     {'✓' if s['hit'] else '·'} {s['q']} → {s['a']}")
+
+    if history_path:
+        try:
+            os.makedirs(os.path.dirname(history_path) or ".", exist_ok=True)
+            with open(history_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps(result, ensure_ascii=False) + "\n")
+        except OSError as exc:
+            log.warning(f"Could not write probe history: {exc}")
+    return result

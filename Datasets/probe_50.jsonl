@@ -1,0 +1,50 @@
+{"id": 1, "category": "id", "question": "तुम्हें किसने बनाया?", "keywords": ["अतुल्य", "Atulya"], "reference": "मुझे अतुल्य AI द्वारा बनाया गया है।"}
+{"id": 2, "category": "id", "question": "Who created you?", "keywords": ["अतुल्य", "Atulya"], "reference": "मुझे अतुल्य AI (Atulya AI) द्वारा बनाया गया है।"}
+{"id": 3, "category": "id", "question": "तुम्हारा निर्माता कौन है?", "keywords": ["अतुल्य", "Atulya"], "reference": "मेरा निर्माण अतुल्य AI की टीम द्वारा किया गया है।"}
+{"id": 4, "category": "id", "question": "तुम्हारा नाम क्या है?", "keywords": ["तन्त्र", "तंत्र", "Tantra"], "reference": "मेरा नाम तन्त्र है।"}
+{"id": 5, "category": "id", "question": "क्या आप हिंदी समझते हैं?", "keywords": ["हाँ", "हां"], "reference": "हाँ, मैं हिंदी भाषा में संवाद कर सकता हूँ।"}
+{"id": 6, "category": "id", "question": "अतुल्य AI क्या है?", "keywords": ["AI", "अनुसंधान", "पहल"], "reference": "अतुल्य AI एक AI अनुसंधान और विकास पहल है।"}
+{"id": 7, "category": "id", "question": "तुम्हारी जन्मतिथि क्या है?", "keywords": ["जन्मतिथि", "2026", "AI"], "reference": "मैं एक AI मॉडल हूँ, इसलिए मेरी कोई जैविक जन्मतिथि नहीं है।"}
+{"id": 8, "category": "id", "question": "तुम्हारा लक्ष्य क्या है?", "keywords": ["ज्ञान", "सरल", "सुलभ"], "reference": "मेरा लक्ष्य ज्ञान को सरल और सुलभ बनाना है।"}
+{"id": 9, "category": "id", "question": "Can you speak Hindi?", "keywords": ["हाँ", "हां", "Yes", "yes"], "reference": "हाँ, मैं हिंदी में बात कर सकता हूँ।"}
+{"id": 10, "category": "id", "question": "नमस्ते!", "keywords": ["नमस्ते", "सहायता", "मदद"], "reference": "नमस्ते! मैं आपकी क्या सहायता कर सकता हूँ?"}
+{"id": 11, "category": "gk", "question": "भारत की राजधानी क्या है?", "keywords": ["नई दिल्ली", "दिल्ली"], "reference": "भारत की राजधानी नई दिल्ली है।"}
+{"id": 12, "category": "gk", "question": "भारत को स्वतंत्रता कब मिली?", "keywords": ["1947", "१९४७"], "reference": "भारत को 15 अगस्त 1947 को स्वतंत्रता मिली।"}
+{"id": 13, "category": "gk", "question": "भारत के राष्ट्रपिता किसे कहा जाता है?", "keywords": ["गांधी", "गाँधी"], "reference": "महात्मा गांधी को भारत का राष्ट्रपिता कहा जाता है।"}
+{"id": 14, "category": "gk", "question": "ताजमहल कहाँ स्थित है?", "keywords": ["आगरा"], "reference": "ताजमहल आगरा, उत्तर प्रदेश में स्थित है।"}
+{"id": 15, "category": "gk", "question": "भारत की सबसे लंबी नदी कौन सी है?", "keywords": ["गंगा"], "reference": "गंगा भारत की सबसे लंबी नदी है।"}
+{"id": 16, "category": "gk", "question": "भारत का राष्ट्रीय पशु कौन सा है?", "keywords": ["बाघ"], "reference": "बाघ भारत का राष्ट्रीय पशु है।"}
+{"id": 17, "category": "gk", "question": "भारत का राष्ट्रीय पक्षी कौन सा है?", "keywords": ["मोर"], "reference": "मोर भारत का राष्ट्रीय पक्षी है।"}
+{"id": 18, "category": "gk", "question": "भारत का राष्ट्रगान किसने लिखा?", "keywords": ["टैगोर", "रवीन्द्रनाथ", "रवींद्रनाथ"], "reference": "भारत का राष्ट्रगान रवीन्द्रनाथ टैगोर ने लिखा।"}
+{"id": 19, "category": "gk", "question": "पृथ्वी किसके चारों ओर घूमती है?", "keywords": ["सूर्य"], "reference": "पृथ्वी सूर्य के चारों ओर घूमती है।"}
+{"id": 20, "category": "gk", "question": "गंगा नदी का उद्गम कहाँ से होता है?", "keywords": ["गंगोत्री", "गोमुख"], "reference": "गंगा नदी का उद्गम गंगोत्री हिमनद (गोमुख) से होता है।"}
+{"id": 21, "category": "gk", "question": "पानी का रासायनिक सूत्र क्या है?", "keywords": ["H2O", "H₂O"], "reference": "पानी का रासायनिक सूत्र H2O है।"}
+{"id": 22, "category": "gk", "question": "प्रकाश संश्लेषण क्या है?", "keywords": ["पौधे", "सूर्य", "प्रकाश", "ऊर्जा"], "reference": "प्रकाश संश्लेषण वह प्रक्रिया है जिसमें पौधे सूर्य के प्रकाश से भोजन बनाते हैं।"}
+{"id": 23, "category": "gk", "question": "एक सप्ताह में कितने दिन होते हैं?", "keywords": ["सात", "7"], "reference": "एक सप्ताह में सात दिन होते हैं।"}
+{"id": 24, "category": "gk", "question": "एक वर्ष में कितने महीने होते हैं?", "keywords": ["बारह", "12"], "reference": "एक वर्ष में बारह महीने होते हैं।"}
+{"id": 25, "category": "gk", "question": "भारत के पहले प्रधानमंत्री कौन थे?", "keywords": ["नेहरू"], "reference": "भारत के पहले प्रधानमंत्री जवाहरलाल नेहरू थे।"}
+{"id": 26, "category": "gk", "question": "सौरमंडल का सबसे बड़ा ग्रह कौन सा है?", "keywords": ["बृहस्पति"], "reference": "बृहस्पति सौरमंडल का सबसे बड़ा ग्रह है।"}
+{"id": 27, "category": "gk", "question": "मानव शरीर में रक्त कौन पंप करता है?", "keywords": ["हृदय", "दिल"], "reference": "हृदय मानव शरीर में रक्त पंप करता है।"}
+{"id": 28, "category": "gk", "question": "भारत की मुद्रा क्या है?", "keywords": ["रुपया", "रुपए", "रुपये"], "reference": "भारत की मुद्रा भारतीय रुपया है।"}
+{"id": 29, "category": "gk", "question": "हिंदी किस लिपि में लिखी जाती है?", "keywords": ["देवनागरी"], "reference": "हिंदी देवनागरी लिपि में लिखी जाती है।"}
+{"id": 30, "category": "gk", "question": "गणतंत्र दिवस कब मनाया जाता है?", "keywords": ["26 जनवरी", "२६ जनवरी"], "reference": "गणतंत्र दिवस 26 जनवरी को मनाया जाता है।"}
+{"id": 31, "category": "gk", "question": "स्वतंत्रता दिवस कब मनाया जाता है?", "keywords": ["15 अगस्त", "१५ अगस्त"], "reference": "स्वतंत्रता दिवस 15 अगस्त को मनाया जाता है।"}
+{"id": 32, "category": "gk", "question": "चंद्रमा पर पहला कदम किसने रखा?", "keywords": ["आर्मस्ट्रांग"], "reference": "नील आर्मस्ट्रांग ने चंद्रमा पर पहला कदम रखा।"}
+{"id": 33, "category": "gk", "question": "भारत का सबसे बड़ा राज्य क्षेत्रफल में कौन सा है?", "keywords": ["राजस्थान"], "reference": "क्षेत्रफल में राजस्थान भारत का सबसे बड़ा राज्य है।"}
+{"id": 34, "category": "gk", "question": "2 और 3 का योग कितना है?", "keywords": ["5", "पाँच", "पांच"], "reference": "2 और 3 का योग 5 है।"}
+{"id": 35, "category": "gk", "question": "10 में से 4 घटाने पर क्या बचता है?", "keywords": ["6", "छह", "छः"], "reference": "10 में से 4 घटाने पर 6 बचता है।"}
+{"id": 36, "category": "tr", "question": "Translate this to Hindi:\nThank you.", "keywords": ["धन्यवाद", "शुक्रिया"], "reference": "धन्यवाद।"}
+{"id": 37, "category": "tr", "question": "Translate this to Hindi:\nGood morning.", "keywords": ["सुप्रभात"], "reference": "सुप्रभात।"}
+{"id": 38, "category": "tr", "question": "Translate this to Hindi:\nWater is life.", "keywords": ["पानी", "जल", "जीवन"], "reference": "जल ही जीवन है।"}
+{"id": 39, "category": "tr", "question": "Translate this to Hindi:\nI am going home.", "keywords": ["घर"], "reference": "मैं घर जा रहा हूँ।"}
+{"id": 40, "category": "tr", "question": "Translate this to Hindi:\nThe sun rises in the east.", "keywords": ["सूर्य", "सूरज", "पूर्व"], "reference": "सूर्य पूर्व में उगता है।"}
+{"id": 41, "category": "tr", "question": "Translate this to Hindi:\nBooks are our best friends.", "keywords": ["किताबें", "पुस्तकें", "मित्र", "दोस्त"], "reference": "किताबें हमारी सबसे अच्छी मित्र हैं।"}
+{"id": 42, "category": "tr", "question": "Translate this to Hindi:\nIndia is a big country.", "keywords": ["भारत", "देश"], "reference": "भारत एक बड़ा देश है।"}
+{"id": 43, "category": "tr", "question": "Translate this to Hindi:\nMy name is Ram.", "keywords": ["नाम", "राम"], "reference": "मेरा नाम राम है।"}
+{"id": 44, "category": "tr", "question": "Translate this to Hindi:\nPlease sit down.", "keywords": ["बैठ"], "reference": "कृपया बैठिए।"}
+{"id": 45, "category": "tr", "question": "Translate this to Hindi:\nWhere is the school?", "keywords": ["विद्यालय", "स्कूल", "कहाँ", "कहां"], "reference": "विद्यालय कहाँ है?"}
+{"id": 46, "category": "en", "question": "What is the capital of India?", "keywords": ["Delhi", "दिल्ली"], "reference": "The capital of India is New Delhi."}
+{"id": 47, "category": "en", "question": "What is 7 times 8?", "keywords": ["56"], "reference": "7 times 8 is 56."}
+{"id": 48, "category": "en", "question": "Which planet is known as the Red Planet?", "keywords": ["Mars", "मंगल"], "reference": "Mars is known as the Red Planet."}
+{"id": 49, "category": "en", "question": "What gas do plants absorb from the air?", "keywords": ["carbon dioxide", "CO2", "कार्बन"], "reference": "Plants absorb carbon dioxide from the air."}
+{"id": 50, "category": "en", "question": "How many continents are there?", "keywords": ["7", "seven", "सात"], "reference": "There are seven continents."}

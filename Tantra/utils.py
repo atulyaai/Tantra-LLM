@@ -1,15 +1,11 @@
 """
-tantra/utils.py — Shared utilities. Import from here, never duplicate.
+Tantra/utils.py — Shared helpers: logging, seeds, checkpoint loading, banner.
 """
 from __future__ import annotations
 import os
 import sys
-import time
 import logging
-import hashlib
-import struct
-from typing import Any, Iterator, Optional
-from contextlib import contextmanager
+from typing import Any
 
 if sys.platform == "win32":
     try:
@@ -74,17 +70,6 @@ def count_parameters(module: "torch.nn.Module") -> int:
     return sum(p.numel() for p in module.parameters() if p.requires_grad)
 
 
-def count_parameters_all(module: "torch.nn.Module") -> dict[str, int]:
-    """Count params broken down by submodule name."""
-    return {name: sum(p.numel() for p in m.parameters())
-            for name, m in module.named_modules() if list(m.parameters(recurse=False))}
-
-
-def tensor_memory_mb(t: "torch.Tensor") -> float:
-    """Return tensor memory usage in megabytes."""
-    return t.numel() * t.element_size() / 1024 / 1024
-
-
 def human_params(n: int) -> str:
     """Format parameter count as 1.2M, 3.4B, etc."""
     if n >= 1e9:
@@ -106,19 +91,6 @@ def set_seed(seed: int = 42) -> None:
         torch.cuda.manual_seed_all(seed)
 
 
-def tensor_to_bytes(t: "torch.Tensor") -> bytes:
-    """Convert tensor data to raw contiguous bytes."""
-    t_cpu = t.detach().cpu().contiguous()
-    return bytes(t_cpu.numpy().data)
-
-
-def bytes_to_tensor(data: bytes, dtype: torch.dtype = torch.float32) -> "torch.Tensor":
-    """Convert raw bytes back to a 1D tensor."""
-    np_dtype = torch.zeros(1, dtype=dtype).numpy().dtype
-    arr = np.frombuffer(data, dtype=np_dtype)
-    return torch.from_numpy(arr.copy())
-
-
 def elu_plus_one(x: "torch.Tensor") -> "torch.Tensor":
     """ELU(x) + 1 kernel activation (maps all values to positive reals)."""
     import torch.nn.functional as F
@@ -134,16 +106,6 @@ def top_k_mask(gates: "torch.Tensor", k: int) -> "torch.Tensor":
     mask = torch.zeros_like(gates, dtype=torch.bool)
     mask.scatter_(-1, indices, True)
     return mask
-
-
-@contextmanager
-def timer(name: str = "Operation"):
-    """Context manager to log elapsed execution time."""
-    log = get_logger("timer")
-    start = time.perf_counter()
-    yield
-    elapsed = (time.perf_counter() - start) * 1000
-    log.info(f"{name} took {elapsed:.2f} ms")
 
 
 def unwrap_model(model: Any) -> Any:
@@ -181,39 +143,6 @@ def safe_load_checkpoint(path: str, map_location: Any = "cpu") -> Any:
     return torch.load(path, map_location=map_location, weights_only=True)
 
 
-# ── Shared 2-Bit Bit-Packing Utility ──────────────────────────────────
-
-_PACK_SHIFTS = np.array([6, 4, 2, 0], dtype=np.uint8)
-_PACK_MASK = np.uint8(0b11)
-
-
-def pack_2bit_to_4x(values: np.ndarray) -> np.ndarray:
-    """Pack 4 2-bit values (0-3) into 1 byte using MSB-first layout.
-    
-    Values are packed as: v[0]<<6 | v[1]<<4 | v[2]<<2 | v[3]
-    Both codec.py and bitnet.py used independent implementations of this.
-    """
-    values = values.reshape(-1, 4)
-    packed = np.zeros((values.shape[0],), dtype=np.uint8)
-    for i, shift in enumerate(_PACK_SHIFTS):
-        packed |= (values[:, i] & _PACK_MASK) << shift
-    return packed
-
-
-def unpack_2bit_from_4x(packed: np.ndarray, numel: int) -> np.ndarray:
-    """Unpack 1 byte into 4 2-bit values (0-3) using MSB-first layout.
-    
-    Inverse of pack_2bit_to_4x. Returns exactly numel values.
-    """
-    arr = packed.reshape(-1).copy()
-    out = np.empty(arr.shape[0] * 4, dtype=np.uint8)
-    out[0::4] = (arr >> 6) & _PACK_MASK
-    out[1::4] = (arr >> 4) & _PACK_MASK
-    out[2::4] = (arr >> 2) & _PACK_MASK
-    out[3::4] = arr & _PACK_MASK
-    return out[:numel]
-
-
 def pack_4_ternary_to_1_byte(ternary_vals: "torch.Tensor") -> "torch.Tensor":
     """Pack 4 ternary values {-1,0,+1} into 1 uint8 byte (PyTorch version).
     
@@ -244,3 +173,7 @@ def unpack_1_byte_to_4_ternary(packed: "torch.Tensor", original_shape: tuple) ->
     numel = int(torch.prod(torch.tensor(original_shape))) if isinstance(original_shape, tuple) else original_shape
     return W_flat[:numel].view(original_shape)
 
+
+
+def print_banner() -> None:
+    print("\n  तन्त्र  TANTRA LLM — Hindi-first, CPU-first local AI\n")

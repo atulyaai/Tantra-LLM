@@ -1,7 +1,6 @@
 <!-- Full-width hero banner -->
 <div align="center">
-  <img src="Assets/tantra_hero_banner_animated.gif"
-       alt="Tantra LLM - Weaving Intelligence" width="100%"/>
+  <img src="Assets/tantra_hero_banner_animated.gif" alt="Tantra LLM - Weaving Intelligence" width="100%"/>
 </div>
 
 <div align="center">
@@ -19,264 +18,184 @@
   <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.10%2B-blue.svg" alt="Python 3.10+"/></a>
   <a href="https://pytorch.org/"><img src="https://img.shields.io/badge/pytorch-2.2%2B-ee4c2c.svg" alt="PyTorch 2.2+"/></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="MIT License"/></a>
-  <a href="#current-status"><img src="https://img.shields.io/badge/status-active_training-brightgreen.svg" alt="Status: Active Training"/></a>
-  <a href="#why-tantra"><img src="https://img.shields.io/badge/Made_in-India_🇮🇳-FF9933.svg" alt="Made in India"/></a>
+  <a href="#-honest-status"><img src="https://img.shields.io/badge/status-v2_rebuild-orange.svg" alt="Status: v2 rebuild"/></a>
+  <a href="#-tests"><img src="https://img.shields.io/badge/tests-18_passing-brightgreen.svg" alt="18 tests passing"/></a>
+  <a href="#"><img src="https://img.shields.io/badge/Made_in-India_🇮🇳-FF9933.svg" alt="Made in India"/></a>
 </p>
 
-**Tantra-LLM** is an experimental, **single unified Omnimodal on-device foundation AI model** engineered with the **NeuroCore** architecture. Instead of running separate heavy models for text, speech, and vision, Tantra weaves **Text, Vision (Images), Audio (Voice), and Tool Calling** into **ONE single neural network** running locally in **~208 MB RAM** on standard CPUs and accelerating to **8,000 tok/s on Dual GPUs**.
+**Tantra** is the brain of **Atulya** — a **Hindi-first, CPU-first language model built from scratch**.
+**Atulya** is the assistant ecosystem (app, memory, tools, voice); **Tantra** is the model that thinks.
+Tokenizer, architecture, training loop and WebUI are all our own code — no pretrained language model from anyone else.
 
-> **Current local checkpoint — verified 1 September 2026.** `Model/Latest/checkpoint_latest.pt` is a 16-layer auto-grown checkpoint at step 91,000 with 870.6M recorded training tokens. `Model/Best/checkpoint_best.pt` is an older 8-layer checkpoint at step 19,000 with 10.8M recorded tokens. The 95k milestone currently has metadata only; its weight file has not been saved. Claims below that are not explicitly marked “checkpoint verified” are historical results or implementation targets and need a fresh runtime benchmark.
+> **Current state (26 Sep 2026):** v2 code is complete and tested. **No trained model yet** — the first long training run is next. No benchmark numbers are claimed until a command in this repo measures them.
 
 ```
- ┌────────────────────────────────────────────────────────────────────────────────────────┐
- │                         TANTRA SINGLE UNIFIED OMNIMODAL BRAIN                          │
- ├────────────────────────────────────────────────────────────────────────────────────────┤
- │                                                                                        │
- │   🎙️ Voice Audio (16kHz) ──► AudioTokenizer ──► Audio Tokens  [31000..31999] ─┐        │
- │   📸 Camera Frame (RGB)  ──► ImageTokenizer ──► Vision Tokens [28000..30999] ─┼──►     │
- │   💬 Text & Code Prompt  ──► Byte-BPE Codec ──► Text Tokens   [00000..27999] ─┘        │
- │                                                                                        │
- │             ════════► [ 1 SINGLE TANTRA NEUROCORE TRANSFORMER ] ════════►              │
- │                     (8 ➔ 10+ Layers | 512 Hidden | ALRA Recurrent Attention)           │
- │                                                                                        │
- │   ┌──────────────────────────────┬──────────────────────────────┬───────────────────┐  │
- │   │ 💬 Conversational Dialogue   │ 💻 Clean Markdown Python/SQL │ 🛠️ `<tool_call>`  │  │
- │   │ & Polite Persona (Atulya AI) │ (Verified Doctests & Docs)   │ (Python, Calc)    │  │
- │   └──────────────────────────────┴──────────────────────────────┴───────────────────┘  │
- │                                                                                        │
- │    ⚡ Single Model File: checkpoint_latest.pt | ~208 MB RAM | 100% Offline on CPU     │
- └────────────────────────────────────────────────────────────────────────────────────────┘
+ ┌──────────────────────────────────────────────────────────────────────────────┐
+ │                               TANTRA  v2                                     │
+ ├──────────────────────────────────────────────────────────────────────────────┤
+ │  💬 Hindi · Hinglish · English  ──►  64k Byte-level BPE tokenizer            │
+ │                                              │                               │
+ │            ═══════►  [ ALRA, ALRA, ALRA, Window-Attention ] × N  ═══════►    │
+ │                       linear-time memory   exact recall of last 512 tokens   │
+ │                                              │                               │
+ │            + optional category layer (greetings / math / code …)             │
+ │                                              ▼                               │
+ │   🖥️ WebUI (chat · training · model)   🔌 OpenAI-compatible API   🎙️ voice   │
+ │                                                                              │
+ │        ⚡ ~70M "small" preset · grows toward ~1B · 100% offline on CPU        │
+ └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 📊 Status: What Is Actually Verified
+## 📊 Honest status
 
-| Component | Status | Empirical Evidence |
-| :--- | :---: | :--- |
-| **Hardware Auto-Detection** | ✅ Verified | Profiles CPU/RAM/Dual-GPU topology with automatic kernel affinity |
-| **Forward Pass & Training Loop** | ✅ Checkpoint verified | Latest checkpoint: **91k steps / 870.6M tokens / 16 layers** |
-| **Autonomous Auto-Pilot Pipeline** | ⚠️ Implemented; current run unverified | SFT and DPO paths exist; completion for the current Latest checkpoint needs a fresh benchmark |
-| **Reactive Layer Auto-Growth** | ✅ Checkpoint verified | The current checkpoint grew to **16 layers**, beyond the documented 10-layer design |
-| **Preference Alignment (DPO)** | ⚠️ Implemented; current run unverified | Preference-pair data and code exist, but current-checkpoint results need measurement |
-| **Chunked ALRA Attention** | ✅ Implemented | Recurrent ALRA code is present; long-context memory and speed claims need a fresh benchmark |
-| **BitNet 1.58-bit Ternary** | ✅ Implemented | Ternary BitLinear code is present; active-checkpoint quantization needs runtime verification |
-| **Multi-Token Prediction (MTP)** | ⚠️ Training-only in current generation path | The head exists, but current live generation does not use speculative decoding |
-| **4-Track Domain Curriculum** | ⚠️ Design supported | Multi-track loaders exist; the current `Datasets` folder needs an inventory before sample-count claims are repeated |
-| **Industry Benchmark Suite** | ⚠️ Implemented; results unverified | Evaluation code exists; current-checkpoint benchmark scores need to be run and recorded |
-| **Local Web UI & REST API** | ✅ Verified | FastAPI Server + OpenAI-compatible `/v1/chat/completions` endpoint |
-| **Automated Test Suite** | ⚠️ Count corrected; re-run to verify pass/fail | **112 test functions** across core architecture, real gradient learning, and system integration (static count from `Tests/`; this doc previously said 110 here and 94 in the layout section below — neither matched the actual file count, and no pass/fail run has been re-verified in this environment. Run `pytest Tests/ -q` locally to confirm.) |
+| Part | State |
+| :--- | :---: |
+| **Tokenizer** — 64k Hindi+English BPE, fixed for all model sizes | ✅ |
+| **Architecture** — hybrid 3 ALRA : 1 sliding-window attention (cached generation = full recompute, tested) | ✅ |
+| **Training** — streams any-size JSONL, packs windows, resumes exactly (fp32 weights + optimizer + LR schedule) | ✅ |
+| **Growth** — new layers start as an exact identity, so growing never makes the model forget | ✅ |
+| **Category layers** — one specialist layer per topic, trained while the base is frozen | ✅ |
+| **Evaluation** — validation loss + fixed 50-question recall probe every eval | ✅ |
+| **WebUI** — streaming chat, live training dashboard, checkpoint manager, test & export | ✅ |
+| **Trained model** | ⏳ next |
+| **Speech** — Whisper (STT) / Kokoro-82M (TTS) as optional plug-ins | 🔌 optional |
+| **Knowledge store (Smriti / "DNA memory")** | 🗺️ planned |
 
 ---
 
-## 📊 Benchmark Status
-
-> [!IMPORTANT]
-> **All benchmark numbers below are aspirational targets, not measured results.**
-> The Tantra 83M model has not been independently benchmarked against commercial or open-source models on MMLU, GSM8K, HumanEval, or GPQA.
-> See [ROADMAP.md](./ROADMAP.md) for verified progress and the "Status: What Is Actually Verified" table.
-
-### Architecture Specifications (Verified)
-
-| Metric | **Tantra 83M** |
-| :--- | :--- |
-| **Total Parameters** | **82.8M** |
-| **Attention** | ALRA (Adaptive Linear Resonance Attention) — O(1) memory scan |
-| **FFN** | SGP (Sparse Gated Projection) |
-| **Context Window** | 131K tokens (ALRA inference) |
-| **Generation Speed** | 21.7 tok/s (CPU) |
-| **RAM Footprint** | ~208 MB |
-| **Offline** | ✅ 100% offline |
-| **Hindi Support** | ✅ Native |
-| **Architecture** | 8 layers, dim=512, heads=8 |
-| **Tokenizer** | ByteBP E, 32,768 vocab |
-
-### Comparison Targets (Unverified — See Roadmap)
-
-| Metric | **Tantra 83M** *(target)* | **Reference models** |
-| :--- | :---: | :--- |
-| **MMLU (General)** | TBD | Qwen 3.8: 56.4%, Gemma 4: 58.5% |
-| **GSM8K (Math)** | TBD | Qwen 3.8: 54.1%, Gemma 4: 58.2% |
-| **HumanEval (Coding)** | TBD | Qwen 3.8: 45.2%, Gemma 4: 46.0% |
-| **GPQA (Science)** | TBD | DeepSeek-V4: 76.2% |
-
-### On-Device RAM Footprint Comparison
+## 🏛️ How it works
 
 ```
-RAM Footprint (Lower is Better — Ultra-Low Resource On-Device Deployment):
-Tantra 83M      | █ (208 MB) ⚡ [Runs on Any Laptop, Raspberry Pi, or Commodity CPU]
-Qwen 0.5B       | ██████ (1,200 MB)
-Gemma 2B / 1B   | ████████████████████ (4,500 MB)
-DeepSeek MoE    | ██████████████████████████████████████████████████████████ (600,000 MB)
+text ─► 64k tokenizer ─► embedding ─► [ ALRA, ALRA, ALRA, Window-Attention ] × N ─► next token
+                                         │ linear-time memory     │ exact recall of the last 512 tokens
+                                         └─ constant memory per generated token on CPU
+                                    + optional: category layer (e.g. "math") after the base stack
 ```
 
-> ⚠️ Tantra benchmarks against larger models are **aspirational**. No independent evaluation has been run. See [ROADMAP.md](./ROADMAP.md).
+* **Why hybrid:** linear/recurrent layers are fast with constant memory but weak at exact recall; a few exact-attention layers fix that.
+* **Why 64k vocab for every size:** the tokenizer never changes, so a model grows from ~70M toward ~1B (more layers) without retraining from zero.
+* **Why ~70M first:** model size follows data (~20 tokens per parameter). `master_train.jsonl` ≈ 0.4B tokens → tens of millions of parameters.
+* **Speed on CPU:** chunked recurrent attention, one-pass prompt prefill, int8 inference (`--int8`).
 
-### 📊 On-Device RAM Footprint Comparison
+### 🔬 Math
 
-```
-RAM Footprint (Lower is Better — Ultra-Low Resource On-Device Deployment):
-Tantra 83M      | █ (208 MB) ⚡ [Runs on Any Laptop, Raspberry Pi, or Commodity CPU]
-Qwen 0.5B       | ██████ (1,200 MB)
-Gemma 2B / 1B   | ████████████████████ (4,500 MB)
-DeepSeek MoE    | ██████████████████████████████████████████████████████████ (600,000 MB)
-```
-
----
-
-## 🏛️ NeuroCore Architecture Engine
-
-<div align="center">
-  <img src="Assets/tantra_architecture.jpg" alt="Tantra NeuroCore Architecture" width="90%"/>
-</div>
-
-### NeuroCore Engine — Complete 6-Stage Block Diagram
-
-```
-┌─────────────────────────────────────┬───────────────────────────────────────┐
-│              1. INPUT TOKENIZER & MULTIMODAL PROJECTION LAYER               │
-│  💬 Text Prompt     ──► BPE (32,768 Vocab) ──► Megabyte Byte-Fallback       │
-│  📸 Vision Patches  ──► ImageTokenizer     ──► 512-Dim Linear Projection    │
-│  🎙️ Audio Spectr.   ──► AudioTokenizer     ──► 512-Dim Mel-Scale Projection │
-└─────────────────────────────────────┬───────────────────────────────────────┘
-                                      │
-                                      ▼
-┌─────────────────────────────────────┬───────────────────────────────────────┐
-│                      2. HARDWARE RUNTIME ENGINE                             │
-│  CPU Core Affinity ──► Thread Pinning (KMP/OMP) ──► Dual-GPU DataParallel   │
-└─────────────────────────────────────┬───────────────────────────────────────┘
-                                      │
-                                      ▼
-┌─────────────────────────────────────┬───────────────────────────────────────┐
-│                      3. NEUROCORE BACKBONE BLOCK                            │
-│  ┌───────────────────────────────────────────────────────────────────────┐  │
-│  │ ──► RMSNorm            ──► ALRA Gated Attention [O(1) Recurrent Scan] │  │
-│  │ ──► Residual Addition  ──► RMSNorm                                    │  │
-│  │ ──► SGP (Sparse Gated) ──► BitNet 1.58-Bit Ternary Quantization       │  │
-│  └───────────────────────────────────────────────────────────────────────┘  │
-└─────────────────────────────────────┬───────────────────────────────────────┘
-                                      │
-                                      ▼
-┌─────────────────────────────────────┬───────────────────────────────────────┐
-│                    4. DUAL-HEAD PREDICTION ENGINE                           │
-│  Main Output Head (Token t+1)  ◄───►  MTP Speculative Head (Token t+2)      │
-│  Latent Chain-of-Thought       ◄───►  Auxiliary Speculative Loss            │
-└─────────────────────────────────────┬───────────────────────────────────────┘
-                                      │
-                                      ▼
-┌─────────────────────────────────────┬───────────────────────────────────────┐
-│               5. AUTONOMOUS EVOLUTION & ALIGNMENT ENGINE                    │
-│  AutoGrowth Depth Controller (8 ➔ 10+ Layers) ◄──► SelfRepairEngine (NaNs)  │
-│  Pairwise DPO Alignment (Frozen Pi_ref Baseline ➔ +15.15 Preference Margin) │
-└─────────────────────────────────────┬───────────────────────────────────────┘
-                                      │
-                                      ▼
-┌─────────────────────────────────────┬───────────────────────────────────────┐
-│               6. COMPACT DNA WEIGHT STORAGE & EXPORT ENGINE                 │
-│  NumPy Bitwise XOR Encryption ──► ZSTD Dictionary ──► DNA 2-Bit Disk Pack   │
-│  Zero-Latency Export: GGUF ──► TorchScript ──► ONNX ──► FastAPI Web Server  │
-└───────────────────────────────────────────────────────────────────────────┘
-```
-
----
-
-## 🔬 Mathematical Foundations
-
-**1. ALRA Chunked Attention ($O(1)$ Linear Recurrence)**:
+**ALRA gated linear attention** (exact chunkwise-parallel form of this recurrence):
 $$S_t = g_t \cdot S_{t-1} + K_t^T V_t, \quad z_t = g_t \cdot z_{t-1} + K_t, \quad o_t = \frac{Q_t \cdot S_t}{Q_t \cdot z_t + \epsilon}$$
 
-**2. BitNet 1.58-bit Ternary Quantization**:
-$$W_q = \text{RoundClip}\left(\frac{W}{\gamma + \epsilon},\ -1,\ +1\right), \quad \gamma = \frac{1}{nm}\sum|W_{ij}|$$
-
-**3. Direct Preference Optimization (DPO) Loss**:
-$$\mathcal{L}_{\text{DPO}}(\theta; \pi_{\text{ref}}) = -\mathbb{E}_{(x, y_w, y_l)}\left[ \log \sigma \left( \beta \log \frac{\pi_\theta(y_w|x)}{\pi_{\text{ref}}(y_w|x)} - \beta \log \frac{\pi_\theta(y_l|x)}{\pi_{\text{ref}}(y_l|x)} \right) \right]$$
+**DPO preference loss** (`--mode dpo`):
+$$\mathcal{L}_{\text{DPO}} = -\mathbb{E}\left[ \log \sigma \left( \beta \log \frac{\pi_\theta(y_w|x)}{\pi_{\text{ref}}(y_w|x)} - \beta \log \frac{\pi_\theta(y_l|x)}{\pi_{\text{ref}}(y_l|x)} \right) \right]$$
 
 ---
 
-## 💡 The 1:100 Tantra Efficiency Ratio ($2\text{B} \approx 200\text{B}$)
+## 🚀 Start (Windows)
 
-By training exclusively on a **High-Density Synthetic Gold Curriculum** (step-by-step math derivations, clean doctested Python functions, structured turn-taking):
-* Every token delivers maximum learning entropy.
-* Combining **BitNet 1.58-bit ternary quantization**, **ALRA linear memory**, **Dynamic Layer Auto-Growth**, and **Online Contrastive DPO Feedback**, an 80M–100M parameter model can achieve deterministic domain mastery using **just 1.6 to 2.5 Billion tokens** rather than trillions.
+Double-click **`tantra.bat`**:
 
----
+```
+1 Train   2 Chat   3 WebUI   4 Test the model   5 Export   6 Build tokenizer   7 Install   8 Code tests
+```
 
-## 🚀 Quick Start & CLI Execution
+Same from a terminal:
 
-### 1. Installation & Environment Setup
-```powershell
-git clone https://github.com/atulyaai/Tantra-LLM.git
-cd Tantra-LLM
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
+```bash
 pip install -r requirements.txt
-python -m pytest Tests/ -q
+python main.py --mode train          # continues automatically; Ctrl+C saves
+python main.py --mode chat --int8    # int8 = ~2x faster on CPU
+python main.py --mode serve --int8   # WebUI on http://127.0.0.1:8000
+python main.py --mode eval           # val loss + 50 questions + speed
+python -m pytest Tests -q            # code tests
 ```
 
-### 2. Autonomous Auto-Pilot Training (90% SFT + Auto-Growth ➔ 10% DPO)
-```powershell
-python main.py `
-  --mode auto-pilot `
-  --dataset Datasets/expert_conversation.jsonl `
-  --preference-dataset Datasets/preference_pairs.jsonl `
-  --steps 10000 `
-  --batch-size 16 `
-  --grad-accum 2 `
-  --auto-growth `
-  --device auto
-```
+**Faster on a free GPU (Kaggle/Colab):** same code, same files.
 
-### 3. Interactive Local Chat
-```powershell
-python main.py --mode chat --checkpoint Model/Latest/checkpoint_latest.pt --temperature 0.3
-```
-
-### 4. Run Full Industry Benchmark Suite
-```powershell
-python main.py --mode benchmark --checkpoint Model/Latest/checkpoint_latest.pt
-```
-
-### 5. Export Production Clean Checkpoint
-```powershell
-python main.py --mode export --checkpoint Model/Latest/checkpoint_latest.pt
+```bash
+git clone https://github.com/atulyaai/Tantra-LLM && cd Tantra-LLM
+# put your .jsonl in Datasets/ (and latest.pt in Model/ to continue a run)
+python main.py --mode train --device cuda --batch-size 32 --grad-accum 1
+# download Model/latest.pt afterwards and put it back in your Model/ folder
 ```
 
 ---
 
-## 🗂️ Package & Repository Layout
+## 🖥️ WebUI
+
+`python main.py --mode serve` → **http://127.0.0.1:8000**
+
+| Tab | What you get |
+| :--- | :--- |
+| **Chat** | Streaming replies with **Stop**, markdown/code, copy · regenerate · edit · read aloud, saved & searchable chats, settings (temperature, top-p, repetition penalty, max tokens, system prompt), voice input, "still training" notice |
+| **Training** | Live tiles (status, step, loss, val loss, speed, ETA, tokens), progress bar, **loss chart**, **remembered X/50 chart**, start/stop with options, live log |
+| **Model** | Loaded model + hardware, checkpoint table (step, val loss, size, date) with Load / INT8, **Run test**, **Export**, datasets |
+
+API: OpenAI-compatible `POST /v1/chat/completions` (stream or not). Set `TANTRA_API_KEY` to protect training/checkpoint actions. Binds to 127.0.0.1 only.
+
+---
+
+## 🗂️ Folders
 
 ```
 Tantra-LLM/
-├── Assets/                    Logo, architecture diagram, hero banner GIF
-├── Datasets/                  4-Track domain curriculum (Conversation, Code, Math, General) & DPO pairs
-├── Model/                     Canonical Tokenizer, Best & Latest checkpoints, stripped export
-├── Samples/                   Multimodal sample catalog (Audio, Images, Video, Code, Text, ToolCalling)
-├── Tantra/                    Core Neural Engine (model, train, evolution, dataset, bitnet)
-│   ├── model.py               NeuroCore Backbone (ALRA attention, SGP, BitNet, MTP heads)
-│   ├── train.py               NeuroTrainer, DPO loop, Multi-GPU DataParallel
-│   ├── evolution.py           AutoGrowthController & SelfRepairEngine
-│   ├── dataset.py             4-Track curriculum builder & continuous sequence packing
-│   ├── benchmark.py           5-Level industry evaluation runner (GSM8K, HumanEval, MMLU)
-│   ├── export.py              Clean checkpoint stripper & model exporter
-│   ├── tokenizer.py           Byte-level BPE + Megabyte fallback patcher + omnimodal projections
-│   ├── codec.py               DNA-AI NumPy XOR + ZSTD 2-bit dictionary weight compression
-│   ├── bitnet.py              BitNet 1.58-bit ternary quantization ({-1, 0, +1})
-│   ├── tool_router.py         Native XML <tool_call> AST router & sandboxes
-│   ├── moe.py                 Mixture-of-Experts token routing & load balancing
-│   ├── adapters.py            Dynamic category domain adapters
-│   ├── hardware.py            Hardware auto-detection & CPU thread pinning
-│   ├── config.py              NeuroCore dataclass configurations
-│   └── utils.py               Structured logging & deterministic seed utilities
-├── Tests/                     Automated PyTest suite (112 test functions, see Status table above)
-├── webui/                     FastAPI web server & interactive dashboard
-├── main.py                    Unified CLI entry point (--mode train/chat/benchmark/export/auto-pilot)
-├── tantra.ps1 / run_sft.bat   Universal Windows launchers
-└── requirements.txt / pyproject.toml
+├── main.py              every command (--mode train|chat|generate|serve|eval|export|tokenizer|dpo|adapter|hardware)
+├── tantra.bat           menu for the above
+├── requirements.txt
+├── Tantra/              the engine
+│   ├── config.py        all settings + presets (tiny, small ≈70M, billion ≈1B)
+│   ├── tokenizer.py     64k byte-level BPE, build once
+│   ├── model.py         the network + generation + load_model()
+│   ├── dataset.py       JSONL → training windows (chat masking, packing)
+│   ├── train.py         training loop, checkpoints, DPO, live status for the WebUI
+│   ├── eval_suite.py    validation metrics, speed, 50-question probe
+│   ├── evolution.py     growing layers / category layers
+│   ├── adapters.py      category registry + request router
+│   ├── bitnet.py        ternary weights (for later, after training)
+│   ├── export.py        small fp16 file for use (Model/tantra.pt)
+│   ├── hardware.py      CPU/RAM/GPU detection
+│   └── utils.py         logging, seeds, safe checkpoint loading
+├── WebUI/               server.py + index.html + app.js + app.css
+├── Tests/               test_model.py · test_data_train.py · test_webui.py
+├── Datasets/            your .jsonl files (+ probe_50.jsonl)
+├── Model/               tokenizer.json · latest.pt · best.pt · tantra.pt
+└── Assets/              images
 ```
+
+## 📝 Data format
+
+One JSON object per line, any of:
+
+```json
+{"messages": [{"role": "user", "content": "भारत की राजधानी?"}, {"role": "assistant", "content": "नई दिल्ली।"}]}
+{"user": "...", "assistant": "..."}
+{"instruction": "...", "input": "...", "output": "..."}
+{"text": "plain text / articles"}
+```
+
+In the default `sft` stage only the answers are learned. Rows whose question is generic filler ("इसके बारे में विस्तृत जानकारी दें:" + an article) are learned as plain text instead.
 
 ---
 
-## 📄 License & Attribution
+## 🧪 Tests
 
-Tantra-LLM is developed by **Atulya AI** and released under the **MIT License**.
-Contributions, pull requests, and architectural discussions are welcome!
+```bash
+python -m pytest Tests -q      # 18 passed
+```
+
+## 🗺️ Roadmap (in order)
+
+1. Rebuild tokenizer once with Hindi + English + Sanskrit samples → then freeze forever.
+2. Long training run (laptop or Kaggle) until the 50-question probe climbs.
+3. Knowledge store (Smriti): compressed facts + retrieval before answering.
+4. Delta-rule upgrade of ALRA (better recall), then grow depth.
+5. Category layers: greetings, math, code, sentiment/emotion.
+6. Our own speech models (Hindi STT/TTS) replacing the plug-ins.
+
+## 🤝 Rules for contributors
+
+* One place for each thing. No duplicate scripts, no one-time files in the repo.
+* No number goes in this README unless a command in this repo measured it.
+* `python -m pytest Tests -q` must pass before every commit.
+
+---
+
+<p align="center">📄 MIT License · Developed by <b>Atulya AI</b> · Made in India 🇮🇳</p>

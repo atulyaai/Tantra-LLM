@@ -1,1701 +1,615 @@
-// ══════════════════════════════════════════════════════════════════════════════
-// Tantra Quantum Studio — Ultra-Optimized Real-Time Web UI Controller
-// ══════════════════════════════════════════════════════════════════════════════
+// Tantra WebUI — chat, training dashboard, model manager. No build step, no framework.
+"use strict";
 
-let currentRole = 'user';
-let currentSessionId = 'default';
-let sessionFilter = 'active';
-let chatSessions = {};
-let memoryBank = [];
-let datasetsCatalog = [];
-let trainingChartInstance = null;
-let activeAbortController = null;
-let livePollInterval = null;
-let pollRateMs = 2000;
-let audioContextInstance = null;
-let audioAnalyser = null;
-let audioAnimFrame = null;
+// ── helpers ──────────────────────────────────────────────────────────────────
+const $ = (s, root = document) => root.querySelector(s);
+const $$ = (s, root = document) => [...root.querySelectorAll(s)];
+const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+const store = {
+  get(k, d) { try { const v = localStorage.getItem("tantra." + k); return v == null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v) { try { localStorage.setItem("tantra." + k, JSON.stringify(v)); } catch { /* private mode */ } },
+};
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const fmt = (v, d = 2) => (v == null || Number.isNaN(+v) ? "—" : (+v).toLocaleString(undefined, { maximumFractionDigits: d }));
+const fmtTokens = (n) => (n == null ? "—" : n >= 1e9 ? (n / 1e9).toFixed(2) + "B" : n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1e3 ? (n / 1e3).toFixed(1) + "K" : String(n));
+const ago = (t) => {
+  if (!t) return "—";
+  const s = Date.now() / 1000 - t;
+  if (s < 60) return "just now";
+  if (s < 3600) return `${Math.floor(s / 60)} min ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)} h ago`;
+  return new Date(t * 1000).toLocaleDateString();
+};
 
-// ── 1. Navigation & Role Switching ──────────────────────────────────────────
-
-function setRole(role) {
-    currentRole = role;
-    const btnU = document.getElementById('btn-role-user');
-    const btnA = document.getElementById('btn-role-admin');
-    
-    if (role === 'user') {
-        if (btnU) btnU.className = 'role-btn active-user';
-        if (btnA) btnA.className = 'role-btn';
-        document.body.classList.remove('admin-mode');
-        const activeTab = document.querySelector('.tab-btn.active');
-        if (activeTab && activeTab.classList.contains('admin-only')) {
-            switchTab('playground');
-        }
-    } else {
-        if (btnU) btnU.className = 'role-btn';
-        if (btnA) btnA.className = 'role-btn active-admin';
-        document.body.classList.add('admin-mode');
-    }
-}
-window.setRole = setRole;
-
-function switchTab(tabName) {
-    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-    document.querySelectorAll('.view-panel').forEach(p => p.classList.remove('active'));
-    
-    const btn = document.getElementById('tab-btn-' + tabName);
-    if (btn) btn.classList.add('active');
-
-    const view = document.getElementById('view-' + tabName);
-    if (view) view.classList.add('active');
-
-    try {
-        if (tabName === 'training') loadTrainingDashboard(true);
-        if (tabName === 'telemetry') loadTelemetry();
-        if (tabName === 'moe') renderExperts();
-        if (tabName === 'datasets') loadDatasets();
-        if (tabName === 'kg') renderKnowledgeGraph();
-        if (tabName === 'compare') runComparison();
-    } catch(err) {
-        console.error("Tab initialization error:", err);
-    }
-}
-window.switchTab = switchTab;
-
-function setSessionFilter(filter) {
-    sessionFilter = filter;
-    document.getElementById('btn-filter-active').className = filter === 'active' ? 'filter-btn active' : 'filter-btn';
-    document.getElementById('btn-filter-archived').className = filter === 'archived' ? 'filter-btn active' : 'filter-btn';
-    renderSessionsList();
-}
-window.setSessionFilter = setSessionFilter;
-
-
-// ── 2. Live Telemetry & Auto-Polling Engine ─────────────────────────────────
-
-function changePollRate(rateStr) {
-    pollRateMs = parseInt(rateStr, 10);
-    if (livePollInterval) {
-        clearInterval(livePollInterval);
-        livePollInterval = null;
-    }
-    if (pollRateMs > 0) {
-        livePollInterval = setInterval(pollLiveTelemetry, pollRateMs);
-    }
-}
-window.changePollRate = changePollRate;
-
-async function pollLiveTelemetry() {
-    try {
-        // Lightweight polling of live training & status
-        const res = await fetch('/api/training/live');
-        if (!res.ok) return;
-        const data = await res.json();
-
-        // Update header speed pill
-        const speedPill = document.getElementById('live-speed-text');
-        if (speedPill && data.tok_s != null) {
-            speedPill.innerText = `LIVE ${parseFloat(data.tok_s).toFixed(1)} tok/s`;
-        }
-
-        // Update active layers badge in header
-        const layersBadge = document.getElementById('hdr-layers-badge');
-        if (layersBadge && data.active_layers) {
-            layersBadge.innerText = `${data.active_layers}L ALRA O(1)`;
-        }
-
-        // If training tab is active, update dashboard smoothly
-        const trainingView = document.getElementById('view-training');
-        if (trainingView && trainingView.classList.contains('active')) {
-            updateTrainingDashboardUI(data);
-        }
-    } catch (e) {
-        // Ignore background polling errors
-    }
+function toast(msg, kind = "") {
+  const t = el("div", `toast ${kind}`, msg);
+  $("#toasts").append(t);
+  setTimeout(() => t.remove(), kind === "error" ? 7000 : 3500);
 }
 
+async function api(url, opts = {}) {
+  const headers = { "Content-Type": "application/json", ...(opts.headers || {}) };
+  const key = store.get("apiKey", "");
+  if (key) headers["X-API-Key"] = key;
+  const r = await fetch(url, { ...opts, headers });
+  if (r.status === 401) {
+    const k = prompt("This server is protected. Enter the TANTRA_API_KEY:");
+    if (k) { store.set("apiKey", k); return api(url, opts); }
+  }
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || `${r.status} ${r.statusText}`);
+  return r;
+}
+const getJSON = (url) => api(url).then((r) => r.json());
+const postJSON = (url, body = {}) => api(url, { method: "POST", body: JSON.stringify(body) }).then((r) => r.json());
 
-// ── 3. AI Chat Studio & SSE Streaming ───────────────────────────────────────
-
-async function loadSessions() {
-    try {
-        const res = await fetch('/api/chats');
-        const data = await res.json();
-        chatSessions = data.chats || {};
-        if (Object.keys(chatSessions).length === 0) {
-            createNewSession();
-        } else {
-            renderSessionsList();
-            renderChatMessages();
-        }
-    } catch(err) {
-        console.error("Error loading chat sessions:", err);
-    }
+// Tiny, safe markdown: code blocks, inline code, bold/italic, lists, paragraphs.
+function markdown(src) {
+  const blocks = [];
+  let s = String(src).replace(/```(\w*)\n?([\s\S]*?)(```|$)/g, (_, lang, code) => {
+    blocks.push(`<pre><code${lang ? ` data-lang="${esc(lang)}"` : ""}>${esc(code.replace(/\n$/, ""))}</code></pre>`);
+    return `\u0000${blocks.length - 1}\u0000`;
+  });
+  s = esc(s)
+    .replace(/`([^`\n]+)`/g, "<code>$1</code>")
+    .replace(/\*\*([^*\n]+)\*\*/g, "<b>$1</b>")
+    .replace(/(^|[^*])\*([^*\n]+)\*/g, "$1<i>$2</i>");
+  const out = [];
+  for (const para of s.split(/\n{2,}/)) {
+    const lines = para.split("\n");
+    if (lines.every((l) => /^\s*[-*•] /.test(l))) out.push(`<ul>${lines.map((l) => `<li>${l.replace(/^\s*[-*•] /, "")}</li>`).join("")}</ul>`);
+    else if (lines.every((l) => /^\s*\d+[.)] /.test(l))) out.push(`<ol>${lines.map((l) => `<li>${l.replace(/^\s*\d+[.)] /, "")}</li>`).join("")}</ol>`);
+    else if (/^\u0000\d+\u0000$/.test(para.trim())) out.push(para.trim());
+    else out.push(`<p>${lines.join("<br>")}</p>`);
+  }
+  return out.join("").replace(/\u0000(\d+)\u0000/g, (_, i) => blocks[+i]);
 }
 
-function searchSessions(query) {
-    const q = (query || '').toLowerCase();
-    const container = document.getElementById('sessions-list-container');
-    if (!container) return;
-    container.innerHTML = '';
-
-    const keys = Object.keys(chatSessions);
-    keys.forEach(id => {
-        const session = chatSessions[id];
-        const title = (session.title || 'Conversation').toLowerCase();
-        if (q && !title.includes(q)) return;
-
-        const isArchived = session.archived === true;
-        if ((sessionFilter === 'active' && isArchived) || (sessionFilter === 'archived' && !isArchived)) return;
-
-        appendSessionDOM(id, session, container);
-    });
+// ── theme ────────────────────────────────────────────────────────────────────
+const THEMES = ["auto", "light", "dark"];
+function applyTheme(t) {
+  if (t === "auto") document.documentElement.removeAttribute("data-theme");
+  else document.documentElement.dataset.theme = t;
+  $("#theme").title = `Theme: ${t} (click to change)`;
+  $("#theme").textContent = t === "dark" ? "☾" : t === "light" ? "☀" : "◐";
 }
-window.searchSessions = searchSessions;
+applyTheme(store.get("theme", "light"));
+$("#theme").onclick = () => {
+  const next = THEMES[(THEMES.indexOf(store.get("theme", "light")) + 1) % 3];
+  store.set("theme", next); applyTheme(next);
+};
 
-function renderSessionsList() {
-    const container = document.getElementById('sessions-list-container');
-    if (!container) return;
-    container.innerHTML = '';
-
-    const keys = Object.keys(chatSessions);
-    if (keys.length === 0) {
-        container.innerHTML = '<div style="font-size:0.75rem; color:var(--text-muted); padding:8px;">No chat sessions yet.</div>';
-        return;
-    }
-
-    keys.forEach(id => {
-        const session = chatSessions[id];
-        const isArchived = session.archived === true;
-        if ((sessionFilter === 'active' && isArchived) || (sessionFilter === 'archived' && !isArchived)) return;
-
-        appendSessionDOM(id, session, container);
-    });
+// ── tabs (remembered in the URL hash) ────────────────────────────────────────
+function showTab(name) {
+  if (!$(`#tab-${name}`)) name = "chat";
+  $$("nav button").forEach((b) => b.classList.toggle("active", b.dataset.tab === name));
+  $$(".tab").forEach((t) => t.classList.toggle("active", t.id === `tab-${name}`));
+  if (location.hash !== `#${name}`) history.replaceState(null, "", `#${name}`);
+  if (name === "chat") $("#input").focus();
+  refreshStatus();
 }
+$$("nav button").forEach((b) => (b.onclick = () => showTab(b.dataset.tab)));
+window.addEventListener("hashchange", () => showTab(location.hash.slice(1)));
+const activeTab = () => $("nav button.active")?.dataset.tab;
 
-function appendSessionDOM(id, session, container) {
-    const item = document.createElement('div');
-    item.className = `session-item ${id === currentSessionId ? 'active' : ''}`;
-    item.onclick = (e) => {
-        if (!e.target.closest('.session-actions')) selectSession(id);
-    };
-
-    const count = session.messages ? session.messages.length : 0;
-    item.innerHTML = `
-        <div class="session-info">
-            <div style="font-size:0.82rem; font-weight:600; color:#fff; overflow:hidden; text-overflow:ellipsis;">${session.title || 'Conversation'}</div>
-            <div style="font-size:0.68rem; color:var(--text-muted);">${count} msgs</div>
-        </div>
-        <div class="session-actions">
-            <button class="btn-icon" onclick="renameSession('${id}')" title="Rename">✏️</button>
-            <button class="btn-icon" onclick="archiveSession('${id}')" title="Archive / Unarchive">📦</button>
-            <button class="btn-icon" onclick="deleteSession('${id}')" title="Delete" style="color:var(--danger);">🗑️</button>
-        </div>
-    `;
-    container.appendChild(item);
+// ── generation settings (saved in this browser) ─────────────────────────────
+const DEFAULTS = { temperature: 0.3, top_p: 0.9, repetition_penalty: 1.15, max_tokens: 256, history: 3, auto_speak: false, system: "", category: "auto" };
+let settings = { ...DEFAULTS, ...store.get("settings", {}) };
+function bindSettings() {
+  for (const [k, v] of Object.entries(settings)) {
+    const input = $(`#${k}`);
+    if (!input) continue;
+    if (input.type === "checkbox") input.checked = !!v; else input.value = v;
+    const out = input.nextElementSibling;
+    if (out?.tagName === "OUTPUT") out.textContent = input.value;
+  }
 }
-
-function selectSession(id) {
-    currentSessionId = id;
-    renderSessionsList();
-    renderChatMessages();
-}
-window.selectSession = selectSession;
-
-function createNewSession() {
-    const newId = 'chat-' + Date.now();
-    chatSessions[newId] = {
-        id: newId,
-        title: 'New Session',
-        archived: false,
-        created_at: Date.now(),
-        messages: [
-            { role: 'assistant', content: 'Namaste! How can I assist you with code, math, or reasoning today?' }
-        ]
-    };
-    selectSession(newId);
-    syncChatToServer(newId, chatSessions[newId]);
-}
-window.createNewSession = createNewSession;
-
-function renameSession(id) {
-    const session = chatSessions[id];
-    if (!session) return;
-    const newTitle = prompt("Enter new title for this conversation:", session.title || "Chat");
-    if (newTitle && newTitle.trim()) {
-        session.title = newTitle.trim();
-        renderSessionsList();
-        syncChatToServer(id, session);
-    }
-}
-window.renameSession = renameSession;
-
-function archiveSession(id) {
-    const session = chatSessions[id];
-    if (!session) return;
-    session.archived = !session.archived;
-    renderSessionsList();
-    syncChatToServer(id, session);
-}
-window.archiveSession = archiveSession;
-
-function deleteSession(id) {
-    if (!confirm("Are you sure you want to delete this chat session?")) return;
-    delete chatSessions[id];
-    try {
-        fetch(`/api/chats/${id}`, { method: 'DELETE' });
-    } catch(e) {}
-
-    const remainingKeys = Object.keys(chatSessions);
-    if (remainingKeys.length > 0) {
-        selectSession(remainingKeys[0]);
-    } else {
-        createNewSession();
-    }
-}
-window.deleteSession = deleteSession;
-
-function syncChatToServer(id, session) {
-    try {
-        fetch('/api/chats', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                id: id,
-                title: session.title,
-                archived: session.archived,
-                messages: session.messages
-            })
-        });
-    } catch(e) {
-        console.error("Chat sync error:", e);
-    }
-}
-
-function renderChatMessages() {
-    const container = document.getElementById('chat-messages-container');
-    if (!container) return;
-    container.innerHTML = '';
-
-    const session = chatSessions[currentSessionId] || { messages: [] };
-    session.messages.forEach((msg, idx) => {
-        const row = document.createElement('div');
-        row.className = `message-row ${msg.role}`;
-        
-        const avatar = document.createElement('div');
-        avatar.className = `avatar ${msg.role === 'assistant' ? 'avatar-ai' : 'avatar-user'}`;
-        avatar.innerText = msg.role === 'assistant' ? 'T' : 'U';
-
-        const bubble = document.createElement('div');
-        bubble.className = 'message-bubble';
-        
-        // Clean markdown parsing
-        const rawHtml = marked.parse(msg.content || '');
-        bubble.innerHTML = DOMPurify ? DOMPurify.sanitize(rawHtml) : rawHtml;
-
-        // Attach telemetry badge if stored on message
-        if (msg.telemetry) {
-            const t = msg.telemetry;
-            const tTag = document.createElement('div');
-            tTag.className = 'message-telemetry-tag';
-            tTag.innerHTML = `⚡ ${t.tokens_per_second || '--'} tok/s • TTFT: ${t.ttft_ms || '--'}ms • ${t.tokens_generated || '--'} tokens (${t.duration_seconds || '--'}s)`;
-            bubble.appendChild(tTag);
-        }
-
-        row.appendChild(avatar);
-        row.appendChild(bubble);
-        container.appendChild(row);
-    });
-
-    container.scrollTop = container.scrollHeight;
-    attachCodeCopyButtons();
-    document.querySelectorAll('pre code').forEach(el => hljs.highlightElement(el));
-}
-
-function attachCodeCopyButtons() {
-    document.querySelectorAll('.message-bubble pre').forEach(pre => {
-        if (pre.querySelector('.code-copy-btn')) return;
-        const btn = document.createElement('button');
-        btn.className = 'code-copy-btn';
-        btn.innerText = 'Copy';
-        btn.onclick = () => {
-            const code = pre.querySelector('code')?.innerText || pre.innerText;
-            navigator.clipboard.writeText(code).then(() => {
-                btn.innerText = 'Copied! ✓';
-                btn.style.color = 'var(--emerald)';
-                setTimeout(() => {
-                    btn.innerText = 'Copy';
-                    btn.style.color = '';
-                }, 2000);
-            });
-        };
-        pre.appendChild(btn);
-    });
-}
-
-function stopGeneration() {
-    if (activeAbortController) {
-        activeAbortController.abort();
-        activeAbortController = null;
-    }
-    const stopBtn = document.getElementById('btn-stop-stream');
-    if (stopBtn) stopBtn.style.display = 'none';
-    const statusInd = document.getElementById('chat-status-indicator');
-    if (statusInd) statusInd.innerText = 'Generation stopped';
-}
-window.stopGeneration = stopGeneration;
-
-async function sendMessage() {
-    const input = document.getElementById('chat-input-field');
-    const text = input.value.trim();
-    if (!text) return;
-    input.value = '';
-    autoExpandTextarea(input);
-
-    if (!chatSessions[currentSessionId]) {
-        chatSessions[currentSessionId] = { id: currentSessionId, title: text.slice(0, 26), archived: false, messages: [] };
-    }
-
-    const session = chatSessions[currentSessionId];
-    if (session.title === 'New Session') {
-        session.title = text.slice(0, 26) + (text.length > 26 ? '...' : '');
-        renderSessionsList();
-    }
-
-    // Append User Message
-    session.messages.push({ role: 'user', content: text });
-    renderChatMessages();
-
-    // Prepare Assistant Placeholder
-    const assistantMsg = { role: 'assistant', content: '' };
-    session.messages.push(assistantMsg);
-    renderChatMessages();
-
-    const temp = parseFloat(document.getElementById('inp-temp').value) || 0.35;
-    const top_p = parseFloat(document.getElementById('inp-topp').value) || 0.85;
-    const max_tokens = parseInt(document.getElementById('inp-maxtok').value, 10) || 256;
-    const adapter = document.getElementById('chat-adapter-select')?.value || 'auto';
-
-    // Show live UI badges
-    const liveStats = document.getElementById('live-inference-stats');
-    const stopBtn = document.getElementById('btn-stop-stream');
-    const statusInd = document.getElementById('chat-status-indicator');
-    if (liveStats) liveStats.style.display = 'inline-flex';
-    if (stopBtn) stopBtn.style.display = 'inline-flex';
-    if (statusInd) statusInd.innerText = 'Generating response...';
-
-    const t0 = performance.now();
-    let firstTokenTime = null;
-    let tokenCount = 0;
-
-    activeAbortController = new AbortController();
-
-    try {
-        const response = await fetch('/v1/chat/completions', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            signal: activeAbortController.signal,
-            body: JSON.stringify({
-                messages: session.messages.slice(0, -1),
-                temperature: temp,
-                top_p: top_p,
-                max_tokens: max_tokens,
-                adapter: adapter,
-                stream: true
-            })
-        });
-
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = '';
-
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-
-            buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split('\n');
-            buffer = lines.pop() || '';
-
-            for (const line of lines) {
-                if (line.startsWith('data: [DONE]')) break;
-                if (line.startsWith('data: ')) {
-                    try {
-                        const json = JSON.parse(line.slice(6));
-                        const delta = json.choices[0]?.delta?.content || '';
-                        if (delta) {
-                            if (firstTokenTime === null) {
-                                firstTokenTime = performance.now() - t0;
-                                const ttftEl = document.getElementById('stat-ttft');
-                                if (ttftEl) ttftEl.innerText = `TTFT: ${Math.round(firstTokenTime)}ms`;
-                            }
-                            tokenCount++;
-                            assistantMsg.content += delta;
-
-                            const elapsedSec = (performance.now() - t0) / 1000.0;
-                            const curSpeed = (tokenCount / Math.max(elapsedSec, 0.001)).toFixed(1);
-                            const toksEl = document.getElementById('stat-toks');
-                            if (toksEl) toksEl.innerText = `${curSpeed} tok/s`;
-
-                            // Real-time render update
-                            const bubbles = document.querySelectorAll('.message-row.assistant .message-bubble');
-                            const lastBubble = bubbles[bubbles.length - 1];
-                            if (lastBubble) {
-                                const rawHtml = marked.parse(assistantMsg.content);
-                                lastBubble.innerHTML = DOMPurify ? DOMPurify.sanitize(rawHtml) : rawHtml;
-                            }
-                        }
-
-                        // Check for final telemetry chunk
-                        if (json.telemetry) {
-                            assistantMsg.telemetry = json.telemetry;
-                        }
-                    } catch (e) {
-                        // Incomplete JSON chunk, skip
-                    }
-                }
-            }
-        }
-        if (statusInd) statusInd.innerText = 'Ready';
-    } catch(err) {
-        if (err.name === 'AbortError') {
-            if (statusInd) statusInd.innerText = 'Stopped';
-        } else {
-            assistantMsg.content += `\n\n⚠️ *Generation Error: ${err.message}*`;
-            if (statusInd) statusInd.innerText = 'Error';
-        }
-    } finally {
-        activeAbortController = null;
-        if (stopBtn) stopBtn.style.display = 'none';
-        renderChatMessages();
-        syncChatToServer(currentSessionId, session);
-    }
-}
-window.sendMessage = sendMessage;
-
-function handleChatKey(e) {
-    if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault();
-        sendMessage();
-    }
-}
-window.handleChatKey = handleChatKey;
-
-function autoExpandTextarea(el) {
-    el.style.height = 'auto';
-    el.style.height = Math.min(el.scrollHeight, 160) + 'px';
-}
-window.autoExpandTextarea = autoExpandTextarea;
-
-function setPreset(type) {
-    const input = document.getElementById('chat-input-field');
-    if (type === 'coder') input.value = "Write a high-performance Python function to compute fast moving averages with NumPy and SIMD.";
-    if (type === 'math') input.value = "Solve for x in the equation: 3x^2 - 12x + 9 = 0 and prove each step.";
-    if (type === 'science') input.value = "Explain how ALRA Linear Recurrent Attention achieves O(1) inference memory complexity.";
-    if (type === 'bitnet') input.value = "Explain how BitNet 1.58-bit ternary weights {-1, 0, +1} accelerate matrix computations.";
-    input.focus();
-    autoExpandTextarea(input);
-}
-window.setPreset = setPreset;
-
-function exportChatMarkdown() {
-    const session = chatSessions[currentSessionId];
-    if (!session) return;
-    let md = `# Tantra Studio Chat Export — ${session.title || 'Session'}\n\n`;
-    session.messages.forEach(m => {
-        md += `### **${m.role.toUpperCase()}**:\n${m.content}\n\n---\n\n`;
-    });
-    const blob = new Blob([md], { type: 'text/markdown' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `tantra_chat_${Date.now()}.md`;
-    a.click();
-}
-window.exportChatMarkdown = exportChatMarkdown;
-
-function clearCurrentChat() {
-    if (chatSessions[currentSessionId]) {
-        chatSessions[currentSessionId].messages = [];
-        renderChatMessages();
-        syncChatToServer(currentSessionId, chatSessions[currentSessionId]);
-    }
-}
-window.clearCurrentChat = clearCurrentChat;
-
-
-// ── 4. Live Autonomous Training Dashboard ───────────────────────────────────
-
-async function loadTrainingDashboard(forceRefresh = false) {
-    try {
-        const res = await fetch('/api/training/live');
-        const data = await res.json();
-        updateTrainingDashboardUI(data);
-    } catch(err) {
-        console.error("Error loading training dashboard:", err);
-    }
-}
-window.loadTrainingDashboard = loadTrainingDashboard;
-
-function updateTrainingDashboardUI(data) {
-    if (!data) return;
-
-    // Status Pill
-    const statusPill = document.getElementById('train-status-pill');
-    if (statusPill) {
-        const isRunning = data.status === 'running';
-        const isInterrupted = data.status === 'interrupted';
-        statusPill.innerText = isRunning ? '● RUNNING' : (isInterrupted ? '● INTERRUPTED' : '● IDLE');
-        statusPill.style.color = isRunning ? 'var(--emerald)' : (isInterrupted ? 'var(--amber)' : 'var(--cyan)');
-        statusPill.style.borderColor = isRunning ? 'var(--emerald)' : (isInterrupted ? 'var(--amber)' : 'var(--cyan)');
-    }
-
-    // Hero Stats
-    const stepEl = document.getElementById('train-stat-step');
-    if (stepEl && data.step != null) stepEl.innerText = Number(data.step).toLocaleString();
-
-    const lossEl = document.getElementById('train-stat-loss');
-    if (lossEl && data.loss != null) lossEl.innerText = parseFloat(data.loss).toFixed(3);
-
-    const emaEl = document.getElementById('train-stat-ema');
-    if (emaEl && data.ema_loss != null) emaEl.innerText = parseFloat(data.ema_loss).toFixed(3);
-
-    const pplEl = document.getElementById('train-stat-ppl');
-    if (pplEl && data.ppl != null) pplEl.innerText = parseFloat(data.ppl).toFixed(1);
-
-    const layersEl = document.getElementById('train-stat-layers');
-    if (layersEl && data.active_layers != null) layersEl.innerText = `${data.active_layers} Layers`;
-
-    const paramsEl = document.getElementById('train-stat-params');
-    if (paramsEl && data.parameters != null) paramsEl.innerText = data.parameters;
-
-    const tokSpeedEl = document.getElementById('train-stat-tokens');
-    if (tokSpeedEl && data.tok_s != null) tokSpeedEl.innerText = `${parseFloat(data.tok_s).toFixed(1)} tok/s`;
-
-    const totalTokEl = document.getElementById('train-stat-total-tokens');
-    if (totalTokEl && data.total_tokens_seen != null) totalTokEl.innerText = data.total_tokens_seen;
-
-    // Progress Bar & ETA
-    const targetSteps = data.target_steps || 50000;
-    const curStep = data.step || 0;
-    const progressPct = Math.min(100, Math.max(0, (curStep / targetSteps) * 100));
-    
-    const progText = document.getElementById('train-progress-text');
-    if (progText) progText.innerText = `${progressPct.toFixed(1)}% (${curStep.toLocaleString()} / ${targetSteps.toLocaleString()})`;
-
-    const progBar = document.getElementById('train-progress-bar');
-    if (progBar) progBar.style.width = `${progressPct}%`;
-
-    const etaText = document.getElementById('train-eta-text');
-    if (etaText && data.eta) etaText.innerText = data.eta;
-
-    const secPerStep = document.getElementById('train-sec-per-step');
-    if (secPerStep && data.time_telemetry?.actual_avg_sec_per_step != null) {
-        secPerStep.innerText = `${data.time_telemetry.actual_avg_sec_per_step}s/step`;
-    }
-
-    // Timeline Rendering
-    const timeline = document.getElementById('training-timeline-container');
-    if (timeline && data.history && data.history.length > 0) {
-        timeline.innerHTML = '';
-        const recentHistory = data.history.slice(-6).reverse();
-        recentHistory.forEach(item => {
-            const el = document.createElement('div');
-            el.className = 'timeline-item';
-            el.innerHTML = `
-                <div style="font-size:0.82rem; font-weight:700; color:#fff;">Step ${item.step.toLocaleString()} • Loss: ${parseFloat(item.loss).toFixed(3)}</div>
-                <div style="font-size:0.72rem; color:var(--cyan); margin-top:2px;">Throughput: ${item.tok_s ? item.tok_s.toFixed(1) + ' tok/s' : 'Active'} • PPL: ${item.ppl ? item.ppl.toFixed(1) : 'Normal'}</div>
-            `;
-            timeline.appendChild(el);
-        });
-    }
-
-    // Chart.js Convergence Curve
-    if (data.history && data.history.length > 0) {
-        const ctx = document.getElementById('trainingLossChart');
-        if (ctx) {
-            const valid = data.history.filter(h => h && h.loss !== null && h.loss !== undefined && !isNaN(h.loss));
-            const labels = valid.map(h => 'Step ' + h.step);
-            const lossPoints = valid.map(h => parseFloat(h.loss));
-            const pplPoints = valid.map(h => Math.min(parseFloat(h.ppl || 200), 500));
-
-            if (trainingChartInstance) {
-                trainingChartInstance.data.labels = labels;
-                trainingChartInstance.data.datasets[0].data = lossPoints;
-                trainingChartInstance.data.datasets[1].data = pplPoints;
-                trainingChartInstance.update('none');
-            } else {
-                trainingChartInstance = new Chart(ctx, {
-                    type: 'line',
-                    data: {
-                        labels: labels,
-                        datasets: [
-                            {
-                                label: 'Training Loss',
-                                data: lossPoints,
-                                borderColor: '#00f5ff',
-                                backgroundColor: 'rgba(0, 245, 255, 0.12)',
-                                borderWidth: 2.5,
-                                fill: true,
-                                tension: 0.25,
-                                yAxisID: 'y'
-                            },
-                            {
-                                label: 'Perplexity (PPL)',
-                                data: pplPoints,
-                                borderColor: '#ff007f',
-                                borderDash: [4, 4],
-                                borderWidth: 1.8,
-                                fill: false,
-                                tension: 0.25,
-                                yAxisID: 'y1'
-                            }
-                        ]
-                    },
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        interaction: { mode: 'index', intersect: false },
-                        plugins: {
-                            legend: { labels: { color: '#94a3b8', font: { family: 'Plus Jakarta Sans', size: 11 } } }
-                        },
-                        scales: {
-                            x: { ticks: { color: '#64748b', maxTicksLimit: 8 }, grid: { color: 'rgba(255,255,255,0.04)' } },
-                            y: {
-                                type: 'linear', display: true, position: 'left',
-                                ticks: { color: '#00f5ff' }, grid: { color: 'rgba(255,255,255,0.05)' }
-                            },
-                            y1: {
-                                type: 'linear', display: true, position: 'right',
-                                ticks: { color: '#ff007f' }, grid: { drawOnChartArea: false }
-                            }
-                        }
-                    }
-                });
-            }
-        }
-    }
-}
-
-async function startTrainingFromUI() {
-    const stage = document.getElementById('train-cfg-stage')?.value || 'pretrain';
-    const steps = parseInt(document.getElementById('train-cfg-steps')?.value || 500, 10);
-    const batch_size = parseInt(document.getElementById('train-cfg-batch')?.value || 2, 10);
-    const lr = parseFloat(document.getElementById('train-cfg-lr')?.value || 3e-4);
-    const resume = document.getElementById('train-cfg-resume')?.checked ?? true;
-    const msgEl = document.getElementById('train-ui-msg');
-
-    if (msgEl) {
-        msgEl.style.color = 'var(--cyan)';
-        msgEl.innerText = '⏳ Launching training process...';
-    }
-
-    try {
-        const res = await fetch('/api/training/start', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                dataset: 'Datasets/tantra_master_train.jsonl',
-                stage: stage,
-                steps: steps,
-                batch_size: batch_size,
-                grad_accum: 4,
-                lr: lr,
-                resume: resume
-            })
-        });
-        const data = await res.json();
-        if (res.ok) {
-            if (msgEl) {
-                msgEl.style.color = 'var(--emerald)';
-                msgEl.innerText = `🚀 Training active (PID: ${data.pid}, Target: ${data.target_steps} steps)`;
-            }
-            loadTrainingDashboard(true);
-        } else {
-            if (msgEl) {
-                msgEl.style.color = 'var(--amber)';
-                msgEl.innerText = `⚠️ ${data.detail || 'Could not start training'}`;
-            }
-        }
-    } catch(err) {
-        if (msgEl) {
-            msgEl.style.color = '#ef4444';
-            msgEl.innerText = `❌ Error: ${err.message}`;
-        }
-    }
-}
-window.startTrainingFromUI = startTrainingFromUI;
-
-async function stopTrainingFromUI() {
-    const msgEl = document.getElementById('train-ui-msg');
-    if (msgEl) {
-        msgEl.style.color = 'var(--amber)';
-        msgEl.innerText = '⏹️ Stopping training process...';
-    }
-
-    try {
-        const res = await fetch('/api/training/stop', { method: 'POST' });
-        const data = await res.json();
-        if (msgEl) {
-            msgEl.style.color = 'var(--cyan)';
-            msgEl.innerText = data.status === 'stopped' ? '⏹️ Training process terminated.' : 'ℹ️ No active training process running.';
-        }
-        loadTrainingDashboard(true);
-    } catch(err) {
-        if (msgEl) {
-            msgEl.style.color = '#ef4444';
-            msgEl.innerText = `❌ Error: ${err.message}`;
-        }
-    }
-}
-window.stopTrainingFromUI = stopTrainingFromUI;
-
-
-// ── 5. Native Multimodal & Web Audio Oscilloscope ───────────────────────────
-
-async function generateAudioSample() {
-    const text = document.getElementById('inp-tts-text')?.value || "नमस्ते! मैं तन्त्र हूँ।";
-    const voice = document.getElementById('sel-tts-voice')?.value || "hi-IN-SwaraNeural";
-
-    const container = document.getElementById('audio-player-container');
-    if (container) {
-        container.innerHTML = `<div style="font-size:0.75rem; color:var(--cyan); margin-top:8px;">⏳ Synthesizing speech via Edge-TTS...</div>`;
-    }
-
-    try {
-        const res = await fetch('/api/multimodal/audio_generate', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ text: text, voice: voice })
-        });
-        const data = await res.json();
-        if (container && data.audio_base64) {
-            container.innerHTML = `
-                <audio id="synthesizedAudio" controls autoplay src="${data.audio_base64}" style="width:100%; margin-top:8px;"></audio>
-                <div style="font-size:0.72rem; color:var(--emerald); margin-top:4px;">✅ Synthesized ${data.chars_spoken} characters (${data.voice})</div>
-            `;
-
-            const audioElement = document.getElementById('synthesizedAudio');
-            if (audioElement) {
-                startAudioOscilloscope(audioElement);
-            }
-        } else if (data.detail) {
-            if (container) container.innerHTML = `<div style="font-size:0.75rem; color:var(--magenta); margin-top:8px;">⚠️ ${data.detail}</div>`;
-        }
-    } catch(err) {
-        console.error("Audio generation error:", err);
-        if (container) container.innerHTML = `<div style="font-size:0.75rem; color:var(--magenta); margin-top:8px;">⚠️ Network error: ${err.message}</div>`;
-    }
-}
-window.generateAudioSample = generateAudioSample;
-
-// ── Voice Input (STT via Whisper) & Voice Output (TTS) ───────────────────────
-
-let mediaRecorderInstance = null;
-let audioChunks = [];
-let isRecordingAudio = false;
-
-async function toggleMicRecording() {
-    const micBtn = document.getElementById('btn-mic-toggle');
-    const statusInd = document.getElementById('chat-status-indicator');
-
-    if (isRecordingAudio) {
-        // Stop recording
-        if (mediaRecorderInstance && mediaRecorderInstance.state !== 'inactive') {
-            mediaRecorderInstance.stop();
-        }
-        isRecordingAudio = false;
-        if (micBtn) {
-            micBtn.innerText = '🎤';
-            micBtn.style.background = 'rgba(255,255,255,0.08)';
-        }
-        if (statusInd) statusInd.innerText = 'Transcribing audio...';
-        return;
-    }
-
-    // Start recording
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        alert("Microphone access is not supported by your browser environment.");
-        return;
-    }
-
-    try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        audioChunks = [];
-        mediaRecorderInstance = new MediaRecorder(stream);
-
-        mediaRecorderInstance.ondataavailable = (e) => {
-            if (e.data && e.data.size > 0) {
-                audioChunks.push(e.data);
-            }
-        };
-
-        mediaRecorderInstance.onstop = async () => {
-            stream.getTracks().forEach(track => track.stop());
-            const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
-            if (audioBlob.size === 0) return;
-
-            const formData = new FormData();
-            formData.append('audio', audioBlob, 'input.webm');
-
-            try {
-                const res = await fetch('/api/stt', {
-                    method: 'POST',
-                    body: formData
-                });
-                const data = await res.json();
-                if (data.transcript) {
-                    const inputField = document.getElementById('chat-input-field');
-                    if (inputField) {
-                        inputField.value = (inputField.value ? inputField.value + " " : "") + data.transcript;
-                        autoExpandTextarea(inputField);
-                    }
-                    if (statusInd) statusInd.innerText = `Recognized (${data.language}): Ready`;
-                } else if (data.detail) {
-                    if (statusInd) statusInd.innerText = `STT note: ${data.detail}`;
-                }
-            } catch (err) {
-                console.error("STT error:", err);
-                if (statusInd) statusInd.innerText = 'STT request failed';
-            }
-        };
-
-        mediaRecorderInstance.start();
-        isRecordingAudio = true;
-        if (micBtn) {
-            micBtn.innerText = '🛑';
-            micBtn.style.background = '#ef4444';
-        }
-        if (statusInd) statusInd.innerText = 'Listening (speak now)...';
-    } catch (err) {
-        console.error("Microphone access error:", err);
-        alert(`Could not access microphone: ${err.message}`);
-    }
-}
-window.toggleMicRecording = toggleMicRecording;
-
-async function speakLastResponse() {
-    const bubbles = document.querySelectorAll('.message-row.assistant .message-bubble');
-    if (!bubbles.length) return;
-    const lastBubble = bubbles[bubbles.length - 1];
-    const textToSpeak = lastBubble.innerText.trim();
-    if (!textToSpeak) return;
-
-    const speakBtn = document.getElementById('btn-speak-last');
-    const statusInd = document.getElementById('chat-status-indicator');
-    if (speakBtn) speakBtn.innerText = '⏳';
-    if (statusInd) statusInd.innerText = 'Synthesizing speech...';
-
-    try {
-        const res = await fetch('/api/tts', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                text: textToSpeak.slice(0, 1000), // Speak first 1000 chars
-                voice: "hi-IN-SwaraNeural"
-            })
-        });
-        const data = await res.json();
-        if (data.audio_base64) {
-            let player = document.getElementById('global-tts-player');
-            if (!player) {
-                player = document.createElement('audio');
-                player.id = 'global-tts-player';
-                player.style.display = 'none';
-                document.body.appendChild(player);
-            }
-            player.src = data.audio_base64;
-            player.play();
-            if (statusInd) statusInd.innerText = 'Playing response audio...';
-            player.onended = () => {
-                if (statusInd) statusInd.innerText = 'Ready';
-            };
-        } else if (data.detail) {
-            if (statusInd) statusInd.innerText = `TTS note: ${data.detail}`;
-        }
-    } catch (err) {
-        console.error("TTS playback error:", err);
-        if (statusInd) statusInd.innerText = 'TTS request failed';
-    } finally {
-        if (speakBtn) speakBtn.innerText = '🔊';
-    }
-}
-window.speakLastResponse = speakLastResponse;
-
-function startAudioOscilloscope(audioElement) {
-    try {
-        const AudioCtx = window.AudioContext || window.webkitAudioContext;
-        if (!audioContextInstance) {
-            audioContextInstance = new AudioCtx();
-        }
-        if (audioContextInstance.state === 'suspended') {
-            audioContextInstance.resume();
-        }
-
-        const canvas = document.getElementById('audioWaveCanvas');
-        if (!canvas) return;
-        const ctx = canvas.getContext('2d');
-
-        if (!audioAnalyser) {
-            audioAnalyser = audioContextInstance.createAnalyser();
-            audioAnalyser.fftSize = 256;
-        }
-
-        const source = audioContextInstance.createMediaElementSource(audioElement);
-        source.connect(audioAnalyser);
-        audioAnalyser.connect(audioContextInstance.destination);
-
-        const bufferLength = audioAnalyser.frequencyBinCount;
-        const dataArray = new Uint8Array(bufferLength);
-
-        const statusEl = document.getElementById('oscilloscope-status');
-        if (statusEl) statusEl.innerText = 'Playing';
-
-        function drawWave() {
-            audioAnimFrame = requestAnimationFrame(drawWave);
-            audioAnalyser.getByteTimeDomainData(dataArray);
-
-            ctx.fillStyle = 'rgba(7, 9, 14, 0.4)';
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-            ctx.lineWidth = 2;
-            ctx.strokeStyle = '#00f5ff';
-            ctx.shadowBlur = 8;
-            ctx.shadowColor = '#00f5ff';
-            ctx.beginPath();
-
-            const sliceWidth = canvas.width / bufferLength;
-            let x = 0;
-
-            for (let i = 0; i < bufferLength; i++) {
-                const v = dataArray[i] / 128.0;
-                const y = (v * canvas.height) / 2;
-
-                if (i === 0) ctx.moveTo(x, y);
-                else ctx.lineTo(x, y);
-
-                x += sliceWidth;
-            }
-
-            ctx.lineTo(canvas.width, canvas.height / 2);
-            ctx.stroke();
-        }
-
-        if (audioAnimFrame) cancelAnimationFrame(audioAnimFrame);
-        drawWave();
-
-        audioElement.onended = () => {
-            if (audioAnimFrame) cancelAnimationFrame(audioAnimFrame);
-            if (statusEl) statusEl.innerText = 'Finished';
-        };
-    } catch (e) {
-        console.warn("Oscilloscope initialization note:", e);
-    }
-}
-
-async function inspectImagePatches() {
-    try {
-        const res = await fetch('/api/multimodal/image_inspect', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ grid_size: 64 })
-        });
-        const data = await res.json();
-        const display = document.getElementById('image-inspect-results');
-        if (display) {
-            display.innerHTML = `
-                <div style="color:#fff; font-weight:700; margin-bottom:4px;">Grid: ${data.patch_grid} • ${data.visual_tokens_count} Discrete Patches</div>
-                <div style="color:var(--cyan); margin-bottom:6px; word-break:break-all;">Sample Token IDs: [${data.token_ids_sample.join(', ')}]</div>
-                <div style="color:var(--emerald);">Compression: ${data.compression_ratio} • Latent dim: 256</div>
-            `;
-        }
-    } catch(err) {
-        console.error("Image inspection error:", err);
-    }
-}
-window.inspectImagePatches = inspectImagePatches;
-
-
-// ── 6. Checkpoint Comparison Mode ───────────────────────────────────────────
-
-async function runComparison() {
-    const modelA = document.getElementById('compare-model-a').value;
-    const modelB = document.getElementById('compare-model-b').value;
-    const prompt = document.getElementById('compare-prompt-input').value;
-
-    const outA = document.getElementById('compare-output-a');
-    const outB = document.getElementById('compare-output-b');
-    if (outA) outA.innerText = "Evaluating Model A...";
-    if (outB) outB.innerText = "Evaluating Model B...";
-
-    try {
-        const res = await fetch('/api/compare', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ prompt: prompt, model_a: modelA, model_b: modelB })
-        });
-        const data = await res.json();
-
-        document.getElementById('compare-name-a').innerText = data.model_a.name;
-        document.getElementById('compare-badge-a').innerText = `Loss: ${data.model_a.metrics.loss} • Acc: ${data.model_a.metrics.top1}`;
-        if (outA) outA.innerHTML = marked.parse(data.model_a.response);
-
-        document.getElementById('compare-name-b').innerText = data.model_b.name;
-        document.getElementById('compare-badge-b').innerText = `Loss: ${data.model_b.metrics.loss} • Acc: ${data.model_b.metrics.top1}`;
-        if (outB) outB.innerHTML = marked.parse(data.model_b.response);
-    } catch(err) {
-        if (outA) outA.innerText = `Comparison Error: ${err.message}`;
-        if (outB) outB.innerText = `Comparison Error: ${err.message}`;
-    }
-}
-window.runComparison = runComparison;
-
-
-// ── 7. RAG Documents & Memory Bank ──────────────────────────────────────────
-
-async function handleDocumentUpload(input) {
-    const file = input.files[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = async function(e) {
-        const content = e.target.result;
-        try {
-            await fetch('/api/documents/upload', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ filename: file.name, content: content })
-            });
-            loadRAGDocuments();
-        } catch(err) {
-            console.error("Upload error:", err);
-        }
-    };
-    reader.readAsText(file);
-}
-window.handleDocumentUpload = handleDocumentUpload;
-
-async function loadRAGDocuments() {
-    try {
-        const res = await fetch('/api/documents');
-        const data = await res.json();
-        const container = document.getElementById('rag-docs-list-container');
-        if (!container) return;
-        container.innerHTML = '';
-
-        if (!data.documents || data.documents.length === 0) {
-            container.innerHTML = '<div style="font-size:0.72rem; color:var(--text-muted); padding:4px;">No docs ingested yet.</div>';
-            return;
-        }
-
-        data.documents.forEach(doc => {
-            const item = document.createElement('div');
-            item.className = 'memory-item';
-            item.innerHTML = `<span>📄 ${doc.filename}</span> <span style="color:var(--text-muted); font-size:0.65rem;">${doc.size_kb} KB</span>`;
-            container.appendChild(item);
-        });
-    } catch(err) {
-        console.error("Error loading RAG documents:", err);
-    }
-}
-
-async function loadMemoryBank() {
-    try {
-        const res = await fetch('/api/memory');
-        const data = await res.json();
-        memoryBank = data.memory || [];
-        renderMemoryBank();
-    } catch(err) {
-        console.error("Error loading memory bank:", err);
-    }
-}
-
-function renderMemoryBank() {
-    const container = document.getElementById('memory-drawer-container');
-    if (!container) return;
-    container.innerHTML = '';
-
-    if (memoryBank.length === 0) {
-        container.innerHTML = '<div style="font-size:0.72rem; color:var(--text-muted); padding:4px;">No long-term memories stored.</div>';
-        return;
-    }
-
-    memoryBank.forEach(mem => {
-        const item = document.createElement('div');
-        item.className = 'memory-item';
-        item.innerHTML = `
-            <div style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1;" title="${mem.fact}">
-                <strong style="color:var(--cyan);">${mem.category || 'Fact'}:</strong> ${mem.fact}
-            </div>
-            <button class="btn-icon" onclick="deleteMemory('${mem.id}')" title="Delete" style="color:var(--danger); margin-left:4px;">✕</button>
-        `;
-        container.appendChild(item);
-    });
-}
-
-async function addMemoryPrompt() {
-    const category = prompt("Memory Category (e.g. Preference, Architecture, Context):", "Preference");
-    if (!category) return;
-    const fact = prompt("Fact / Information to remember:");
-    if (!fact || !fact.trim()) return;
-
-    try {
-        await fetch('/api/memory', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ category: category.trim(), fact: fact.trim() })
-        });
-        loadMemoryBank();
-    } catch(err) {
-        console.error("Error adding memory:", err);
-    }
-}
-window.addMemoryPrompt = addMemoryPrompt;
-
-async function deleteMemory(memoryId) {
-    try {
-        await fetch(`/api/memory/${memoryId}`, { method: 'DELETE' });
-        loadMemoryBank();
-    } catch(err) {
-        console.error("Error deleting memory:", err);
-    }
-}
-window.deleteMemory = deleteMemory;
-
-
-// ── 8. Interactive Physics Knowledge Graph ──────────────────────────────────
-
-let kgSimulation = null;
-
-async function renderKnowledgeGraph() {
-    const canvas = document.getElementById('kgCanvas');
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    canvas.width = canvas.parentElement.clientWidth || 800;
-    canvas.height = canvas.parentElement.clientHeight || 500;
-
-    let nodes = [];
-    let links = [];
-
-    try {
-        const res = await fetch('/api/knowledge_graph');
-        const data = await res.json();
-        if (data && data.nodes && data.nodes.length > 0) {
-            nodes = data.nodes;
-            links = data.links || [];
-        }
-    } catch(err) {
-        console.error("Error fetching knowledge graph:", err);
-    }
-
-    if (nodes.length === 0) {
-        nodes = [
-            { id: 'core', label: 'Tantra NeuroCore', x: canvas.width / 2, y: canvas.height / 2, r: 24, color: '#00f5ff' },
-            { id: 'alra', label: 'ALRA Linear O(1)', x: canvas.width / 2 - 140, y: canvas.height / 2 - 80, r: 18, color: '#00ff88' },
-            { id: 'bitnet', label: 'BitNet 1.58b', x: canvas.width / 2 + 140, y: canvas.height / 2 - 80, r: 18, color: '#ff007f' },
-            { id: 'mtp', label: 'MTP Speculation', x: canvas.width / 2 - 120, y: canvas.height / 2 + 100, r: 16, color: '#8a2be2' },
-            { id: 'gold', label: '4-Track Gold', x: canvas.width / 2 + 120, y: canvas.height / 2 + 100, r: 16, color: '#ffd700' }
-        ];
-        links = [
-            { source: 'core', target: 'alra' },
-            { source: 'core', target: 'bitnet' },
-            { source: 'core', target: 'mtp' },
-            { source: 'core', target: 'gold' }
-        ];
-    }
-
-    // Initialize node physics properties
-    const physicsNodes = nodes.map(n => ({
-        ...n,
-        x: n.x || Math.random() * (canvas.width - 200) + 100,
-        y: n.y || Math.random() * (canvas.height - 200) + 100,
-        vx: 0,
-        vy: 0,
-        r: n.r || (n.type === 'concept' ? 24 : 16)
-    }));
-
-    const nodeLookup = {};
-    physicsNodes.forEach(n => nodeLookup[n.id] = n);
-
-    let draggedNode = null;
-
-    canvas.onmousedown = (e) => {
-        const rect = canvas.getBoundingClientRect();
-        const mx = e.clientX - rect.left;
-        const my = e.clientY - rect.top;
-
-        for (const n of physicsNodes) {
-            const dist = Math.hypot(n.x - mx, n.y - my);
-            if (dist <= n.r + 6) {
-                draggedNode = n;
-                break;
-            }
-        }
-    };
-
-    canvas.onmousemove = (e) => {
-        if (!draggedNode) return;
-        const rect = canvas.getBoundingClientRect();
-        draggedNode.x = e.clientX - rect.left;
-        draggedNode.y = e.clientY - rect.top;
-        draggedNode.vx = 0;
-        draggedNode.vy = 0;
-    };
-
-    window.onmouseup = () => { draggedNode = null; };
-
-    if (kgSimulation) cancelAnimationFrame(kgSimulation);
-
-    function stepPhysics() {
-        // Repulsion between nodes
-        for (let i = 0; i < physicsNodes.length; i++) {
-            for (let j = i + 1; j < physicsNodes.length; j++) {
-                const n1 = physicsNodes[i];
-                const n2 = physicsNodes[j];
-                const dx = n2.x - n1.x;
-                const dy = n2.y - n1.y;
-                const dist = Math.hypot(dx, dy) || 1;
-                const force = 350 / (dist * dist);
-                const fx = (dx / dist) * force;
-                const fy = (dy / dist) * force;
-
-                if (n1 !== draggedNode) { n1.vx -= fx; n1.vy -= fy; }
-                if (n2 !== draggedNode) { n2.vx += fx; n2.vy += fy; }
-            }
-        }
-
-        // Spring attraction along links
-        links.forEach(l => {
-            const src = nodeLookup[l.source];
-            const tgt = nodeLookup[l.target];
-            if (src && tgt) {
-                const dx = tgt.x - src.x;
-                const dy = tgt.y - src.y;
-                const dist = Math.hypot(dx, dy) || 1;
-                const springForce = (dist - 120) * 0.008;
-                const fx = (dx / dist) * springForce;
-                const fy = (dy / dist) * springForce;
-
-                if (src !== draggedNode) { src.vx += fx; src.vy += fy; }
-                if (tgt !== draggedNode) { tgt.vx -= fx; tgt.vy += fy; }
-            }
-        });
-
-        // Center gravity and integration
-        const cx = canvas.width / 2;
-        const cy = canvas.height / 2;
-        physicsNodes.forEach(n => {
-            if (n === draggedNode) return;
-            n.vx += (cx - n.x) * 0.0005;
-            n.vy += (cy - n.y) * 0.0005;
-            n.vx *= 0.88; // Damping
-            n.vy *= 0.88;
-            n.x += n.vx;
-            n.y += n.vy;
-
-            // Boundaries
-            n.x = Math.max(n.r + 10, Math.min(canvas.width - n.r - 10, n.x));
-            n.y = Math.max(n.r + 10, Math.min(canvas.height - n.r - 10, n.y));
-        });
-
-        // Draw Canvas
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-        // Draw Links
-        ctx.strokeStyle = 'rgba(0, 245, 255, 0.2)';
-        ctx.lineWidth = 1.8;
-        links.forEach(l => {
-            const src = nodeLookup[l.source];
-            const tgt = nodeLookup[l.target];
-            if (src && tgt) {
-                ctx.beginPath();
-                ctx.moveTo(src.x, src.y);
-                ctx.lineTo(tgt.x, tgt.y);
-                ctx.stroke();
-            }
-        });
-
-        // Draw Nodes
-        physicsNodes.forEach(n => {
-            ctx.shadowBlur = 16;
-            ctx.shadowColor = n.color || '#00f5ff';
-            ctx.fillStyle = n.color || '#00f5ff';
-            ctx.beginPath();
-            ctx.arc(n.x, n.y, n.r, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.shadowBlur = 0;
-
-            ctx.fillStyle = '#fff';
-            ctx.font = '600 11px Plus Jakarta Sans';
-            ctx.textAlign = 'center';
-            ctx.fillText(n.label || n.id, n.x, n.y + n.r + 14);
-        });
-
-        kgSimulation = requestAnimationFrame(stepPhysics);
-    }
-
-    stepPhysics();
-}
-window.renderKnowledgeGraph = renderKnowledgeGraph;
-
-
-// ── 9. Datasets & MoE Matrix ────────────────────────────────────────────────
-
-async function loadDatasets() {
-    try {
-        const res = await fetch('/api/datasets');
-        const data = await res.json();
-        datasetsCatalog = Array.isArray(data) ? data : [];
-        const container = document.getElementById('datasets-grid-container');
-        if (!container) return;
-        container.innerHTML = '';
-
-        datasetsCatalog.forEach(ds => {
-            const card = document.createElement('div');
-            card.className = 'glass-card';
-            card.style.padding = '20px';
-            card.innerHTML = `
-                <div style="display:flex; justify-content:space-between; align-items:flex-start;">
-                    <div style="font-size:1rem; font-weight:700; color:#fff;">📁 ${ds.name}</div>
-                    <span class="brand-badge badge-emerald">${ds.status || 'Ready'}</span>
-                </div>
-                <div style="font-size:0.75rem; color:var(--cyan); margin: 6px 0 12px 0;">${ds.type} • ${ds.size}</div>
-                <div style="font-size:0.8rem; color:var(--text-muted); margin-bottom:4px;">Samples: <strong style="color:#fff;">${Number(ds.samples).toLocaleString()}</strong></div>
-                <div style="font-size:0.8rem; color:var(--text-muted); margin-bottom:14px;">Tokens: <strong style="color:var(--emerald);">${ds.tokens}</strong></div>
-                <button class="btn-action btn-secondary" style="width:100%; font-size:0.72rem;" onclick="openSampleModal('${ds.id}')">🔍 Inspect Samples</button>
-            `;
-            container.appendChild(card);
-        });
-    } catch(err) {
-        console.error("Datasets error:", err);
-    }
-}
-window.loadDatasets = loadDatasets;
-
-function openSampleModal(datasetId) {
-    const ds = datasetsCatalog.find(d => d.id === datasetId);
-    if (!ds) return;
-
-    const modal = document.getElementById('sample-modal');
-    const title = document.getElementById('modal-dataset-title');
-    const list = document.getElementById('modal-samples-list');
-
-    if (title) title.innerText = `Samples: ${ds.name}`;
-    if (list) {
-        list.innerHTML = '';
-        (ds.sample_preview || []).forEach((sample, idx) => {
-            const item = document.createElement('div');
-            item.style.padding = '12px';
-            item.style.borderRadius = '8px';
-            item.style.background = 'rgba(0,0,0,0.5)';
-            item.style.border = '1px solid var(--border-light)';
-            item.innerHTML = `
-                <div style="font-size:0.75rem; font-weight:700; color:var(--cyan); margin-bottom:4px;">Sample #${idx+1} Prompt:</div>
-                <div style="font-size:0.8rem; color:#fff; margin-bottom:8px; font-family:var(--font-mono);">${sample.prompt || 'N/A'}</div>
-                <div style="font-size:0.75rem; font-weight:700; color:var(--emerald); margin-bottom:4px;">Completion:</div>
-                <div style="font-size:0.8rem; color:#ddd; font-family:var(--font-mono);">${sample.completion || 'N/A'}</div>
-            `;
-            list.appendChild(item);
-        });
-    }
-
-    if (modal) modal.style.display = 'flex';
-}
-window.openSampleModal = openSampleModal;
-
-function closeSampleModal() {
-    const modal = document.getElementById('sample-modal');
-    if (modal) modal.style.display = 'none';
-}
-window.closeSampleModal = closeSampleModal;
-
-async function renderExperts() {
-    try {
-        const res = await fetch('/api/experts');
-        const data = await res.json();
-        const container = document.getElementById('experts-grid-container');
-        if (!container) return;
-        container.innerHTML = '';
-
-        const experts = data.experts || [];
-        experts.forEach(exp => {
-            const card = document.createElement('div');
-            card.className = 'glass-card';
-            card.style.padding = '18px';
-            card.innerHTML = `
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-                    <span style="font-size:0.95rem; font-weight:700; color:#fff;">${exp.icon || '🧬'} ${exp.name || 'Expert'}</span>
-                    <span class="brand-badge" style="color:var(--cyan); border-color:rgba(0,245,255,0.3);">${exp.specialization || 'Core'}</span>
-                </div>
-                <div style="font-size:0.78rem; color:var(--text-muted); margin-bottom:6px;">Status: <strong style="color:var(--emerald);">Online (Top-${data.top_k || 2})</strong></div>
-                <div style="font-size:0.75rem; color:var(--text-sub); margin-bottom:8px;">Routing Share: <strong style="color:#fff;">${exp.load_percentage}%</strong></div>
-                <div class="progress-track" style="height:6px;">
-                    <div class="progress-fill" style="width:${exp.load_percentage}%;"></div>
-                </div>
-            `;
-            container.appendChild(card);
-        });
-    } catch(err) {
-        console.error("MoE render error:", err);
-    }
-}
-window.renderExperts = renderExperts;
-
-
-// ── 10. Hardware & Neural Telemetry ─────────────────────────────────────────
-
-async function loadTelemetry() {
-    try {
-        const res = await fetch('/api/telemetry');
-        const data = await res.json();
-        
-        // 4 KPI Stats
-        const container = document.getElementById('telemetry-stats-container');
-        if (container) {
-            container.innerHTML = '';
-            const metrics = [
-                { label: 'DEVICE & CORES', val: data.device?.toUpperCase() || 'CPU', sub: `${data.hardware?.cpu_threads || 8} Threads • ${data.hardware?.simd || 'AVX2'}` },
-                { label: 'MEMORY LOAD', val: `${data.hardware?.ram_used_gb || 0} GB`, sub: `Total: ${data.hardware?.ram_total_gb || 0} GB (${data.hardware?.ram_percent || 0}%)` },
-                { label: 'ACTIVE MODEL', val: data.parameters_formatted || '82.8M', sub: `${data.layers || 10} Layers • ${data.quantization || 'BitNet 1.58b'}` },
-                { label: 'MTP SPECULATION', val: data.hardware?.mtp_speedup || '2.35x', sub: 'Multi-Token Head Active' }
-            ];
-
-            metrics.forEach(m => {
-                const card = document.createElement('div');
-                card.className = 'stat-card';
-                card.innerHTML = `
-                    <div class="stat-label">${m.label}</div>
-                    <div class="stat-val" style="color:var(--cyan);">${m.val}</div>
-                    <div class="stat-sub">${m.sub}</div>
-                `;
-                container.appendChild(card);
-            });
-        }
-
-        // Per-Core CPU Activity Bars
-        const coreBox = document.getElementById('cpu-cores-container');
-        if (coreBox && data.hardware?.per_core_pct) {
-            coreBox.innerHTML = '';
-            data.hardware.per_core_pct.forEach((pct, idx) => {
-                const row = document.createElement('div');
-                row.style.display = 'flex';
-                row.style.alignItems = 'center';
-                row.style.gap = '10px';
-                row.innerHTML = `
-                    <span style="font-size:0.72rem; color:var(--text-muted); width:50px;">Core #${idx}</span>
-                    <div class="progress-track" style="flex:1; height:6px;">
-                        <div class="progress-fill" style="width:${pct}%;"></div>
-                    </div>
-                    <span style="font-size:0.72rem; color:var(--cyan); font-family:var(--font-mono); width:40px; text-align:right;">${pct}%</span>
-                `;
-                coreBox.appendChild(row);
-            });
-        }
-
-        // Memory Breakdown
-        const memBox = document.getElementById('memory-breakdown-container');
-        if (memBox && data.hardware) {
-            const hw = data.hardware;
-            memBox.innerHTML = `
-                <div style="font-size:0.82rem; color:#fff; display:flex; justify-content:space-between;">
-                    <span>System RAM Allocation:</span>
-                    <strong style="color:var(--cyan);">${hw.ram_used_gb} GB / ${hw.ram_total_gb} GB</strong>
-                </div>
-                <div class="progress-track" style="height:10px; margin: 4px 0 14px 0;">
-                    <div class="progress-fill" style="width:${hw.ram_percent}%;"></div>
-                </div>
-                ${hw.gpu ? `
-                    <div style="font-size:0.82rem; color:#fff; display:flex; justify-content:space-between;">
-                        <span>GPU VRAM (${hw.gpu.name}):</span>
-                        <strong style="color:var(--emerald);">${hw.gpu.vram_allocated_mb} MB / ${hw.gpu.vram_total_mb} MB</strong>
-                    </div>
-                    <div class="progress-track" style="height:10px; margin-top:4px;">
-                        <div class="progress-fill" style="width:${hw.gpu.vram_utilization_pct}%; background:linear-gradient(90deg, var(--emerald), var(--cyan));"></div>
-                    </div>
-                ` : `<div style="font-size:0.78rem; color:var(--text-muted);">Dedicated GPU VRAM: Not active (Optimized CPU SIMD inference)</div>`}
-            `;
-        }
-    } catch(err) {
-        console.error("Telemetry load error:", err);
-    }
-}
-window.loadTelemetry = loadTelemetry;
-
-
-// ── 11. Code Sandbox & AST Execution ────────────────────────────────────────
-
-function setSandboxSnippet(name) {
-    const input = document.getElementById('sandbox-code-input');
-    if (!input) return;
-
-    if (name === 'benchmark') {
-        input.value = `import time
-import numpy as np
-
-# Tantra High-Speed Matrix Benchmark
-a = np.random.randn(1000, 1000).astype(np.float32)
-b = np.random.randn(1000, 1000).astype(np.float32)
-
-t0 = time.perf_counter()
-c = a @ b
-elapsed_ms = (time.perf_counter() - t0) * 1000
-
-print(f"Matrix Multiply (1000x1000): {elapsed_ms:.2f} ms")
-print(f"Result checksum: {float(c.sum()):.4f}")`;
-    } else if (name === 'bitnet') {
-        input.value = `import torch
-
-# BitNet 1.58-bit Ternary Quantization Simulation
-def quantize_158b(w):
-    scale = w.abs().mean().clamp(min=1e-5)
-    w_q = torch.round(w / scale).clamp(-1, 1)
-    return w_q, scale
-
-w = torch.randn(8, 8)
-w_ternary, scale = quantize_158b(w)
-
-print("Original Weights Sample:\\n", w[:2, :4])
-print("\\nQuantized Ternary {-1, 0, +1}:\\n", w_ternary[:2, :4])
-print("\\nTernary Values Present:", torch.unique(w_ternary).tolist())`;
-    } else if (name === 'tokenize') {
-        input.value = `sample_text = "Namaste! Tantra Studio with BitNet 1.58b."
-print("Input string:", sample_text)
-print("Length in bytes:", len(sample_text.encode('utf-8')))
-print("Length in characters:", len(sample_text))`;
-    }
-}
-window.setSandboxSnippet = setSandboxSnippet;
-
-async function runSandboxCode() {
-    const code = document.getElementById('sandbox-code-input').value;
-    const output = document.getElementById('sandbox-output-display');
-    const timeBadge = document.getElementById('sandbox-time-badge');
-    
-    if (output) output.innerText = "Executing in AST sandbox...";
-    try {
-        const res = await fetch('/api/sandbox/run', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ code: code })
-        });
-        const data = await res.json();
-        if (output) output.innerText = data.result || "Execution finished (no output).";
-        if (timeBadge && data.elapsed_ms != null) timeBadge.innerText = `Elapsed: ${data.elapsed_ms} ms`;
-    } catch(err) {
-        if (output) output.innerText = `Execution Error: ${err.message}`;
-    }
-}
-window.runSandboxCode = runSandboxCode;
-
-
-// ── 12. Admin Suite & Checkpoint Controls ───────────────────────────────────
-
-async function loadAvailableCheckpoints() {
-    try {
-        const res = await fetch('/api/checkpoints/list');
-        if (!res.ok) return;
-        const data = await res.json();
-        const headerSelect = document.getElementById('sel-checkpoint');
-        const adminSelect = document.getElementById('admin-ckpt-select');
-
-        const ckpts = data.checkpoints || [];
-        const active = data.active || '';
-
-        if (headerSelect) {
-            headerSelect.innerHTML = '<option value="">💾 Checkpoint...</option>';
-            ckpts.forEach(c => {
-                const opt = document.createElement('option');
-                opt.value = c.path;
-                opt.innerText = `${c.name} (${c.size_mb} MB)`;
-                if (c.name === active || c.path === active || c.is_active) opt.selected = true;
-                headerSelect.appendChild(opt);
-            });
-        }
-
-        if (adminSelect) {
-            adminSelect.innerHTML = '';
-            ckpts.forEach(c => {
-                const opt = document.createElement('option');
-                opt.value = c.path;
-                opt.innerText = `${c.name} (${c.size_mb} MB) [${c.modified}]`;
-                if (c.name === active || c.path === active || c.is_active) opt.selected = true;
-                adminSelect.appendChild(opt);
-            });
-        }
-    } catch(err) {
-        console.warn("Checkpoints list fetch failed:", err);
-    }
-}
-window.loadAvailableCheckpoints = loadAvailableCheckpoints;
-
-async function switchCheckpoint(checkpointPath) {
-    if (!checkpointPath) return;
-    const msgEl = document.getElementById('train-ui-msg');
-    if (msgEl) {
-        msgEl.style.color = 'var(--cyan)';
-        msgEl.innerText = `🔄 Switching weights to: ${checkpointPath}...`;
-    }
-    try {
-        const res = await fetch('/api/checkpoints/switch', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ checkpoint: checkpointPath })
-        });
-        const data = await res.json();
-        if (res.ok) {
-            if (msgEl) {
-                msgEl.style.color = 'var(--emerald)';
-                msgEl.innerText = `✅ Swapped weights to: ${data.active_checkpoint}`;
-            }
-            loadAvailableCheckpoints();
-        } else {
-            if (msgEl) {
-                msgEl.style.color = '#ef4444';
-                msgEl.innerText = `❌ Failed: ${data.detail || 'Checkpoint swap error'}`;
-            }
-        }
-    } catch(err) {
-        if (msgEl) {
-            msgEl.style.color = '#ef4444';
-            msgEl.innerText = `❌ Error: ${err.message}`;
-        }
-    }
-}
-window.switchCheckpoint = switchCheckpoint;
-
-async function adminSwitchCheckpoint() {
-    const ckpt = document.getElementById('admin-ckpt-select').value;
-    const resultDiv = document.getElementById('admin-swap-result');
-    if (resultDiv) resultDiv.innerText = "Swapping checkpoint...";
-
-    try {
-        const res = await fetch('/api/checkpoints/switch', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ checkpoint: ckpt })
-        });
-        const data = await res.json();
-        if (res.ok && data.active_checkpoint) {
-            if (resultDiv) resultDiv.innerText = `✅ Checkpoint successfully swapped to: ${data.active_checkpoint}`;
-            loadAvailableCheckpoints();
-        } else {
-            if (resultDiv) resultDiv.innerText = `❌ Error: ${data.detail || JSON.stringify(data)}`;
-        }
-    } catch(err) {
-        if (resultDiv) resultDiv.innerText = `❌ Error: ${err.message}`;
-    }
-}
-window.adminSwitchCheckpoint = adminSwitchCheckpoint;
-
-
-// ── Initial Boot ────────────────────────────────────────────────────────────
-window.addEventListener('DOMContentLoaded', () => {
-    loadSessions();
-    loadRAGDocuments();
-    loadMemoryBank();
-    loadDatasets();
-    loadAvailableCheckpoints();
-    pollLiveTelemetry();
-
-    // Start auto polling timer
-    livePollInterval = setInterval(pollLiveTelemetry, pollRateMs);
+$("#settings").addEventListener("input", (e) => {
+  const t = e.target;
+  if (!t.id || !(t.id in DEFAULTS)) return;
+  settings[t.id] = t.type === "checkbox" ? t.checked : t.type === "range" || t.type === "number" ? +t.value : t.value;
+  if (t.nextElementSibling?.tagName === "OUTPUT") t.nextElementSibling.textContent = t.value;
+  store.set("settings", settings);
 });
+$("#settings-btn").onclick = () => { $("#settings").hidden = !$("#settings").hidden; $("#settings-btn").classList.toggle("on"); };
+$("#settings-reset").onclick = () => { settings = { ...DEFAULTS }; store.set("settings", settings); bindSettings(); toast("Settings reset."); };
+bindSettings();
+
+// ── chat ─────────────────────────────────────────────────────────────────────
+let chat = { id: null, messages: [] };
+let chatsCache = {};
+let controller = null;
+let status = {};
+
+const SUGGESTIONS = ["नमस्ते, आप कौन हैं?", "भारत की राजधानी क्या है?", "Bhai, Python me list ko sort kaise karte hain?", "Explain photosynthesis in simple words.", "2 + 2 × 3 कितना होता है?"];
+
+function nearBottom() { const m = $("#messages"); return m.scrollHeight - m.scrollTop - m.clientHeight < 80; }
+function scrollDown(force) { const m = $("#messages"); if (force || nearBottom()) m.scrollTop = m.scrollHeight; }
+
+function renderMessages() {
+  const box = $("#messages");
+  box.innerHTML = "";
+  if (!chat.messages.length) {
+    const e = el("div", "empty");
+    e.innerHTML = `<h1>तन्त्र</h1><p>नमस्ते! Ask anything in Hindi, Hinglish or English.</p>`;
+    const sug = el("div", "suggestions");
+    SUGGESTIONS.forEach((q) => { const b = el("button", null, q); b.onclick = () => send(q); sug.append(b); });
+    e.append(sug);
+    box.append(e);
+    return;
+  }
+  chat.messages.forEach((m, i) => box.append(messageEl(m, i)));
+  scrollDown(true);
+}
+
+function messageEl(m, i) {
+  const d = el("div", `msg ${m.role}${m.error ? " error" : ""}`);
+  const body = el("div", "bubble");
+  if (m.role === "assistant") body.innerHTML = markdown(m.content || ""); else body.textContent = m.content;
+  d.append(body);
+  const meta = el("div", "meta");
+  const btn = (label, title, fn) => { const b = el("button", null, label); b.title = title; b.onclick = fn; meta.append(b); };
+  if (m.role === "assistant") {
+    if (m.info) meta.append(el("span", null, m.info));
+    btn("⧉", "Copy", () => navigator.clipboard.writeText(m.content).then(() => toast("Copied.")));
+    btn("🔊", "Read aloud", () => speakText(m.content));
+    if (i === chat.messages.length - 1) btn("↻", "Regenerate", regenerate);
+  } else {
+    btn("✎", "Edit and resend", () => editMessage(i));
+  }
+  d.append(meta);
+  return d;
+}
+
+function setBusy(on) {
+  $("#send").hidden = on; $("#stop").hidden = !on;
+  $("#input").placeholder = on ? "Tantra is writing…" : "संदेश लिखें… / Type a message  (Enter = send, Shift+Enter = new line)";
+}
+
+async function send(text) {
+  if (controller || !text || !text.trim()) return;
+  chat.messages.push({ role: "user", content: text.trim() });
+  await generate();
+}
+
+async function regenerate() {
+  if (controller) return;
+  if (chat.messages.at(-1)?.role === "assistant") chat.messages.pop();
+  await generate();
+}
+
+function editMessage(i) {
+  if (controller) return;
+  const text = chat.messages[i].content;
+  chat.messages = chat.messages.slice(0, i);
+  renderMessages();
+  $("#input").value = text; autosize(); $("#input").focus();
+}
+
+async function generate() {
+  const reply = { role: "assistant", content: "" };
+  chat.messages.push(reply);
+  renderMessages();
+  const bubble = $("#messages").lastChild.querySelector(".bubble");
+  bubble.classList.add("streaming");
+  $("#messages").lastChild.querySelector(".meta").hidden = true;   // copy/regenerate only when done
+  controller = new AbortController();
+  setBusy(true);
+  const t0 = performance.now();
+  let final = null, raf = 0;
+  const paint = () => { raf = 0; bubble.innerHTML = markdown(reply.content); scrollDown(); };
+  try {
+    const messages = [];
+    if (settings.system?.trim()) messages.push({ role: "system", content: settings.system.trim() });
+    chat.messages.slice(0, -1).forEach(({ role, content }) => messages.push({ role, content }));
+    const r = await api("/v1/chat/completions", {
+      method: "POST", signal: controller.signal,
+      body: JSON.stringify({
+        messages, stream: true, temperature: settings.temperature, top_p: settings.top_p,
+        repetition_penalty: settings.repetition_penalty, max_tokens: settings.max_tokens,
+        history: settings.history, category: $("#category").value,
+      }),
+    });
+    const reader = r.body.getReader();
+    const dec = new TextDecoder();
+    let buf = "";
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      const events = buf.split("\n\n"); buf = events.pop();
+      for (const ev of events) {
+        const data = ev.replace(/^data: /, "").trim();
+        if (!data || data === "[DONE]") continue;
+        let j; try { j = JSON.parse(data); } catch { continue; }
+        const delta = j.choices?.[0]?.delta?.content;
+        if (delta) { reply.content += delta; if (!raf) raf = requestAnimationFrame(paint); }
+        if (j.choices?.[0]?.finish_reason) final = j;
+      }
+    }
+  } catch (e) {
+    if (e.name !== "AbortError") { reply.error = true; reply.content = reply.content || `⚠ ${e.message}`; }
+  }
+  const secs = (performance.now() - t0) / 1000;
+  const n = final?.usage?.completion_tokens;
+  const parts = [];
+  if (n != null) parts.push(`${n} tokens`);
+  parts.push(`${secs.toFixed(1)}s`);
+  if (final?.timing?.tokens_per_sec) parts.push(`${final.timing.tokens_per_sec} tok/s`);
+  if (final?.category) parts.push(final.category);
+  if (controller.signal.aborted) parts.push("stopped");
+  else if (final?.choices?.[0]?.finish_reason === "length") parts.push("hit max tokens");
+  reply.info = parts.join(" · ");
+  if (!reply.content && !reply.error) reply.content = "(no reply — the model ended immediately)";
+  controller = null;
+  setBusy(false);
+  renderMessages();
+  saveChat();
+  refreshStatus();   // the model may have just loaded
+  if (settings.auto_speak && reply.content && !reply.error) speakText(reply.content);
+}
+
+$("#stop").onclick = () => controller?.abort();
+$("#composer").onsubmit = (e) => { e.preventDefault(); const t = $("#input").value; $("#input").value = ""; autosize(); send(t); };
+function autosize() { const t = $("#input"); t.style.height = "auto"; t.style.height = Math.min(t.scrollHeight, innerHeight * 0.4) + "px"; }
+$("#input").addEventListener("input", autosize);
+$("#input").onkeydown = (e) => {
+  if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); $("#composer").requestSubmit(); }
+  if (e.key === "Escape" && controller) controller.abort();
+};
+document.addEventListener("keydown", (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") { e.preventDefault(); showTab("chat"); newChat(); }
+});
+
+// ── saved chats ──
+async function saveChat() {
+  const r = await postJSON("/api/chats", chat).catch(() => null);
+  if (r) { chat.id = r.id; chat.title = r.title; loadChatList(); }
+}
+async function loadChatList() {
+  chatsCache = await getJSON("/api/chats").catch(() => chatsCache);
+  renderChatList();
+}
+function renderChatList() {
+  const q = $("#chat-search").value.trim().toLowerCase();
+  const ul = $("#chat-list"); ul.innerHTML = "";
+  const today = new Date().setHours(0, 0, 0, 0) / 1000;
+  let group = null;
+  Object.values(chatsCache)
+    .filter((c) => !q || c.title.toLowerCase().includes(q) || c.messages.some((m) => m.content.toLowerCase().includes(q)))
+    .sort((a, b) => b.updated - a.updated)
+    .forEach((c) => {
+      const g = c.updated >= today ? "Today" : "Earlier";
+      if (g !== group) { group = g; ul.append(el("li", "group", g)); }
+      const li = el("li", c.id === chat.id ? "active" : "");
+      li.title = "Double-click to rename";
+      li.append(el("span", null, c.title));
+      const del = el("button", null, "✕"); del.title = "Delete";
+      del.onclick = async (e) => {
+        e.stopPropagation();
+        if (!confirm(`Delete “${c.title}”?`)) return;
+        await api(`/api/chats/${encodeURIComponent(c.id)}`, { method: "DELETE" }).catch((err) => toast(err.message, "error"));
+        if (c.id === chat.id) newChat(); else loadChatList();
+      };
+      li.append(del);
+      li.onclick = () => { if (controller) return; chat = { id: c.id, title: c.title, messages: c.messages }; renderMessages(); renderChatList(); $("#chats").classList.remove("open"); };
+      li.ondblclick = async () => {
+        const t = prompt("Rename chat", c.title);
+        if (t && t.trim()) { await postJSON("/api/chats", { ...c, title: t.trim() }); if (c.id === chat.id) chat.title = t.trim(); loadChatList(); }
+      };
+      ul.append(li);
+    });
+  if (!ul.children.length) ul.append(el("li", "group", q ? "No matches" : "No saved chats yet"));
+}
+function newChat() { if (controller) controller.abort(); chat = { id: null, messages: [] }; renderMessages(); renderChatList(); $("#input").focus(); $("#chats").classList.remove("open"); }
+$("#new-chat").onclick = newChat;
+$("#chat-search").oninput = renderChatList;
+$("#sidebar-toggle").onclick = () => { showTab("chat"); $("#chats").classList.toggle("open"); };
+
+// ── voice ──
+let recorder = null;
+$("#mic").onclick = async () => {
+  if (status.speech && !status.speech.stt) { toast("Speech-to-text is not installed. Run: pip install openai-whisper (needs ffmpeg)", "error"); return; }
+  if (recorder) { recorder.stop(); return; }
+  let stream;
+  try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); } catch { toast("Microphone not available or permission denied.", "error"); return; }
+  const parts = [];
+  recorder = new MediaRecorder(stream);
+  recorder.ondataavailable = (e) => parts.push(e.data);
+  recorder.onstop = async () => {
+    stream.getTracks().forEach((t) => t.stop());
+    $("#mic").classList.remove("recording"); recorder = null;
+    const fd = new FormData(); fd.append("audio", new Blob(parts, { type: "audio/webm" }), "speech.webm");
+    toast("Transcribing…");
+    try {
+      const r = await fetch("/api/stt", { method: "POST", body: fd });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.detail);
+      $("#input").value = ($("#input").value + " " + j.text).trim(); autosize(); $("#input").focus();
+    } catch (e) { toast(e.message, "error"); }
+  };
+  recorder.start(); $("#mic").classList.add("recording"); toast("Recording… click the mic again to stop.");
+};
+
+let audio = null;
+async function speakText(text) {
+  if (status.speech && !status.speech.tts) { toast("Text-to-speech is not installed. Run: pip install kokoro soundfile", "error"); return; }
+  try {
+    audio?.pause();
+    const r = await fetch("/api/tts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text }) });
+    if (!r.ok) throw new Error((await r.json()).detail);
+    audio = new Audio(URL.createObjectURL(await r.blob()));
+    audio.play();
+  } catch (e) { toast(e.message, "error"); }
+}
+
+// ── charts (SVG, hover tooltips) ─────────────────────────────────────────────
+function niceTicks(lo, hi, n = 4) {
+  if (lo === hi) { lo -= 1; hi += 1; }
+  const step0 = (hi - lo) / n, mag = 10 ** Math.floor(Math.log10(step0));
+  const step = [1, 2, 2.5, 5, 10].map((m) => m * mag).find((s) => s >= step0);
+  const ticks = [], end = Math.ceil(hi / step - 1e-9) * step;   // always cover the highest point
+  for (let v = Math.floor(lo / step) * step; v <= end + step * 1e-9; v += step) ticks.push(+v.toFixed(10));
+  return ticks;
+}
+
+/** series: [{name, color, points:[{x,y}], axis:"left"|"right", dots, fmt}] */
+function lineChart(box, series, { leftLabel = "", rightLabel = "", rightRange = null, empty = "No data yet." } = {}) {
+  const all = series.flatMap((s) => s.points);
+  if (!all.length) { box.innerHTML = `<div class="empty-chart">${esc(empty)}</div>`; return; }
+  const W = Math.max(box.clientWidth, 300), H = 240, L = 48, R = series.some((s) => s.axis === "right") ? 48 : 14, T = 12, B = 28;
+  const xs = all.map((p) => p.x), xmin = Math.min(...xs), xmax = Math.max(...xs);
+  const X = (x) => L + (W - L - R) * (xmax === xmin ? 0.5 : (x - xmin) / (xmax - xmin));
+  const range = (axis) => {
+    const ys = series.filter((s) => (s.axis || "left") === axis).flatMap((s) => s.points.map((p) => p.y));
+    if (axis === "right" && rightRange) return rightRange;
+    if (!ys.length) return [0, 1];
+    const t = niceTicks(Math.min(...ys), Math.max(...ys));
+    return [t[0], t.at(-1)];
+  };
+  const [l0, l1] = range("left"), [r0, r1] = range("right");
+  const Y = (y, axis) => { const [a, b] = axis === "right" ? [r0, r1] : [l0, l1]; return T + (H - T - B) * (1 - (b === a ? 0.5 : (y - a) / (b - a))); };
+  let svg = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">`;
+  for (const v of niceTicks(l0, l1)) {
+    svg += `<line class="grid-line" x1="${L}" x2="${W - R}" y1="${Y(v, "left")}" y2="${Y(v, "left")}"/>`;
+    svg += `<text x="${L - 6}" y="${Y(v, "left") + 4}" text-anchor="end">${fmt(v, 2)}</text>`;
+  }
+  if (R > 14) for (const v of niceTicks(r0, r1)) svg += `<text x="${W - R + 6}" y="${Y(v, "right") + 4}">${fmt(v, 0)}</text>`;
+  for (const v of niceTicks(xmin, xmax, 5).filter((v) => v >= xmin && v <= xmax))
+    svg += `<text x="${X(v)}" y="${H - 8}" text-anchor="middle">${fmtTokens(v)}</text>`;
+  if (leftLabel) svg += `<text x="4" y="${T + 2}" transform="rotate(-90 4 ${T + 2})" text-anchor="end" dy="9">${esc(leftLabel)}</text>`;
+  if (rightLabel) svg += `<text x="${W - 4}" y="${T + 2}" transform="rotate(90 ${W - 4} ${T + 2})" dy="0">${esc(rightLabel)}</text>`;
+  for (const s of series) {
+    const pts = s.points.map((p) => `${X(p.x).toFixed(1)},${Y(p.y, s.axis).toFixed(1)}`);
+    if (s.points.length > 1 && !s.dotsOnly) svg += `<polyline fill="none" stroke="${s.color}" stroke-width="2" stroke-linejoin="round" points="${pts.join(" ")}"/>`;
+    if (s.dots || s.points.length === 1) s.points.forEach((p) => (svg += `<circle cx="${X(p.x)}" cy="${Y(p.y, s.axis)}" r="3.5" fill="${s.color}" stroke="var(--panel)" stroke-width="1.5"/>`));
+  }
+  svg += `<line class="hover-line" x1="0" x2="0" y1="${T}" y2="${H - B}" stroke="var(--grey)" stroke-dasharray="3 3" visibility="hidden"/></svg>`;
+  box.innerHTML = svg + `<div class="tip" hidden></div>`;
+  const svgEl = $("svg", box), tip = $(".tip", box), hl = $(".hover-line", box);
+  svgEl.onmousemove = (e) => {
+    const rect = svgEl.getBoundingClientRect(), mx = ((e.clientX - rect.left) / rect.width) * W;
+    let best = null;
+    for (const s of series) for (const p of s.points) { const d = Math.abs(X(p.x) - mx); if (!best || d < best.d) best = { d, x: p.x }; }
+    if (!best) return;
+    const rows = series.map((s) => {
+      const p = s.points.reduce((a, b) => (Math.abs(b.x - best.x) < Math.abs(a.x - best.x) ? b : a), s.points[0]);
+      return p && Math.abs(p.x - best.x) <= (xmax - xmin) * 0.02 + 1e-9 ? `<span style="color:${s.color}">●</span> ${esc(s.name)}: <b>${(s.fmt || ((v) => fmt(v, 3)))(p.y)}</b>` : null;
+    }).filter(Boolean);
+    hl.setAttribute("x1", X(best.x)); hl.setAttribute("x2", X(best.x)); hl.setAttribute("visibility", "visible");
+    tip.innerHTML = `step ${best.x.toLocaleString()}<br>${rows.join("<br>")}`;
+    tip.hidden = false;
+    tip.style.left = `${(X(best.x) / W) * rect.width}px`; tip.style.top = `${e.clientY - rect.top}px`;
+  };
+  svgEl.onmouseleave = () => { tip.hidden = true; hl.setAttribute("visibility", "hidden"); };
+}
+
+// ── status polling ───────────────────────────────────────────────────────────
+function dl(target, rows) {
+  const d = $(target); d.innerHTML = "";
+  rows.forEach(([k, v, cls]) => { d.append(el("dt", null, k)); const dd = el("dd", cls || null, v); d.append(dd); });
+}
+const tile = (k, v, s = "", cls = "") => `<div class="tile"><div class="k">${esc(k)}</div><div class="v ${cls}">${esc(v)}</div><div class="s">${esc(s)}</div></div>`;
+const STATUS_CLASS = { running: "ok", complete: "ok", stopped: "warn", interrupted: "warn", idle: "muted" };
+
+let polling = null;
+const logKeys = {};
+function schedule(ms) { clearTimeout(polling); polling = setTimeout(refreshStatus, ms); }
+
+async function refreshStatus() {
+  let s;
+  try { s = await getJSON("/api/status"); $("#conn").className = "conn ok"; $("#conn").title = "Connected"; }
+  catch { $("#conn").className = "conn bad"; $("#conn").title = "Server offline"; $("#model-badge").textContent = "server offline — run tantra.bat → 3"; schedule(5000); return; }
+  status = s;
+  const m = s.model || {}, t = s.training || {}, jobs = s.jobs || {};
+  const busyJob = t.status === "running" || Object.values(jobs).some((j) => j.running);
+
+  $("#model-badge").textContent = m.checkpoint
+    ? `${m.params_M}M params · step ${fmt(m.step, 0)}${m.int8 ? " · int8" : ""}`
+    : s.checkpoints?.length ? "model loads on first message" : "no trained model yet";
+  $("#train-dot").hidden = t.status !== "running";
+  const sel = $("#category");
+  (m.categories || []).forEach((c) => { if (![...sel.options].some((o) => o.value === c)) sel.append(new Option(c, c)); });
+  sel.value = [...sel.options].some((o) => o.value === settings.category) ? settings.category : "auto";
+  $("#mic").title = s.speech?.stt ? "Speak (Whisper)" : "Speech-to-text not installed (pip install openai-whisper)";
+  $("#mic").style.opacity = s.speech?.stt ? 1 : 0.45;
+  qualityBanner(s);
+
+  const tab = activeTab();
+  if (tab === "training") renderTraining(s);
+  if (tab === "model") renderModel(s);
+  schedule(document.hidden ? 30000 : busyJob && tab !== "chat" ? 2000 : 10000);
+}
+document.addEventListener("visibilitychange", () => { if (!document.hidden) refreshStatus(); });
+
+function qualityBanner(s) {
+  const b = $("#quality-banner"), m = s.model || {}, probe = (s.probe || []).filter((p) => p.hits != null).at(-1);
+  let msg = "";
+  if (!s.checkpoints?.length) msg = "No trained model yet. Open the <b>Training</b> tab and press <b>Start</b> — chat works once the first checkpoint is saved.";
+  else if (s.load_error) msg = `⚠ ${esc(s.load_error)}`;
+  else if (m.checkpoint) {
+    const vl = m.val?.loss;
+    if ((vl != null && vl > 4.5) || (probe && probe.hits < 5) || (m.step || 0) < 2000)
+      msg = `This model is still early in training (step ${fmt(m.step, 0)}${vl != null ? `, val loss ${fmt(vl, 2)}` : ""}${probe ? `, remembered ${probe.hits}/50` : ""}). ` +
+        `Replies will be mostly random words until it trains longer — watch <b>remembered X/50</b> in the Training tab.`;
+  }
+  b.innerHTML = msg; b.hidden = !msg;
+}
+
+function renderTraining(s) {
+  const t = s.training || {}, v = t.validation || {}, st = t.status || "idle";
+  const pct = t.target_steps ? Math.min(100, (100 * (t.step || 0)) / t.target_steps) : 0;
+  $("#train-tiles").innerHTML = [
+    tile("Status", st, t.updated_at ? `updated ${ago(t.updated_at)}` : "", STATUS_CLASS[st] || ""),
+    tile("Step", `${fmt(t.step, 0)}`, t.target_steps ? `of ${fmt(t.target_steps, 0)} (${pct.toFixed(1)}%)` : ""),
+    tile("Train loss", fmt(t.loss, 3), t.accuracy != null ? `accuracy ${fmt(t.accuracy, 1)}%` : ""),
+    tile("Val loss", fmt(v.loss, 3), v.top1_accuracy_percent != null ? `top-1 ${v.top1_accuracy_percent}% · top-5 ${v.top5_accuracy_percent}%` : ""),
+    tile("Speed", t.tok_s ? `${fmt(t.tok_s, 0)} tok/s` : "—", t.lr ? `lr ${Number(t.lr).toExponential(1)}` : ""),
+    tile("ETA", st === "running" ? t.eta || "—" : "—", t.elapsed ? `session ${t.elapsed}` : ""),
+    tile("Tokens seen", fmtTokens(t.total_tokens), t.best_val_loss != null ? `best val ${fmt(t.best_val_loss, 3)}` : ""),
+  ].join("");
+  $("#train-progress").style.width = `${pct}%`;
+  $("#train-sub").textContent = st === "interrupted" ? "The last run stopped without saying so (closed window or crash). Press Start to continue from the last save." : "";
+  const running = st === "running" || s.jobs?.train?.running;
+  $("#train-start").disabled = running; $("#train-stop").disabled = !running;
+
+  const hist = t.history || {};
+  lineChart($("#loss-chart"), [
+    { name: "train loss", color: "var(--accent)", points: (hist.train || []).map((p) => ({ x: p.step, y: p.loss })) },
+    { name: "val loss", color: "#2563eb", dots: true, points: (hist.val || []).map((p) => ({ x: p.step, y: p.loss })) },
+  ], { leftLabel: "loss", empty: "The loss curve appears after the first 50 training steps." });
+
+  const probe = s.probe || [];
+  const hits = probe.filter((p) => p.hits != null);
+  lineChart($("#probe-chart"), [
+    { name: "answer loss", color: "var(--grey)", points: probe.map((p) => ({ x: p.step, y: p.answer_loss })) },
+    { name: "remembered /50", color: "var(--accent)", axis: "right", dots: true, fmt: (y) => `${y}/50`, points: hits.map((p) => ({ x: p.step, y: p.hits })) },
+  ], { leftLabel: "answer loss", rightLabel: "remembered", rightRange: [0, 50], empty: "Probe results appear after the first evaluation." });
+  const last = hits.at(-1);
+  $("#probe-latest").innerHTML = last
+    ? `<b>Remembered ${last.hits}/50</b> at step ${last.step.toLocaleString()} ` +
+      Object.entries(last.by_category || {}).map(([k, val]) => `<span class="pill">${esc(k)}: ${esc(val)}</span>`).join("")
+    : "";
+
+  const dsSel = $("#train-data");
+  const names = (s.datasets || []).map((d) => d.name).filter((n) => !/val|probe|test|preference/i.test(n));
+  if (dsSel.dataset.names !== names.join()) {
+    dsSel.dataset.names = names.join();
+    dsSel.innerHTML = "";
+    names.forEach((n) => dsSel.append(new Option(`${n} (${fmt(s.datasets.find((d) => d.name === n).size_mb, 0)} MB)`, n)));
+    if (!names.length) dsSel.append(new Option("no .jsonl in Datasets/", ""));
+    dsSel.value = names.includes("master_train.jsonl") ? "master_train.jsonl" : names[0] || "";
+  }
+  refreshLog("train", $("#train-log"), $("#log-follow").checked);
+}
+
+async function refreshLog(name, pre, follow = true) {
+  try {
+    const j = await getJSON(`/api/logs/${name}?lines=300`);
+    if (!j.lines.length) return;
+    const key = `${j.lines.length}|${j.lines.at(-1)}`;
+    if (logKeys[name] === key) return;   // nothing new
+    logKeys[name] = key;
+    pre.hidden = false;
+    const atEnd = pre.scrollHeight - pre.scrollTop - pre.clientHeight < 40;
+    pre.textContent = j.lines.join("\n");
+    if (follow && atEnd || follow === "force") pre.scrollTop = pre.scrollHeight;
+  } catch { /* no log yet */ }
+}
+
+$("#train-form").onsubmit = async (e) => {
+  e.preventDefault();
+  const f = new FormData(e.target);
+  const body = Object.fromEntries([...f.entries()].filter(([, val]) => val !== ""));
+  body.fresh = f.has("fresh"); body.auto_growth = f.has("auto_growth");
+  if (!body.fresh) delete body.preset;
+  if (body.fresh && !confirm("Start a NEW model? The current checkpoints are moved to Model/_old (not deleted).")) return;
+  try {
+    $("#train-start").disabled = true;
+    await postJSON("/api/training/start", body);
+    toast("Training started. The first numbers appear after ~50 steps.", "ok");
+    $("#log-follow").checked = true;
+    setTimeout(refreshStatus, 1500);
+  } catch (err) { toast(err.message, "error"); $("#train-start").disabled = false; }
+};
+$("#train-stop").onclick = async () => {
+  try { await postJSON("/api/training/stop"); toast("Stopping after the current step — a checkpoint will be saved."); } catch (e) { toast(e.message, "error"); }
+};
+
+function renderModel(s) {
+  const m = s.model || {}, h = s.hardware || {}, jobs = s.jobs || {};
+  dl("#model-info", m.checkpoint ? [
+    ["Checkpoint", m.checkpoint], ["Step", fmt(m.step, 0)], ["Parameters", `${m.params_M}M`],
+    ["Shape", `${m.layers} layers × ${m.dim ?? "?"} dim`], ["Vocabulary", fmt(m.vocab, 0)],
+    ["Trained on", m.tokens ? `${fmtTokens(m.tokens)} tokens` : "—"],
+    ["Val loss", m.val?.loss != null ? fmt(m.val.loss, 3) : "—"],
+    ["Categories", (m.categories || []).join(", ") || "none"], ["Runs on", `${m.device}${m.int8 ? " · INT8" : ""}`],
+  ] : [["Status", s.load_error || "Not loaded yet — it loads on the first chat message, or press Load below."]]);
+  dl("#hw-info", [
+    ["CPU", h.cpu || "—"], ["Cores", `${h.physical_cores} physical / ${h.logical_cores} logical`],
+    ["Threads used", fmt(h.cpu_threads, 0)], ["RAM", `${h.ram_gb} GB`], ["SIMD", h.simd],
+    ["GPU", (h.gpus || []).join(", ") || "none"], ["Device", h.device],
+    ["Speech", `in: ${s.speech?.stt ? "Whisper ✓" : "not installed"} · out: ${s.speech?.tts ? "Kokoro ✓" : "not installed"}`],
+  ]);
+
+  const tb = $("#ckpt-table tbody"); tb.innerHTML = "";
+  const details = s.checkpoint_details || [];
+  if (!details.length) tb.innerHTML = `<tr><td colspan="6" class="muted">No checkpoints yet — train first.</td></tr>`;
+  details.forEach((c) => {
+    const tr = el("tr", c.path === m.checkpoint ? "current" : "");
+    tr.innerHTML = `<td>${esc(c.name)}</td><td>${fmt(c.step, 0)}</td><td>${fmt(c.val_loss, 3)}</td><td>${fmt(c.size_mb, 1)} MB</td><td title="${new Date(c.modified * 1000).toLocaleString()}">${ago(c.modified)}</td><td></td>`;
+    const b = el("button", null, c.path === m.checkpoint ? "loaded" : "Load");
+    b.disabled = c.path === m.checkpoint && !!m.int8 === $("#load-int8").checked;
+    b.onclick = async () => {
+      b.textContent = "loading…"; b.disabled = true;
+      try { await postJSON("/api/checkpoints/switch", { path: c.path, int8: $("#load-int8").checked }); toast(`Loaded ${c.name}`, "ok"); }
+      catch (e) { toast(e.message, "error"); }
+      refreshStatus();
+    };
+    tr.lastChild.append(b); tb.append(tr);
+  });
+
+  const ev = s.eval_report;
+  $("#eval-report").innerHTML = ev ? `<dl>
+      <dt>Checkpoint</dt><dd>${esc(ev.checkpoint)} (step ${fmt(ev.step, 0)})</dd>
+      ${ev.validation ? `<dt>Val loss</dt><dd>${fmt(ev.validation.loss, 3)} · top-1 ${ev.validation.top1_accuracy_percent}%</dd>` : ""}
+      ${ev.probe?.hits != null ? `<dt>Remembered</dt><dd><b>${ev.probe.hits}/50</b> · answer loss ${fmt(ev.probe.answer_loss, 3)}</dd>` : ""}
+      ${ev.speed ? `<dt>Speed</dt><dd>${fmt(ev.speed.forward_tokens_per_sec, 0)} tokens/s (forward)</dd>` : ""}
+      <dt>When</dt><dd>${ago(ev.finished_at)}</dd></dl>` : `<p class="hint">No test run yet.</p>`;
+  for (const name of ["eval", "export"]) {
+    const j = jobs[name] || {};
+    const btn = $(`#${name}-start`);
+    btn.disabled = !!j.running;
+    btn.textContent = j.running ? "running…" : name === "eval" ? "▶ Run test" : "⇩ Export tantra.pt";
+    if (j.started) refreshLog(name, $(`#${name}-log`), "force");
+    if (j.running === false && j.exit_code != null && btn.dataset.wasRunning === "1")
+      toast(j.exit_code === 0 ? `${name === "eval" ? "Test" : "Export"} finished.` : `${name} failed — see its log.`, j.exit_code === 0 ? "ok" : "error");
+    btn.dataset.wasRunning = j.running ? "1" : "0";
+  }
+
+  const ul = $("#dataset-list"); ul.innerHTML = "";
+  (s.datasets || []).forEach((d) => { const li = el("li"); li.append(el("span", null, d.name), el("span", "muted", `${fmt(d.size_mb, 1)} MB`)); ul.append(li); });
+  if (!ul.children.length) ul.append(el("li", "muted", "No .jsonl files in Datasets/"));
+}
+
+const loadedCkpt = () => status.model?.checkpoint ? { checkpoint: status.model.checkpoint } : {};
+$("#eval-start").onclick = async () => {
+  try { await postJSON("/api/jobs/eval", { ...loadedCkpt(), int8: $("#load-int8").checked }); toast("Test started — takes a minute or two."); refreshStatus(); }
+  catch (e) { toast(e.message, "error"); }
+};
+$("#export-start").onclick = async () => {
+  try { await postJSON("/api/jobs/export", loadedCkpt()); toast("Export started."); refreshStatus(); }
+  catch (e) { toast(e.message, "error"); }
+};
+$("#reload-model").onclick = async () => {
+  const first = status.checkpoints?.[0];
+  if (!first) { toast("No checkpoints yet.", "error"); return; }
+  try { await postJSON("/api/checkpoints/switch", { path: first, int8: $("#load-int8").checked }); toast("Model loaded.", "ok"); } catch (e) { toast(e.message, "error"); }
+  refreshStatus();
+};
+$("#load-int8").onchange = () => refreshStatus();
+window.addEventListener("resize", () => { if (activeTab() === "training") renderTraining(status); });
+
+// ── start ──
+renderMessages();
+loadChatList();
+showTab(location.hash.slice(1) || "chat");

@@ -1,6 +1,8 @@
 """
-tantra/model.py — NeuroCore neural architecture with Multi-Token Prediction (MTP).
-Contains: DynamicScaleNorm, RotaryPositionalEncoding, ALRAAttention, SparseGatedProjection, NeuroCoreBlock, NeuroCoreModel.
+Tantra/model.py — The NeuroCore language model.
+
+Block = norm -> attention (ALRA linear, or sliding-window softmax every Nth layer) -> norm -> SwiGLU MLP.
+Optional: MTP head (predicts t+2 during training), category specialist layers, Top-1 MoE, BitNet.
 """
 
 from typing import Optional, List, Dict, Tuple, Union, Any
@@ -9,8 +11,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
 
-from Tantra.config import NeuroCoreConfig, ALRAConfig, SGPConfig, NeuroCoreBlockConfig, BitNetConfig
-from Tantra.bitnet import BitLinear, TernaryQuantizer
+from Tantra.config import EOS_ID, NeuroCoreConfig, ALRAConfig, SGPConfig, NeuroCoreBlockConfig, BitNetConfig
+from Tantra.bitnet import BitLinear
 from Tantra.utils import elu_plus_one, top_k_mask, get_logger
 
 log = get_logger("tantra.model")
@@ -146,7 +148,12 @@ class ALRAAttention(nn.Module):
         if self.use_forget_gate:
             gates = torch.sigmoid(self.w_gate(x)).transpose(1, 2)
 
-        if state is not None or T == 1:
+        if state is not None and T > 1:
+            out, S, z = self._chunked_forward(Q, K, V, gates, state.get("S"), state.get("z"))
+            state["S"], state["z"] = S, z
+            new_state = state
+            new_state["step"] = past_len + T
+        elif state is not None or T == 1:
             if state is None:
                 state = {}
             out, new_state = self._sequential_forward(Q, K, V, gates, state)
@@ -161,75 +168,46 @@ class ALRAAttention(nn.Module):
         return out, new_state
 
     def _parallel_forward(self, Q: Tensor, K: Tensor, V: Tensor, gates: Optional[Tensor]) -> Tensor:
-        """
-        Chunked blockwise scan for linear O(1) memory complexity.
-        For sequences <= 256 (e.g. pre-training), uses a fully vectorized O(T^2) causal matrix 
-        to bypass the Python GIL and extreme loop overhead.
+        out, _, _ = self._chunked_forward(Q, K, V, gates, None, None)
+        return out
+
+    def _chunked_forward(self, Q: Tensor, K: Tensor, V: Tensor, gates: Optional[Tensor],
+                         S: Optional[Tensor], z: Optional[Tensor], chunk: int = 256):
+        """Chunkwise-parallel gated linear attention.
+
+        Exactly equals the token-by-token recurrence
+            S_t = g_t * S_{t-1} + k_t v_t^T,   z_t = g_t * z_{t-1} + k_t,   o_t = q_t S_t / (q_t . z_t)
+        but runs as matrix ops: quadratic only inside each chunk, linear across chunks.
+        Memory ~ T * chunk instead of T^2, and it returns the final state so a whole
+        prompt can be pre-filled in one call.
         """
         B, H, T, Dh = Q.shape
-        
-        if T <= 2048:
-            # Fast vectorized causal path (O(1) memory graph overhead on GPU/CPU)
-            # NOTE: Query scaling is already applied in forward() — do NOT scale again here.
-            orig_dtype = Q.dtype
-            is_cuda = Q.is_cuda
-
-            if gates is not None:
-                log_g = torch.log(gates.clamp(min=1e-4, max=1.0).to(orig_dtype))
-                cum_log_g = torch.cumsum(log_g, dim=-1)
-                diff = cum_log_g.unsqueeze(-1) - cum_log_g.unsqueeze(-2)
-                diff = torch.clamp(diff, min=-30.0, max=0.0)
-                diff = torch.exp(diff)
-                mask = torch.tril(torch.ones(T, T, device=Q.device, dtype=torch.bool))
-                D = torch.where(mask, diff, torch.zeros_like(diff))
-            else:
-                D = torch.tril(torch.ones(T, T, device=Q.device, dtype=orig_dtype))
-                
-            attn = torch.matmul(Q, K.transpose(-2, -1))
-            if D.dim() == 4:
-                attn = attn * D
-            else:
-                attn = attn * D.unsqueeze(0).unsqueeze(0)
-                
-            num = torch.matmul(attn, V)
-            den = torch.nan_to_num(attn.sum(dim=-1, keepdim=True), nan=1.0).clamp(min=self.eps)
-            out = torch.nan_to_num(num / den, nan=0.0, posinf=1.0, neginf=-1.0)
-            return out
-
-        chunk_size = 256
+        if S is None:
+            S = Q.new_zeros(B, H, Dh, Dh)
+        if z is None:
+            z = Q.new_zeros(B, H, Dh)
+        log_g = (torch.log(gates.clamp(min=1e-4, max=1.0)) if gates is not None
+                 else Q.new_zeros(B, H, T))
         outs = []
-        S = torch.zeros(B, H, Dh, Dh, device=Q.device, dtype=Q.dtype)
-        z = torch.zeros(B, H, Dh, device=Q.device, dtype=Q.dtype)
-        
-        for c in range(0, T, chunk_size):
-            end_c = min(c + chunk_size, T)
-            Q_c = Q[:, :, c:end_c, :]
-            K_c = K[:, :, c:end_c, :]
-            V_c = V[:, :, c:end_c, :]
-            gates_c = gates[:, :, c:end_c] if gates is not None else None
-            
-            for t_i in range(end_c - c):
-                Q_t = Q_c[:, :, t_i]
-                K_t = K_c[:, :, t_i]
-                V_t = V_c[:, :, t_i]
-                
-                KV_t = K_t.unsqueeze(-1) * V_t.unsqueeze(-2)
-                
-                if gates_c is not None:
-                    g_t = gates_c[:, :, t_i].unsqueeze(-1)
-                    S = S * g_t.unsqueeze(-1) + KV_t
-                    z = z * g_t + K_t
-                else:
-                    S = S + KV_t
-                    z = z + K_t
-                    
-                num = torch.matmul(Q_t.unsqueeze(-2), S).squeeze(-2)
-                den = (Q_t * z).sum(dim=-1, keepdim=True) + self.eps
-                out_t = torch.nan_to_num(num / den, nan=0.0, posinf=1.0, neginf=-1.0)
-                outs.append(out_t)
-                
-        out = torch.stack(outs, dim=2)
-        return out
+        for c in range(0, T, chunk):
+            e = min(c + chunk, T)
+            q, k, v, lg = Q[:, :, c:e], K[:, :, c:e], V[:, :, c:e], log_g[:, :, c:e]
+            L = e - c
+            cum = torch.cumsum(lg, dim=-1)                                   # [B,H,L]
+            diff = (cum.unsqueeze(-1) - cum.unsqueeze(-2)).clamp(max=0.0)    # [B,H,L,L]
+            causal = torch.tril(torch.ones(L, L, device=Q.device, dtype=torch.bool))
+            decay = torch.where(causal, torch.exp(diff.clamp(min=-30.0)), torch.zeros_like(diff))
+            attn = torch.matmul(q, k.transpose(-2, -1)) * decay
+            carry = torch.exp(cum.clamp(min=-30.0)).unsqueeze(-1)            # [B,H,L,1]
+            num = torch.matmul(attn, v) + carry * torch.matmul(q, S)
+            den = attn.sum(dim=-1, keepdim=True) + carry * (q * z.unsqueeze(2)).sum(-1, keepdim=True)
+            outs.append(torch.nan_to_num(num / den.clamp(min=self.eps), nan=0.0, posinf=1.0, neginf=-1.0))
+            # advance state to the end of this chunk
+            tail = torch.exp((cum[..., -1:] - cum).clamp(min=-30.0)).unsqueeze(-1)  # [B,H,L,1]
+            g_all = torch.exp(cum[..., -1].clamp(min=-30.0))                         # [B,H]
+            S = g_all[..., None, None] * S + torch.matmul((k * tail).transpose(-2, -1), v)
+            z = g_all[..., None] * z + (k * tail).sum(dim=2)
+        return torch.cat(outs, dim=2), S, z
 
     def _sequential_forward(self, Q: Tensor, K: Tensor, V: Tensor, gates: Optional[Tensor], state: dict) -> Tuple[Tensor, dict]:
         S = state.get('S')
@@ -268,10 +246,16 @@ class ALRAAttention(nn.Module):
 
 
 class CausalSelfAttention(nn.Module):
-    """Standard causal attention for controlled CPU comparisons with ALRA."""
-    def __init__(self, config: ALRAConfig, bitnet_config: Optional[BitNetConfig] = None):
+    """Standard causal softmax attention, optionally limited to a sliding window.
+
+    window=0 -> full causal attention. window=W -> each token sees at most the
+    previous W tokens (itself included). During generation the KV cache is
+    trimmed to W entries, so memory and per-token cost stay constant on CPU.
+    """
+    def __init__(self, config: ALRAConfig, bitnet_config: Optional[BitNetConfig] = None, window: int = 0):
         super().__init__()
         self.dim, self.num_heads, self.head_dim = config.dim, config.num_heads, config.head_dim
+        self.window = int(window or 0)
         linear_cls = BitLinear if bitnet_config and bitnet_config.enabled else nn.Linear
         self.w_q = linear_cls(self.dim, self.dim, bias=True)
         self.w_k = linear_cls(self.dim, self.dim, bias=True)
@@ -279,36 +263,51 @@ class CausalSelfAttention(nn.Module):
         self.w_o = linear_cls(self.dim, self.dim, bias=True)
         self.rope = RotaryPositionalEncoding(self.head_dim)
 
+    @staticmethod
+    def _band_mask(q_len: int, kv_len: int, window: int, device) -> Tensor:
+        # True = may attend. Query i sits at absolute kv position (kv_len - q_len + i).
+        q_pos = torch.arange(kv_len - q_len, kv_len, device=device).unsqueeze(1)
+        k_pos = torch.arange(kv_len, device=device).unsqueeze(0)
+        mask = k_pos <= q_pos
+        if window > 0:
+            mask = mask & (k_pos > q_pos - window)
+        return mask
+
     def forward(self, x: Tensor, mask: Optional[Tensor] = None, state: Optional[dict] = None) -> Tuple[Tensor, Optional[dict]]:
         batch, tokens, _ = x.shape
         q = self.w_q(x).view(batch, tokens, self.num_heads, self.head_dim).transpose(1, 2)
         k = self.w_k(x).view(batch, tokens, self.num_heads, self.head_dim).transpose(1, 2)
         v = self.w_v(x).view(batch, tokens, self.num_heads, self.head_dim).transpose(1, 2)
 
-        past_len = 0
-        if state is not None and "k" in state and state["k"] is not None:
-            past_len = state["k"].shape[2]
+        has_cache = state is not None and state.get("k") is not None
+        # Absolute position must be tracked separately: the cache may be trimmed.
+        past_pos = int(state.get("pos", state["k"].shape[2])) if has_cache else 0
 
-        q, k = self.rope.apply(q, k, tokens, offset=past_len)
+        q, k = self.rope.apply(q, k, tokens, offset=past_pos)
+
+        if has_cache:
+            k = torch.cat([state["k"], k], dim=2)
+            v = torch.cat([state["v"], v], dim=2)
+        kv_len = k.shape[2]
+
+        if tokens == 1:
+            out = F.scaled_dot_product_attention(q, k, v, attn_mask=None, dropout_p=0.0, is_causal=False)
+        elif not has_cache and mask is None and (self.window <= 0 or tokens <= self.window):
+            out = F.scaled_dot_product_attention(q, k, v, attn_mask=None, dropout_p=0.0, is_causal=True)
+        else:
+            band = self._band_mask(tokens, kv_len, self.window, q.device)
+            if mask is not None:
+                band = band & mask.bool() if mask.dtype == torch.bool else band
+            out = F.scaled_dot_product_attention(q, k, v, attn_mask=band, dropout_p=0.0)
 
         if state is not None:
-            if "k" in state and state["k"] is not None:
-                k = torch.cat([state["k"], k], dim=2)
-                v = torch.cat([state["v"], v], dim=2)
+            if self.window > 0 and kv_len > self.window - 1:
+                # keep W-1 past entries; the next token itself makes W
+                k = k[:, :, -(self.window - 1):] if self.window > 1 else k[:, :, :0]
+                v = v[:, :, -(self.window - 1):] if self.window > 1 else v[:, :, :0]
             state["k"] = k
             state["v"] = v
-
-        if past_len == 0:
-            is_causal = (tokens > 1)
-            out = F.scaled_dot_product_attention(q, k, v, attn_mask=mask, dropout_p=0.0, is_causal=is_causal)
-        else:
-            if tokens == 1:
-                out = F.scaled_dot_product_attention(q, k, v, attn_mask=None, dropout_p=0.0, is_causal=False)
-            else:
-                q_len = tokens
-                kv_len = k.shape[2]
-                causal_mask = torch.tril(torch.ones(q_len, kv_len, device=q.device, dtype=torch.bool), diagonal=kv_len - q_len)
-                out = F.scaled_dot_product_attention(q, k, v, attn_mask=causal_mask, dropout_p=0.0)
+            state["pos"] = past_pos + tokens
 
         return self.w_o(out.transpose(1, 2).reshape(batch, tokens, self.dim)), state
 
@@ -424,7 +423,7 @@ class Top1MoEProjection(nn.Module):
 
 class NeuroCoreBlock(nn.Module):
     """Full NeuroCore block: x -> DSN -> ALRA -> residual -> DSN -> SGP/MoE -> residual -> output."""
-    def __init__(self, config: NeuroCoreBlockConfig, layer_idx: int, moe_config: Optional[Any] = None, use_moe: bool = False, bitnet_config: Optional[BitNetConfig] = None, compatibility_legacy_moe: bool = False):
+    def __init__(self, config: NeuroCoreBlockConfig, layer_idx: int, moe_config: Optional[Any] = None, use_moe: bool = False, bitnet_config: Optional[BitNetConfig] = None, **_ignored: Any):
         super().__init__()
         self.layer_idx = layer_idx
         self.pre_norm = config.pre_norm
@@ -432,29 +431,22 @@ class NeuroCoreBlock(nn.Module):
         dim = config.alra.dim
         
         self.norm1 = DynamicScaleNorm(dim)
+        local_every = int(getattr(config.alra, "local_attn_every", 0) or 0)
+        self.is_local_softmax = local_every > 0 and (layer_idx + 1) % local_every == 0
         if config.alra.attention_kind == "causal":
             self.attn = CausalSelfAttention(config.alra, bitnet_config)
+        elif self.is_local_softmax:
+            self.attn = CausalSelfAttention(config.alra, bitnet_config,
+                                            window=int(getattr(config.alra, "local_window", 512) or 512))
         else:
             self.attn = ALRAAttention(config.alra, bitnet_config)
         self.norm2 = DynamicScaleNorm(dim)
-        self.compatibility_legacy_moe = bool(compatibility_legacy_moe)
-        if self.compatibility_legacy_moe and (moe_config is None or getattr(moe_config, "real_top1", False)):
-            raise ValueError("Legacy-MoE compatibility requires a legacy MoE configuration.")
         if use_moe and moe_config is not None and getattr(moe_config, "real_top1", False):
             self.mlp = Top1MoEProjection(config.sgp, moe_config.num_experts, moe_config.load_balance_coeff, bitnet_config)
         elif config.sgp.implementation == "swiglu":
             self.mlp = SwiGLUProjection(config.sgp, bitnet_config)
         else:
             self.mlp = SparseGatedProjection(config.sgp, bitnet_config)
-
-        # This path exists only to faithfully reload old checkpoints. It is
-        # not used for new training: it scales one shared MLP and is not a
-        # token-level mixture of experts. New models use Top1MoEProjection.
-        if self.compatibility_legacy_moe:
-            from Tantra.moe import MoERouter
-            self.router = MoERouter(moe_config, embed_dim=dim)
-        else:
-            self.router = None
 
     def forward(
         self, 
@@ -463,27 +455,13 @@ class NeuroCoreBlock(nn.Module):
         state: Optional[dict] = None,
     ) -> Tuple[Tensor, Optional[dict]]:
         if self.pre_norm:
-            norm_x = self.norm1(x)
-            attn_out, new_state = self.attn(norm_x, mask=mask, state=state)
+            attn_out, new_state = self.attn(self.norm1(x), mask=mask, state=state)
             x = x + attn_out
-            
-            norm_x2 = self.norm2(x)
-            if self.router is not None:
-                routing_weights, _, _ = self.router(norm_x2)
-                mlp_out = self.mlp(norm_x2) * routing_weights.mean(dim=-1, keepdim=True)
-            else:
-                mlp_out = self.mlp(norm_x2)
-            x = x + mlp_out
+            x = x + self.mlp(self.norm2(x))
         else:
             attn_out, new_state = self.attn(x, mask=mask, state=state)
             x = self.norm1(x + attn_out)
-            if self.router is not None:
-                routing_weights, _, _ = self.router(x)
-                mlp_out = self.mlp(x) * routing_weights.mean(dim=-1, keepdim=True)
-            else:
-                mlp_out = self.mlp(x)
-            x = self.norm2(x + mlp_out)
-            
+            x = self.norm2(x + self.mlp(x))
         return x, new_state
 
 
@@ -525,19 +503,10 @@ class LatentCoTHeader(nn.Module):
 class NeuroCoreModel(nn.Module):
     """Full NeuroCore language model with Multi-Token Prediction (MTP) heads and Latent Reasoning Headers."""
 
-    def __init__(self, config: NeuroCoreConfig, use_mtp: bool = True, reasoning_depth: int = 3, use_moe: bool = False, compatibility_legacy_moe: bool = False):
+    def __init__(self, config: NeuroCoreConfig, use_mtp: bool = True, reasoning_depth: int = 3, use_moe: bool = False, **_ignored: Any):
         super().__init__()
         self.config = config
         self.dim = config.block.alra.dim
-        # NOTE (fixed 2026-09): previously `self.vocab_size = config.vocab.vocab_size`
-        # (text vocab only). But NeuroCoreModel.get_shared_multimodal_weights /
-        # load_shared_multimodal_weights (below) slice this embedding table at
-        # config.vocab.audio_range_start:audio_range_end+1, etc., and those
-        # ranges sit ABOVE vocab_size (audio starts exactly where text ends).
-        # Slicing a tensor past its own length doesn't raise -- it silently
-        # returns an empty (0, dim) tensor -- so multimodal embeddings were
-        # silently vanishing instead of erroring. Use the real total so the
-        # embedding table actually has rows for every modality range.
         self.vocab_size = getattr(config.vocab, "total_embedding_size", config.vocab.vocab_size)
         self.text_vocab_size = config.vocab.vocab_size  # text-only size, for callers that need it
         self.gradient_checkpointing = getattr(config.training, "gradient_checkpointing", False)
@@ -551,13 +520,6 @@ class NeuroCoreModel(nn.Module):
             and getattr(config.moe, "real_top1", False)
             and getattr(config.moe, "num_experts", 1) > 1
         )
-        self.compatibility_legacy_moe = bool(
-            compatibility_legacy_moe
-            and use_moe
-            and not getattr(config.moe, "real_top1", False)
-            and getattr(config.moe, "num_experts", 1) > 1
-        )
-
         self.embed = nn.Embedding(self.vocab_size, self.dim)
         nn.init.normal_(self.embed.weight, std=0.02)
 
@@ -567,13 +529,9 @@ class NeuroCoreModel(nn.Module):
             NeuroCoreBlock(
                 config.block,
                 layer_idx=i,
-                moe_config=config.moe if (self.use_moe or self.compatibility_legacy_moe) else None,
+                moe_config=config.moe if self.use_moe else None,
                 use_moe=self.use_moe,
                 bitnet_config=bitnet_config,
-                # The historical checkpoint attached its shared-MLP router
-                # to odd-numbered blocks only. Preserve that topology only
-                # in compatibility mode; real Top-1 MoE remains every block.
-                compatibility_legacy_moe=(self.compatibility_legacy_moe and i % 2 == 1),
             )
             for i in range(config.block.num_layers)
         ])
@@ -581,7 +539,7 @@ class NeuroCoreModel(nn.Module):
         self.final_norm = DynamicScaleNorm(self.dim)
         self.latent_header = LatentCoTHeader(self.dim, reasoning_depth=reasoning_depth, bitnet_config=bitnet_config)
         
-        linear_cls = BitLinear if bitnet_config else nn.Linear
+        linear_cls = BitLinear if (bitnet_config and bitnet_config.enabled) else nn.Linear
 
         # Primary head (predicts t+1) - use nn.Linear because weights are tied to embed.weight (FP32/standard embedding)
         self.output_proj = nn.Linear(self.dim, self.vocab_size, bias=False)
@@ -590,8 +548,6 @@ class NeuroCoreModel(nn.Module):
         # Auxiliary MTP head (predicts t+2 for DeepSeek-style Multi-Token Prediction)
         if self.use_mtp:
             self.mtp_head = linear_cls(self.dim, self.vocab_size, bias=False)
-
-        self.shared_multimodal_weights: Dict[str, torch.Tensor] = {}
 
         # ── Dedicated specialist layers (one fixed layer per category) ──
         # Unlike residual adapters that touch every block, each category owns
@@ -727,22 +683,6 @@ class NeuroCoreModel(nn.Module):
             parameter.requires_grad_(True)
         self.active_category = category
 
-    def get_multimodal_weights(self) -> Dict[str, torch.Tensor]:
-        """
-        Extract text, audio, image, and video weight slices from unified embedding space
-        or return bound shared multimodal weights.
-        """
-        vocab_cfg = self.config.vocab
-        w = self.embed.weight.detach()
-        weights = {
-            "text": w[vocab_cfg.text_range_start : vocab_cfg.text_range_end + 1].clone(),
-            "audio": w[vocab_cfg.audio_range_start : vocab_cfg.audio_range_end + 1].clone(),
-            "image": w[vocab_cfg.image_range_start : vocab_cfg.image_range_end + 1].clone(),
-            "video": w[vocab_cfg.video_range_start : vocab_cfg.video_range_end + 1].clone(),
-        }
-        weights.update(self.shared_multimodal_weights)
-        return weights
-
     def get_aux_loss(self) -> Tensor:
         """Aggregate real-MoE router balancing losses for training."""
         moe_layers = [
@@ -758,42 +698,6 @@ class NeuroCoreModel(nn.Module):
         for layer in moe_layers:
             layer.mlp.last_aux_loss = None
         return total
-
-    def bind_multimodal_weights(self, weights_dict: Dict[str, torch.Tensor]) -> None:
-        """
-        Bind/share text, audio, image, and video weight matrices across unified model embedding space.
-        """
-        vocab_cfg = self.config.vocab
-        with torch.no_grad():
-            for mod, tensor in weights_dict.items():
-                self.shared_multimodal_weights[mod] = tensor
-                if mod == "text":
-                    sl = slice(vocab_cfg.text_range_start, vocab_cfg.text_range_end + 1)
-                    if tensor.shape[0] == (vocab_cfg.text_range_end - vocab_cfg.text_range_start + 1) and tensor.shape[1] == self.dim:
-                        self.embed.weight[sl].copy_(tensor)
-                elif mod == "audio":
-                    sl = slice(vocab_cfg.audio_range_start, vocab_cfg.audio_range_end + 1)
-                    if tensor.shape[0] == (vocab_cfg.audio_range_end - vocab_cfg.audio_range_start + 1) and tensor.shape[1] == self.dim:
-                        self.embed.weight[sl].copy_(tensor)
-                elif mod == "image":
-                    sl = slice(vocab_cfg.image_range_start, vocab_cfg.image_range_end + 1)
-                    if tensor.shape[0] == (vocab_cfg.image_range_end - vocab_cfg.image_range_start + 1) and tensor.shape[1] == self.dim:
-                        self.embed.weight[sl].copy_(tensor)
-                elif mod == "video":
-                    sl = slice(vocab_cfg.video_range_start, vocab_cfg.video_range_end + 1)
-                    if tensor.shape[0] == (vocab_cfg.video_range_end - vocab_cfg.video_range_start + 1) and tensor.shape[1] == self.dim:
-                        self.embed.weight[sl].copy_(tensor)
-
-    def export_multimodal_weights(self, formatter: Any, output_path: str, dict_data: Optional[bytes] = None) -> Any:
-        """Export model multimodal weight space into encrypted DNA-AI representation format."""
-        weights = self.get_multimodal_weights()
-        return formatter.format_weights(weights, output_path, dict_data=dict_data)
-
-    def load_multimodal_weights(self, formatter: Any, input_path: str) -> Dict[str, torch.Tensor]:
-        """Load and bind multimodal weight space from encrypted DNA-AI file using formatter."""
-        weights = formatter.parse_weights(input_path)
-        self.bind_multimodal_weights(weights)
-        return weights
 
     def forward(
         self,
@@ -881,248 +785,96 @@ class NeuroCoreModel(nn.Module):
 
         return logits_main, new_states
 
-    @torch.no_grad()  # NOT inference_mode — that poisons RoPE cache for subsequent training
-    def generate(
-        self,
-        prompt_ids: Tensor,
-        max_new_tokens: int = 150,
-        temperature: float = 0.35,          # Lower temp = confident, coherent, non-hallucinating
-        top_p: float = 0.85,               # Narrow nucleus = high quality vocab
-        repetition_penalty: float = 1.30,  # Anti-loop on generated tokens
-        no_repeat_ngram_size: int = 3,     # Ban 3-token repeating loops (duplicate phrases)
-        use_mtp_speculation: bool = False,
-        use_latent_reasoning: bool = False,
-        eos_token_id: Optional[int] = 2,
-        min_new_tokens: int = 1,
-        adapter_name: Optional[str] = None,
-        banned_token_ids: Optional[List[int]] = None,
-    ) -> Tensor:
-        """Generate text using Multi-Token Prediction (MTP) and Latent CoT reasoning.
-
-        `adapter_name`: explicit per-call category routing. Preferred over
-        setting self.active_category before calling -- that's shared
-        mutable state on the model instance, which races if two requests
-        generate concurrently (e.g. an async webui) and one sets a
-        different category mid-flight. Defaults to None, which falls back
-        to self.active_category via forward()'s own
-        fallback, for compatibility with existing single-request callers.
-        """
-        self.eval()
-        if prompt_ids.numel() == 0 or prompt_ids.size(1) == 0:
-            prompt_ids = torch.tensor([[1]], device=prompt_ids.device, dtype=torch.long)
-        B, T = prompt_ids.shape
-        num_layers = len(self.layers)
-        resolved_category = adapter_name or self.active_category
-        if resolved_category and resolved_category in self.category_layers:
-            num_layers += len(self.category_layers[resolved_category])
-        states = [{} for _ in range(num_layers)]
-
-        for t in range(T):
-            token = prompt_ids[:, t:t+1]
-            # return_mtp=False: skip computing MTP head during prefill/decode
-            # (logits_mtp is never used in generation, only in training loss)
-            logits_t, states = self.forward(token, states=states, return_mtp=False, use_latent_reasoning=use_latent_reasoning, adapter_name=adapter_name)
-
-        if isinstance(logits_t, tuple):
-            logits_t = logits_t[0]
-
-        next_token_logits = logits_t[:, -1, :]
-        generated_ids = []
-        generated_tokens = [[] for _ in range(B)]
-
-        if banned_token_ids is None:
-            banned_token_ids = []
-
-        for _ in range(max_new_tokens):
-            next_token_logits = torch.nan_to_num(next_token_logits, nan=-1e9, posinf=1e4, neginf=-1e9)
-
-            # A weak/early checkpoint can collapse into one token (usually a
-            # newline) forever. Do not let a decoder loop conceal all other
-            # candidates: after three identical generated tokens, force the
-            # next choice to be different. This is a decoding safeguard, not
-            # a substitute for training quality.
-            for batch_idx, history in enumerate(generated_tokens):
-                if len(history) >= 3 and history[-1] == history[-2] == history[-3]:
-                    next_token_logits[batch_idx, history[-1]] = -1e9
-
-            # Strict N-gram repetition blocking: completely eliminates duplicate looping words and phrases
-            if no_repeat_ngram_size > 0:
-                n = no_repeat_ngram_size
-                for batch_idx, history in enumerate(generated_tokens):
-                    if len(history) >= n - 1:
-                        ngram_prefix = tuple(history[-(n - 1):])
-                        for k in range(len(history) - (n - 1)):
-                            if tuple(history[k:k + n - 1]) == ngram_prefix:
-                                banned_tok = history[k + n - 1]
-                                if 0 <= banned_tok < next_token_logits.size(-1):
-                                    next_token_logits[batch_idx, banned_tok] = -1e9
-
-            if banned_token_ids:
-                for b_id in banned_token_ids:
-                    if 0 <= b_id < next_token_logits.size(-1):
-                        next_token_logits[:, b_id] = -1e9
-
-            # Apply repetition penalty ONLY to newly generated tokens (never punish prompt words)
+    # ── Generation ────────────────────────────────────────────────────────
+    @staticmethod
+    def _pick_next(logits: Tensor, history: List[List[int]], temperature: float, top_p: float,
+                   repetition_penalty: float, no_repeat_ngram_size: int,
+                   banned_token_ids: Optional[List[int]]) -> Tensor:
+        logits = torch.nan_to_num(logits.clone(), nan=-1e9, posinf=1e4, neginf=-1e9)
+        vocab = logits.size(-1)
+        for b, hist in enumerate(history):
+            # never repeat the same token 4 times in a row
+            if len(hist) >= 3 and hist[-1] == hist[-2] == hist[-3]:
+                logits[b, hist[-1]] = -1e9
+            # block repeated n-grams
+            n = no_repeat_ngram_size
+            if n > 0 and len(hist) >= n - 1:
+                prefix = tuple(hist[len(hist) - (n - 1):]) if n > 1 else ()
+                for k in range(len(hist) - (n - 1)):
+                    if tuple(hist[k:k + n - 1]) == prefix and 0 <= hist[k + n - 1] < vocab:
+                        logits[b, hist[k + n - 1]] = -1e9
+            # repetition penalty on generated tokens only
             if repetition_penalty != 1.0:
-                for batch_idx, gen_tokens in enumerate(generated_tokens):
-                    for tok_id in set(gen_tokens):
-                        if 0 <= tok_id < next_token_logits.size(-1):
-                            val = next_token_logits[batch_idx, tok_id].item()
-                            if val < 0:
-                                next_token_logits[batch_idx, tok_id] = val * repetition_penalty
-                            else:
-                                next_token_logits[batch_idx, tok_id] = val / repetition_penalty
-            if temperature > 0:
-                scaled_logits = next_token_logits / max(temperature, 1e-5)
-                sorted_logits, sorted_indices = torch.sort(scaled_logits, descending=True)
-                cumulative_probs = torch.cumsum(torch.softmax(sorted_logits, dim=-1), dim=-1)
+                for tok in set(hist):
+                    if 0 <= tok < vocab:
+                        v = logits[b, tok]
+                        logits[b, tok] = v * repetition_penalty if v < 0 else v / repetition_penalty
+        for tok in banned_token_ids or []:
+            if 0 <= tok < vocab:
+                logits[:, tok] = -1e9
+        if temperature <= 0:
+            return torch.argmax(logits, dim=-1, keepdim=True)
+        sorted_logits, sorted_idx = torch.sort(logits / max(temperature, 1e-5), descending=True)
+        remove = torch.cumsum(torch.softmax(sorted_logits, dim=-1), dim=-1) > top_p
+        remove[..., 1:] = remove[..., :-1].clone()
+        remove[..., 0] = False
+        sorted_logits[remove] = float("-inf")
+        probs = torch.nan_to_num(torch.softmax(sorted_logits, dim=-1), nan=0.0)
+        probs[probs.sum(dim=-1) == 0, 0] = 1.0
+        return sorted_idx.gather(1, torch.multinomial(probs, num_samples=1))
 
-                sorted_indices_to_remove = cumulative_probs > top_p
-                sorted_indices_to_remove[..., 1:] = sorted_indices_to_remove[..., :-1].clone()
-                sorted_indices_to_remove[..., 0] = False
-
-                sorted_logits[sorted_indices_to_remove] = float('-inf')
-                probs = torch.nan_to_num(torch.softmax(sorted_logits, dim=-1), nan=0.0)
-
-                zero_rows = probs.sum(dim=-1) == 0
-                if zero_rows.any():
-                    probs[zero_rows, 0] = 1.0
-                next_sorted_idx = torch.multinomial(probs, num_samples=1)
-                next_token = sorted_indices.gather(1, next_sorted_idx)
-            else:
-                next_token = torch.argmax(next_token_logits, dim=-1, keepdim=True)
-
-            generated_ids.append(next_token)
-            for batch_idx in range(B):
-                generated_tokens[batch_idx].append(next_token[batch_idx, 0].item())
-            # Don't stop on a single EOS token while below the minimum generation
-            # length. An early-stage / lightly-trained model emits </s> (id 2) as
-            # its next-token majority class almost immediately, which used to
-            # truncate every response after 1-2 tokens (the "token count dropped"
-            # bug). Require min_new_tokens before an EOS break is honoured.
-            n_generated = len(generated_ids)
-            if n_generated >= min_new_tokens and eos_token_id is not None:
-                if isinstance(eos_token_id, (list, tuple, set)):
-                    if any((next_token == eid).all() for eid in eos_token_id):
-                        break
-                elif (next_token == eos_token_id).all():
-                    break
-            logits_t, states = self.forward(next_token, states=states, return_mtp=False, use_latent_reasoning=use_latent_reasoning, adapter_name=adapter_name)
-
-            if isinstance(logits_t, tuple):
-                logits_t = logits_t[0]
-
-            next_token_logits = logits_t[:, -1, :]
-
-        return torch.cat([prompt_ids] + generated_ids, dim=1)
-
-    @torch.no_grad()
-    def generate_stream(
-        self,
-        prompt_ids: Tensor,
-        max_new_tokens: int = 150,
-        temperature: float = 0.35,
-        top_p: float = 0.85,
-        repetition_penalty: float = 1.30,
-        no_repeat_ngram_size: int = 3,
-        use_mtp_speculation: bool = False,
-        use_latent_reasoning: bool = False,
-        eos_token_id: Optional[int] = 2,
-        min_new_tokens: int = 1,
-        adapter_name: Optional[str] = None,
-        banned_token_ids: Optional[List[int]] = None,
-    ):
-        """Yield sampled tokens one at a time without buffering a response."""
+    @torch.no_grad()  # NOT inference_mode — that poisons the RoPE cache for later training
+    def _generate_iter(self, prompt_ids: Tensor, max_new_tokens: int, temperature: float, top_p: float,
+                       repetition_penalty: float, no_repeat_ngram_size: int, use_latent_reasoning: bool,
+                       eos_token_id, min_new_tokens: int, adapter_name: Optional[str],
+                       banned_token_ids: Optional[List[int]]):
         self.eval()
-        if prompt_ids.numel() == 0 or prompt_ids.size(1) == 0:
-            prompt_ids = torch.tensor([[1]], device=prompt_ids.device, dtype=torch.long)
+        if prompt_ids.numel() == 0:
+            prompt_ids = torch.tensor([[1]], device=self.device, dtype=torch.long)
         B, T = prompt_ids.shape
-        num_layers = len(self.layers)
-        resolved_category = adapter_name or self.active_category
-        if resolved_category and resolved_category in self.category_layers:
-            num_layers += len(self.category_layers[resolved_category])
-        states = [{} for _ in range(num_layers)]
-
-        if banned_token_ids is None:
-            banned_token_ids = [28344, 23214, 12932, 13142, 19409]
-
-        for t in range(T):
-            logits_t, states = self.forward(
-                prompt_ids[:, t:t + 1], states=states,
-                return_mtp=False, use_latent_reasoning=use_latent_reasoning,
-                adapter_name=adapter_name,
-            )
-
-        next_token_logits = logits_t[:, -1, :]
-        generated_tokens = [[] for _ in range(B)]
+        n_states = len(self.layers)
+        category = adapter_name or self.active_category
+        if category and category in self.category_layers:
+            n_states += len(self.category_layers[category])
+        states = [{} for _ in range(n_states)]
+        # Prefill the whole prompt in one pass (attention caches come back exact).
+        logits, states = self.forward(prompt_ids, states=states,
+                                      use_latent_reasoning=use_latent_reasoning, adapter_name=adapter_name)
         eos_ids = set(eos_token_id) if isinstance(eos_token_id, (list, tuple, set)) else {eos_token_id}
         eos_ids.discard(None)
-        n_yielded = 0
-
-        for _ in range(max_new_tokens):
-            logits = torch.nan_to_num(next_token_logits.clone(), nan=-1e9, posinf=1e4, neginf=-1e9)
-            for batch_idx, history in enumerate(generated_tokens):
-                if len(history) >= 3 and history[-1] == history[-2] == history[-3]:
-                    logits[batch_idx, history[-1]] = -1e9
-
-            # Strict N-gram repetition blocking in stream mode
-            if no_repeat_ngram_size > 0:
-                n = no_repeat_ngram_size
-                for batch_idx, history in enumerate(generated_tokens):
-                    if len(history) >= n - 1:
-                        ngram_prefix = tuple(history[-(n - 1):])
-                        for k in range(len(history) - (n - 1)):
-                            if tuple(history[k:k + n - 1]) == ngram_prefix:
-                                banned_tok = history[k + n - 1]
-                                if 0 <= banned_tok < logits.size(-1):
-                                    logits[batch_idx, banned_tok] = -1e9
-
-            if banned_token_ids:
-                for b_id in banned_token_ids:
-                    if 0 <= b_id < logits.size(-1):
-                        logits[:, b_id] = -1e9
-            if repetition_penalty != 1.0:
-                for batch_idx, gen_tokens in enumerate(generated_tokens):
-                    for tok_id in set(gen_tokens):
-                        if 0 <= tok_id < logits.size(-1):
-                            value = logits[batch_idx, tok_id].item()
-                            logits[batch_idx, tok_id] = value * repetition_penalty if value < 0 else value / repetition_penalty
-
-            if temperature > 0:
-                scaled_logits = logits / max(temperature, 1e-5)
-                sorted_logits, sorted_indices = torch.sort(scaled_logits, descending=True)
-                remove_sorted = torch.cumsum(torch.softmax(sorted_logits, dim=-1), dim=-1) > top_p
-                remove_sorted[..., 1:] = remove_sorted[..., :-1].clone()
-                remove_sorted[..., 0] = False
-
-                sorted_logits[remove_sorted] = float("-inf")
-                probs = torch.nan_to_num(torch.softmax(sorted_logits, dim=-1), nan=0.0)
-                zero_rows = probs.sum(dim=-1) == 0
-                if zero_rows.any():
-                    probs[zero_rows, 0] = 1.0
-                next_sorted_idx = torch.multinomial(probs, num_samples=1)
-                next_token = sorted_indices.gather(1, next_sorted_idx)
-            else:
-                next_token = torch.argmax(logits, dim=-1, keepdim=True)
-
-            # The web endpoint is batch-size one.  Yielding a tensor retains
-            # a simple, useful API for callers that need token ids.
-            yield next_token[0, 0]
-            n_yielded += 1
-            for batch_idx in range(B):
-                generated_tokens[batch_idx].append(next_token[batch_idx, 0].item())
-            # Honour EOS only after the minimum tail length (see generate() comment
-            # for why an early-stage model emitting </s> id 2 immediately used to
-            # truncate answers to 1-4 tokens).
-            if eos_ids and n_yielded >= min_new_tokens and all(token.item() in eos_ids for token in next_token):
+        history: List[List[int]] = [[] for _ in range(B)]
+        for step in range(max_new_tokens):
+            next_token = self._pick_next(logits[:, -1, :], history, temperature, top_p,
+                                         repetition_penalty, no_repeat_ngram_size, banned_token_ids)
+            yield next_token
+            for b in range(B):
+                history[b].append(int(next_token[b, 0]))
+            if eos_ids and step + 1 >= min_new_tokens and all(int(t) in eos_ids for t in next_token[:, 0]):
                 return
+            logits, states = self.forward(next_token, states=states,
+                                          use_latent_reasoning=use_latent_reasoning, adapter_name=adapter_name)
 
-            logits_t, states = self.forward(
-                next_token, states=states, return_mtp=False,
-                use_latent_reasoning=use_latent_reasoning,
-                adapter_name=adapter_name,
-            )
-            next_token_logits = logits_t[:, -1, :]
+    def generate(self, prompt_ids: Tensor, max_new_tokens: int = 150, temperature: float = 0.35,
+                 top_p: float = 0.85, repetition_penalty: float = 1.15, no_repeat_ngram_size: int = 3,
+                 use_mtp_speculation: bool = False, use_latent_reasoning: bool = False,
+                 eos_token_id: Optional[int] = EOS_ID, min_new_tokens: int = 1,
+                 adapter_name: Optional[str] = None, banned_token_ids: Optional[List[int]] = None) -> Tensor:
+        """Return prompt + generated token ids, shape [B, T + n]."""
+        out = list(self._generate_iter(prompt_ids, max_new_tokens, temperature, top_p, repetition_penalty,
+                                       no_repeat_ngram_size, use_latent_reasoning, eos_token_id,
+                                       min_new_tokens, adapter_name, banned_token_ids))
+        return torch.cat([prompt_ids] + out, dim=1) if out else prompt_ids
+
+    def generate_stream(self, prompt_ids: Tensor, max_new_tokens: int = 150, temperature: float = 0.35,
+                        top_p: float = 0.85, repetition_penalty: float = 1.15, no_repeat_ngram_size: int = 3,
+                        use_mtp_speculation: bool = False, use_latent_reasoning: bool = False,
+                        eos_token_id: Optional[int] = EOS_ID, min_new_tokens: int = 1,
+                        adapter_name: Optional[str] = None, banned_token_ids: Optional[List[int]] = None):
+        """Yield one token id (0-d tensor) at a time. Batch size 1."""
+        for tok in self._generate_iter(prompt_ids, max_new_tokens, temperature, top_p, repetition_penalty,
+                                       no_repeat_ngram_size, use_latent_reasoning, eos_token_id,
+                                       min_new_tokens, adapter_name, banned_token_ids):
+            yield tok[0, 0]
 
     @property
     def device(self) -> torch.device:
@@ -1136,44 +888,65 @@ class NeuroCoreModel(nn.Module):
         return sum(p.numel() for p in self.parameters() if p.requires_grad)
 
 
-def cpu_dense_config(vocab_size: int = 32768, attention_kind: str = "alra") -> NeuroCoreConfig:
-    """Return the maintained compact CPU configuration."""
-    cfg = NeuroCoreConfig.small()
-    cfg.model_name = "tantra-cpu-dense-32k"
-    cfg.vocab.vocab_size = cfg.vocab.byte_bpe_vocab = vocab_size
-    cfg.vocab.text_range_end = vocab_size - 1
-    cfg.block.alra.dim, cfg.block.alra.num_heads, cfg.block.alra.head_dim = 512, 8, 64
-    cfg.block.alra.attention_kind = attention_kind
-    cfg.block.sgp.dim, cfg.block.sgp.expansion, cfg.block.sgp.implementation = 512, 2, "swiglu"
-    cfg.block.num_layers, cfg.moe.num_experts, cfg.moe.real_top1 = 8, 1, False
-    cfg.bitnet.enabled = True
-    cfg.bitnet.quantize_mode = "ternary"
-    cfg.bitnet.use_shadow_weights = True
-    return cfg
+# ── Loading a trained model ──────────────────────────────────────────────────
+
+def load_model(path: str, device: str = "cpu", int8: bool = False) -> Tuple["NeuroCoreModel", dict]:
+    """Rebuild a NeuroCoreModel from any Tantra checkpoint (training or exported).
+
+    Reads the architecture from the checkpoint itself: layer count (including
+    auto-grown layers), MTP head, and category specialist layers.
+    int8=True (CPU only): Linear layers run with 8-bit weights — ~4x less RAM
+    for those layers and usually faster generation, tiny quality loss.
+    """
+    import re
+    from Tantra.utils import safe_load_checkpoint
+
+    ckpt = safe_load_checkpoint(path, map_location="cpu")
+    state = ckpt.get("model_state_dict", ckpt)
+    cfg = ckpt.get("config")
+    if isinstance(cfg, dict):
+        cfg = NeuroCoreConfig._from_dict(cfg)
+    if cfg is None:
+        raise RuntimeError(f"{path} has no saved config; cannot rebuild the model.")
+    layer_ids = [int(m.group(1)) for k in state for m in [re.match(r"layers\.(\d+)\.", k)] if m]
+    if layer_ids:
+        cfg.block.num_layers = max(layer_ids) + 1
+    if "embed.weight" in state:
+        rows = state["embed.weight"].shape[0]
+        if rows != cfg.vocab.total_embedding_size:
+            cfg.vocab.vocab_size = cfg.vocab.byte_bpe_vocab = rows
+            cfg.vocab.audio_codebook_size = cfg.vocab.image_codebook_size = cfg.vocab.video_codebook_size = 0
+    use_moe = bool(getattr(cfg.moe, "real_top1", False) and getattr(cfg.moe, "num_experts", 1) > 1)
+    model = NeuroCoreModel(cfg, use_mtp=any(k.startswith("mtp_head") for k in state), use_moe=use_moe)
+    depths: Dict[str, int] = {}
+    for k in state:
+        m = re.match(r"category_layers\.([^.]+)\.(\d+)\.", k)
+        if m:
+            depths[m.group(1)] = max(depths.get(m.group(1), 0), int(m.group(2)) + 1)
+    for name, depth in depths.items():
+        model.add_category_layers([name], depth=depth)
+    missing, unexpected = model.load_state_dict(state, strict=False)
+    if missing or unexpected:
+        log.warning(f"load_model: {len(missing)} missing / {len(unexpected)} unexpected tensors in {path}")
+    model = model.to(device).eval()
+    if int8 and str(device) == "cpu":
+        model = _to_int8(model)
+    return model, ckpt
 
 
-def cpu_top1_moe_config(vocab_size: int = 32768, experts: int = 2, attention_kind: str = "alra") -> NeuroCoreConfig:
-    """Return the real top-1 MoE CPU comparison configuration."""
-    cfg = cpu_dense_config(vocab_size, attention_kind)
-    cfg.model_name = f"tantra-cpu-top1-moe-{experts}e-32k"
-    cfg.moe.num_experts, cfg.moe.top_k, cfg.moe.real_top1 = max(2, experts), 1, True
-    return cfg
-
-
-def cpu_10m_config(vocab_size: int = 32768, attention_kind: str = "alra") -> NeuroCoreConfig:
-    """Return the compact baseline intended for CPU/distillation experiments."""
-    cfg = cpu_dense_config(vocab_size, attention_kind)
-    cfg.model_name = "tantra-cpu-10m-32k"
-    cfg.block.alra.dim, cfg.block.alra.num_heads, cfg.block.alra.head_dim = 224, 7, 32
-    cfg.block.sgp.dim, cfg.block.num_layers = 224, 4
-    return cfg
-
-
-def build_cpu_model(profile: str = "dense", attention_kind: str = "alra", vocab_size: int = 32768) -> "NeuroCoreModel":
-    if profile == "dense":
-        return NeuroCoreModel(cpu_dense_config(vocab_size, attention_kind), use_mtp=False, use_moe=False)
-    if profile == "moe2":
-        return NeuroCoreModel(cpu_top1_moe_config(vocab_size, 2, attention_kind), use_mtp=False, use_moe=True)
-    if profile == "micro10":
-        return NeuroCoreModel(cpu_10m_config(vocab_size, attention_kind), use_mtp=False, use_moe=False)
-    raise ValueError(f"Unknown CPU profile: {profile}")
+def _to_int8(model: nn.Module) -> nn.Module:
+    """8-bit weights for Linear layers. Uses torchao when installed, else PyTorch's built-in path."""
+    import warnings
+    try:
+        from torchao.quantization import Int8DynamicActivationInt8WeightConfig, quantize_
+        quantize_(model, Int8DynamicActivationInt8WeightConfig())
+        return model
+    except Exception:
+        pass
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            return torch.ao.quantization.quantize_dynamic(model, {nn.Linear}, dtype=torch.qint8)
+    except Exception as exc:
+        log.warning(f"INT8 not available in this PyTorch ({exc}); running in float32.")
+        return model
