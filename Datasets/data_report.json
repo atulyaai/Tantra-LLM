@@ -1,0 +1,70 @@
+{
+ "rows": {
+  "pretrain": 998355,
+  "sft": 792920
+ },
+ "val_rows": {
+  "sft": 3184,
+  "pretrain": 4000
+ },
+ "language_mix_percent_of_chars": {
+  "pretrain/english": 11.6,
+  "pretrain/hindi": 62.4,
+  "pretrain/mixed": 0.0,
+  "sft/english": 5.9,
+  "sft/hindi": 17.0,
+  "sft/mixed": 3.1
+ },
+ "chars_million": {
+  "pretrain/english": 241.5,
+  "pretrain/hindi": 1297.8,
+  "pretrain/mixed": 0.9,
+  "sft/english": 122.4,
+  "sft/hindi": 352.7,
+  "sft/mixed": 65.4
+ },
+ "by_source": {
+  "master_train.jsonl": {
+   "sft": 389993,
+   "pretrain": 742891
+  },
+  "master_val.jsonl": {
+   "sft": 20482,
+   "pretrain": 39021
+  },
+  "wiki_simple_en": {
+   "pretrain": 207553
+  },
+  "wiki_sa": {
+   "pretrain": 12890
+  },
+  "alpaca_en": {
+   "sft": 51561
+  },
+  "alpaca_hi": {
+   "sft": 51053
+  },
+  "alpaca_hi_hinglish": {
+   "sft": 99636
+  },
+  "hinglish_conv": {
+   "sft": 149979
+  },
+  "gsm8k": {
+   "sft": 7457
+  },
+  "python_code": {
+   "sft": 18486
+  }
+ },
+ "cleaning": {
+  "article (filler question -> text)": 596364,
+  "conversation": 212977,
+  "conversation (translation)": 199706,
+  "article (विषय headline -> text)": 185871,
+  "dropped: short/broken article": 117447,
+  "dropped: shifted roles, no answer": 85824,
+  "dropped: duplicate": 2648,
+  "dropped: broken text": 276
+ }
+}

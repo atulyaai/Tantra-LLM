@@ -7,7 +7,9 @@ main.py — Tantra command line. Every task is one --mode.
   python main.py --mode eval                  validation loss + 50-question probe + speed
   python main.py --mode serve                 WebUI + OpenAI-compatible API on http://127.0.0.1:8000
   python main.py --mode export                small fp16 file for inference (Model/tantra.pt)
+  python main.py --mode data                  clean + mix all data -> Datasets/pretrain.jsonl, sft.jsonl, val_*.jsonl
   python main.py --mode tokenizer             build Model/tokenizer.json from your data (do this ONCE)
+  python main.py --mode smriti                build the knowledge store Model/smriti.db (facts the model looks up)
   python main.py --mode dpo --prefs FILE      preference tuning from chosen/rejected pairs
   python main.py --mode adapter               list / install category specialist layers
   python main.py --mode hardware              show CPU / RAM / GPU
@@ -37,6 +39,16 @@ MODEL_DIR = os.path.join(ROOT, "Model")
 TOKENIZER_PATH = os.path.join(MODEL_DIR, "tokenizer.json")
 DATA_DIR = os.path.join(ROOT, "Datasets")
 log = get_logger("tantra")
+
+
+def default_data(args) -> None:
+    """Pick the cleaned files for the chosen stage unless --data / --val were given."""
+    stage_file = os.path.join(DATA_DIR, "pretrain.jsonl" if args.stage == "pretrain" else "sft.jsonl")
+    if not args.data:
+        args.data = stage_file if os.path.isfile(stage_file) else os.path.join(DATA_DIR, "master_train.jsonl")
+    if args.val is None:
+        v = os.path.join(DATA_DIR, f"val_{args.stage}.jsonl")
+        args.val = v if os.path.isfile(v) else os.path.join(DATA_DIR, "master_val.jsonl")
 
 
 def ckpt_paths(model_dir: str) -> dict:
@@ -95,7 +107,8 @@ def build_config(args, vocab_size: int) -> NeuroCoreConfig:
 LEGACY = [
     "ARCHITECTURE.md", "ROADMAP.md", "SECURITY.md", "CONTRIBUTING.md", "CHANGELOG.md", "pyproject.toml",
     "benchmark.py", "chat.py", "train.bat", "tantra.ps1", "tantra_kaggle_training.ipynb", "tools", ".benchmarks",
-    "Tantra/Chitta.py", "Tantra/CognitiveOS.py", "Tantra/Manas.py", "Tantra/Nirikshak.py", "Tantra/Smriti.py",
+    # (Tantra/Smriti.py from v1 is NOT listed: Windows paths ignore case and v2 has Tantra/smriti.py)
+    "Tantra/Chitta.py", "Tantra/CognitiveOS.py", "Tantra/Manas.py", "Tantra/Nirikshak.py",
     "Tantra/Vivek.py", "Tantra/config_0926b.py", "Tantra/benchmark.py", "Tantra/cli_hardware_dispatch.py",
     "Tantra/codec.py", "Tantra/moe.py", "Tantra/tool_router.py", "Tantra/ui.py", "Tantra/probe_eval.py",
     "Tests/test_checkpoint_and_chat_loader.py", "Tests/test_core_architecture.py", "Tests/test_export_benchmark.py",
@@ -116,6 +129,8 @@ def move_legacy_files() -> None:
         if os.path.exists(src):
             target = os.path.join(dest, rel)
             os.makedirs(os.path.dirname(target), exist_ok=True)
+            if os.path.exists(target):   # already archived once: leave it, never delete
+                continue
             shutil.move(src, target)
             moved.append(rel)
     for cache in glob.glob(os.path.join(ROOT, "*", "__pycache__")):
@@ -323,6 +338,21 @@ def run_tokenizer(args) -> None:
     build_tokenizer([f for f in args.data.split(",") if f], MODEL_DIR, vocab_size=args.vocab_size)
 
 
+def run_data(args) -> None:
+    from Tantra.data_prep import build
+    build(DATA_DIR)
+    print("\nDone. Next: python main.py --mode tokenizer (once), then python main.py --mode train --stage pretrain")
+
+
+def run_smriti(args) -> None:
+    from Tantra.smriti import build as build_smriti
+    files = [f for f in (args.data or "").split(",") if f] or \
+        [p for p in (os.path.join(DATA_DIR, "sft.jsonl"), os.path.join(DATA_DIR, "pretrain.jsonl")) if os.path.isfile(p)]
+    if not files:
+        sys.exit("No data. Run python main.py --mode data first (or pass --data file.jsonl).")
+    print(json.dumps(build_smriti(files, os.path.join(args.model_dir, "smriti.db")), indent=2, ensure_ascii=False))
+
+
 def run_adapter(args) -> None:
     from Tantra.adapters import AdapterRegistry, build_adapter_checkpoint
     reg = AdapterRegistry()
@@ -342,10 +372,12 @@ def main() -> None:
     p = argparse.ArgumentParser(description="Tantra LLM", formatter_class=argparse.RawDescriptionHelpFormatter,
                                 epilog=__doc__)
     p.add_argument("--mode", default="train",
-                   choices=["train", "chat", "generate", "eval", "serve", "export", "tokenizer", "dpo", "adapter", "hardware"])
+                   choices=["train", "chat", "generate", "eval", "serve", "export", "data", "tokenizer", "smriti",
+                            "dpo", "adapter", "hardware"])
     # data
-    p.add_argument("--data", default=os.path.join(DATA_DIR, "master_train.jsonl"), help="training .jsonl (comma-separated for several)")
-    p.add_argument("--val", default=os.path.join(DATA_DIR, "master_val.jsonl"), help="held-out .jsonl (never trained on)")
+    p.add_argument("--data", help="training .jsonl, comma-separated for several (default: Datasets/pretrain.jsonl "
+                                  "or sft.jsonl for the stage)")
+    p.add_argument("--val", help="held-out .jsonl, never trained on (default: Datasets/val_<stage>.jsonl)")
     p.add_argument("--probe", default=os.path.join(DATA_DIR, "probe_50.jsonl"), help="fixed test questions ('' to disable)")
     p.add_argument("--prefs", default=os.path.join(DATA_DIR, "preference_pairs.jsonl"), help="DPO chosen/rejected pairs")
     p.add_argument("--stage", choices=["sft", "pretrain"], default="sft", help="sft = learn answers only; pretrain = learn all text")
@@ -366,7 +398,7 @@ def main() -> None:
     p.add_argument("--seq-len", type=int, default=512)
     p.add_argument("--lr", type=float, default=3e-4)
     p.add_argument("--weight-decay", type=float, default=0.1)
-    p.add_argument("--warmup", type=int, default=500)
+    p.add_argument("--warmup", type=int, help="warm-up steps (default: min(500, steps/10))")
     p.add_argument("--optimizer", choices=["adamw", "lion", "sgd"], default="adamw")
     p.add_argument("--max-grad-norm", type=float, default=1.0)
     p.add_argument("--log-every", type=int, default=50)
@@ -401,6 +433,16 @@ def main() -> None:
     print_banner()
     move_legacy_files()
     set_seed(args.seed)
+    if args.mode == "data":
+        return run_data(args)
+    if args.mode == "smriti":
+        return run_smriti(args)
+    if args.mode == "tokenizer" and not args.data:   # learn words from ALL cleaned data
+        args.data = ",".join(p for p in (os.path.join(DATA_DIR, "pretrain.jsonl"), os.path.join(DATA_DIR, "sft.jsonl"))
+                             if os.path.isfile(p)) or None
+    default_data(args)
+    if args.warmup is None:
+        args.warmup = min(500, max(1, args.steps // 10))
     if args.mode == "tokenizer":
         return run_tokenizer(args)
     if args.mode == "adapter":

@@ -925,7 +925,17 @@ def load_model(path: str, device: str = "cpu", int8: bool = False) -> Tuple["Neu
             depths[m.group(1)] = max(depths.get(m.group(1), 0), int(m.group(2)) + 1)
     for name, depth in depths.items():
         model.add_category_layers([name], depth=depth)
+    # BitNet exports store packed 2-bit weights; their buffers only exist after
+    # to_inference_mode(), otherwise they'd be dropped and the layers stay random.
+    for name, module in model.named_modules():
+        if isinstance(module, BitLinear) and f"{name}.packed_weight" in state and not module.is_inference:
+            module.to_inference_mode()
     missing, unexpected = model.load_state_dict(state, strict=False)
+    runtime_caches = ("pos_mask", "neg_mask", "w_ternary", "packed_weight_u8", "_cached_w_ternary", "_cached_scale")
+    for name, module in model.named_modules():
+        if isinstance(module, BitLinear) and module.is_inference and f"{name}.packed_weight" in state:
+            module.rebuild_from_packed()
+    missing = [k for k in missing if not k.endswith(runtime_caches)]
     if missing or unexpected:
         log.warning(f"load_model: {len(missing)} missing / {len(unexpected)} unexpected tensors in {path}")
     model = model.to(device).eval()

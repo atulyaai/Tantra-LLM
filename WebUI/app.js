@@ -92,7 +92,7 @@ window.addEventListener("hashchange", () => showTab(location.hash.slice(1)));
 const activeTab = () => $("nav button.active")?.dataset.tab;
 
 // ── generation settings (saved in this browser) ─────────────────────────────
-const DEFAULTS = { temperature: 0.3, top_p: 0.9, repetition_penalty: 1.15, max_tokens: 256, history: 3, auto_speak: false, system: "", category: "auto" };
+const DEFAULTS = { temperature: 0.3, top_p: 0.9, repetition_penalty: 1.15, max_tokens: 256, history: 3, auto_speak: false, system: "", category: "auto", smriti: true };
 let settings = { ...DEFAULTS, ...store.get("settings", {}) };
 function bindSettings() {
   for (const [k, v] of Object.entries(settings)) {
@@ -150,6 +150,7 @@ function messageEl(m, i) {
   const btn = (label, title, fn) => { const b = el("button", null, label); b.title = title; b.onclick = fn; meta.append(b); };
   if (m.role === "assistant") {
     if (m.info) meta.append(el("span", null, m.info));
+    if (m.sources?.length) d.append(sourcesEl(m.sources));
     btn("⧉", "Copy", () => navigator.clipboard.writeText(m.content).then(() => toast("Copied.")));
     btn("🔊", "Read aloud", () => speakText(m.content));
     if (i === chat.messages.length - 1) btn("↻", "Regenerate", regenerate);
@@ -157,6 +158,22 @@ function messageEl(m, i) {
     btn("✎", "Edit and resend", () => editMessage(i));
   }
   d.append(meta);
+  return d;
+}
+
+function hitItem(h) {
+  const li = el("li");
+  if (h.question) li.append(el("b", null, h.question));
+  li.append(el("span", null, h.text.length > 400 ? h.text.slice(0, 400) + "…" : h.text));
+  li.append(el("div", "muted", `${h.source} · ${h.kind === "qa" ? "Q&A" : "text"} · score ${h.score}`));
+  return li;
+}
+function sourcesEl(hits) {
+  const d = el("details", "sources");
+  d.append(el("summary", null, `📚 Smriti: ${hits.length} fact${hits.length > 1 ? "s" : ""} used`));
+  const ul = el("ul", "hits");
+  hits.forEach((h) => ul.append(hitItem(h)));
+  d.append(ul);
   return d;
 }
 
@@ -206,7 +223,7 @@ async function generate() {
       body: JSON.stringify({
         messages, stream: true, temperature: settings.temperature, top_p: settings.top_p,
         repetition_penalty: settings.repetition_penalty, max_tokens: settings.max_tokens,
-        history: settings.history, category: $("#category").value,
+        history: settings.history, category: $("#category").value, smriti: settings.smriti && !!status.smriti,
       }),
     });
     const reader = r.body.getReader();
@@ -239,6 +256,7 @@ async function generate() {
   if (controller.signal.aborted) parts.push("stopped");
   else if (final?.choices?.[0]?.finish_reason === "length") parts.push("hit max tokens");
   reply.info = parts.join(" · ");
+  if (final?.sources?.length) reply.sources = final.sources;
   if (!reply.content && !reply.error) reply.content = "(no reply — the model ended immediately)";
   controller = null;
   setBusy(false);
@@ -495,9 +513,9 @@ function renderTraining(s) {
   if (dsSel.dataset.names !== names.join()) {
     dsSel.dataset.names = names.join();
     dsSel.innerHTML = "";
+    dsSel.append(new Option("auto — cleaned file for the stage (pretrain.jsonl / sft.jsonl)", ""));
     names.forEach((n) => dsSel.append(new Option(`${n} (${fmt(s.datasets.find((d) => d.name === n).size_mb, 0)} MB)`, n)));
-    if (!names.length) dsSel.append(new Option("no .jsonl in Datasets/", ""));
-    dsSel.value = names.includes("master_train.jsonl") ? "master_train.jsonl" : names[0] || "";
+    dsSel.value = "";
   }
   refreshLog("train", $("#train-log"), $("#log-follow").checked);
 }
@@ -575,16 +593,40 @@ function renderModel(s) {
       ${ev.probe?.hits != null ? `<dt>Remembered</dt><dd><b>${ev.probe.hits}/50</b> · answer loss ${fmt(ev.probe.answer_loss, 3)}</dd>` : ""}
       ${ev.speed ? `<dt>Speed</dt><dd>${fmt(ev.speed.forward_tokens_per_sec, 0)} tokens/s (forward)</dd>` : ""}
       <dt>When</dt><dd>${ago(ev.finished_at)}</dd></dl>` : `<p class="hint">No test run yet.</p>`;
-  for (const name of ["eval", "export"]) {
+  const LABELS = { eval: ["▶ Run test", "Test"], export: ["⇩ Export tantra.pt", "Export"],
+    smriti: ["⟳ Build", "Smriti build"], data: ["⟳ Clean & mix data", "Data preparation"] };
+  for (const [name, [label, title]] of Object.entries(LABELS)) {
     const j = jobs[name] || {};
     const btn = $(`#${name}-start`);
     btn.disabled = !!j.running;
-    btn.textContent = j.running ? "running…" : name === "eval" ? "▶ Run test" : "⇩ Export tantra.pt";
+    btn.textContent = j.running ? "running…" : label;
     if (j.started) refreshLog(name, $(`#${name}-log`), "force");
     if (j.running === false && j.exit_code != null && btn.dataset.wasRunning === "1")
-      toast(j.exit_code === 0 ? `${name === "eval" ? "Test" : "Export"} finished.` : `${name} failed — see its log.`, j.exit_code === 0 ? "ok" : "error");
+      toast(j.exit_code === 0 ? `${title} finished.` : `${title} failed — see its log.`, j.exit_code === 0 ? "ok" : "error");
     btn.dataset.wasRunning = j.running ? "1" : "0";
   }
+
+  const sm = s.smriti;
+  dl("#smriti-info", sm ? [
+    ["Facts", fmt(sm.facts, 0)], ["Q&A / text", `${fmt(sm.kinds?.qa || 0, 0)} / ${fmt(sm.kinds?.text || 0, 0)}`],
+    ["Size on disk", `${fmt(sm.size_mb, 1)} MB`], ["Built", ago(sm.built_at)],
+    ["Sources", Object.keys(sm.sources || {}).join(", ")],
+  ] : [["Status", "Not built yet — press Build (needs the cleaned data first)."]]);
+  $("#smriti-search").hidden = !sm;
+
+  const rep = s.data_report;
+  const COLORS = { hindi: "#c2410c", english: "#2563eb", mixed: "#16a34a" };
+  if (rep) {
+    const mix = {};
+    for (const [k, v] of Object.entries(rep.language_mix_percent_of_chars || {})) { const lang = k.split("/")[1]; mix[lang] = (mix[lang] || 0) + v; }
+    const drops = Object.entries(rep.cleaning || {}).filter(([k]) => k.startsWith("dropped") || k.startsWith("fixed"));
+    $("#data-report").innerHTML =
+      `<dl><dt>Pretrain rows</dt><dd>${fmt(rep.rows?.pretrain, 0)}</dd><dt>Conversation rows</dt><dd>${fmt(rep.rows?.sft, 0)}</dd>` +
+      `<dt>Held out</dt><dd>${fmt(rep.val_rows?.pretrain, 0)} + ${fmt(rep.val_rows?.sft, 0)}</dd></dl>` +
+      `<div class="bar">${Object.entries(mix).map(([k, v]) => `<span style="width:${v}%;background:${COLORS[k] || "#999"}" title="${k} ${v.toFixed(1)}%"></span>`).join("")}</div>` +
+      `<div class="legend">${Object.entries(mix).map(([k, v]) => `<span><i style="background:${COLORS[k] || "#999"}"></i>${k === "mixed" ? "Hinglish / mixed" : k} ${v.toFixed(1)}%</span>`).join("")}</div>` +
+      (drops.length ? `<p class="hint">${drops.map(([k, v]) => `${esc(k)}: ${fmt(v, 0)}`).join(" · ")}</p>` : "");
+  } else $("#data-report").innerHTML = `<p class="hint">Not prepared yet.</p>`;
 
   const ul = $("#dataset-list"); ul.innerHTML = "";
   (s.datasets || []).forEach((d) => { const li = el("li"); li.append(el("span", null, d.name), el("span", "muted", `${fmt(d.size_mb, 1)} MB`)); ul.append(li); });
@@ -599,6 +641,24 @@ $("#eval-start").onclick = async () => {
 $("#export-start").onclick = async () => {
   try { await postJSON("/api/jobs/export", loadedCkpt()); toast("Export started."); refreshStatus(); }
   catch (e) { toast(e.message, "error"); }
+};
+$("#smriti-start").onclick = async () => {
+  try { await postJSON("/api/jobs/smriti"); toast("Building the knowledge store — takes a few minutes."); refreshStatus(); } catch (e) { toast(e.message, "error"); }
+};
+$("#data-start").onclick = async () => {
+  if (!confirm("Rebuild pretrain.jsonl / sft.jsonl from the source data? (~10 minutes)")) return;
+  try { await postJSON("/api/jobs/data"); toast("Preparing data…"); refreshStatus(); } catch (e) { toast(e.message, "error"); }
+};
+$("#smriti-search").onsubmit = async (e) => {
+  e.preventDefault();
+  const q = $("#smriti-q").value.trim(), ul = $("#smriti-hits");
+  if (!q) return;
+  ul.innerHTML = "";
+  try {
+    const j = await getJSON(`/api/smriti/search?q=${encodeURIComponent(q)}&k=5`);
+    if (!j.hits.length) ul.append(el("li", "muted", "Nothing found."));
+    j.hits.forEach((h) => ul.append(hitItem(h)));
+  } catch (err) { toast(err.message, "error"); }
 };
 $("#reload-model").onclick = async () => {
   const first = status.checkpoints?.[0];

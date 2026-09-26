@@ -133,14 +133,16 @@ def build_tokenizer(data_paths: Iterable[str], out_dir: str, vocab_size: int = 6
     budget = max_mb * 1024 * 1024
     hindi: List[str] = []
     english: List[str] = []
-    seen = 0
+    data_paths = list(data_paths)
+    per_file = budget * 3 // max(len(data_paths), 1)   # every file gets a fair share of the sample
     for path in data_paths:
+        seen = 0
         with open(path, "r", encoding="utf-8", errors="ignore") as f:
             for line in f:
                 for t in _row_texts(line):
                     (english if len(_LATIN.findall(t)) > len(_DEVA.findall(t)) else hindi).append(t)
                     seen += len(t.encode("utf-8"))
-                if seen > budget * 3:
+                if seen > per_file:
                     break
 
     random.shuffle(hindi)

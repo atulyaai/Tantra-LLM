@@ -157,6 +157,18 @@ tr.current td { font-weight: 600; }
 tr.current td:first-child::before { content: "● "; color: var(--ok); }
 td:last-child { text-align: right; }
 
+.hits { list-style: none; padding: 0; margin: 10px 0 0; display: flex; flex-direction: column; gap: 8px; }
+.hits li { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font-size: 13px; background: var(--panel-2); }
+.hits li b { display: block; margin-bottom: 2px; }
+.hits li .muted { font-size: 11px; }
+.sources { margin-top: 6px; font-size: 12px; color: var(--muted); }
+.sources summary { cursor: pointer; }
+.sources .hits li { max-height: 140px; overflow: auto; }
+.bar { display: flex; height: 10px; border-radius: 99px; overflow: hidden; margin: 8px 0 4px; background: var(--line); }
+.bar span { display: block; height: 100%; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12px; color: var(--muted); }
+.legend i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 4px; vertical-align: middle; }
+
 /* toasts */
 #toasts { position: fixed; right: 16px; bottom: 16px; display: flex; flex-direction: column; gap: 8px; z-index: 50; max-width: min(420px, calc(100vw - 32px)); }
 .toast { background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--accent); border-radius: 10px; padding: 10px 14px; box-shadow: 0 8px 24px rgba(0,0,0,.15); font-size: 14px; animation: slide .2s; }

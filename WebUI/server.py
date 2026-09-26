@@ -217,6 +217,40 @@ def pick_category(model, text: str, requested: Optional[str]) -> Optional[str]:
     return routed if routed in model.category_layers else None
 
 
+def smriti():
+    """The knowledge store (Model/smriti.db), opened read-only; reopened when the file is rebuilt."""
+    path = os.path.join(MODEL_DIR, "smriti.db")
+    if not os.path.isfile(path):
+        return None
+    mtime = os.path.getmtime(path)
+    cur = state.get("smriti")
+    if cur is None or cur[0] != path or cur[1] != mtime:
+        from Tantra.smriti import Smriti
+        if cur:
+            cur[2].close()
+        s = Smriti(path, readonly=True)
+        state["smriti"] = (path, mtime, s, s.stats())
+    return state["smriti"][2]
+
+
+def smriti_stats() -> Optional[dict]:
+    return state["smriti"][3] if smriti() is not None else None
+
+
+def with_knowledge(messages: List[dict], query: str, k: int) -> tuple:
+    """Look the question up in Smriti and put the facts in front of it (as the system message)."""
+    s = smriti()
+    if s is None or k <= 0:
+        return messages, []
+    ctx, hits = s.context(query, k=k)
+    if not ctx:
+        return messages, []
+    note = "नीचे दी गई जानकारी का उपयोग करके उत्तर दें / Use this information to answer:\n" + ctx
+    rest = [m for m in messages if m.get("role") != "system"]
+    system = next((m["content"] for m in messages if m.get("role") == "system" and m.get("content")), "")
+    return [{"role": "system", "content": (system + "\n\n" if system else "") + note}] + rest, hits
+
+
 def _num(body: dict, key: str, default: float, lo: float, hi: float) -> float:
     try:
         v = float(body.get(key, default))
@@ -237,6 +271,11 @@ async def chat_completions(request: Request):
     messages = body.get("messages") or []
     if not isinstance(messages, list):
         raise HTTPException(400, "'messages' must be a list.")
+    build_prompt(messages)   # validates: last message must be from the user
+    sources: List[dict] = []
+    if body.get("smriti"):
+        messages, sources = await asyncio.to_thread(with_knowledge, messages, messages[-1]["content"],
+                                                    int(_num(body, "smriti_k", 2, 0, 5)))
     prompt = build_prompt(messages, int(_num(body, "history", 3, 0, 20)))
     model, tok = await asyncio.to_thread(get_model)
     category = pick_category(model, messages[-1]["content"], body.get("category"))
@@ -283,7 +322,7 @@ async def chat_completions(request: Request):
                 finally:
                     it.close()
             secs = time.perf_counter() - t0
-            yield chunk({}, finish, category=category,
+            yield chunk({}, finish, category=category, sources=sources,
                         usage={"prompt_tokens": prompt_tokens, "completion_tokens": len(out),
                                "total_tokens": prompt_tokens + len(out)},
                         timing={"seconds": round(secs, 3), "tokens_per_sec": round(len(out) / max(secs, 1e-6), 1)})
@@ -305,6 +344,7 @@ async def chat_completions(request: Request):
         out = await asyncio.to_thread(run)
     secs = time.perf_counter() - t0
     return {"id": rid, "object": "chat.completion", "created": created, "model": "tantra", "category": category,
+            "sources": sources,
             "choices": [{"index": 0, "message": {"role": "assistant", "content": tok.decode(out)},
                          "finish_reason": "length" if len(out) >= gen_args["max_new_tokens"] else "stop"}],
             "usage": {"prompt_tokens": prompt_tokens, "completion_tokens": len(out),
@@ -322,7 +362,7 @@ def list_chats():
 @app.post("/api/chats")
 async def save_chat(request: Request):
     chat = await request.json()
-    messages = [{k: m[k] for k in ("role", "content", "info") if k in m}
+    messages = [{k: m[k] for k in ("role", "content", "info", "sources") if k in m}
                 for m in chat.get("messages", []) if isinstance(m, dict) and m.get("role")]
     with chats_lock:
         chats = _read_json(CHATS_FILE, {})
@@ -345,6 +385,9 @@ def delete_chat(cid: str):
 
 
 # ── background jobs: train / eval / export ───────────────────────────────────
+
+JOB_NAMES = ("train", "eval", "export", "data", "smriti")
+
 
 def _log_path(name: str) -> str:
     return os.path.join(MODEL_DIR, "logs", f"{name}.log")
@@ -470,6 +513,26 @@ async def export_start(request: Request):
     return start_job("export", _checkpoint_arg(body))
 
 
+@app.post("/api/jobs/data", dependencies=[Depends(require_key)])
+def data_start():
+    if training_running():
+        raise HTTPException(409, "Stop training first — this rewrites the training files.")
+    return start_job("data", [])
+
+
+@app.post("/api/jobs/smriti", dependencies=[Depends(require_key)])
+def smriti_start():
+    return start_job("smriti", [])
+
+
+@app.get("/api/smriti/search")
+def smriti_search(q: str, k: int = 5):
+    s = smriti()
+    if s is None:
+        raise HTTPException(404, "No knowledge store yet. Build it: python main.py --mode smriti")
+    return {"query": q, "hits": s.search(q, k=max(1, min(k, 20)))}
+
+
 @app.post("/api/jobs/{name}/cancel", dependencies=[Depends(require_key)])
 def job_cancel(name: str):
     if name == "train":
@@ -482,7 +545,7 @@ def job_cancel(name: str):
 
 @app.get("/api/logs/{name}")
 def job_log(name: str, lines: int = 200):
-    if name not in ("train", "eval", "export"):
+    if name not in JOB_NAMES:
         raise HTTPException(404, "Unknown job.")
     path = _log_path(name)
     if not os.path.isfile(path):
@@ -539,9 +602,10 @@ def status():
     return {"model": state["info"], "load_error": state["load_error"], "training": training,
             "probe": _probe_history(), "hardware": hardware().as_dict(),
             "checkpoints": [c["path"] for c in ckpts], "checkpoint_details": ckpts,
-            "jobs": {n: job_info(n) for n in ("train", "eval", "export")},
+            "jobs": {n: job_info(n) for n in JOB_NAMES},
             "eval_report": _read_json(os.path.join(MODEL_DIR, "eval_report.json"), None),
-            "datasets": _datasets(), "speech": _speech_available(),
+            "datasets": _datasets(), "speech": _speech_available(), "smriti": smriti_stats(),
+            "data_report": _read_json(os.path.join(DATA_DIR, "data_report.json"), None),
             "auth_required": bool(API_KEY), "server_time": time.time()}
 
 

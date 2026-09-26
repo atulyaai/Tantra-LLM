@@ -52,6 +52,7 @@
             <label>Max tokens <input id="max_tokens" type="number" min="16" max="2048" step="16"></label>
             <label>Remembered turns <input id="history" type="number" min="0" max="10"></label>
             <label class="check"><input id="auto_speak" type="checkbox"> Speak replies aloud</label>
+            <label class="check" title="Look the question up in the knowledge store (Model/smriti.db) and give the facts to the model"><input id="smriti" type="checkbox"> Use Smriti (knowledge lookup)</label>
             <label class="wide">System prompt <textarea id="system" rows="2" placeholder="Optional, e.g. आप अतुल्य AI के सहायक हैं। छोटे और सही उत्तर दें।"></textarea></label>
             <button type="button" id="settings-reset" class="link">Reset to defaults</button>
           </div>
@@ -138,7 +139,21 @@
             <p class="hint">Removes training-only data and stores fp16 weights (≈6× smaller) as Model/tantra.pt — the file chat uses first.</p>
             <pre id="export-log" class="log small" hidden></pre>
           </div>
-          <div class="card wide"><h2>Datasets</h2><ul id="dataset-list" class="list"></ul></div>
+          <div class="card">
+            <div class="card-head"><h2>Smriti — knowledge store</h2><button id="smriti-start">⟳ Build</button></div>
+            <p class="hint">Facts the model looks up before answering (from the cleaned data). Compressed, searched from disk.</p>
+            <dl id="smriti-info"></dl>
+            <form id="smriti-search" class="row"><input id="smriti-q" type="search" placeholder="Try a search, e.g. भारत की राजधानी" style="flex:1"><button>Search</button></form>
+            <ul id="smriti-hits" class="hits"></ul>
+            <pre id="smriti-log" class="log small" hidden></pre>
+          </div>
+          <div class="card">
+            <div class="card-head"><h2>Training data</h2><button id="data-start">⟳ Clean &amp; mix data</button></div>
+            <p class="hint">Cleans master_train + the open datasets in Datasets/raw → pretrain.jsonl, sft.jsonl and held-out val files.</p>
+            <div id="data-report"></div>
+            <pre id="data-log" class="log small" hidden></pre>
+          </div>
+          <div class="card wide"><h2>Dataset files</h2><ul id="dataset-list" class="list"></ul></div>
         </div>
       </div>
     </section>
