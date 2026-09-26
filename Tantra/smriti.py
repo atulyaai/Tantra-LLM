@@ -164,6 +164,23 @@ class Smriti:
             cur.execute("INSERT INTO idx(rowid, head, body) VALUES (?,?,?)", (cur.lastrowid, head, body))
         return len(recs)
 
+    def add_text(self, text: str, source: str, title: str = "") -> int:
+        """Index one document's text (chunked) under `source`, e.g. an uploaded file."""
+        recs = [("text", title, piece) for piece in _chunks(text) if len(piece) >= 20]
+        n = self._insert(recs, source)
+        self.db.commit()
+        return n
+
+    def remove_source(self, source: str) -> int:
+        """Remove every fact that came from `source` (contentless index needs the original text)."""
+        rows = self.db.execute("SELECT id, blob FROM docs WHERE source = ?", (source,)).fetchall()
+        for rid, blob in rows:
+            d = _unpack(blob)
+            self.db.execute("INSERT INTO idx(idx, rowid, head, body) VALUES ('delete', ?, ?, ?)", (rid, d["head"], d["body"]))
+        self.db.execute("DELETE FROM docs WHERE source = ?", (source,))
+        self.db.commit()
+        return len(rows)
+
     def finish(self) -> None:
         self.db.execute("INSERT INTO idx(idx) VALUES ('optimize')")
         self.db.execute("INSERT OR REPLACE INTO meta VALUES ('built_at', ?)", (str(time.time()),))
@@ -188,6 +205,7 @@ class Smriti:
             if not row or (kinds and row[0] not in kinds):
                 continue
             d = _unpack(row[2])
+            d["body"] = re.sub(r"^[ऀ-ःऺ-ॏ॑-ॗ\s|।.,:;\-]+", "", d["body"])  # cut-off chunk starts
             head_words = set(keywords(d["head"], 40))
             overlap = len(qset & head_words) / max(len(qset), 1) if d["head"] else 0.0
             out.append({"id": rowid, "kind": row[0], "source": row[1], "question": d["head"], "text": d["body"],
@@ -195,6 +213,47 @@ class Smriti:
             if len(out) >= k:
                 break
         return out
+
+    def best_answer(self, query: str, k: int = 8, min_cover: float = 0.66, allow_text: bool = False) -> Optional[Dict]:
+        """The one fact good enough to answer with directly, or None.
+
+        A hit qualifies when its question matches ours, or when it covers most of our key words.
+        Translation-exercise rows ("Translate this to Hindi: ...") are skipped: their English
+        sentence often shares words with a question without answering it.
+        """
+        words = keywords(query)
+        if len(words) < (1 if allow_text else 2):          # "hello", "kaise ho": too little to look anything up safely
+            return None
+        best, best_score = None, 0.0
+        for h in self.search(query, k):
+            if h["question"].lstrip().lower().startswith(("translate this", "translate the", "translate to")):
+                continue
+            have = set(keywords(f"{h['question']} {h['text']}", 400))
+            cover = sum(w in have for w in words) / len(words)
+            qw, hw = set(words), set(keywords(h["question"], 40))
+            same_question = len(qw & hw) / max(len(qw | hw), 1)      # both ways: most words shared
+            # Only a stored question that is nearly the same as ours may answer directly; loose
+            # word overlap with an article is too often a different topic (it goes to the model as context instead).
+            qa_ok = h["kind"] == "qa" and same_question >= 0.65 and cover >= min_cover
+            text_ok = allow_text and h["kind"] == "text" and cover >= 0.75   # your own documents: specific enough
+            if not (qa_ok or text_ok) or re.search(r"\[[^\]]{1,20}\]", h["text"][:200]):   # "[naam]" = a template, not an answer
+                continue
+            score = cover + (h["match"] if h["kind"] == "qa" else 0.0)
+            if score > best_score:
+                best, best_score = h, score
+        return best
+
+    @staticmethod
+    def best_sentences(text: str, query: str, n: int = 2) -> str:
+        """The n sentences of a passage that share most words with the question, in their original order."""
+        sents = [s.strip() for s in re.split(r"(?<=[।.!?])\s+|\n+", text) if len(s.strip()) > 3]
+        words = set(keywords(query, 20))
+        if len(sents) <= n or not words:
+            return text.strip()
+        scored = sorted(range(len(sents)), key=lambda i: -len(words & set(keywords(sents[i], 60))))[:n]
+        if not words & set(keywords(sents[scored[0]], 60)):
+            return text.strip()
+        return " ".join(sents[i] for i in sorted(scored) if words & set(keywords(sents[i], 60)))
 
     def context(self, query: str, k: int = 2, max_chars: int = 700) -> Tuple[str, List[Dict]]:
         """Top facts formatted for the prompt, plus the hits (to show as sources)."""
@@ -209,6 +268,11 @@ class Smriti:
         return "\n---\n".join(parts), hits
 
     def stats(self) -> Dict:
+        saved = self.db.execute("SELECT value FROM meta WHERE key='stats'").fetchone()
+        if saved:   # counted once at build time: a multi-GB store would take ~20 s to count
+            st = json.loads(saved[0])
+            st["size_mb"] = round(os.path.getsize(self.path) / 2**20, 1) if os.path.isfile(self.path) else 0
+            return st
         n = self.db.execute("SELECT count(*) FROM docs").fetchone()[0]
         kinds = dict(self.db.execute("SELECT kind, count(*) FROM docs GROUP BY kind").fetchall())
         sources = dict(self.db.execute("SELECT source, count(*) FROM docs GROUP BY source").fetchall())
@@ -216,6 +280,12 @@ class Smriti:
         return {"facts": n, "kinds": kinds, "sources": sources,
                 "size_mb": round(os.path.getsize(self.path) / 2**20, 1) if os.path.isfile(self.path) else 0,
                 "built_at": float(built[0]) if built else None}
+
+    def save_stats(self) -> None:
+        self.db.execute("DELETE FROM meta WHERE key='stats'")
+        st = self.stats()
+        self.db.execute("INSERT OR REPLACE INTO meta VALUES ('stats', ?)", (json.dumps(st),))
+        self.db.commit()
 
     def close(self) -> None:
         self.db.close()
@@ -232,6 +302,7 @@ def build(paths: List[str], out: str = DEFAULT_PATH, max_rows: Optional[int] = N
     for p in paths:
         s.add_file(p, max_rows=max_rows)
     s.finish()
+    s.save_stats()
     s.close()
     os.replace(tmp, out)
     stats = Smriti(out, readonly=True).stats()

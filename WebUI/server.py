@@ -173,6 +173,19 @@ if os.path.isdir(os.path.join(REPO_ROOT, "Assets")):
     app.mount("/assets", StaticFiles(directory=os.path.join(REPO_ROOT, "Assets")), name="assets")
 
 _NO_CACHE = {"Cache-Control": "no-cache"}
+_PUBLIC = ("/", "/app.js", "/app.css", "/manifest.webmanifest")
+
+
+@app.middleware("http")
+async def lan_guard(request: Request, call_next):
+    """From another device (phone on Wi-Fi) every API call needs the key; this computer needs none."""
+    host = request.client.host if request.client else ""
+    local = host in ("127.0.0.1", "::1", "localhost", "testclient")
+    if not local and request.url.path not in _PUBLIC and not request.url.path.startswith("/assets/"):
+        given = request.headers.get("X-API-Key") or request.headers.get("Authorization", "").removeprefix("Bearer ")
+        if not API_KEY or not secrets.compare_digest(given, API_KEY):
+            return JSONResponse({"detail": "Invalid API key"}, status_code=401)
+    return await call_next(request)
 
 
 @app.get("/", include_in_schema=False)
@@ -251,6 +264,146 @@ def with_knowledge(messages: List[dict], query: str, k: int) -> tuple:
     return [{"role": "system", "content": (system + "\n\n" if system else "") + note}] + rest, hits
 
 
+# ── assistant layer: memory, documents, skills (all work without a trained model) ──
+
+def memory():
+    path = os.path.join(MODEL_DIR, "memory.json")
+    if state.get("memory") is None or state["memory"].path != path:
+        from Tantra.memory import Memory
+        state["memory"] = Memory(path)
+    return state["memory"]
+
+
+def documents():
+    from Tantra.documents import Documents
+    return Documents(os.path.join(MODEL_DIR, "docs.db"))
+
+
+DEFAULT_APPS = {"notepad": ["notepad.exe"], "calculator": ["calc.exe"], "calc": ["calc.exe"], "paint": ["mspaint.exe"],
+                "explorer": ["explorer.exe"], "file explorer": ["explorer.exe"], "नोटपैड": ["notepad.exe"],
+                "कैलकुलेटर": ["calc.exe"]}
+
+
+def allowed_apps() -> Dict[str, List[str]]:
+    return {**DEFAULT_APPS, **(memory().settings.get("apps") or {})}
+
+
+def search_files(query: str, limit: int = 20) -> List[str]:
+    """File NAMES matching the words, only inside folders the user allowed in Settings."""
+    words = [w.lower() for w in re.findall(r"\w+", query) if len(w) > 1]
+    out, seen = [], 0
+    for folder in memory().settings.get("file_folders") or []:
+        if not os.path.isdir(folder):
+            continue
+        for root, dirs, files in os.walk(folder):
+            dirs[:] = [d for d in dirs if not d.startswith(".")]
+            for f in files:
+                seen += 1
+                if all(w in f.lower() for w in words):
+                    out.append(os.path.join(root, f))
+                    if len(out) >= limit:
+                        return out
+                if seen > 50_000:
+                    return out
+    return out
+
+
+def training_summary(hi: bool) -> str:
+    t = _read_json(STATUS_FILE, {})
+    if not t:
+        return "अभी कोई training नहीं चल रही।" if hi else "No training has run yet."
+    v = (t.get("validation") or {}).get("loss")
+    pct = 100 * t.get("step", 0) / max(t.get("target_steps", 1), 1)
+    probe = [p for p in _probe_history() if p.get("hits") is not None]
+    rem = f", remembered {probe[-1]['hits']}/50" if probe else ""
+    if hi:
+        return (f"Training {t.get('status')}: step {t.get('step', 0):,}/{t.get('target_steps', 0):,} ({pct:.0f}%), "
+                f"loss {t.get('loss', 0):.2f}" + (f", val loss {v:.2f}" if v else "") + rem +
+                (f"। बाकी समय: {t.get('eta')}" if t.get("status") == "running" else "।"))
+    return (f"Training {t.get('status')}: step {t.get('step', 0):,}/{t.get('target_steps', 0):,} ({pct:.0f}%), "
+            f"loss {t.get('loss', 0):.2f}" + (f", val loss {v:.2f}" if v else "") + rem +
+            (f". ETA {t.get('eta')}." if t.get("status") == "running" else "."))
+
+
+def daily_brief(hi: bool) -> str:
+    import datetime as _dt
+    from Tantra.skills import time_date
+    parts = [time_date("आज कौन सा दिन है" if hi else "what is the date").text]
+    today_end = _dt.datetime.now().replace(hour=23, minute=59).timestamp()
+    rem = [r for r in memory().reminders() if r["due"] <= today_end]
+    if rem:
+        parts.append(("आज के reminders:\n" if hi else "Today's reminders:\n") +
+                     "\n".join(f"- {_dt.datetime.fromtimestamp(r['due']).strftime('%I:%M %p')}: {r['text']}" for r in rem))
+    else:
+        parts.append("आज कोई reminder नहीं है।" if hi else "No reminders today.")
+    parts.append(training_summary(hi))
+    return "\n\n".join(parts)
+
+
+def skill_ctx() -> Dict[str, Any]:
+    return {"memory": memory(), "status": training_summary, "brief": daily_brief,
+            "files": search_files, "apps": allowed_apps()}
+
+
+def direct_answer(text: str, body: dict) -> Optional[Dict[str, Any]]:
+    """Answer without the model when a skill, a taught answer or a strong knowledge match can."""
+    from Tantra.skills import handle
+    r = handle(text, skill_ctx())
+    if r:
+        return {"skill": r.name, "text": r.text, "card": r.card, "sources": []}
+    t = memory().taught_answer(text)
+    if t:
+        return {"skill": "taught", "text": t["answer"], "card": {"question": t["question"]}, "sources": []}
+    if body.get("knowledge_first"):
+        hit = None
+        docs = documents()
+        if docs.list() and os.path.isfile(docs.path):
+            from Tantra.smriti import Smriti
+            store = Smriti(docs.path, readonly=True)
+            try:
+                hit = store.best_answer(text, allow_text=True)
+            finally:
+                store.close()
+        s = smriti() if body.get("smriti") else None
+        if hit is None and s is not None:
+            hit = s.best_answer(text)
+        if hit:
+            from Tantra.smriti import Smriti
+            answer = Smriti.best_sentences(hit["text"], text, 1) if hit["kind"] == "text" else hit["text"]
+            return {"skill": "knowledge", "text": answer, "card": {}, "sources": [hit]}
+    return None
+
+
+def with_context(messages: List[dict], query: str, body: dict) -> tuple:
+    """Facts for the model: matching memories, your documents and (optionally) Smriti."""
+    notes, sources = [], []
+    mems = memory().relevant(query)
+    if mems:
+        notes.append("उपयोगकर्ता के बारे में / About the user:\n" + "\n".join(f"- {m['text']}" for m in mems))
+    docs = documents().search(query, 2)
+    if docs:
+        notes.append("दस्तावेज़ों से / From your documents:\n" + "\n---\n".join(h["text"][:600] for h in docs))
+        sources += docs
+    if body.get("smriti"):
+        _, hits = with_knowledge(messages, query, int(_num(body, "smriti_k", 2, 0, 5)))
+        if hits:
+            notes.append("नीचे दी गई जानकारी का उपयोग करके उत्तर दें / Use this information to answer:\n" +
+                         "\n---\n".join((f"{h['question']}\n" if h["question"] else "") + h["text"][:600] for h in hits))
+            sources += hits
+    mode = body.get("mode")
+    if mode == "translate_en":
+        notes.insert(0, "Translate the user's message into English. Reply with the translation only.")
+    elif mode == "translate_hi":
+        notes.insert(0, "उपयोगकर्ता के संदेश का हिंदी में अनुवाद करें। केवल अनुवाद लिखें।")
+    elif mode == "tutor":
+        notes.insert(0, "Explain step by step, simply, like a patient teacher.")
+    if not notes:
+        return messages, sources
+    rest = [m for m in messages if m.get("role") != "system"]
+    system = next((m["content"] for m in messages if m.get("role") == "system" and m.get("content")), "")
+    return [{"role": "system", "content": "\n\n".join(([system] if system else []) + notes)}] + rest, sources
+
+
 def _num(body: dict, key: str, default: float, lo: float, hi: float) -> float:
     try:
         v = float(body.get(key, default))
@@ -272,26 +425,40 @@ async def chat_completions(request: Request):
     if not isinstance(messages, list):
         raise HTTPException(400, "'messages' must be a list.")
     build_prompt(messages)   # validates: last message must be from the user
-    sources: List[dict] = []
-    if body.get("smriti"):
-        messages, sources = await asyncio.to_thread(with_knowledge, messages, messages[-1]["content"],
-                                                    int(_num(body, "smriti_k", 2, 0, 5)))
+    query = messages[-1]["content"]
+    rid, created = f"chatcmpl-{uuid.uuid4().hex[:12]}", int(time.time())
+
+    def chunk(delta: dict, finish: Optional[str] = None, **extra) -> str:
+        c = {"id": rid, "object": "chat.completion.chunk", "created": created, "model": "tantra",
+             "choices": [{"index": 0, "delta": delta, "finish_reason": finish}], **extra}
+        return f"data: {json.dumps(c, ensure_ascii=False)}\n\n"
+
+    direct = None if body.get("mode") in ("translate_en", "translate_hi") or body.get("direct") is False \
+        else await asyncio.to_thread(direct_answer, query, body)
+    if direct:   # skill / taught answer / knowledge: instant and exact, no model needed
+        extra = {"skill": direct["skill"], "card": direct["card"], "sources": direct["sources"],
+                 "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}, "timing": {"seconds": 0}}
+        if body.get("stream"):
+            async def sse_direct():
+                yield chunk({"content": direct["text"]})
+                yield chunk({}, "stop", **extra)
+                yield "data: [DONE]\n\n"
+            return StreamingResponse(sse_direct(), media_type="text/event-stream")
+        return {"id": rid, "object": "chat.completion", "created": created, "model": "tantra",
+                "choices": [{"index": 0, "message": {"role": "assistant", "content": direct["text"]},
+                             "finish_reason": "stop"}], **extra}
+
+    messages, sources = await asyncio.to_thread(with_context, messages, query, body)
     prompt = build_prompt(messages, int(_num(body, "history", 3, 0, 20)))
     model, tok = await asyncio.to_thread(get_model)
-    category = pick_category(model, messages[-1]["content"], body.get("category"))
+    category = pick_category(model, query, body.get("category"))
     ids = torch.tensor([tok.encode(prompt)], device=next(model.parameters()).device)
     gen_args = dict(max_new_tokens=int(_num(body, "max_tokens", 256, 1, 2048)),
                     temperature=_num(body, "temperature", 0.3, 0.0, 2.0),
                     top_p=_num(body, "top_p", 0.9, 0.05, 1.0),
                     repetition_penalty=_num(body, "repetition_penalty", 1.15, 1.0, 2.0),
                     eos_token_id=EOS_ID, adapter_name=category)
-    rid, created = f"chatcmpl-{uuid.uuid4().hex[:12]}", int(time.time())
     prompt_tokens = ids.shape[1]
-
-    def chunk(delta: dict, finish: Optional[str] = None, **extra) -> str:
-        c = {"id": rid, "object": "chat.completion.chunk", "created": created, "model": "tantra",
-             "choices": [{"index": 0, "delta": delta, "finish_reason": finish}], **extra}
-        return f"data: {json.dumps(c, ensure_ascii=False)}\n\n"
 
     if body.get("stream"):
         async def sse():
@@ -362,7 +529,7 @@ def list_chats():
 @app.post("/api/chats")
 async def save_chat(request: Request):
     chat = await request.json()
-    messages = [{k: m[k] for k in ("role", "content", "info", "sources") if k in m}
+    messages = [{k: m[k] for k in ("role", "content", "info", "sources", "skill", "card", "opened") if k in m}
                 for m in chat.get("messages", []) if isinstance(m, dict) and m.get("role")]
     with chats_lock:
         chats = _read_json(CHATS_FILE, {})
@@ -620,6 +787,167 @@ async def switch(request: Request):
     return state["info"]
 
 
+# ── memory, reminders, teach, documents, brief ───────────────────────────────
+
+def local_only(request: Request) -> None:
+    """Actions that touch this computer (run code, open apps, read folders) only from the PC itself."""
+    host = request.client.host if request.client else ""
+    if host not in ("127.0.0.1", "::1", "localhost", "testclient"):
+        raise HTTPException(403, "Only allowed from this computer.")
+
+
+@app.get("/api/memory")
+def memory_list():
+    m = memory()
+    return {"memories": m.list(), "reminders": m.reminders(include_done=True)[-100:], "taught": m.data["taught"][:100]}
+
+
+@app.post("/api/memory")
+async def memory_add(request: Request):
+    body = await request.json()
+    text = (body.get("text") or "").strip()
+    if not text:
+        raise HTTPException(400, "Empty memory.")
+    return memory().add(text, body.get("category"), source="manual")
+
+
+@app.patch("/api/memory/{mid}")
+async def memory_edit(mid: str, request: Request):
+    body = await request.json()
+    item = memory().update(mid, body.get("text"), body.get("category"))
+    if not item:
+        raise HTTPException(404, "Memory not found.")
+    return item
+
+
+@app.delete("/api/memory/{mid}")
+def memory_delete(mid: str):
+    memory().delete(mid)
+    return {"deleted": mid}
+
+
+@app.get("/api/reminders/due")
+def reminders_due():
+    return {"due": memory().due(), "upcoming": memory().reminders()[:20]}
+
+
+@app.post("/api/reminders/{rid}/{action}")
+async def reminder_action(rid: str, action: str, request: Request):
+    if action not in ("done", "snooze"):
+        raise HTTPException(400, "action must be done or snooze")
+    body = await request.json() if (await request.body()) else {}
+    r = memory().reminder_action(rid, action, int(body.get("minutes", 10)))
+    if not r:
+        raise HTTPException(404, "Reminder not found.")
+    return r
+
+
+@app.post("/api/feedback")
+async def feedback(request: Request):
+    """👎 Teach Tantra: remember the right answer now, and keep it for the next training run."""
+    body = await request.json()
+    q, correct = (body.get("question") or "").strip(), (body.get("correct") or "").strip()
+    if not q or not correct:
+        raise HTTPException(400, "Need the question and the correct answer.")
+    item = memory().teach(q, correct)
+    row = {"messages": [{"role": "user", "content": q}, {"role": "assistant", "content": correct}],
+           "source": "feedback", "bad_answer": (body.get("bad") or "")[:2000], "time": time.time()}
+    os.makedirs(DATA_DIR, exist_ok=True)
+    with open(os.path.join(DATA_DIR, "feedback.jsonl"), "a", encoding="utf-8") as f:
+        f.write(json.dumps(row, ensure_ascii=False) + "\n")
+    return item
+
+
+@app.get("/api/brief")
+def brief(lang: str = "hi"):
+    return {"text": daily_brief(lang == "hi")}
+
+
+@app.get("/api/docs")
+def docs_list():
+    return {"docs": documents().list()}
+
+
+@app.post("/api/docs")
+async def docs_add(request: Request):
+    form = await request.form()
+    f = form.get("file")
+    if f is None:
+        raise HTTPException(400, "Send the file as form field 'file'.")
+    try:
+        return await asyncio.to_thread(documents().add, f.filename or "document.txt", await f.read())
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+
+
+@app.delete("/api/docs/{name}")
+def docs_delete(name: str):
+    documents().remove(name)
+    return {"deleted": name}
+
+
+@app.post("/api/code/run", dependencies=[Depends(local_only), Depends(require_key)])
+async def run_code(request: Request):
+    """Run a Python snippet the user confirmed: isolated interpreter, temp folder, 10 s limit, output capped."""
+    code = (await request.json()).get("code") or ""
+    if not code.strip() or len(code) > 20_000:
+        raise HTTPException(400, "No code (or longer than 20,000 characters).")
+    with tempfile.TemporaryDirectory() as d:
+        path = os.path.join(d, "snippet.py")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(code)
+        t0 = time.perf_counter()
+        try:
+            p = await asyncio.to_thread(subprocess.run, [sys.executable, "-I", path], cwd=d, capture_output=True,
+                                        text=True, encoding="utf-8", errors="replace", timeout=10,
+                                        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                                        env={"PYTHONIOENCODING": "utf-8", "SYSTEMROOT": os.environ.get("SYSTEMROOT", "")})
+            out, err, code_ = p.stdout, p.stderr, p.returncode
+        except subprocess.TimeoutExpired:
+            out, err, code_ = "", "Stopped: took longer than 10 seconds.", -1
+    return {"stdout": out[-20_000:], "stderr": err[-10_000:], "exit_code": code_,
+            "seconds": round(time.perf_counter() - t0, 2)}
+
+
+@app.post("/api/open", dependencies=[Depends(local_only), Depends(require_key)])
+async def open_app(request: Request):
+    name = ((await request.json()).get("name") or "").strip().lower()
+    cmd = allowed_apps().get(name)
+    if not cmd:
+        raise HTTPException(404, f"'{name}' is not in the allowed apps list.")
+    subprocess.Popen(cmd, cwd=os.path.expanduser("~"))
+    return {"opened": name}
+
+
+@app.get("/api/assistant/settings")
+def assistant_settings():
+    return {**memory().settings, "apps": sorted(allowed_apps())}
+
+
+@app.post("/api/assistant/settings", dependencies=[Depends(local_only), Depends(require_key)])
+async def assistant_settings_set(request: Request):
+    body = await request.json()
+    folders = body.get("file_folders")
+    if folders is not None:
+        folders = [os.path.abspath(f) for f in folders if isinstance(f, str) and os.path.isdir(f)]
+    return memory().set_settings(file_folders=folders)
+
+
+@app.get("/api/access", dependencies=[Depends(local_only)])
+def access_info():
+    """How to open Tantra from a phone on the same Wi-Fi (shown only on this computer)."""
+    import socket
+    ip = ""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(("10.255.255.255", 1))
+            ip = s.getsockname()[0]
+    except OSError:
+        pass
+    return {"lan_url": f"http://{ip}:{state.get('port', 8000)}" if ip else None, "lan_enabled": state.get("lan", False),
+            "api_key": API_KEY if state.get("lan") else None}
+
+
 # ── speech (optional, offline) ───────────────────────────────────────────────
 
 _speech: Dict[str, Any] = {}
@@ -687,6 +1015,13 @@ async def unexpected_error(_: Request, exc: Exception):
 
 
 def start_server(host: str = "127.0.0.1", port: int = 8000) -> None:
+    """host 0.0.0.0 = reachable from your phone on the same Wi-Fi (a key is then always required)."""
+    global API_KEY
     import uvicorn
-    print(f"\n  Tantra WebUI → http://{host}:{port}\n")
+    state["port"], state["lan"] = port, host not in ("127.0.0.1", "localhost", "::1")
+    if state["lan"] and not API_KEY:
+        API_KEY = secrets.token_urlsafe(9)
+    print(f"\n  Tantra WebUI → http://127.0.0.1:{port}\n")
+    if state["lan"]:
+        print(f"  Phone / other devices: http://<this PC's IP>:{port}   key: {API_KEY}  (also in the Model tab)\n")
     uvicorn.run(app, host=host, port=port, log_level="warning")

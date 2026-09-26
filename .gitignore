@@ -41,3 +41,8 @@ Claude outputs/
 # built locally / downloaded
 Model/smriti.db*
 Datasets/raw/
+Model/memory.json*
+Model/docs.db*
+Model/docs_index.json
+Model/logs/
+Datasets/feedback.jsonl

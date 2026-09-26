@@ -3,45 +3,115 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#B8410C">
   <title>Tantra</title>
   <link rel="icon" href="/assets/tantra_logo.jpg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Mukta:wght@400;500;600;700&family=Tiro+Devanagari+Hindi&display=swap">
   <link rel="stylesheet" href="/app.css">
 </head>
 <body>
-  <header>
-    <button id="sidebar-toggle" class="icon only-mobile" title="Chats" aria-label="Show chats">☰</button>
-    <div class="brand"><img src="/assets/tantra_logo.jpg" alt="" onerror="this.remove()">तन्त्र <span>Tantra</span></div>
-    <nav role="tablist">
-      <button data-tab="chat" class="active" role="tab">Chat</button>
-      <button data-tab="training" role="tab">Training <i id="train-dot" class="dot" hidden></i></button>
-      <button data-tab="model" role="tab">Model</button>
-    </nav>
-    <div class="header-right">
-      <span id="model-badge" class="badge">connecting…</span>
-      <span id="conn" class="conn" title="Server connection"></span>
-      <button id="theme" class="icon" title="Theme: auto / light / dark" aria-label="Toggle theme">◐</button>
-    </div>
-  </header>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-home" viewBox="0 0 24 24"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></symbol>
+  <symbol id="i-chat" viewBox="0 0 24 24"><path d="M4 5h16v11H8l-4 4z"/></symbol>
+  <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></symbol>
+  <symbol id="i-memory" viewBox="0 0 24 24"><path d="M12 3a7 7 0 0 0-4 12.7V19h8v-3.3A7 7 0 0 0 12 3zM9 22h6"/></symbol>
+  <symbol id="i-docs" viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6zM14 3v4h4M9 12h6M9 16h6"/></symbol>
+  <symbol id="i-train" viewBox="0 0 24 24"><path d="M4 19V9M10 19V5M16 19v-7M22 19H2"/></symbol>
+  <symbol id="i-model" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M9 9h6v6H9z"/></symbol>
+  <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-2.8 1.2V21a2 2 0 1 1-4 0v-.1A1.7 1.7 0 0 0 7 19.4a1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.7 1.7 0 0 0 1.2 14H1a2 2 0 1 1 0-4h.1A1.7 1.7 0 0 0 4.6 7a1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.7 1.7 0 0 0 10 1.2V1a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 2.8 1.2l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V7a1.7 1.7 0 0 0 1.5 1H23a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></symbol>
+</svg>
+
+<div class="app">
+  <nav class="rail" role="tablist" aria-label="Sections">
+    <div class="brand"><span class="mark">त</span><span class="brand-text"><b>तन्त्र</b><small>Hindi-first AI</small></span></div>
+    <button data-tab="home" role="tab"><svg><use href="#i-home"/></svg><span>Home</span></button>
+    <button data-tab="chat" role="tab"><svg><use href="#i-chat"/></svg><span>Chat</span></button>
+    <button data-tab="voice" role="tab"><svg><use href="#i-mic"/></svg><span>Voice</span></button>
+    <button data-tab="memory" role="tab"><svg><use href="#i-memory"/></svg><span>Memory</span></button>
+    <button data-tab="docs" role="tab"><svg><use href="#i-docs"/></svg><span>Documents</span></button>
+    <button data-tab="training" role="tab"><svg><use href="#i-train"/></svg><span>Training <i id="train-dot" class="dot" hidden></i></span></button>
+    <button data-tab="model" role="tab"><svg><use href="#i-model"/></svg><span>Model</span></button>
+    <div class="grow"></div>
+    <div class="server-box"><span><i id="conn" class="conn"></i><span id="conn-text">connecting…</span></span><small id="model-badge"></small></div>
+  </nav>
 
   <main>
+    <!-- ═════════ HOME ═════════ -->
+    <section id="tab-home" class="tab">
+      <div class="page">
+        <header class="home-head">
+          <div>
+            <span id="home-date" class="muted"></span>
+            <h1 id="home-greet" class="display">नमस्ते — मैं Tantra हूँ</h1>
+            <span id="home-sub" class="muted-2"></span>
+          </div>
+          <button class="primary pill-btn" data-go-voice><svg><use href="#i-mic"/></svg>Talk to Tantra</button>
+        </header>
+        <form id="home-ask" class="ask-box">
+          <label for="home-q" class="sr">Ask Tantra</label>
+          <input id="home-q" placeholder="कुछ भी पूछें — “10 मिनट बाद याद दिलाना”, “250 × 18 + 5%”, “गंगा कहाँ से निकलती है?”">
+          <button type="submit" class="primary">Ask</button>
+        </form>
+        <div id="home-tiles" class="tiles four"></div>
+        <div class="grid home-grid">
+          <section class="card span2">
+            <div class="card-head"><h2>Training</h2><span id="home-train-state" class="hint"></span></div>
+            <div class="progress"><div id="home-progress"></div></div>
+            <div id="home-chart" class="chart small"></div>
+          </section>
+          <section class="card">
+            <div class="card-head"><h2>Skills</h2><span class="hint">instant, exact — no model needed</span></div>
+            <div class="skills" id="home-skills"></div>
+          </section>
+          <section class="card">
+            <div class="card-head"><h2>Reminders</h2><button class="link" data-go="memory">All</button></div>
+            <ul id="home-reminders" class="list"></ul>
+          </section>
+          <section class="card">
+            <div class="card-head"><h2>Daily brief</h2><button id="brief-btn" class="link">Read aloud</button></div>
+            <p id="home-brief" class="brief"></p>
+          </section>
+          <section class="card">
+            <div class="card-head"><h2>Recent chats</h2><button class="link" data-go="chat">Open chat</button></div>
+            <ul id="home-recent" class="list"></ul>
+          </section>
+        </div>
+      </div>
+    </section>
+
     <!-- ═════════ CHAT ═════════ -->
-    <section id="tab-chat" class="tab active">
+    <section id="tab-chat" class="tab">
       <aside class="chats" id="chats">
         <button id="new-chat" class="primary block">+ New chat <kbd>Ctrl K</kbd></button>
-        <input id="chat-search" type="search" placeholder="Search chats…">
+        <input id="chat-search" type="search" placeholder="Search chats…" aria-label="Search chats">
         <ul id="chat-list"></ul>
       </aside>
       <div class="chat">
+        <header class="chat-head">
+          <button id="sidebar-toggle" class="icon only-mobile" aria-label="Show chats">☰</button>
+          <label class="mode">Mode
+            <select id="mode">
+              <option value="chat">Chat</option>
+              <option value="translate_en">Translate → English</option>
+              <option value="translate_hi">Translate → हिंदी</option>
+              <option value="tutor">Maths / study tutor</option>
+            </select>
+          </label>
+          <span id="chip-smriti" class="chip ok">Smriti on</span>
+          <span id="chip-model" class="chip"></span>
+        </header>
         <div id="quality-banner" class="banner" hidden></div>
         <div id="messages" aria-live="polite"></div>
         <form id="composer">
+          <div class="chips" id="skill-chips"></div>
           <div class="composer-box">
-            <textarea id="input" rows="1" placeholder="संदेश लिखें… / Type a message  (Enter = send, Shift+Enter = new line)"></textarea>
+            <textarea id="input" rows="1" placeholder="संदेश लिखें… / Type a message"></textarea>
             <div class="composer-actions">
-              <button type="button" id="mic" class="icon" title="Speak">🎤</button>
-              <button type="button" id="settings-btn" class="icon" title="Generation settings">⚙</button>
+              <button type="button" id="mic" class="icon" title="Speak"><svg><use href="#i-mic"/></svg></button>
+              <button type="button" id="settings-btn" class="icon" title="Settings"><svg><use href="#i-gear"/></svg></button>
               <button type="submit" id="send" class="primary">Send</button>
-              <button type="button" id="stop" class="danger" hidden>■ Stop</button>
+              <button type="button" id="stop" class="primary" hidden>■ Stop</button>
             </div>
           </div>
           <div id="settings" class="settings" hidden>
@@ -52,11 +122,71 @@
             <label>Max tokens <input id="max_tokens" type="number" min="16" max="2048" step="16"></label>
             <label>Remembered turns <input id="history" type="number" min="0" max="10"></label>
             <label class="check"><input id="auto_speak" type="checkbox"> Speak replies aloud</label>
-            <label class="check" title="Look the question up in the knowledge store (Model/smriti.db) and give the facts to the model"><input id="smriti" type="checkbox"> Use Smriti (knowledge lookup)</label>
-            <label class="wide">System prompt <textarea id="system" rows="2" placeholder="Optional, e.g. आप अतुल्य AI के सहायक हैं। छोटे और सही उत्तर दें।"></textarea></label>
+            <label class="check"><input id="smriti" type="checkbox"> Use Smriti (knowledge lookup)</label>
+            <label class="check" title="When Smriti or your documents have a strong match, answer with it directly"><input id="knowledge_first" type="checkbox"> Answer from knowledge first</label>
+            <label class="wide">System prompt <textarea id="system" rows="2" placeholder="Optional, e.g. छोटे और सही उत्तर दें।"></textarea></label>
             <button type="button" id="settings-reset" class="link">Reset to defaults</button>
           </div>
         </form>
+      </div>
+    </section>
+
+    <!-- ═════════ VOICE ═════════ -->
+    <section id="tab-voice" class="tab">
+      <div class="voice">
+        <header class="voice-head">
+          <h1 class="display">Voice</h1>
+          <span class="hint">Hands-free: talk, pause, Tantra answers out loud.</span>
+          <span class="grow"></span>
+          <label class="check"><input id="wake" type="checkbox"> Wake word “तन्त्र / Tantra”</label>
+          <label>Voice <select id="voice-out"></select></label>
+        </header>
+        <div class="orb-wrap">
+          <button id="orb" class="orb" aria-label="Start or stop voice conversation"><span class="bars"><i></i><i></i><i></i><i></i><i></i></span></button>
+          <span id="voice-state" class="voice-state">Tap to start</span>
+          <p id="voice-live" class="voice-live"></p>
+          <span class="hint">Say “रुको” or press Space to interrupt. Speech-to-text runs offline (Whisper).</span>
+        </div>
+        <div id="voice-log" class="voice-log"></div>
+      </div>
+    </section>
+
+    <!-- ═════════ MEMORY ═════════ -->
+    <section id="tab-memory" class="tab">
+      <div class="page">
+        <header class="page-head">
+          <div><h1 class="display">स्मृति · Memory</h1>
+            <span class="muted-2">What Tantra remembers about you. Stored only on this computer. Say “याद रखो …” in chat to add.</span></div>
+          <form id="mem-add" class="row"><input id="mem-text" placeholder="New memory…" aria-label="New memory"><button class="primary">+ Add</button></form>
+        </header>
+        <div class="row"><div id="mem-filters" class="chips"></div><input id="mem-search" type="search" placeholder="Search memories…" aria-label="Search memories" class="push"></div>
+        <div id="mem-grid" class="mem-grid"></div>
+        <div class="grid">
+          <section class="card"><h2>Reminders</h2><ul id="rem-list" class="list"></ul></section>
+          <section class="card"><h2>Answers you taught</h2><ul id="taught-list" class="list"></ul>
+            <p class="hint">Use 👎 under any reply to teach the right answer. They're also saved to Datasets/feedback.jsonl for the next training.</p></section>
+          <section class="card"><h2>Assistant settings</h2>
+            <form id="folders-form" class="form-col">
+              <label>Folders Tantra may search file names in (one per line)<textarea id="folders" rows="3" placeholder="C:\Users\you\Documents"></textarea></label>
+              <button class="primary">Save</button>
+            </form>
+            <p class="hint">Chat: <code>files: invoice</code>. Allowed apps to open: <span id="apps-list"></span></p>
+          </section>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═════════ DOCUMENTS ═════════ -->
+    <section id="tab-docs" class="tab">
+      <div class="page">
+        <header class="page-head"><div><h1 class="display">Documents</h1>
+          <span class="muted-2">Add your files; chat answers from them and shows which one it used.</span></div></header>
+        <label id="dropzone" class="dropzone">
+          <input id="doc-file" type="file" multiple accept=".txt,.md,.csv,.json,.jsonl,.html,.htm,.docx,.pdf,.py,.log" hidden>
+          <b>Drop files here or click to choose</b>
+          <span class="hint">.txt .md .csv .json .html .docx .pdf (PDF needs: pip install pypdf) · up to 25 MB</span>
+        </label>
+        <ul id="doc-list" class="list card"></ul>
       </div>
     </section>
 
@@ -66,33 +196,30 @@
         <div class="tiles" id="train-tiles"></div>
         <div class="progress"><div id="train-progress"></div></div>
         <p id="train-sub" class="hint"></p>
-
         <div class="grid">
           <div class="card wide">
-            <div class="card-head"><h2>Loss</h2><span class="hint">train loss (orange) · validation loss (dots) — both should go down</span></div>
+            <div class="card-head"><h2>Loss</h2><span class="hint">train loss (saffron) · validation loss (dots) — both should go down</span></div>
             <div id="loss-chart" class="chart"></div>
           </div>
           <div class="card wide">
-            <div class="card-head"><h2>Does it remember? — fixed 50 questions</h2>
-              <span class="hint">remembered X/50 (orange) should go up · answer loss (grey) should go down</span></div>
+            <div class="card-head"><h2>Does it remember? — fixed 50 questions</h2><span class="hint">remembered X/50 should go up · answer loss (grey) should go down</span></div>
             <div id="probe-chart" class="chart"></div>
             <div id="probe-latest"></div>
           </div>
-
           <div class="card">
             <h2>Start / continue training</h2>
             <form id="train-form" class="form">
-              <label>Train until step <input name="steps" type="number" min="1" step="100" value="20000"></label>
+              <label>Train until step <input name="steps" type="number" min="1" step="100" value="3000"></label>
               <label>Batch size <input name="batch_size" type="number" min="1" value="4"></label>
-              <label>Grad. accumulation <input name="grad_accum" type="number" min="1" value="8"></label>
+              <label>Grad. accumulation <input name="grad_accum" type="number" min="1" value="2"></label>
               <label>Sequence length <input name="seq_len" type="number" min="16" step="16" value="512"></label>
               <label>Learning rate <input name="lr" type="text" value="3e-4"></label>
               <label>Evaluate every <input name="eval_every" type="number" min="1" value="250"></label>
               <label>Training data <select name="data" id="train-data"></select></label>
-              <label>Stage <select name="stage"><option value="sft">sft — learn answers</option><option value="pretrain">pretrain — learn all text</option></select></label>
+              <label>Stage <select name="stage"><option value="pretrain">pretrain — learn all text</option><option value="sft">sft — learn answers</option></select></label>
               <details class="wide">
                 <summary>New model options</summary>
-                <label>Size (only for a new model) <select name="preset"><option value="small">small ≈ 70M</option><option value="tiny">tiny (test)</option><option value="billion">billion ≈ 1B (GPU)</option></select></label>
+                <label>Size (only for a new model) <select name="preset"><option value="small">small ≈ 67M</option><option value="tiny">tiny (test)</option><option value="billion">billion ≈ 1B (GPU)</option></select></label>
                 <label class="check"><input name="fresh" type="checkbox"> Start a NEW model (old files are moved to Model/_old, never deleted)</label>
                 <label class="check"><input name="auto_growth" type="checkbox"> Auto-grow layers when loss plateaus</label>
               </details>
@@ -100,12 +227,10 @@
                 <button id="train-start" class="primary" type="submit">▶ Start / continue</button>
                 <button id="train-stop" type="button">■ Stop &amp; save</button>
               </div>
-              <p class="hint wide">Stop saves a checkpoint first. Starting again always continues from the last save.</p>
             </form>
           </div>
           <div class="card">
-            <div class="card-head"><h2>Live log</h2>
-              <label class="check"><input id="log-follow" type="checkbox" checked> follow</label></div>
+            <div class="card-head"><h2>Live log</h2><label class="check"><input id="log-follow" type="checkbox" checked> follow</label></div>
             <pre id="train-log" class="log">No training log yet.</pre>
           </div>
         </div>
@@ -120,46 +245,44 @@
             <div class="row"><button id="reload-model">↻ Load best available</button></div></div>
           <div class="card"><h2>This computer</h2><dl id="hw-info"></dl></div>
           <div class="card wide">
-            <div class="card-head"><h2>Checkpoints</h2>
-              <label class="check"><input id="load-int8" type="checkbox"> load as INT8 (≈2× faster on CPU)</label></div>
+            <div class="card-head"><h2>Checkpoints</h2><label class="check"><input id="load-int8" type="checkbox"> load as INT8 (≈1.5× faster on CPU)</label></div>
             <div class="table-wrap"><table id="ckpt-table">
               <thead><tr><th>File</th><th>Step</th><th>Val loss</th><th>Size</th><th>Saved</th><th></th></tr></thead>
               <tbody></tbody>
             </table></div>
-            <p class="hint">tantra.pt = small export for use · best.pt = lowest validation loss · latest.pt = where training continues.</p>
           </div>
           <div class="card">
             <div class="card-head"><h2>Test the model</h2><button id="eval-start" class="primary">▶ Run test</button></div>
             <p class="hint">Validation loss, the 50 fixed questions and speed on this computer.</p>
-            <div id="eval-report"></div>
-            <pre id="eval-log" class="log small" hidden></pre>
+            <div id="eval-report"></div><pre id="eval-log" class="log small" hidden></pre>
           </div>
           <div class="card">
             <div class="card-head"><h2>Export</h2><button id="export-start">⇩ Export tantra.pt</button></div>
-            <p class="hint">Removes training-only data and stores fp16 weights (≈6× smaller) as Model/tantra.pt — the file chat uses first.</p>
+            <p class="hint">fp16 weights, ≈6× smaller — the file chat uses first.</p>
             <pre id="export-log" class="log small" hidden></pre>
           </div>
           <div class="card">
             <div class="card-head"><h2>Smriti — knowledge store</h2><button id="smriti-start">⟳ Build</button></div>
-            <p class="hint">Facts the model looks up before answering (from the cleaned data). Compressed, searched from disk.</p>
             <dl id="smriti-info"></dl>
-            <form id="smriti-search" class="row"><input id="smriti-q" type="search" placeholder="Try a search, e.g. भारत की राजधानी" style="flex:1"><button>Search</button></form>
-            <ul id="smriti-hits" class="hits"></ul>
-            <pre id="smriti-log" class="log small" hidden></pre>
+            <form id="smriti-search" class="row"><input id="smriti-q" type="search" placeholder="Try: भारत की राजधानी" class="grow"><button>Search</button></form>
+            <ul id="smriti-hits" class="hits"></ul><pre id="smriti-log" class="log small" hidden></pre>
           </div>
           <div class="card">
             <div class="card-head"><h2>Training data</h2><button id="data-start">⟳ Clean &amp; mix data</button></div>
-            <p class="hint">Cleans master_train + the open datasets in Datasets/raw → pretrain.jsonl, sft.jsonl and held-out val files.</p>
-            <div id="data-report"></div>
-            <pre id="data-log" class="log small" hidden></pre>
+            <div id="data-report"></div><pre id="data-log" class="log small" hidden></pre>
           </div>
-          <div class="card wide"><h2>Dataset files</h2><ul id="dataset-list" class="list"></ul></div>
+          <div class="card">
+            <h2>Phone access</h2>
+            <div id="access-info"><p class="hint">Start with <code>python main.py --mode serve --lan</code> to open Tantra from your phone on the same Wi-Fi. A key is required from other devices.</p></div>
+          </div>
+          <div class="card"><h2>Dataset files</h2><ul id="dataset-list" class="list"></ul></div>
         </div>
       </div>
     </section>
   </main>
+</div>
 
-  <div id="toasts" aria-live="assertive"></div>
-  <script src="/app.js"></script>
+<div id="toasts" aria-live="assertive"></div>
+<script src="/app.js"></script>
 </body>
 </html>

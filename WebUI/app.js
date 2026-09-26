@@ -64,35 +64,29 @@ function markdown(src) {
   return out.join("").replace(/\u0000(\d+)\u0000/g, (_, i) => blocks[+i]);
 }
 
-// ── theme ────────────────────────────────────────────────────────────────────
-const THEMES = ["auto", "light", "dark"];
-function applyTheme(t) {
-  if (t === "auto") document.documentElement.removeAttribute("data-theme");
-  else document.documentElement.dataset.theme = t;
-  $("#theme").title = `Theme: ${t} (click to change)`;
-  $("#theme").textContent = t === "dark" ? "☾" : t === "light" ? "☀" : "◐";
-}
-applyTheme(store.get("theme", "light"));
-$("#theme").onclick = () => {
-  const next = THEMES[(THEMES.indexOf(store.get("theme", "light")) + 1) % 3];
-  store.set("theme", next); applyTheme(next);
-};
-
 // ── tabs (remembered in the URL hash) ────────────────────────────────────────
 function showTab(name) {
-  if (!$(`#tab-${name}`)) name = "chat";
-  $$("nav button").forEach((b) => b.classList.toggle("active", b.dataset.tab === name));
+  if (!$(`#tab-${name}`)) name = "home";
+  $$(".rail > button").forEach((b) => b.classList.toggle("active", b.dataset.tab === name));
   $$(".tab").forEach((t) => t.classList.toggle("active", t.id === `tab-${name}`));
   if (location.hash !== `#${name}`) history.replaceState(null, "", `#${name}`);
   if (name === "chat") $("#input").focus();
+  if (name === "memory") loadMemory();
+  if (name === "docs") loadDocs();
+  if (name !== "voice" && typeof voiceStop === "function") voiceStop();
   refreshStatus();
 }
-$$("nav button").forEach((b) => (b.onclick = () => showTab(b.dataset.tab)));
+$$(".rail > button").forEach((b) => (b.onclick = () => showTab(b.dataset.tab)));
+document.addEventListener("click", (e) => {
+  const go = e.target.closest("[data-go]");
+  if (go) showTab(go.dataset.go);
+  if (e.target.closest("[data-go-voice]")) showTab("voice");
+});
 window.addEventListener("hashchange", () => showTab(location.hash.slice(1)));
-const activeTab = () => $("nav button.active")?.dataset.tab;
+const activeTab = () => $(".rail > button.active")?.dataset.tab;
 
 // ── generation settings (saved in this browser) ─────────────────────────────
-const DEFAULTS = { temperature: 0.3, top_p: 0.9, repetition_penalty: 1.15, max_tokens: 256, history: 3, auto_speak: false, system: "", category: "auto", smriti: true };
+const DEFAULTS = { temperature: 0.3, top_p: 0.9, repetition_penalty: 1.15, max_tokens: 256, history: 3, auto_speak: false, system: "", category: "auto", smriti: true, knowledge_first: true };
 let settings = { ...DEFAULTS, ...store.get("settings", {}) };
 function bindSettings() {
   for (const [k, v] of Object.entries(settings)) {
@@ -141,19 +135,90 @@ function renderMessages() {
   scrollDown(true);
 }
 
+const SKILL_LABEL = { calculator: "Calculator · exact", time: "Time & date", units: "Unit converter", memory: "Memory",
+  reminder: "Reminder", brief: "Daily brief", status: "System status", files: "File search", open: "Open app",
+  taught: "Answer you taught", knowledge: "From knowledge (Smriti / documents)" };
+
+function skillBody(m, body) {
+  const c = m.card || {};
+  body.innerHTML = "";
+  body.append(el("div", "skill-tag", SKILL_LABEL[m.skill] || m.skill));
+  if (m.skill === "calculator" && c.result) {
+    const box = el("div", "calc");
+    if ((c.steps || []).length > 1) box.append(el("div", "steps", c.steps.join("\n")));
+    else box.append(el("div", "steps", c.expression));
+    box.append(el("div", "big", c.result));
+    body.append(box);
+    return;
+  }
+  const text = el("div"); text.innerHTML = markdown(m.content || ""); body.append(text);
+  if (m.skill === "open" && c.open && !m.opened) {
+    const row = el("div", "confirm");
+    const yes = el("button", "primary", `Open ${c.open}`), no = el("button", null, "Cancel");
+    yes.onclick = async () => {
+      try { await postJSON("/api/open", { name: c.open }); m.opened = true; toast(`Opened ${c.open}.`, "ok"); } catch (e) { toast(e.message, "error"); }
+      row.remove(); saveChat();
+    };
+    no.onclick = () => { m.opened = true; row.remove(); saveChat(); };
+    row.append(yes, no); body.append(row);
+  }
+}
+
+function addRunButtons(body) {
+  body.querySelectorAll('pre code[data-lang="python"], pre code[data-lang="py"]').forEach((code) => {
+    const pre = code.parentElement, b = el("button", "run", "▶ Run");
+    b.title = "Run this Python on this computer (10 s limit)";
+    b.onclick = async () => {
+      if (!confirm("Run this Python code on this computer?\nIt runs in an isolated interpreter in a temporary folder, stopped after 10 seconds.")) return;
+      b.disabled = true; b.textContent = "running…";
+      let out = pre.nextElementSibling?.classList.contains("run-out") ? pre.nextElementSibling : null;
+      if (!out) { out = el("div", "run-out"); pre.after(out); }
+      try {
+        const r = await postJSON("/api/code/run", { code: code.textContent });
+        out.textContent = (r.stdout || "") + (r.stderr ? `\n${r.stderr}` : "") + `\n— exit ${r.exit_code} · ${r.seconds}s`;
+      } catch (e) { out.textContent = e.message; }
+      b.disabled = false; b.textContent = "▶ Run";
+    };
+    pre.append(b);
+  });
+}
+
+function teachBox(d, i) {
+  if (d.querySelector(".teach")) return;
+  const q = chat.messages.slice(0, i).reverse().find((x) => x.role === "user")?.content || "";
+  const box = el("form", "teach");
+  const ta = el("textarea"); ta.rows = 2; ta.placeholder = "सही उत्तर लिखें / Write the correct answer"; ta.required = true;
+  const row = el("div", "row"), ok = el("button", "primary", "Teach Tantra"), cancel = el("button", null, "Cancel");
+  cancel.type = "button"; cancel.onclick = () => box.remove();
+  box.onsubmit = async (e) => {
+    e.preventDefault();
+    try {
+      await postJSON("/api/feedback", { question: q, bad: chat.messages[i].content, correct: ta.value });
+      chat.messages[i] = { ...chat.messages[i], content: ta.value, skill: "taught", card: {}, info: "corrected by you" };
+      toast("Thanks — I'll answer this way next time.", "ok");
+      renderMessages(); saveChat();
+    } catch (err) { toast(err.message, "error"); }
+  };
+  row.append(ok, cancel); box.append(el("span", "hint", `Question: ${q.slice(0, 120)}`), ta, row);
+  d.append(box); ta.focus();
+}
+
 function messageEl(m, i) {
   const d = el("div", `msg ${m.role}${m.error ? " error" : ""}`);
   const body = el("div", "bubble");
-  if (m.role === "assistant") body.innerHTML = markdown(m.content || ""); else body.textContent = m.content;
+  if (m.role === "assistant" && m.skill) skillBody(m, body);
+  else if (m.role === "assistant") { body.innerHTML = markdown(m.content || ""); addRunButtons(body); }
+  else body.textContent = m.content;
   d.append(body);
   const meta = el("div", "meta");
   const btn = (label, title, fn) => { const b = el("button", null, label); b.title = title; b.onclick = fn; meta.append(b); };
   if (m.role === "assistant") {
-    if (m.info) meta.append(el("span", null, m.info));
     if (m.sources?.length) d.append(sourcesEl(m.sources));
+    if (m.info) meta.append(el("span", null, m.info));
     btn("⧉", "Copy", () => navigator.clipboard.writeText(m.content).then(() => toast("Copied.")));
     btn("🔊", "Read aloud", () => speakText(m.content));
-    if (i === chat.messages.length - 1) btn("↻", "Regenerate", regenerate);
+    if (i === chat.messages.length - 1 && !m.skill) btn("↻", "Regenerate", regenerate);
+    if (!["calculator", "time", "units", "memory", "reminder"].includes(m.skill)) btn("👎", "Wrong? Teach the right answer", () => teachBox(d, i));
   } else {
     btn("✎", "Edit and resend", () => editMessage(i));
   }
@@ -170,7 +235,8 @@ function hitItem(h) {
 }
 function sourcesEl(hits) {
   const d = el("details", "sources");
-  d.append(el("summary", null, `📚 Smriti: ${hits.length} fact${hits.length > 1 ? "s" : ""} used`));
+  const docs = hits.filter((h) => h.source && !/\.jsonl$/.test(h.source)).length;
+  d.append(el("summary", null, `📚 ${docs ? "Your documents / Smriti" : "Smriti"}: ${hits.length} fact${hits.length > 1 ? "s" : ""} used`));
   const ul = el("ul", "hits");
   hits.forEach((h) => ul.append(hitItem(h)));
   d.append(ul);
@@ -179,7 +245,7 @@ function sourcesEl(hits) {
 
 function setBusy(on) {
   $("#send").hidden = on; $("#stop").hidden = !on;
-  $("#input").placeholder = on ? "Tantra is writing…" : "संदेश लिखें… / Type a message  (Enter = send, Shift+Enter = new line)";
+  $("#input").placeholder = on ? "Tantra is writing…" : "संदेश लिखें… / Type a message";
 }
 
 async function send(text) {
@@ -224,6 +290,7 @@ async function generate() {
         messages, stream: true, temperature: settings.temperature, top_p: settings.top_p,
         repetition_penalty: settings.repetition_penalty, max_tokens: settings.max_tokens,
         history: settings.history, category: $("#category").value, smriti: settings.smriti && !!status.smriti,
+        knowledge_first: settings.knowledge_first, mode: $("#mode").value,
       }),
     });
     const reader = r.body.getReader();
@@ -255,8 +322,10 @@ async function generate() {
   if (final?.category) parts.push(final.category);
   if (controller.signal.aborted) parts.push("stopped");
   else if (final?.choices?.[0]?.finish_reason === "length") parts.push("hit max tokens");
-  reply.info = parts.join(" · ");
+  reply.info = final?.skill ? "instant · no model needed" : parts.join(" · ");
+  if (final?.skill) { reply.skill = final.skill; reply.card = final.card || {}; }
   if (final?.sources?.length) reply.sources = final.sources;
+  if (final?.skill === "reminder" || final?.skill === "memory") refreshReminders();
   if (!reply.content && !reply.error) reply.content = "(no reply — the model ended immediately)";
   controller = null;
   setBusy(false);
@@ -348,16 +417,40 @@ $("#mic").onclick = async () => {
   recorder.start(); $("#mic").classList.add("recording"); toast("Recording… click the mic again to stop.");
 };
 
+// Speaking: Kokoro (offline, natural) when installed, else the voices built into Windows/the browser.
 let audio = null;
-async function speakText(text) {
-  if (status.speech && !status.speech.tts) { toast("Text-to-speech is not installed. Run: pip install kokoro soundfile", "error"); return; }
-  try {
-    audio?.pause();
-    const r = await fetch("/api/tts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text }) });
-    if (!r.ok) throw new Error((await r.json()).detail);
-    audio = new Audio(URL.createObjectURL(await r.blob()));
-    audio.play();
-  } catch (e) { toast(e.message, "error"); }
+const isHindi = (t) => /[ऀ-ॿ]/.test(t);
+function browserVoice(text) {
+  const voices = speechSynthesis.getVoices();
+  const chosen = store.get("voiceName", "");
+  const want = isHindi(text) ? "hi" : "en";
+  return voices.find((v) => v.name === chosen && v.lang.toLowerCase().startsWith(want))
+    || voices.find((v) => v.lang.toLowerCase().startsWith(want + "-in"))
+    || voices.find((v) => v.lang.toLowerCase().startsWith(want));
+}
+function stopSpeaking() { audio?.pause(); audio = null; if ("speechSynthesis" in window) speechSynthesis.cancel(); }
+function speakText(text) {
+  const clean = String(text).replace(/```[\s\S]*?```/g, " (code) ").replace(/[*_`#>]/g, "").slice(0, 1200);
+  stopSpeaking();
+  return new Promise(async (resolve) => {
+    if (status.speech?.tts) {
+      try {
+        const r = await fetch("/api/tts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: clean }) });
+        if (!r.ok) throw new Error((await r.json()).detail);
+        audio = new Audio(URL.createObjectURL(await r.blob()));
+        audio.onended = audio.onerror = () => resolve();
+        await audio.play();
+        return;
+      } catch { /* fall back below */ }
+    }
+    if (!("speechSynthesis" in window)) { toast("No voice available. Run: pip install kokoro soundfile", "error"); resolve(); return; }
+    const u = new SpeechSynthesisUtterance(clean);
+    const v = browserVoice(clean);
+    if (v) u.voice = v;
+    u.lang = v?.lang || (isHindi(clean) ? "hi-IN" : "en-IN");
+    u.rate = 1; u.onend = u.onerror = () => resolve();
+    speechSynthesis.speak(u);
+  });
 }
 
 // ── charts (SVG, hover tooltips) ─────────────────────────────────────────────
@@ -435,15 +528,17 @@ function schedule(ms) { clearTimeout(polling); polling = setTimeout(refreshStatu
 
 async function refreshStatus() {
   let s;
-  try { s = await getJSON("/api/status"); $("#conn").className = "conn ok"; $("#conn").title = "Connected"; }
-  catch { $("#conn").className = "conn bad"; $("#conn").title = "Server offline"; $("#model-badge").textContent = "server offline — run tantra.bat → 3"; schedule(5000); return; }
+  try { s = await getJSON("/api/status"); $("#conn").className = "conn ok"; $("#conn-text").textContent = "Online"; }
+  catch { $("#conn").className = "conn bad"; $("#conn-text").textContent = "Offline"; $("#model-badge").textContent = "start: tantra.bat → 3"; schedule(5000); return; }
   status = s;
   const m = s.model || {}, t = s.training || {}, jobs = s.jobs || {};
   const busyJob = t.status === "running" || Object.values(jobs).some((j) => j.running);
 
   $("#model-badge").textContent = m.checkpoint
-    ? `${m.params_M}M params · step ${fmt(m.step, 0)}${m.int8 ? " · int8" : ""}`
+    ? `${m.params_M}M · step ${fmt(m.step, 0)}${m.int8 ? " · int8" : ""}`
     : s.checkpoints?.length ? "model loads on first message" : "no trained model yet";
+  $("#chip-model").textContent = m.checkpoint ? `${m.params_M}M · step ${fmt(m.step, 0)}${m.int8 ? " · int8" : ""}` : "model not loaded";
+  $("#chip-smriti").hidden = !(s.smriti && settings.smriti);
   $("#train-dot").hidden = t.status !== "running";
   const sel = $("#category");
   (m.categories || []).forEach((c) => { if (![...sel.options].some((o) => o.value === c)) sel.append(new Option(c, c)); });
@@ -453,6 +548,7 @@ async function refreshStatus() {
   qualityBanner(s);
 
   const tab = activeTab();
+  if (tab === "home") renderHome(s);
   if (tab === "training") renderTraining(s);
   if (tab === "model") renderModel(s);
   schedule(document.hidden ? 30000 : busyJob && tab !== "chat" ? 2000 : 10000);
@@ -462,13 +558,13 @@ document.addEventListener("visibilitychange", () => { if (!document.hidden) refr
 function qualityBanner(s) {
   const b = $("#quality-banner"), m = s.model || {}, probe = (s.probe || []).filter((p) => p.hits != null).at(-1);
   let msg = "";
-  if (!s.checkpoints?.length) msg = "No trained model yet. Open the <b>Training</b> tab and press <b>Start</b> — chat works once the first checkpoint is saved.";
+  if (!s.checkpoints?.length) msg = "No trained model yet — skills, memory, reminders and knowledge answers work already; free-form replies start after the first training checkpoint.";
   else if (s.load_error) msg = `⚠ ${esc(s.load_error)}`;
   else if (m.checkpoint) {
     const vl = m.val?.loss;
     if ((vl != null && vl > 4.5) || (probe && probe.hits < 5) || (m.step || 0) < 2000)
-      msg = `This model is still early in training (step ${fmt(m.step, 0)}${vl != null ? `, val loss ${fmt(vl, 2)}` : ""}${probe ? `, remembered ${probe.hits}/50` : ""}). ` +
-        `Replies will be mostly random words until it trains longer — watch <b>remembered X/50</b> in the Training tab.`;
+      msg = `The model is still early in training (step ${fmt(m.step, 0)}${vl != null ? `, val loss ${fmt(vl, 2)}` : ""}${probe ? `, remembered ${probe.hits}/50` : ""}): ` +
+        `its own replies are mostly random for now. Skills, memory and knowledge answers are exact already.`;
   }
   b.innerHTML = msg; b.hidden = !msg;
 }
@@ -669,7 +765,306 @@ $("#reload-model").onclick = async () => {
 $("#load-int8").onchange = () => refreshStatus();
 window.addEventListener("resize", () => { if (activeTab() === "training") renderTraining(status); });
 
+// ── home ─────────────────────────────────────────────────────────────────────
+const SKILLS = [
+  ["Calculator", "250 × 18 + 5%"], ["समय / तारीख", "आज कौन सा दिन है?"], ["Units", "5 lakh in million"],
+  ["Remember", "याद रखो: "], ["Reminder", "10 मिनट बाद याद दिलाना "], ["Daily brief", "आज का brief"],
+  ["System status", "training कैसी चल रही है?"], ["Find files", "files: "],
+];
+function useSkill(example) {
+  showTab("chat");
+  if (example.endsWith(" ") || example.endsWith(": ")) { $("#input").value = example; $("#input").focus(); autosize(); }
+  else send(example);
+}
+SKILLS.forEach(([name, ex]) => {
+  const b = el("button"); b.type = "button"; b.append(el("b", null, name), el("span", null, `“${ex.trim()}”`));
+  b.onclick = () => useSkill(ex); $("#home-skills").append(b);
+  const c = el("button", "chip", name); c.type = "button"; c.onclick = () => useSkill(ex); $("#skill-chips").append(c);
+});
+$("#home-ask").onsubmit = (e) => { e.preventDefault(); const q = $("#home-q").value.trim(); if (!q) return; $("#home-q").value = ""; showTab("chat"); newChat(); send(q); };
+
+function greeting() {
+  const h = new Date().getHours();
+  return h < 5 ? "शुभ रात्रि" : h < 12 ? "सुप्रभात" : h < 17 ? "नमस्ते" : h < 21 ? "शुभ संध्या" : "शुभ रात्रि";
+}
+async function renderHome(s) {
+  const now = new Date(), m = s.model || {}, t = s.training || {}, sm = s.smriti;
+  $("#home-date").textContent = now.toLocaleDateString("hi-IN", { weekday: "long", day: "numeric", month: "long" }) + " · " +
+    now.toLocaleTimeString("hi-IN", { hour: "numeric", minute: "2-digit" });
+  $("#home-greet").textContent = `${greeting()} — मैं Tantra हूँ`;
+  const pct = t.target_steps ? Math.min(100, (100 * (t.step || 0)) / t.target_steps) : 0;
+  $("#home-sub").textContent = [t.status === "running" ? `Training ${pct.toFixed(0)}% done` : null,
+    sm ? `Smriti knows ${fmtTokens(sm.facts)} facts` : null, "Ask me anything."].filter(Boolean).join(". ") + "";
+  const probe = (s.probe || []).filter((p) => p.hits != null).at(-1);
+  const h = s.hardware || {};
+  $("#home-tiles").innerHTML = [
+    tile("Model", m.params_M ? `${m.params_M}M` : "67M", m.checkpoint ? `step ${fmt(m.step, 0)} · val ${fmt(m.val?.loss, 2)}` : `training · step ${fmt(t.step, 0)}`),
+    `<div class="tile"><div class="k">Remembered</div><div class="v accent">${probe ? probe.hits : "—"} / 50</div><div class="s">fixed test questions</div></div>`,
+    tile("Smriti", sm ? `${fmtTokens(sm.facts)} facts` : "not built", sm ? `${fmt(sm.size_mb / 1024, 1)} GB on disk` : "Model tab → Build"),
+    tile("This computer", h.device ? h.device.toUpperCase() : "—", h.cpu ? `${h.cpu.replace(/ with .*/, "")} · ${h.ram_gb} GB` : ""),
+  ].join("");
+  $("#home-train-state").innerHTML = t.status ? `<span class="${STATUS_CLASS[t.status] || ""}">${esc(t.status)}</span>${t.status === "running" ? ` · ETA ${esc(t.eta || "—")}` : ""} · step ${fmt(t.step, 0)} / ${fmt(t.target_steps, 0)}` : "not started";
+  $("#home-progress").style.width = `${pct}%`;
+  lineChart($("#home-chart"), [
+    { name: "train loss", color: "var(--accent)", points: (t.history?.train || []).map((p) => ({ x: p.step, y: p.loss })) },
+    { name: "val loss", color: "#2563eb", dots: true, points: (t.history?.val || []).map((p) => ({ x: p.step, y: p.loss })) },
+  ], { leftLabel: "loss", empty: "The loss curve appears once training has run 10 steps." });
+  const ul = $("#home-recent"); ul.innerHTML = "";
+  Object.values(chatsCache).sort((a, b) => b.updated - a.updated).slice(0, 5).forEach((c) => {
+    const li = el("li"); const b = el("button", "link", c.title); b.onclick = () => { chat = { id: c.id, title: c.title, messages: c.messages }; showTab("chat"); renderMessages(); renderChatList(); };
+    li.append(b, el("span", "muted", ago(c.updated))); ul.append(li);
+  });
+  if (!ul.children.length) ul.append(el("li", "muted", "No chats yet."));
+  renderUpcoming();
+  if (!$("#home-brief").dataset.loaded) {
+    $("#home-brief").dataset.loaded = "1";
+    getJSON("/api/brief?lang=hi").then((j) => { $("#home-brief").textContent = j.text; }).catch(() => {});
+  }
+}
+$("#brief-btn").onclick = async () => {
+  const j = await getJSON("/api/brief?lang=hi").catch(() => null);
+  if (j) { $("#home-brief").textContent = j.text; speakText(j.text); }
+};
+
+// ── reminders: checked every 15 s; due ones pop up, notify and speak ────────
+let upcoming = [];
+function renderUpcoming() {
+  const ul = $("#home-reminders"); if (!ul) return; ul.innerHTML = "";
+  upcoming.slice(0, 5).forEach((r) => {
+    const li = el("li"); li.append(el("span", null, r.text), el("span", "muted", new Date(r.due * 1000).toLocaleString("hi-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })));
+    ul.append(li);
+  });
+  if (!ul.children.length) ul.append(el("li", "muted", "No reminders. Say “10 मिनट बाद याद दिलाना …”."));
+}
+async function refreshReminders() {
+  let j; try { j = await getJSON("/api/reminders/due"); } catch { return; }
+  upcoming = j.upcoming || [];
+  renderUpcoming();
+  for (const r of j.due || []) {
+    toast(`⏰ ${r.text}`, "ok");
+    speakText(isHindi(r.text) ? `याद दिला रहा हूँ: ${r.text}` : `Reminder: ${r.text}`);
+    if ("Notification" in window && Notification.permission === "granted") new Notification("Tantra reminder", { body: r.text, icon: "/assets/tantra_logo.jpg" });
+  }
+  if (j.due?.length && activeTab() === "memory") loadMemory();
+}
+setInterval(refreshReminders, 15000);
+document.addEventListener("click", () => { if ("Notification" in window && Notification.permission === "default") Notification.requestPermission(); }, { once: true });
+
+// ── memory page ──────────────────────────────────────────────────────────────
+let memData = { memories: [], reminders: [], taught: [] }, memFilter = "all";
+const CAT_NAMES = { "about me": "About me", family: "Family", preferences: "Preferences", other: "Other" };
+async function loadMemory() {
+  try { memData = await getJSON("/api/memory"); } catch (e) { toast(e.message, "error"); return; }
+  renderMemory();
+  getJSON("/api/assistant/settings").then((st) => {
+    $("#folders").value = (st.file_folders || []).join("\n");
+    $("#apps-list").textContent = (st.apps || []).join(", ");
+  }).catch(() => {});
+}
+function renderMemory() {
+  const counts = { all: memData.memories.length };
+  memData.memories.forEach((m) => { counts[m.category] = (counts[m.category] || 0) + 1; });
+  const f = $("#mem-filters"); f.innerHTML = "";
+  Object.entries({ all: "All", ...CAT_NAMES }).forEach(([k, name]) => {
+    if (k !== "all" && !counts[k]) return;
+    const b = el("button", `chip${memFilter === k ? " on" : ""}`, `${name} · ${counts[k] || 0}`); b.type = "button";
+    b.onclick = () => { memFilter = k; renderMemory(); }; f.append(b);
+  });
+  const q = $("#mem-search").value.trim().toLowerCase();
+  const grid = $("#mem-grid"); grid.innerHTML = "";
+  memData.memories.filter((m) => (memFilter === "all" || m.category === memFilter) && (!q || m.text.toLowerCase().includes(q))).forEach((m) => {
+    const c = el("article", "mem-card");
+    c.append(el("span", "cat", CAT_NAMES[m.category] || m.category), el("span", "t", m.text),
+      el("span", "when", `${m.source === "manual" ? "Added" : "From chat"} · ${ago(m.created)}${m.used ? ` · used ${m.used}×` : ""}`));
+    const a = el("div", "actions"), ed = el("button", null, "Edit"), fo = el("button", null, "Forget");
+    ed.onclick = async () => { const t = prompt("Edit memory", m.text); if (t && t.trim()) { await api(`/api/memory/${m.id}`, { method: "PATCH", body: JSON.stringify({ text: t.trim() }) }); loadMemory(); } };
+    fo.onclick = async () => { if (confirm(`Forget “${m.text}”?`)) { await api(`/api/memory/${m.id}`, { method: "DELETE" }); loadMemory(); } };
+    a.append(ed, fo); c.append(a); grid.append(c);
+  });
+  if (!grid.children.length) grid.append(el("p", "hint", memData.memories.length ? "No memories match." : "Nothing yet. In chat, say “याद रखो: …” or add one above."));
+
+  const rl = $("#rem-list"); rl.innerHTML = "";
+  memData.reminders.slice().reverse().forEach((r) => {
+    const li = el("li"); const when = new Date(r.due * 1000).toLocaleString("hi-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
+    li.append(el("span", r.done ? "muted" : null, `${r.done ? "✓ " : ""}${r.text} — ${when}`));
+    const a = el("div", "actions");
+    if (!r.done) {
+      const d = el("button", null, "Done"), s = el("button", null, "Snooze 10m");
+      d.onclick = async () => { await postJSON(`/api/reminders/${r.id}/done`); loadMemory(); refreshReminders(); };
+      s.onclick = async () => { await postJSON(`/api/reminders/${r.id}/snooze`, { minutes: 10 }); loadMemory(); refreshReminders(); };
+      a.append(d, s);
+    }
+    const x = el("button", null, "✕"); x.title = "Delete"; x.onclick = async () => { await api(`/api/memory/${r.id}`, { method: "DELETE" }); loadMemory(); refreshReminders(); };
+    a.append(x); li.append(a); rl.append(li);
+  });
+  if (!rl.children.length) rl.append(el("li", "muted", "No reminders."));
+  const tl = $("#taught-list"); tl.innerHTML = "";
+  memData.taught.forEach((t) => {
+    const li = el("li"); li.append(el("span", null, `${t.question} → ${t.answer.slice(0, 80)}`));
+    const x = el("button", null, "✕"); x.onclick = async () => { await api(`/api/memory/${t.id}`, { method: "DELETE" }); loadMemory(); };
+    const a = el("div", "actions"); a.append(x); li.append(a); tl.append(li);
+  });
+  if (!tl.children.length) tl.append(el("li", "muted", "Nothing taught yet."));
+}
+$("#mem-search").oninput = renderMemory;
+$("#mem-add").onsubmit = async (e) => {
+  e.preventDefault(); const t = $("#mem-text").value.trim(); if (!t) return;
+  try { await postJSON("/api/memory", { text: t }); $("#mem-text").value = ""; loadMemory(); } catch (err) { toast(err.message, "error"); }
+};
+$("#folders-form").onsubmit = async (e) => {
+  e.preventDefault();
+  const folders = $("#folders").value.split("\n").map((s) => s.trim()).filter(Boolean);
+  try { const r = await postJSON("/api/assistant/settings", { file_folders: folders }); $("#folders").value = r.file_folders.join("\n"); toast(`Saved ${r.file_folders.length} folder(s).`, "ok"); }
+  catch (err) { toast(err.message, "error"); }
+};
+
+// ── documents page ───────────────────────────────────────────────────────────
+async function loadDocs() {
+  const ul = $("#doc-list"); ul.innerHTML = "";
+  let j; try { j = await getJSON("/api/docs"); } catch (e) { toast(e.message, "error"); return; }
+  j.docs.forEach((d) => {
+    const li = el("li"); li.append(el("span", null, d.name), el("span", "muted", `${fmt(d.chars / 1000, 0)}k characters · ${d.pieces} pieces · ${ago(d.added)}`));
+    const x = el("button", null, "Remove"); x.onclick = async () => { if (confirm(`Remove ${d.name}?`)) { await api(`/api/docs/${encodeURIComponent(d.name)}`, { method: "DELETE" }); loadDocs(); } };
+    const a = el("div", "actions"); a.append(x); li.append(a); ul.append(li);
+  });
+  if (!ul.children.length) ul.append(el("li", "muted", "No documents yet."));
+}
+async function uploadDocs(files) {
+  for (const f of files) {
+    const fd = new FormData(); fd.append("file", f, f.name);
+    toast(`Adding ${f.name}…`);
+    try {
+      const r = await fetch("/api/docs", { method: "POST", body: fd, headers: store.get("apiKey", "") ? { "X-API-Key": store.get("apiKey", "") } : {} });
+      const j = await r.json(); if (!r.ok) throw new Error(j.detail);
+      toast(`${f.name}: ${j.pieces} pieces added. Ask about it in chat.`, "ok");
+    } catch (e) { toast(`${f.name}: ${e.message}`, "error"); }
+  }
+  loadDocs();
+}
+$("#doc-file").onchange = (e) => uploadDocs(e.target.files);
+const dz = $("#dropzone");
+dz.ondragover = (e) => { e.preventDefault(); dz.classList.add("over"); };
+dz.ondragleave = () => dz.classList.remove("over");
+dz.ondrop = (e) => { e.preventDefault(); dz.classList.remove("over"); uploadDocs(e.dataTransfer.files); };
+
+// ── voice mode: listen → (wake word) → answer → speak → listen again ────────
+const V = { on: false, stream: null, ctx: null, rec: null, busy: false, raf: 0 };
+function voiceState(s, text) {
+  $("#orb").className = `orb ${s}`;
+  $("#voice-state").textContent = { idle: "Tap to start", listening: "Listening…", thinking: "Thinking…", speaking: "Speaking…" }[s] || s;
+  if (text != null) $("#voice-live").textContent = text;
+}
+function voiceLog(you, tantra) {
+  const box = $("#voice-log"); box.innerHTML = "";
+  const t = new Date().toLocaleTimeString("hi-IN", { hour: "numeric", minute: "2-digit" });
+  const a = el("div"); a.append(el("small", null, `You · ${t}`), el("span", null, you));
+  const b = el("div"); b.append(el("small", null, "Tantra · spoken"), el("span", null, tantra));
+  box.append(a, b);
+}
+async function voiceStart() {
+  if (status.speech && !status.speech.stt) { toast("Speech-to-text needs Whisper: pip install openai-whisper (and ffmpeg)", "error"); return; }
+  try { V.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } }); }
+  catch { toast("Microphone not available or permission denied.", "error"); return; }
+  V.on = true; V.ctx = new AudioContext();
+  const src = V.ctx.createMediaStreamSource(V.stream), an = V.ctx.createAnalyser(); an.fftSize = 1024; src.connect(an);
+  const buf = new Uint8Array(an.fftSize);
+  let speaking = false, silentSince = 0, parts = [];
+  const bars = $$("#orb .bars i");
+  const loop = () => {
+    if (!V.on) return;
+    an.getByteTimeDomainData(buf);
+    let sum = 0; for (const x of buf) sum += (x - 128) ** 2;
+    const level = Math.sqrt(sum / buf.length);
+    if (!V.busy) bars.forEach((b, i) => { b.style.height = `${16 + Math.min(56, level * (2 + (i % 3)))}px`; });
+    const now = performance.now();
+    if (!V.busy) {
+      if (level > 9) {
+        silentSince = 0;
+        if (!speaking) {
+          speaking = true; parts = [];
+          V.rec = new MediaRecorder(V.stream); V.rec.ondataavailable = (e) => parts.push(e.data);
+          V.rec.onstop = () => handleUtterance(new Blob(parts, { type: "audio/webm" }));
+          V.rec.start(); voiceState("listening", "…");
+        }
+      } else if (speaking) {
+        silentSince ||= now;
+        if (now - silentSince > 1100) { speaking = false; V.rec?.state === "recording" && V.rec.stop(); }
+      }
+    }
+    V.raf = requestAnimationFrame(loop);
+  };
+  voiceState("listening", $("#wake").checked ? "Say “तन्त्र …” to wake me" : "बोलिए — I'm listening");
+  loop();
+}
+function voiceStop() {
+  if (!V.on) return;
+  V.on = false; cancelAnimationFrame(V.raf);
+  try { V.rec?.state === "recording" && V.rec.stop(); } catch { /* ignore */ }
+  V.stream?.getTracks().forEach((t) => t.stop()); V.ctx?.close();
+  stopSpeaking(); V.busy = false; voiceState("idle", "");
+}
+const WAKE = /^(\s*(hey|ok|अरे|हे)?\s*)(तन्त्र|तंत्र|टंत्र|tantra|tantr|tanthra)[\s,!.।]*/i;
+async function handleUtterance(blob) {
+  if (!V.on || blob.size < 3000) { if (V.on) voiceState("listening"); return; }
+  V.busy = true; voiceState("thinking", "…");
+  try {
+    const fd = new FormData(); fd.append("audio", blob, "speech.webm");
+    const r = await fetch("/api/stt", { method: "POST", body: fd }); const j = await r.json();
+    if (!r.ok) throw new Error(j.detail);
+    let text = (j.text || "").trim();
+    if (!text) { V.busy = false; voiceState("listening", ""); return; }
+    if (/^(रुको|रुक जाओ|stop|ruko)[\s.!।]*$/i.test(text)) { stopSpeaking(); V.busy = false; voiceState("listening", "ठीक है।"); return; }
+    if ($("#wake").checked) {
+      if (!WAKE.test(text)) { V.busy = false; voiceState("listening", "Say “तन्त्र …” to wake me"); return; }
+      text = text.replace(WAKE, "").trim() || "नमस्ते";
+    }
+    voiceState("thinking", `“${text}”`);
+    const res = await postJSON("/v1/chat/completions", {
+      messages: [{ role: "user", content: text }], max_tokens: 160, temperature: settings.temperature,
+      smriti: settings.smriti && !!status.smriti, knowledge_first: true, history: 0,
+    });
+    const answer = res.choices?.[0]?.message?.content || "…";
+    voiceLog(text, answer);
+    voiceState("speaking", answer.length > 220 ? answer.slice(0, 220) + "…" : answer);
+    await speakText(answer);
+    if (res.skill === "reminder" || res.skill === "memory") refreshReminders();
+  } catch (e) { toast(e.message, "error"); }
+  V.busy = false;
+  if (V.on) voiceState("listening", "");
+}
+$("#orb").onclick = () => (V.on ? voiceStop() : voiceStart());
+document.addEventListener("keydown", (e) => {
+  if (e.code === "Space" && activeTab() === "voice" && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) {
+    e.preventDefault(); if (V.on && V.busy) { stopSpeaking(); } else if (!V.on) voiceStart();
+  }
+});
+function fillVoices() {
+  if (!("speechSynthesis" in window)) return;
+  const sel = $("#voice-out"), vs = speechSynthesis.getVoices().filter((v) => /^(hi|en)/i.test(v.lang));
+  sel.innerHTML = ""; sel.append(new Option(status.speech?.tts ? "Kokoro (offline)" : "Automatic", ""));
+  vs.forEach((v) => sel.append(new Option(`${v.name} (${v.lang})`, v.name)));
+  sel.value = store.get("voiceName", "");
+}
+if ("speechSynthesis" in window) speechSynthesis.onvoiceschanged = fillVoices;
+$("#voice-out").onchange = (e) => store.set("voiceName", e.target.value);
+$("#wake").checked = store.get("wake", false);
+$("#wake").onchange = (e) => store.set("wake", e.target.checked);
+
+// ── phone access card (Model tab) ────────────────────────────────────────────
+async function renderAccess() {
+  try {
+    const a = await getJSON("/api/access");
+    if (a.lan_enabled && a.lan_url) {
+      $("#access-info").innerHTML = `<dl><dt>Open on phone</dt><dd><b>${esc(a.lan_url)}</b></dd><dt>Key</dt><dd><code>${esc(a.api_key || "")}</code></dd></dl>` +
+        `<p class="hint">Same Wi-Fi only. The phone asks for the key once and remembers it.</p>`;
+    }
+  } catch { /* shown only on this computer */ }
+}
+
 // ── start ──
 renderMessages();
-loadChatList();
-showTab(location.hash.slice(1) || "chat");
+loadChatList().then(() => refreshStatus());
+refreshReminders();
+fillVoices();
+renderAccess();
+showTab(location.hash.slice(1) || "home");

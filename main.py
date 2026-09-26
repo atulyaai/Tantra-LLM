@@ -428,6 +428,7 @@ def main() -> None:
     p.add_argument("--max-new-tokens", type=int, default=200)
     p.add_argument("--int8", action="store_true", help="CPU: run with 8-bit weights (~2x faster)")
     p.add_argument("--port", type=int, default=8000)
+    p.add_argument("--lan", action="store_true", help="serve: also reachable from your phone on the same Wi-Fi (key required)")
     args = p.parse_args()
 
     print_banner()
@@ -465,7 +466,7 @@ def main() -> None:
     elif args.mode == "serve":
         os.environ["TANTRA_INT8"] = "1" if args.int8 else os.environ.get("TANTRA_INT8", "0")
         from WebUI.server import start_server
-        start_server(port=args.port)
+        start_server(host="0.0.0.0" if args.lan else "127.0.0.1", port=args.port)
 
 
 if __name__ == "__main__":
