@@ -25,6 +25,7 @@ import glob
 import json
 import os
 import shutil
+import subprocess
 import sys
 import time
 
@@ -41,6 +42,14 @@ MODEL_DIR = os.path.join(ROOT, "Model")
 TOKENIZER_PATH = os.path.join(MODEL_DIR, "tokenizer.json")
 DATA_DIR = os.path.join(ROOT, "Datasets")
 log = get_logger("tantra")
+
+
+def _rel(path: str) -> str:
+    """Path relative to the project for messages; absolute when on another drive (Windows)."""
+    try:
+        return os.path.relpath(path, ROOT)
+    except ValueError:
+        return os.path.abspath(path)
 
 
 def default_data(args) -> None:
@@ -83,7 +92,7 @@ def archive_old_run(model_dir: str, reason: str) -> None:
             shutil.move(src, os.path.join(dest, name))
             moved.append(name)
     if moved:
-        log.warning(f"{reason} Moved {', '.join(moved)} -> {os.path.relpath(dest, ROOT)}")
+        log.warning(f"{reason} Moved {', '.join(moved)} -> {_rel(dest)}")
 
 
 def build_config(args, vocab_size: int) -> NeuroCoreConfig:
@@ -154,22 +163,39 @@ def run_train(args, hw) -> None:
     tok = load_tokenizer(TOKENIZER_PATH)
     paths = ckpt_paths(args.model_dir)
 
+    # Several GPUs: started by torchrun (python main.py --mode train --gpus N does that), one process per GPU.
+    world, rank, local = int(os.environ.get("WORLD_SIZE", 1)), int(os.environ.get("RANK", 0)), int(os.environ.get("LOCAL_RANK", 0))
+    if world > 1:
+        import torch.distributed as dist
+        dist.init_process_group("nccl" if torch.cuda.is_available() else "gloo")
+        if torch.cuda.is_available():
+            torch.cuda.set_device(local)
+            hw.device = f"cuda:{local}"
+        if args.auto_growth:
+            log.warning("Auto-growth is off when training on several GPUs.")
+            args.auto_growth = False
+        log.info(f"Multi-GPU: {world} processes, this is GPU {local}")
+
+    def archive(reason: str) -> None:
+        if rank == 0:            # only one process moves files
+            archive_old_run(args.model_dir, reason)
+
     resume_from, model = None, None
     if os.path.isfile(paths["latest"]) and not args.fresh:
         model, _ = load_model(paths["latest"], device=hw.device)
         rows = model.embed.weight.shape[0]
         if rows != tok.vocab_size:
-            archive_old_run(args.model_dir, f"Old checkpoint uses a {rows:,}-token vocab, tokenizer has {tok.vocab_size:,}.")
+            archive(f"Old checkpoint uses a {rows:,}-token vocab, tokenizer has {tok.vocab_size:,}.")
             model = None
         else:
             resume_from = paths["latest"]
-            log.info(f"Continuing training from {os.path.relpath(resume_from, ROOT)}")
+            log.info(f"Continuing training from {_rel(resume_from)}")
     elif args.fresh:
-        archive_old_run(args.model_dir, "--fresh requested.")
+        archive("--fresh requested.")
 
     if model is None:
         if not args.fresh:
-            archive_old_run(args.model_dir, "Starting a new model.")
+            archive("Starting a new model.")
         cfg = build_config(args, tok.vocab_size)
         model = NeuroCoreModel(cfg, use_mtp=args.mtp).to(hw.device)
         log.info(f"New model: {sum(p.numel() for p in model.parameters())/1e6:.1f}M params | "
@@ -182,6 +208,11 @@ def run_train(args, hw) -> None:
         model.freeze_for_category(args.adapter)
         log.info(f"Training only the '{args.adapter}' category layer (base model frozen).")
 
+    if world > 1:
+        from torch.nn.parallel import DistributedDataParallel
+        torch.distributed.barrier()
+        model = DistributedDataParallel(model, device_ids=[local] if torch.cuda.is_available() else None,
+                                        find_unused_parameters=True)
     trainer = NeuroTrainer(model, lr=args.lr, weight_decay=args.weight_decay, optimizer_name=args.optimizer,
                            total_steps=args.steps, warmup_steps=args.warmup, grad_accumulation_steps=args.grad_accum,
                            use_mtp_loss=bool(unwrap_model(model).use_mtp), max_grad_norm=args.max_grad_norm)
@@ -208,7 +239,7 @@ def run_train(args, hw) -> None:
     history = os.path.join(args.model_dir, "probe_history.jsonl")
 
     def on_eval(step: int, metrics: dict) -> None:
-        if probe:
+        if probe and rank == 0:
             run_probe(unwrap_model(model), tok, probe, step,
                       generate=(step % (args.eval_every * 4) == 0), history_path=history)
         trainer.save_checkpoint(paths["latest"])
@@ -235,6 +266,8 @@ def run_train(args, hw) -> None:
     finally:
         trainer.save_checkpoint(paths["latest"])
         log.info("Saved. Run the same command again to continue.")
+        if world > 1:
+            torch.distributed.destroy_process_group()
 
 
 # ── chat / generate ──────────────────────────────────────────────────────────
@@ -262,7 +295,7 @@ def run_chat(args, hw) -> None:
     path = args.checkpoint or default_checkpoint(args.model_dir)
     model, _ = load_model(path, hw.device, int8=args.int8)
     router = RequestRouter(AdapterRegistry()) if model.category_layers else None
-    print(f"Loaded {os.path.relpath(path, ROOT)}. Type your message. /reset clears history, /quit exits.\n")
+    print(f"Loaded {_rel(path)}. Type your message. /reset clears history, /quit exits.\n")
     history = []
     while True:
         try:
@@ -300,7 +333,7 @@ def run_eval(args, hw) -> None:
     tok = load_tokenizer(TOKENIZER_PATH)
     path = args.checkpoint or default_checkpoint(args.model_dir)
     model, ckpt = load_model(path, hw.device, int8=args.int8)
-    report = {"checkpoint": os.path.relpath(path, ROOT), "step": ckpt.get("step_count"),
+    report = {"checkpoint": _rel(path), "step": ckpt.get("step_count"),
               "params_M": round(sum(p.numel() for p in model.parameters()) / 1e6, 1)}
     if args.val and os.path.isfile(args.val):
         ds = JSONLDataset(args.val, tok, seq_len=args.seq_len, stage=args.stage, shuffle_buffer=1, loop=False)
@@ -344,7 +377,7 @@ def run_tokenizer(args) -> None:
         for name in ("tokenizer.json", "vocab.json", "merges.txt", "tokenizer_config.json", "special_tokens_map.json"):
             if os.path.isfile(os.path.join(MODEL_DIR, name)):
                 shutil.move(os.path.join(MODEL_DIR, name), os.path.join(backup, name))
-        log.warning(f"Old tokenizer moved to {os.path.relpath(backup, ROOT)}. Existing checkpoints will NOT work "
+        log.warning(f"Old tokenizer moved to {_rel(backup)}. Existing checkpoints will NOT work "
                     f"with the new tokenizer — the next training run starts fresh.")
     build_tokenizer([f for f in args.data.split(",") if f], MODEL_DIR, vocab_size=args.vocab_size)
 
@@ -450,6 +483,7 @@ def main() -> None:
     p.add_argument("--auto-growth", action="store_true")
     p.add_argument("--with-checkpoint", action="store_true", help="pack: include Model/latest.pt to continue training")
     p.add_argument("--kaggle-user", help="pack: your Kaggle username (for dataset-metadata.json)")
+    p.add_argument("--gpus", default="1", help="train: GPUs to use — a number or 'auto' (all). >1 starts one process per GPU")
     p.add_argument("--max-hours", type=float, default=0, help="stop cleanly after this many hours (0 = no limit)")
     p.add_argument("--growth-patience", type=int, default=1000)
     p.add_argument("--max-layers", type=int, default=24)
@@ -500,6 +534,24 @@ def main() -> None:
         args.data = ",".join(p for p in (os.path.join(DATA_DIR, "pretrain.jsonl"), os.path.join(DATA_DIR, "sft.jsonl"))
                              if os.path.isfile(p)) or None
     default_data(args)
+    if args.mode == "train" and "WORLD_SIZE" not in os.environ:
+        n = torch.cuda.device_count() if str(args.gpus).lower() == "auto" else int(args.gpus)
+        n = min(n, torch.cuda.device_count())
+        if n > 1:   # re-run this same command once per GPU (torchrun), they train together
+            argv, skip = [], False
+            for a in sys.argv[1:]:
+                if skip:
+                    skip = False
+                    continue
+                if a == "--gpus":
+                    skip = True
+                    continue
+                if not a.startswith("--gpus="):
+                    argv.append(a)
+            cmd = [sys.executable, "-m", "torch.distributed.run", "--standalone", f"--nproc_per_node={n}",
+                   os.path.abspath(__file__), *argv]
+            log.info(f"Training on {n} GPUs: {' '.join(cmd)}")
+            sys.exit(subprocess.call(cmd))
     if args.warmup is None:
         args.warmup = min(500, max(1, args.steps // 10))
     if args.mode == "tokenizer":
