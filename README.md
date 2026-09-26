@@ -108,14 +108,19 @@ python main.py --mode eval           # val loss + 50 questions + speed
 python -m pytest Tests -q            # code tests
 ```
 
-**Faster on a free GPU (Kaggle/Colab):** same code, same files.
+**Train on a free GPU (Kaggle or Colab)** — much faster than a laptop CPU, uses all GPUs:
 
-```bash
-git clone https://github.com/atulyaai/Tantra-LLM && cd Tantra-LLM
-# put your .jsonl in Datasets/ (and latest.pt in Model/ to continue a run)
-python main.py --mode train --device cuda --batch-size 32 --grad-accum 1
-# download Model/latest.pt afterwards and put it back in your Model/ folder
+1. On your PC: `python main.py --mode pack --with-checkpoint` → upload the files in `kaggle_upload/` as a Kaggle dataset
+   named *tantra-data* (or to Google Drive → `MyDrive/tantra-data` for Colab).
+2. In a Kaggle/Colab notebook with a GPU, run one cell (or open `kaggle_train.ipynb`):
+
+```python
+!rm -rf /tmp/Tantra-LLM && git clone -q --depth 1 https://github.com/atulyaai/Tantra-LLM.git /tmp/Tantra-LLM
+%run /tmp/Tantra-LLM/cloud_train.py --stage pretrain
 ```
+
+It stops cleanly before the time limit and continues next time. On your PC: `python main.py --mode train --gpus auto`
+uses every local GPU.
 
 ---
 

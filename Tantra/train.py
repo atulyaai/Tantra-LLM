@@ -33,6 +33,13 @@ STATUS_PATH = os.path.join(_MODEL_DIR, "training_status.json")
 STOP_FILE = os.path.join(_MODEL_DIR, "STOP")   # create this file to stop training cleanly (WebUI does it)
 
 
+def dist_info() -> Tuple[int, int]:
+    """(rank, world size) when training on several GPUs with torchrun, else (0, 1)."""
+    if torch.distributed.is_available() and torch.distributed.is_initialized():
+        return torch.distributed.get_rank(), torch.distributed.get_world_size()
+    return 0, 1
+
+
 # ── Optimizer & schedule ─────────────────────────────────────────────────────
 
 class Lion(torch.optim.Optimizer):
@@ -179,7 +186,7 @@ class NeuroTrainer:
         self.scaler.scale(loss / self.grad_accumulation_steps).backward()
         self._micro += 1
         n_tok = int(keep.sum())
-        self.total_tokens += x.numel()
+        self.total_tokens += x.numel() * dist_info()[1]      # tokens seen by all GPUs together
         with torch.no_grad():
             acc = float((flat[keep].argmax(-1) == flat_y[keep]).float().mean()) * 100 if n_tok else 0.0
 
@@ -218,8 +225,11 @@ class NeuroTrainer:
         window: List[float] = []
         accs: List[float] = []
         bad_evals = 0
-        if os.path.exists(STOP_FILE):
+        rank, world = dist_info()
+        if rank == 0 and os.path.exists(STOP_FILE):
             os.remove(STOP_FILE)
+        if world > 1:
+            torch.distributed.barrier()
         self._status("running", max_steps, t0, start_step, session_tokens0)
         log.info(f"Training from step {self.step_count:,} to {max_steps:,} "
                  f"(effective batch = {self.grad_accumulation_steps} micro-batches)")
@@ -277,8 +287,14 @@ class NeuroTrainer:
             if checkpoint_every and s % checkpoint_every == 0 and on_checkpoint is not None:
                 on_checkpoint(s)
 
-            if os.path.exists(STOP_FILE):
-                os.remove(STOP_FILE)
+            stop = os.path.exists(STOP_FILE)
+            if world > 1:   # every GPU must stop at the same step, or the others wait forever
+                flag = torch.tensor([1.0 if stop else 0.0], device=self.device)
+                torch.distributed.all_reduce(flag, op=torch.distributed.ReduceOp.MAX)
+                stop = bool(flag.item())
+            if stop:
+                if rank == 0 and os.path.exists(STOP_FILE):
+                    os.remove(STOP_FILE)
                 log.warning("Stop requested — saving and exiting.")
                 break
 
@@ -303,7 +319,7 @@ class NeuroTrainer:
         return self._hist["val"]
 
     def _status(self, state: str, target: int, t0: float, start_step: int, tok0: int, **extra: Any) -> None:
-        if os.environ.get("PYTEST_CURRENT_TEST"):
+        if os.environ.get("PYTEST_CURRENT_TEST") or dist_info()[0] != 0:
             return
         if not hasattr(self, "_hist"):
             self._load_history()
