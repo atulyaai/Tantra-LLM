@@ -410,6 +410,17 @@ def run_pack(args) -> None:
             shutil.copy2(src, dst)
         total += os.path.getsize(src)
         print(f"  + {os.path.basename(src):28s} {os.path.getsize(src) / 2**20:9.1f} MB")
+    ck = os.path.join(out, "latest.pt")
+    info = os.path.join(out, "CHECKPOINT.txt")
+    if os.path.isfile(ck):   # say which step is inside, so uploads/downloads are never confused
+        c = torch.load(ck, map_location="cpu", weights_only=False)
+        v = (c.get("last_validation") or {}).get("loss")
+        with open(info, "w", encoding="utf-8") as f:
+            f.write(f"latest.pt = step {c.get('step_count')} · {c.get('total_tokens', 0) / 1e6:.1f}M tokens · "
+                    f"stage {c.get('training_stage', 'pretrain')} · val loss {v if v is None else round(v, 3)}\n")
+        print("  " + open(info, encoding="utf-8").read().strip())
+    elif os.path.exists(info):
+        os.remove(info)
     with open(os.path.join(out, "dataset-metadata.json"), "w", encoding="utf-8") as f:
         json.dump({"title": "tantra-data", "id": f"{args.kaggle_user or 'YOUR_KAGGLE_USERNAME'}/tantra-data",
                    "licenses": [{"name": "other"}]}, f, indent=1)
