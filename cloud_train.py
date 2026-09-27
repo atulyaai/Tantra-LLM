@@ -160,9 +160,22 @@ def main() -> None:
             shutil.copy(os.path.join("Model", n), out)
     say(f"Training ended (exit {proc.returncode}) after {(time.time() - t0) / 3600:.1f} h")
 
+    tag = ""
+    try:   # name the result after its step, e.g. tantra_out_step07353_val3.89.zip
+        import torch
+        c = torch.load(os.path.join(out, "latest.pt"), map_location="cpu", weights_only=False)
+        v = (c.get("last_validation") or {}).get("loss")
+        tag = f"_step{c.get('step_count', 0):05d}" + (f"_val{v:.2f}" if v else "")
+        with open(os.path.join(out, "CHECKPOINT.txt"), "w", encoding="utf-8") as f:
+            f.write(f"latest.pt = step {c.get('step_count')} · {c.get('total_tokens', 0) / 1e6:.1f}M tokens · "
+                    f"stage {c.get('training_stage', args.stage)} · val loss {v}\n")
+    except Exception:
+        pass
     if env == "kaggle":
-        shutil.make_archive("/kaggle/working/tantra_out", "zip", out)
-        say("Download tantra_out.zip (Output panel) → put latest.pt and best.pt into your PC's Model/ folder.")
+        for old in glob.glob("/kaggle/working/tantra_out*.zip"):
+            os.remove(old)
+        shutil.make_archive(f"/kaggle/working/tantra_out{tag}", "zip", out)
+        say(f"Download tantra_out{tag}.zip (Output panel) → put latest.pt and best.pt into your PC's Model/ folder.")
         say("Next session: add this notebook's output as input (Add data → Notebook output) and run again — it continues.")
     elif env == "colab":
         say(f"Checkpoints are in Google Drive: {out} — the next session continues from there automatically.")
