@@ -8,6 +8,7 @@ main.py — Tantra command line. Every task is one --mode.
   python main.py --mode serve                 WebUI + OpenAI-compatible API on http://127.0.0.1:8000
   python main.py --mode export                small fp16 file for inference (Model/tantra.pt)
   python main.py --mode data                  clean + mix all data -> Datasets/pretrain.jsonl, sft.jsonl, val_*.jsonl
+  python main.py --mode boost                 add identity + extra open datasets to sft.jsonl (run after data)
   python main.py --mode tokenizer             build Model/tokenizer.json from your data (do this ONCE)
   python main.py --mode smriti                build the knowledge store Model/smriti.db (facts the model looks up)
   python main.py --mode dpo --prefs FILE      preference tuning from chosen/rejected pairs
@@ -458,7 +459,7 @@ def main() -> None:
     p = argparse.ArgumentParser(description="Tantra LLM", formatter_class=argparse.RawDescriptionHelpFormatter,
                                 epilog=__doc__)
     p.add_argument("--mode", default="train",
-                   choices=["train", "chat", "generate", "eval", "serve", "export", "data", "tokenizer", "smriti",
+                   choices=["train", "chat", "generate", "eval", "serve", "export", "data", "tokenizer", "smriti", "boost",
                             "dpo", "adapter", "hardware", "doctor", "pack"])
     # data
     p.add_argument("--data", help="training .jsonl, comma-separated for several (default: Datasets/pretrain.jsonl "
@@ -541,6 +542,9 @@ def main() -> None:
         return run_data(args)
     if args.mode == "smriti":
         return run_smriti(args)
+    if args.mode == "boost":
+        from Tantra.data_boost import boost
+        return boost(DATA_DIR)
     if args.mode == "tokenizer" and not args.data:   # learn words from ALL cleaned data
         args.data = ",".join(p for p in (os.path.join(DATA_DIR, "pretrain.jsonl"), os.path.join(DATA_DIR, "sft.jsonl"))
                              if os.path.isfile(p)) or None
