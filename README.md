@@ -67,6 +67,12 @@ Tokenizer, architecture, training loop and WebUI are all our own code — no pre
 
 ## 🏛️ How it works
 
+<div align="center">
+  <img src="Assets/tantra_logo.jpg" alt="Tantra LLM Official Emblem" width="280"/>
+  <p><em><strong>तन्त्र (Tantra)</strong> — The Sovereign Neural Engine of Atulya</em></p>
+</div>
+
+
 ```
 text ─► 64k tokenizer ─► embedding ─► [ ALRA, ALRA, ALRA, Window-Attention ] × N ─► next token
                                          │ linear-time memory     │ exact recall of the last 512 tokens
