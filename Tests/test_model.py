@@ -135,3 +135,44 @@ def test_moe_and_mtp_forward():
     (main, mtp), _ = m(torch.randint(0, 300, (2, 9)), return_mtp=True)
     assert main.shape == mtp.shape == (2, 9, 300)
     assert m.get_aux_loss().item() >= 0
+
+
+def test_topk_moe_routes_each_token_to_k_experts_and_learns():
+    torch.manual_seed(0)
+    cfg = NeuroCoreConfig.tiny()
+    cfg.vocab.vocab_size = cfg.vocab.byte_bpe_vocab = 300
+    cfg.moe.num_experts, cfg.moe.top_k, cfg.moe.expert_expansion, cfg.moe.real_top1 = 4, 2, 2, True
+    m = NeuroCoreModel(cfg, use_mtp=False, use_moe=True)
+    mlp = m.layers[0].mlp
+    assert mlp.top_k == 2 and mlp.experts[0].hidden_dim == 64 * 2
+    x = torch.randint(0, 300, (2, 12))
+    logits, _ = m(x)
+    assert torch.isfinite(logits).all()
+    assert abs(float(mlp.last_usage.sum()) - 1.0) < 1e-5          # every token's 2 picks counted
+    aux = m.get_aux_loss()
+    assert aux > 0
+    (logits.logsumexp(-1).mean() + aux).backward()
+    assert mlp.router.weight.grad is not None and mlp.router.weight.grad.abs().sum() > 0
+
+
+def test_moe_checkpoint_round_trip(tmp_path):
+    cfg = NeuroCoreConfig.tiny()
+    cfg.vocab.vocab_size = cfg.vocab.byte_bpe_vocab = 300
+    cfg.moe.num_experts, cfg.moe.top_k, cfg.moe.expert_expansion, cfg.moe.real_top1 = 4, 2, 2, True
+    m = NeuroCoreModel(cfg, use_mtp=False, use_moe=True).eval()
+    path = tmp_path / "moe.pt"
+    torch.save({"model_state_dict": m.state_dict(), "config": cfg}, path)
+    m2, _ = load_model(str(path))
+    x = torch.randint(0, 300, (1, 10))
+    with torch.no_grad():
+        assert torch.allclose(m(x)[0], m2(x)[0], atol=1e-5)
+
+
+def test_moe_preset_size():
+    cfg = NeuroCoreConfig.mixture()
+    m = NeuroCoreModel(cfg, use_mtp=False, use_moe=True)
+    total = sum(p.numel() for p in m.parameters())
+    expert = sum(p.numel() for p in m.layers[0].mlp.experts[0].parameters())
+    active = total - (cfg.moe.num_experts - cfg.moe.top_k) * expert * cfg.block.num_layers
+    assert m.layers[0].mlp.shared is not None
+    assert 250e6 < total < 300e6 and 95e6 < active < 120e6

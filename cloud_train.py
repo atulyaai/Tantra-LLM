@@ -5,7 +5,7 @@ In a notebook cell:
     !rm -rf /tmp/Tantra-LLM && git clone -q --depth 1 https://github.com/atulyaai/Tantra-LLM.git /tmp/Tantra-LLM
     %run /tmp/Tantra-LLM/cloud_train.py
 
-Options (after the %run line):  --stage sft   --steps 60000   --hours 8   --batch 16   --gpus 1   --fresh
+Options (after the %run line):  --stage sft   --steps 60000   --hours 8   --batch 16   --gpus 1   --fresh   --preset moe   --optimizer muon   --schedule wsd
 
 Where the data comes from and where results go:
   Kaggle  data: your dataset with pretrain.jsonl/sft.jsonl/tokenizer.json (Add data → tantra-data)
@@ -85,7 +85,11 @@ def main() -> None:
     p.add_argument("--total-batch", type=int, default=32, help="sequences per update across all GPUs")
     p.add_argument("--gpus", default="auto", help="'auto' = all GPUs, or a number")
     p.add_argument("--fresh", action="store_true", help="start a new model instead of continuing")
+    p.add_argument("--preset", default="small", choices=["small", "moe", "billion"],
+                   help="size of a NEW model (with --fresh); a continued run keeps its checkpoint's shape")
     p.add_argument("--eval-every", type=int, default=500)
+    p.add_argument("--optimizer", default="adamw", choices=["adamw", "muon"], help="muon: fewer steps to the same loss")
+    p.add_argument("--schedule", default="cosine", choices=["cosine", "wsd"], help="wsd: easy to extend later")
     args, _ = p.parse_known_args()
 
     env = environment()
@@ -141,7 +145,8 @@ def main() -> None:
     cmd = [sys.executable, "main.py", "--mode", "train", "--stage", args.stage, "--model-dir", out,
            "--device", "cuda" if cards else "cpu", "--gpus", str(max(n_gpu, 1)), "--batch-size", str(batch),
            "--grad-accum", str(accum), "--seq-len", "512", "--steps", str(args.steps), "--warmup", "500",
-           "--eval-every", str(args.eval_every), "--log-every", "50", "--workers", "2"]
+           "--eval-every", str(args.eval_every), "--log-every", "50", "--workers", "2",
+           "--preset", args.preset, "--optimizer", args.optimizer, "--schedule", args.schedule]
     if hours:
         cmd += ["--max-hours", str(hours)]
     if not resume:

@@ -102,7 +102,7 @@ Same from a terminal:
 ```bash
 pip install -r requirements.txt
 python main.py --mode train          # continues automatically; Ctrl+C saves
-python main.py --mode chat --int8    # int8 = ~2x faster on CPU
+python main.py --mode chat --int8    # int8 output head = ~1.3x faster on CPU
 python main.py --mode serve --int8   # WebUI on http://127.0.0.1:8000
 python main.py --mode eval           # val loss + 50 questions + speed
 python -m pytest Tests -q            # code tests
@@ -121,6 +121,29 @@ python -m pytest Tests -q            # code tests
 
 It stops cleanly before the time limit and continues next time. On your PC: `python main.py --mode train --gpus auto`
 uses every local GPU.
+
+**Bigger model (mixture of experts):** `--fresh --preset moe` starts a new ~280M-parameter model: per layer 16 small
+experts (each token uses 2) plus one shared expert every token uses (DeepSeek-MoE layout), ~108M active. It has ~4x
+the room for facts of the small model at ~2x its cost per token. It is a new model, so pretrain it from scratch (`--stage pretrain`); later sessions continue without `--fresh`.
+
+**Making it know more (general knowledge)** — the order that gives the most per GPU hour:
+
+1. `python main.py --mode knowledge` (on your PC, needs internet; `--scale 0.1` for a quick small build) →
+   `pretrain_knowledge.jsonl`: FineWeb-Edu (English, educational pages only), Hindi + English Wikipedia
+   (shown twice) and Sangraha Hindi filtered for explanatory text. Pretraining mixes it with `pretrain.jsonl` by size.
+2. `python main.py --mode boost` → rebuilds `sft.jsonl` and now drops "As an AI language model…" / "made by
+   OpenAI" answers (they taught the model to refuse "Who created you?").
+3. `python main.py --mode rag` (after `--mode smriti`) → `sft_rag.jsonl`: fact questions with the looked-up facts
+   in the same layout the WebUI uses, so the model learns to read Smriti instead of guessing. ~1 example/s.
+4. On Kaggle (GPU), a big open model writes GK Q&A from Wikipedia → `/kaggle/working/sft_distill.jsonl`
+   (resumes where it stopped; `--teacher Qwen/Qwen2.5-7B-Instruct` is better Hindi but ~2x slower):
+   ```python
+   !cd /tmp/Tantra-LLM && python main.py --mode distill --samples 20000
+   ```
+5. Train with Muon and the warmup-stable-decay schedule:
+   `%run /tmp/Tantra-LLM/cloud_train.py --stage pretrain --fresh --preset moe --optimizer muon --schedule wsd`.
+   SFT then picks up `sft_rag.jsonl` and `sft_distill.jsonl` automatically when they are in the dataset
+   (`--mode pack` includes them).
 
 ---
 

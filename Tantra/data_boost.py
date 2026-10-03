@@ -10,6 +10,8 @@ What it adds (on top of everything already in sft.jsonl, nothing is removed):
                Hindi, English and Hinglish, answered consistently (तन्त्र / Tantra by अतुल्य AI).
                The exact probe_50 questions are left out, so the probe still measures whether
                the model generalises instead of memorising.
+  * filter     conversations whose answer is a refusal or another assistant's identity ("As an AI
+               language model…", "made by OpenAI") are dropped, from the base file and the open sets.
   * open sets  extra English and Hindi instruction data from Hugging Face (skipped with a warning
                when a set cannot be downloaded — the rest still works).
 The first run moves the original file to sft_base.jsonl; every later run starts from that file,
@@ -22,7 +24,7 @@ import os
 import random
 from typing import Dict, Iterator, List, Optional
 
-from Tantra.data_prep import _Buckets, bad_text, norm
+from Tantra.data_prep import _Buckets, bad_text, foreign_assistant, norm
 from Tantra.utils import get_logger
 
 log = get_logger("tantra.boost")
@@ -96,7 +98,8 @@ def _answers(q: str, normal: List[str], not_other: List[str]) -> List[str]:
 def identity_rows(n: int, probe_questions: set, seed: int = 0) -> List[dict]:
     """n conversations; each question paired with a random matching answer, probe questions excluded."""
     rng = random.Random(seed)
-    pool = ([(q, A_HI, A_HI_NOT_OTHER) for q in Q_HI] + [(q, A_EN, A_EN_NOT_OTHER) for q in Q_EN]
+    # English counted twice: the open English sets outnumber it, and it was the weakest identity answer
+    pool = ([(q, A_HI, A_HI_NOT_OTHER) for q in Q_HI] + 2 * [(q, A_EN, A_EN_NOT_OTHER) for q in Q_EN]
             + [(q, A_HINGLISH, A_HINGLISH_NOT_OTHER) for q in Q_HINGLISH])
     pool = [p for p in pool if norm(p[0]) not in probe_questions]
     out = []
@@ -171,6 +174,8 @@ def hf_rows(probe_questions: set) -> Iterator[dict]:
                 continue
             if any(bad_text(m["content"], 1) for m in msgs):
                 continue
+            if any(foreign_assistant(m["content"]) for m in msgs if m["role"] == "assistant"):
+                continue
             yield {"messages": msgs}
             n += 1
         log.info(f"Added {n:,} rows from {repo}")
@@ -194,13 +199,21 @@ def boost(data_dir: str, identity: int = 12_000, use_hf: bool = True, seed: int 
             probe_questions = {norm(json.loads(l)["question"]) for l in f if l.strip()}
 
     out = _Buckets(sft, seed=seed)
-    counts = {"base": 0, "identity": 0, "open_datasets": 0}
+    counts = {"base": 0, "dropped_refusals": 0, "identity": 0, "open_datasets": 0}
     with open(base, encoding="utf-8") as f:
         for line in f:
-            if line.strip():
-                out.files[out.rng.randrange(out.n)].write(line if line.endswith("\n") else line + "\n")
-                out.count += 1
-                counts["base"] += 1
+            if not line.strip():
+                continue
+            try:
+                msgs = json.loads(line).get("messages") or []
+            except ValueError:
+                continue
+            if any(foreign_assistant(m.get("content") or "") for m in msgs if m.get("role") == "assistant"):
+                counts["dropped_refusals"] += 1
+                continue
+            out.files[out.rng.randrange(out.n)].write(line if line.endswith("\n") else line + "\n")
+            out.count += 1
+            counts["base"] += 1
     for rec in identity_rows(identity, probe_questions, seed):
         out.add(rec)
         counts["identity"] += 1

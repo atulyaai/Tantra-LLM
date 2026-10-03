@@ -167,22 +167,43 @@ class JSONLDataset(IterableDataset):
         rng = random.Random(self.seed + epoch)
         buf: List[str] = []
         idx = -1
-        for path in self.paths:
-            with open(path, "r", encoding="utf-8", errors="ignore") as f:
-                for line in f:
-                    if not line.strip():
-                        continue
-                    idx += 1
-                    if idx % n_shards != shard:
-                        continue
-                    if self.shuffle_buffer <= 1:
-                        yield line
-                        continue
-                    buf.append(line)
-                    if len(buf) >= self.shuffle_buffer:
-                        yield buf.pop(rng.randrange(len(buf)))
+        # own RNG for the file mix: every worker / GPU must see the same line order to shard it
+        for line in self._mixed(random.Random(self.seed + epoch + 7919)):
+            if not line.strip():
+                continue
+            idx += 1
+            if idx % n_shards != shard:
+                continue
+            if self.shuffle_buffer <= 1:
+                yield line
+                continue
+            buf.append(line)
+            if len(buf) >= self.shuffle_buffer:
+                yield buf.pop(rng.randrange(len(buf)))
         rng.shuffle(buf)
         yield from buf
+
+    def _mixed(self, rng: random.Random) -> Iterator[str]:
+        """Lines of all files interleaved in proportion to file size (each file still read in order),
+        so e.g. pretrain.jsonl + pretrain_knowledge.jsonl are mixed all the way through."""
+        if len(self.paths) == 1:
+            with open(self.paths[0], "r", encoding="utf-8", errors="ignore") as f:
+                yield from f
+            return
+        files = [open(p, "r", encoding="utf-8", errors="ignore") for p in self.paths]
+        try:
+            live = list(range(len(files)))
+            weights = [max(1, os.path.getsize(p)) for p in self.paths]
+            while live:
+                i = rng.choices(live, weights=[weights[j] for j in live])[0]
+                line = files[i].readline()
+                if line:
+                    yield line
+                else:
+                    live.remove(i)
+        finally:
+            for f in files:
+                f.close()
 
     def __iter__(self) -> Iterator[Tuple[torch.Tensor, torch.Tensor]]:
         info = torch.utils.data.get_worker_info()

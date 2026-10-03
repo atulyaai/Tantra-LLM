@@ -5,6 +5,7 @@ Presets:
   NeuroCoreConfig.tiny()      ~1M params, for tests
   NeuroCoreConfig.small()     default: ~70M params (dim 512 x 8 layers), trains on a laptop CPU
   NeuroCoreConfig.billion()   ~1B params (dim 1536 x 24 layers), needs GPUs to train
+  NeuroCoreConfig.mixture()   ~280M params, ~108M used per token (16 small experts, 2 + 1 shared per token)
 
 The vocabulary (64k) is the same for every size, so a small model can be grown
 into a bigger one (more layers) without retraining or changing the tokenizer.
@@ -85,9 +86,11 @@ class NeuroCoreBlockConfig:
 
 @dataclass
 class MoEConfig:
-    """Optional Top-1 mixture-of-experts MLP (off by default)."""
+    """Optional mixture-of-experts MLP (off by default). Each token runs through its top_k experts."""
     num_experts: int = 1
     top_k: int = 1
+    expert_expansion: int = 0        # hidden size of each expert = dim * this (0 = same as the dense MLP)
+    shared_expansion: int = 0        # >0: one shared expert every token uses (DeepSeek-MoE), hidden = dim * this
     router_dim: int = 512
     router_layers: int = 2
     load_balance_coeff: float = 0.01
@@ -216,6 +219,20 @@ class NeuroCoreConfig:
         """Default: dim 512, 8 layers, 64k vocab, every 4th layer local softmax. ~70M params."""
         cfg = cls(model_name="tantra-small").set_shape(512, 8, 8, vocab_size=vocab_size)
         cfg.block.alra.local_attn_every, cfg.block.alra.local_window = 4, 512
+        return cfg
+
+    @classmethod
+    def mixture(cls, vocab_size: int = 64000) -> "NeuroCoreConfig":
+        """dim 640 x 10 layers; per layer 16 small routed experts (2 used per token) + 1 shared expert.
+
+        DeepSeek-MoE layout: fine-grained experts specialise better than a few big ones, and the
+        shared expert holds what every token needs. ~280M params store knowledge, but each token
+        only pays for ~108M, so it trains on 2x T4 and runs on a laptop CPU. ~4.5 GB with Adam.
+        """
+        cfg = cls(model_name="tantra-moe").set_shape(640, 10, 10, vocab_size=vocab_size)
+        cfg.block.alra.local_attn_every, cfg.block.alra.local_window = 4, 512
+        cfg.moe.num_experts, cfg.moe.top_k, cfg.moe.expert_expansion, cfg.moe.shared_expansion = 16, 2, 1, 2
+        cfg.moe.real_top1 = True         # (historic name) = real per-token expert routing on
         return cfg
 
     @classmethod

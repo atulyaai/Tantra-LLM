@@ -3,12 +3,16 @@ main.py — Tantra command line. Every task is one --mode.
 
   python main.py --mode train                 train (continues automatically if a checkpoint exists)
   python main.py --mode train --fresh         start a new model (old checkpoints are moved to Model/_old/)
+  python main.py --mode train --fresh --preset moe   start a bigger mixture-of-experts model (8 experts, 2 per token)
   python main.py --mode chat                  talk to the model in the terminal
   python main.py --mode eval                  validation loss + 50-question probe + speed
   python main.py --mode serve                 WebUI + OpenAI-compatible API on http://127.0.0.1:8000
   python main.py --mode export                small fp16 file for inference (Model/tantra.pt)
   python main.py --mode data                  clean + mix all data -> Datasets/pretrain.jsonl, sft.jsonl, val_*.jsonl
   python main.py --mode boost                 add identity + extra open datasets to sft.jsonl (run after data)
+  python main.py --mode knowledge             fetch FineWeb-Edu + Hindi/English Wikipedia + Sangraha -> pretrain_knowledge.jsonl
+  python main.py --mode rag                   teach the model to answer from looked-up facts -> sft_rag.jsonl
+  python main.py --mode distill               (GPU) a big open model writes GK Q&A from Wikipedia -> sft_distill.jsonl
   python main.py --mode tokenizer             build Model/tokenizer.json from your data (do this ONCE)
   python main.py --mode smriti                build the knowledge store Model/smriti.db (facts the model looks up)
   python main.py --mode dpo --prefs FILE      preference tuning from chosen/rejected pairs
@@ -58,6 +62,10 @@ def default_data(args) -> None:
     stage_file = os.path.join(DATA_DIR, "pretrain.jsonl" if args.stage == "pretrain" else "sft.jsonl")
     if not args.data:
         args.data = stage_file if os.path.isfile(stage_file) else os.path.join(DATA_DIR, "master_train.jsonl")
+        extra = {"pretrain": ("pretrain_knowledge.jsonl",), "sft": ("sft_rag.jsonl", "sft_distill.jsonl")}[args.stage]
+        for name in extra:   # built by --mode knowledge / rag / distill; mixed in by size
+            if os.path.isfile(os.path.join(DATA_DIR, name)):
+                args.data += "," + os.path.join(DATA_DIR, name)
     if args.val is None:
         v = os.path.join(DATA_DIR, f"val_{args.stage}.jsonl")
         args.val = v if os.path.isfile(v) else os.path.join(DATA_DIR, "master_val.jsonl")
@@ -99,6 +107,8 @@ def archive_old_run(model_dir: str, reason: str) -> None:
 def build_config(args, vocab_size: int) -> NeuroCoreConfig:
     if args.preset == "billion":
         cfg = NeuroCoreConfig.billion(vocab_size)
+    elif args.preset == "moe":
+        cfg = NeuroCoreConfig.mixture(vocab_size)
     elif args.preset == "tiny":
         cfg = NeuroCoreConfig.tiny()
         cfg.vocab.vocab_size = cfg.vocab.byte_bpe_vocab = vocab_size
@@ -198,10 +208,11 @@ def run_train(args, hw) -> None:
         if not args.fresh:
             archive("Starting a new model.")
         cfg = build_config(args, tok.vocab_size)
-        model = NeuroCoreModel(cfg, use_mtp=args.mtp).to(hw.device)
+        model = NeuroCoreModel(cfg, use_mtp=args.mtp, use_moe=bool(cfg.moe.real_top1)).to(hw.device)
         log.info(f"New model: {sum(p.numel() for p in model.parameters())/1e6:.1f}M params | "
                  f"dim {cfg.block.alra.dim} x {cfg.block.num_layers} layers | vocab {tok.vocab_size:,} | "
-                 f"softmax window {cfg.block.alra.local_window} every {cfg.block.alra.local_attn_every} layers")
+                 f"softmax window {cfg.block.alra.local_window} every {cfg.block.alra.local_attn_every} layers"
+                 + (f" | {cfg.moe.num_experts} experts, {cfg.moe.top_k} per token" if model.use_moe else ""))
 
     if args.adapter:
         if args.adapter not in model.category_layers:
@@ -215,6 +226,7 @@ def run_train(args, hw) -> None:
         model = DistributedDataParallel(model, device_ids=[local] if torch.cuda.is_available() else None,
                                         find_unused_parameters=True)
     trainer = NeuroTrainer(model, lr=args.lr, weight_decay=args.weight_decay, optimizer_name=args.optimizer,
+                           schedule=args.schedule, muon_lr=args.muon_lr,
                            total_steps=args.steps, warmup_steps=args.warmup, grad_accumulation_steps=args.grad_accum,
                            use_mtp_loss=bool(unwrap_model(model).use_mtp), max_grad_norm=args.max_grad_norm)
     if resume_from:
@@ -394,7 +406,8 @@ def run_pack(args) -> None:
     out = os.path.join(ROOT, "kaggle_upload")
     os.makedirs(out, exist_ok=True)
     files = [os.path.join(MODEL_DIR, "tokenizer.json")] + [os.path.join(DATA_DIR, n) for n in
-             ("pretrain.jsonl", "sft.jsonl", "val_pretrain.jsonl", "val_sft.jsonl", "probe_50.jsonl", "feedback.jsonl")]
+             ("pretrain.jsonl", "sft.jsonl", "val_pretrain.jsonl", "val_sft.jsonl", "probe_50.jsonl", "feedback.jsonl",
+              "pretrain_knowledge.jsonl", "sft_rag.jsonl", "sft_distill.jsonl")]
     if args.with_checkpoint:
         files += [os.path.join(args.model_dir, n) for n in ("latest.pt", "latest.pt.meta.json", "training_status.json",
                                                             "probe_history.jsonl")]
@@ -460,6 +473,7 @@ def main() -> None:
                                 epilog=__doc__)
     p.add_argument("--mode", default="train",
                    choices=["train", "chat", "generate", "eval", "serve", "export", "data", "tokenizer", "smriti", "boost",
+                            "knowledge", "rag", "distill",
                             "dpo", "adapter", "hardware", "doctor", "pack"])
     # data
     p.add_argument("--data", help="training .jsonl, comma-separated for several (default: Datasets/pretrain.jsonl "
@@ -469,7 +483,8 @@ def main() -> None:
     p.add_argument("--prefs", default=os.path.join(DATA_DIR, "preference_pairs.jsonl"), help="DPO chosen/rejected pairs")
     p.add_argument("--stage", choices=["sft", "pretrain"], default="sft", help="sft = learn answers only; pretrain = learn all text")
     # model
-    p.add_argument("--preset", choices=["small", "billion", "tiny"], default="small")
+    p.add_argument("--preset", choices=["small", "moe", "billion", "tiny"], default="small",
+                   help="new models only: small ~67M | moe ~255M (105M per token) | billion ~1B")
     p.add_argument("--dim", type=int)
     p.add_argument("--layers", type=int)
     p.add_argument("--heads", type=int)
@@ -486,7 +501,14 @@ def main() -> None:
     p.add_argument("--lr", type=float, default=3e-4)
     p.add_argument("--weight-decay", type=float, default=0.1)
     p.add_argument("--warmup", type=int, help="warm-up steps (default: min(500, steps/10))")
-    p.add_argument("--optimizer", choices=["adamw", "lion", "sgd"], default="adamw")
+    p.add_argument("--optimizer", choices=["adamw", "muon", "lion", "sgd"], default="adamw",
+                   help="muon = Muon for weight matrices + AdamW for the rest (fewer steps to the same loss)")
+    p.add_argument("--muon-lr", type=float, default=0.02, help="peak learning rate of the Muon part")
+    p.add_argument("--schedule", choices=["cosine", "wsd"], default="cosine",
+                   help="wsd = warmup, flat, short cool-down at the end (easy to extend with more --steps)")
+    p.add_argument("--scale", type=float, default=1.0, help="knowledge: multiply all source budgets")
+    p.add_argument("--teacher", default="Qwen/Qwen2.5-7B-Instruct", help="distill: the model that writes Q&A")
+    p.add_argument("--samples", type=int, default=20000, help="rag / distill: how many examples to make")
     p.add_argument("--max-grad-norm", type=float, default=1.0)
     p.add_argument("--log-every", type=int, default=50)
     p.add_argument("--eval-every", type=int, default=250)
@@ -517,7 +539,7 @@ def main() -> None:
     p.add_argument("--top-p", type=float, default=0.9)
     p.add_argument("--repetition-penalty", type=float, default=1.15)
     p.add_argument("--max-new-tokens", type=int, default=200)
-    p.add_argument("--int8", action="store_true", help="CPU: run with 8-bit weights (~2x faster)")
+    p.add_argument("--int8", action="store_true", help="CPU: 8-bit weights for the big output layer (~1.1-1.3x faster tokens/s)")
     p.add_argument("--port", type=int, default=8000)
     p.add_argument("--fix", action="store_true", help="doctor: repair what is missing")
     p.add_argument("--only", help="doctor: repair just this check id")
@@ -542,6 +564,15 @@ def main() -> None:
         return run_data(args)
     if args.mode == "smriti":
         return run_smriti(args)
+    if args.mode == "knowledge":
+        from Tantra.knowledge_data import build as build_knowledge
+        return build_knowledge(DATA_DIR, scale=args.scale)
+    if args.mode == "rag":
+        from Tantra.rag_data import build as build_rag
+        return build_rag(DATA_DIR, os.path.join(MODEL_DIR, "smriti.db"), n=args.samples)
+    if args.mode == "distill":
+        from Tantra.distill import build as build_distill
+        return build_distill(DATA_DIR, teacher=args.teacher, n=args.samples)
     if args.mode == "boost":
         from Tantra.data_boost import boost
         return boost(DATA_DIR)

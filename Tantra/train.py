@@ -66,6 +66,83 @@ class Lion(torch.optim.Optimizer):
                 m.mul_(b2).add_(g, alpha=1 - b2)
 
 
+def newton_schulz(g: torch.Tensor, steps: int = 5) -> torch.Tensor:
+    """Approximately orthogonalise a matrix (the core of Muon; coefficients from modded-nanogpt)."""
+    a, b, c = 3.4445, -4.7750, 2.0315
+    x = g.to(torch.bfloat16 if g.is_cuda and torch.cuda.is_bf16_supported() else torch.float32)
+    tall = x.size(0) > x.size(1)
+    if tall:
+        x = x.T
+    x = x / (x.norm() + 1e-7)
+    for _ in range(steps):
+        s = x @ x.T
+        x = a * x + (b * s + c * s @ s) @ x
+    return (x.T if tall else x).to(g.dtype)
+
+
+class Muon(torch.optim.Optimizer):
+    """Muon (Keller Jordan, modded-nanogpt) for 2-D hidden weight matrices, AdamW for the rest.
+
+    Each update of a weight matrix is momentum (Nesterov) made orthogonal by newton_schulz(), so
+    every direction learns at a similar speed. In the GPT-2 speedruns it reaches the same loss in
+    noticeably fewer steps than AdamW. Groups with use_muon=False (embeddings, output head,
+    norms, biases, gates) get a normal AdamW step. One optimizer, so checkpoints save/resume as usual.
+    """
+
+    def __init__(self, params, lr: float = 3e-4, momentum: float = 0.95, betas: Tuple[float, float] = (0.9, 0.95),
+                 eps: float = 1e-8, weight_decay: float = 0.0):
+        super().__init__(params, dict(lr=lr, momentum=momentum, betas=betas, eps=eps,
+                                      weight_decay=weight_decay, use_muon=False))
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        for group in self.param_groups:
+            lr, wd = group["lr"], group["weight_decay"]
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                g, st = p.grad.float(), self.state[p]
+                if wd:
+                    p.mul_(1.0 - lr * wd)
+                if group["use_muon"]:
+                    if not st:
+                        st["momentum_buffer"] = torch.zeros_like(g)
+                    buf = st["momentum_buffer"]
+                    buf.mul_(group["momentum"]).add_(g)
+                    update = newton_schulz(g.add(buf, alpha=group["momentum"]))
+                    p.add_(update.to(p.dtype), alpha=-lr * max(1.0, p.size(0) / p.size(1)) ** 0.5)
+                    continue
+                b1, b2 = group["betas"]
+                if not st:
+                    st["step"] = 0
+                    st["exp_avg"] = torch.zeros_like(g)
+                    st["exp_avg_sq"] = torch.zeros_like(g)
+                st["step"] += 1
+                st["exp_avg"].mul_(b1).add_(g, alpha=1 - b1)
+                st["exp_avg_sq"].mul_(b2).addcmul_(g, g, value=1 - b2)
+                denom = (st["exp_avg_sq"] / (1 - b2 ** st["step"])).sqrt_().add_(group["eps"])
+                p.addcdiv_((st["exp_avg"] / (1 - b1 ** st["step"])).to(p.dtype), denom.to(p.dtype), value=-lr)
+
+
+def muon_param_groups(model: nn.Module, weight_decay: float, lr: float, muon_lr: float = 0.02) -> List[dict]:
+    """Hidden 2-D matrices -> Muon; embeddings / output heads / norms / biases / gates -> AdamW.
+    base_lr lets one schedule scale both learning rates together."""
+    muon, decay, no_decay = [], [], []
+    for name, p in model.named_parameters():
+        if not p.requires_grad:
+            continue
+        if p.ndim == 2 and not any(s in name for s in ("embed", "output_proj", "mtp_head", "norm")):
+            muon.append(p)
+        elif p.ndim < 2 or "norm" in name or name.endswith("bias"):
+            no_decay.append(p)
+        else:
+            decay.append(p)
+    groups = [{"params": muon, "use_muon": True, "lr": muon_lr, "base_lr": muon_lr, "weight_decay": 0.0},
+              {"params": decay, "weight_decay": weight_decay, "lr": lr, "base_lr": lr},
+              {"params": no_decay, "weight_decay": 0.0, "lr": lr, "base_lr": lr}]
+    return [g for g in groups if g["params"]]
+
+
 def param_groups(model: nn.Module, weight_decay: float) -> List[dict]:
     """No weight decay on norms, biases and gates."""
     decay, no_decay = [], []
@@ -79,6 +156,8 @@ def param_groups(model: nn.Module, weight_decay: float) -> List[dict]:
 
 def build_optimizer(name: str, groups: Any, lr: float, weight_decay: float) -> torch.optim.Optimizer:
     name = (name or "adamw").lower()
+    if name == "muon":
+        return Muon(groups, lr=lr, weight_decay=weight_decay)
     if name == "lion":
         return Lion(groups, lr=lr, weight_decay=weight_decay)
     if name == "sgd":
@@ -87,9 +166,20 @@ def build_optimizer(name: str, groups: Any, lr: float, weight_decay: float) -> t
                              fused=torch.cuda.is_available())
 
 
-def lr_at(step: int, peak: float, warmup: int, total: int, min_ratio: float = 0.1) -> float:
+def lr_at(step: int, peak: float, warmup: int, total: int, min_ratio: float = 0.1,
+          schedule: str = "cosine", decay_fraction: float = 0.2) -> float:
+    """cosine: warmup, then cosine down to min_ratio * peak over the whole run.
+    wsd (warmup-stable-decay, MiniCPM): warmup, flat at peak, then a straight cool-down over the last
+    decay_fraction of the steps. Raising --steps later just lengthens the flat part, so a run can be
+    extended session after session without having already decayed."""
     if step < warmup:
         return peak * max(0.05, (step + 1) / max(1, warmup))
+    if schedule == "wsd":
+        decay_start = total - int(decay_fraction * total)
+        if step < decay_start:
+            return peak
+        progress = min(1.0, (step - decay_start) / max(1, total - decay_start))
+        return peak * (1 - (1 - min_ratio) * progress)
     progress = min(1.0, (step - warmup) / max(1, total - warmup))
     return peak * (min_ratio + (1 - min_ratio) * 0.5 * (1 + math.cos(math.pi * progress)))
 
@@ -115,7 +205,8 @@ class NeuroTrainer:
     def __init__(self, model: nn.Module, lr: float = 3e-4, weight_decay: float = 0.1,
                  optimizer_name: str = "adamw", total_steps: int = 20000, warmup_steps: int = 500,
                  grad_accumulation_steps: int = 1, use_mtp_loss: bool = False, mtp_loss_weight: float = 0.3,
-                 max_grad_norm: float = 1.0, label_smoothing: float = 0.0, **_ignored: Any):
+                 max_grad_norm: float = 1.0, label_smoothing: float = 0.0, schedule: str = "cosine",
+                 muon_lr: float = 0.02, **_ignored: Any):
         self.model = model
         self.device = next(model.parameters()).device
         self.lr, self.weight_decay, self.optimizer_name = float(lr), float(weight_decay), optimizer_name
@@ -124,7 +215,10 @@ class NeuroTrainer:
         self.use_mtp_loss, self.mtp_loss_weight = use_mtp_loss, float(mtp_loss_weight)
         self.max_grad_norm = float(max_grad_norm)
         self.label_smoothing = float(label_smoothing)
-        self.optimizer = build_optimizer(optimizer_name, param_groups(model, self.weight_decay), self.lr, self.weight_decay)
+        self.schedule = schedule
+        groups = (muon_param_groups(model, self.weight_decay, self.lr, muon_lr) if optimizer_name == "muon"
+                  else param_groups(model, self.weight_decay))
+        self.optimizer = build_optimizer(optimizer_name, groups, self.lr, self.weight_decay)
 
         self.use_amp = self.device.type == "cuda"
         self.amp_dtype = torch.bfloat16 if (self.use_amp and torch.cuda.is_bf16_supported()) else torch.float16
@@ -141,9 +235,10 @@ class NeuroTrainer:
 
     # ── core step ──
     def _set_lr(self) -> float:
-        lr = lr_at(self.step_count, self.lr, self.warmup_steps, self.total_steps)
+        lr = lr_at(self.step_count, self.lr, self.warmup_steps, self.total_steps, schedule=self.schedule)
+        factor = lr / self.lr if self.lr else 1.0
         for g in self.optimizer.param_groups:
-            g["lr"] = lr
+            g["lr"] = g.get("base_lr", self.lr) * factor     # Muon groups keep their own peak
         return lr
 
     def refresh_optimizer(self) -> None:
