@@ -68,8 +68,11 @@ Tokenizer, architecture, training loop and WebUI are all our own code — no pre
 ## 🏛️ How it works
 
 <div align="center">
-  <img src="Assets/tantra_logo.jpg" alt="Tantra LLM Official Emblem" width="280"/>
+  <img src="Assets/tantra_logo.jpg" alt="Tantra LLM Official Emblem" width="260"/>
   <p><em><strong>तन्त्र (Tantra)</strong> — The Sovereign Neural Engine of Atulya</em></p>
+  <br/>
+  <img src="Assets/tantra_architecture.png" alt="Tantra LLM Neural Architecture Pipeline" width="100%"/>
+  <p><em>Hybrid Transformer: 64k BPE Tokenizer ──▶ 3x ALRA (Linear Time Memory) : 1x Sliding-Window Attention (Exact Recall) ──▶ Category Layer ──▶ CPU-First Streaming WebUI</em></p>
 </div>
 
 
