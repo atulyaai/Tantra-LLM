@@ -416,8 +416,8 @@ def with_context(messages: List[dict], query: str, body: dict) -> tuple:
     if body.get("smriti"):
         _, hits = with_knowledge(messages, query, int(_num(body, "smriti_k", 2, 0, 5)))
         if hits:
-            notes.append("नीचे दी गई जानकारी का उपयोग करके उत्तर दें / Use this information to answer:\n" +
-                         "\n---\n".join((f"{h['question']}\n" if h["question"] else "") + h["text"][:600] for h in hits))
+            from Tantra.smriti import Smriti
+            notes.append(Smriti.knowledge_note(hits))   # same format the model was trained on (rag_data.py)
             sources += hits
     mode = body.get("mode")
     if mode == "translate_en":

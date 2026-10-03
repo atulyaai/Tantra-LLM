@@ -97,6 +97,24 @@ HINGLISH_WORDS = set("hai hain ka ki ke ko mein me se aur nahi nahin kya kaise k
                      "bhi toh lekin agar jab tab wala wali ho gaya gayi".split())
 
 
+# Answers copied from other assistants: they teach "I'm an AI language model, I can't ..." and
+# "I was made by OpenAI" instead of the answer (seen in the probe: "Who created you?" -> a refusal).
+FOREIGN_ASSISTANT = re.compile(
+    r"\bas an ai\b|\bai language model\b|\blanguage model (?:developed|created|trained) by\b|"
+    r"\bi(?:'m| am) (?:just |only )?an? (?:ai|artificial intelligence)\b[^.]{0,40}\b(?:not able|unable|cannot|can't|don't)\b|"
+    r"\bi (?:don't|do not) have (?:personal|the ability|access to real)|"
+    r"\bi(?:'m| am) (?:sorry|afraid),? (?:but )?i (?:can't|cannot|am unable|don't)\b|\bmy (?:knowledge )?cut-?off\b|"
+    r"\b(?:made|created|developed|trained|built) by (?:openai|anthropic|google|meta)\b|"
+    r"\bi(?:'m| am) (?:chatgpt|gpt-?[34]|claude|bard|gemini|llama)\b|"
+    r"एक (?:एआई|AI) भाषा मॉडल|भाषा मॉडल के रूप में|(?:एआई|AI) होने के नाते|मुझे खेद है,? (?:लेकिन|पर) मैं",
+    re.I)
+
+
+def foreign_assistant(text: str) -> bool:
+    """True for refusals / other-assistant identity text that must not be learned."""
+    return bool(FOREIGN_ASSISTANT.search(text or ""))
+
+
 def lang_of(s: str) -> str:
     d, l = len(DEV.findall(s)), len(LAT.findall(s))
     t = d + l or 1
@@ -173,6 +191,9 @@ def convert_master_row(o: dict, stats: Counter) -> Iterator[Tuple[str, dict]]:
     if bad_text(a) or bad_text(q, 1):
         stats["dropped: broken text"] += 1
         return
+    if any(foreign_assistant(t["content"]) for t in turns if t["role"] == "assistant"):
+        stats["dropped: refusal / other assistant"] += 1
+        return
     out = []
     if system and not PERSONA.match(system or "x"):
         out.append({"role": "system", "content": system})
@@ -211,7 +232,7 @@ def _wiki_text(r: dict) -> List[str]:
 def convert_source_row(name: str, r: dict) -> Iterator[Tuple[str, dict]]:
     def qa(q: str, a: str) -> Iterator[Tuple[str, dict]]:
         q, a = norm(q), norm(a)
-        if q and a and not bad_text(a) and not bad_text(q, 1):
+        if q and a and not bad_text(a) and not bad_text(q, 1) and not foreign_assistant(a):
             yield "sft", {"messages": [{"role": "user", "content": q}, {"role": "assistant", "content": a}]}
 
     if name.startswith("wiki_"):

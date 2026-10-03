@@ -392,9 +392,12 @@ class Top1MoEProjection(nn.Module):
 
     The class name is kept so older checkpoints still load. With top_k > 1 the chosen experts'
     probabilities are renormalised to sum to 1; with top_k = 1 the raw probability is kept (old behaviour).
+    shared_expansion > 0 adds a DeepSeek-MoE style shared expert that every token uses: common
+    knowledge (grammar, frequent words) lives there, so the routed experts can specialise.
     """
     def __init__(self, config: SGPConfig, num_experts: int, balance_coeff: float = 0.01,
-                 bitnet_config: Optional[BitNetConfig] = None, top_k: int = 1, expert_expansion: int = 0):
+                 bitnet_config: Optional[BitNetConfig] = None, top_k: int = 1, expert_expansion: int = 0,
+                 shared_expansion: int = 0):
         super().__init__()
         import dataclasses
         self.num_experts = max(2, num_experts)
@@ -404,6 +407,8 @@ class Top1MoEProjection(nn.Module):
         self.router = linear_cls(config.dim, self.num_experts, bias=False)
         expert_cfg = dataclasses.replace(config, expansion=expert_expansion) if expert_expansion else config
         self.experts = nn.ModuleList(SwiGLUProjection(expert_cfg, bitnet_config) for _ in range(self.num_experts))
+        self.shared = (SwiGLUProjection(dataclasses.replace(config, expansion=shared_expansion), bitnet_config)
+                       if shared_expansion else None)
         self.last_aux_loss: Optional[Tensor] = None
         self.last_usage: Optional[Tensor] = None
 
@@ -414,8 +419,9 @@ class Top1MoEProjection(nn.Module):
         weights, selected = probabilities.topk(self.top_k, dim=-1)                 # [N, k]
         if self.top_k > 1:
             weights = weights / weights.sum(dim=-1, keepdim=True)
-        output = torch.zeros_like(flat)
-        for expert_id, expert in enumerate(self.experts):
+        output = self.shared(flat) if self.shared is not None else torch.zeros_like(flat)
+        for expert_id in selected.unique().tolist():        # only the experts some token picked
+            expert = self.experts[expert_id]
             token_idx, slot = (selected == expert_id).nonzero(as_tuple=True)
             if token_idx.numel():
                 # The weight keeps a differentiable router path; the discrete choice gives real conditional compute.
@@ -453,7 +459,8 @@ class NeuroCoreBlock(nn.Module):
         if use_moe and moe_config is not None and getattr(moe_config, "real_top1", False):
             self.mlp = Top1MoEProjection(config.sgp, moe_config.num_experts, moe_config.load_balance_coeff, bitnet_config,
                                          top_k=getattr(moe_config, "top_k", 1),
-                                         expert_expansion=getattr(moe_config, "expert_expansion", 0))
+                                         expert_expansion=getattr(moe_config, "expert_expansion", 0),
+                                         shared_expansion=getattr(moe_config, "shared_expansion", 0))
         elif config.sgp.implementation == "swiglu":
             self.mlp = SwiGLUProjection(config.sgp, bitnet_config)
         else:
@@ -955,19 +962,22 @@ def load_model(path: str, device: str = "cpu", int8: bool = False) -> Tuple["Neu
     return model, ckpt
 
 
-def _to_int8(model: nn.Module) -> nn.Module:
-    """8-bit weights for Linear layers. Uses torchao when installed, else PyTorch's built-in path."""
+def _to_int8(model: nn.Module, min_weights: int = 4_000_000) -> nn.Module:
+    """8-bit weights for the big Linear layers only (the 64k-word output head, MTP head).
+
+    Measured on a Ryzen 5 7520U, one token at a time: the output head drops from ~16 ms to ~2 ms
+    in int8 (+25-35% tokens/s overall), but int8 on the many small 512-640 wide layers is SLOWER
+    than float32 (quantising each activation costs more than it saves), so those stay float.
+    """
     import warnings
-    try:
-        from torchao.quantization import Int8DynamicActivationInt8WeightConfig, quantize_
-        quantize_(model, Int8DynamicActivationInt8WeightConfig())
+    big = {name for name, mod in model.named_modules()
+           if isinstance(mod, nn.Linear) and mod.weight.numel() >= min_weights}
+    if not big:
         return model
-    except Exception:
-        pass
     try:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            return torch.ao.quantization.quantize_dynamic(model, {nn.Linear}, dtype=torch.qint8)
+            return torch.ao.quantization.quantize_dynamic(model, big, dtype=torch.qint8)
     except Exception as exc:
         log.warning(f"INT8 not available in this PyTorch ({exc}); running in float32.")
         return model

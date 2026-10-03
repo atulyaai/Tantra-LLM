@@ -24,6 +24,7 @@ from Tantra.utils import get_logger
 
 log = get_logger("tantra.smriti")
 
+KNOWLEDGE_HEADER = "नीचे दी गई जानकारी का उपयोग करके उत्तर दें / Use this information to answer:"
 DEFAULT_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "Model", "smriti.db")
 _WORD = re.compile(r"[\wऀ-ॿ]+", re.UNICODE)
 # Words too common to help a search (Hindi, Hinglish, English).
@@ -254,6 +255,13 @@ class Smriti:
         if not words & set(keywords(sents[scored[0]], 60)):
             return text.strip()
         return " ".join(sents[i] for i in sorted(scored) if words & set(keywords(sents[i], 60)))
+
+    @staticmethod
+    def knowledge_note(hits: List[Dict]) -> str:
+        """The system-message text the WebUI puts in front of a question. Retrieval training data
+        (Tantra/rag_data.py) uses this same function, so the model sees one format everywhere."""
+        return (KNOWLEDGE_HEADER + "\n" +
+                "\n---\n".join((f"{h['question']}\n" if h.get("question") else "") + h["text"][:600] for h in hits))
 
     def context(self, query: str, k: int = 2, max_chars: int = 700) -> Tuple[str, List[Dict]]:
         """Top facts formatted for the prompt, plus the hits (to show as sources)."""

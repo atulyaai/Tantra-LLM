@@ -174,4 +174,5 @@ def test_moe_preset_size():
     total = sum(p.numel() for p in m.parameters())
     expert = sum(p.numel() for p in m.layers[0].mlp.experts[0].parameters())
     active = total - (cfg.moe.num_experts - cfg.moe.top_k) * expert * cfg.block.num_layers
-    assert 220e6 < total < 290e6 and 90e6 < active < 120e6
+    assert m.layers[0].mlp.shared is not None
+    assert 250e6 < total < 300e6 and 95e6 < active < 120e6
