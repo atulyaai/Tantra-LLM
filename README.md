@@ -122,6 +122,10 @@ python -m pytest Tests -q            # code tests
 It stops cleanly before the time limit and continues next time. On your PC: `python main.py --mode train --gpus auto`
 uses every local GPU.
 
+**Bigger model (mixture of experts):** `--fresh --preset moe` starts a new ~255M-parameter model with 8 experts per
+layer, of which each token uses 2 (~108M active). It has ~4x the room for facts of the small model at ~1.8x its cost
+per token. It is a new model, so pretrain it from scratch (`--stage pretrain`); later sessions continue without `--fresh`.
+
 ---
 
 ## 🖥️ WebUI

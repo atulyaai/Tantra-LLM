@@ -2,7 +2,7 @@
 Tantra/model.py — The NeuroCore language model.
 
 Block = norm -> attention (ALRA linear, or sliding-window softmax every Nth layer) -> norm -> SwiGLU MLP.
-Optional: MTP head (predicts t+2 during training), category specialist layers, Top-1 MoE, BitNet.
+Optional: MTP head (predicts t+2 during training), category specialist layers, top-k MoE, BitNet.
 """
 
 from typing import Optional, List, Dict, Tuple, Union, Any
@@ -388,32 +388,41 @@ class SwiGLUProjection(nn.Module):
 
 
 class Top1MoEProjection(nn.Module):
-    """Actual top-1 MoE: selected token groups run through separate MLP experts."""
-    def __init__(self, config: SGPConfig, num_experts: int, balance_coeff: float = 0.01, bitnet_config: Optional[BitNetConfig] = None):
+    """Mixture of experts: each token runs through its top_k MLP experts (top_k=1 = original top-1).
+
+    The class name is kept so older checkpoints still load. With top_k > 1 the chosen experts'
+    probabilities are renormalised to sum to 1; with top_k = 1 the raw probability is kept (old behaviour).
+    """
+    def __init__(self, config: SGPConfig, num_experts: int, balance_coeff: float = 0.01,
+                 bitnet_config: Optional[BitNetConfig] = None, top_k: int = 1, expert_expansion: int = 0):
         super().__init__()
+        import dataclasses
         self.num_experts = max(2, num_experts)
+        self.top_k = max(1, min(int(top_k or 1), self.num_experts))
         self.balance_coeff = balance_coeff
         linear_cls = BitLinear if bitnet_config and bitnet_config.enabled else nn.Linear
         self.router = linear_cls(config.dim, self.num_experts, bias=False)
-        self.experts = nn.ModuleList(SwiGLUProjection(config, bitnet_config) for _ in range(self.num_experts))
+        expert_cfg = dataclasses.replace(config, expansion=expert_expansion) if expert_expansion else config
+        self.experts = nn.ModuleList(SwiGLUProjection(expert_cfg, bitnet_config) for _ in range(self.num_experts))
         self.last_aux_loss: Optional[Tensor] = None
         self.last_usage: Optional[Tensor] = None
 
     def forward(self, x: Tensor) -> Tensor:
         original_shape = x.shape
         flat = x.reshape(-1, original_shape[-1])
-        router_logits = self.router(flat)
-        probabilities = torch.softmax(router_logits, dim=-1)
-        selected = probabilities.argmax(dim=-1)
+        probabilities = torch.softmax(self.router(flat).float(), dim=-1)
+        weights, selected = probabilities.topk(self.top_k, dim=-1)                 # [N, k]
+        if self.top_k > 1:
+            weights = weights / weights.sum(dim=-1, keepdim=True)
         output = torch.zeros_like(flat)
         for expert_id, expert in enumerate(self.experts):
-            positions = selected == expert_id
-            if positions.any():
-                # Probability keeps a differentiable router path while the
-                # discrete top-1 decision provides true conditional compute.
-                output[positions] = expert(flat[positions]) * probabilities[positions, expert_id].unsqueeze(-1)
+            token_idx, slot = (selected == expert_id).nonzero(as_tuple=True)
+            if token_idx.numel():
+                # The weight keeps a differentiable router path; the discrete choice gives real conditional compute.
+                out = expert(flat[token_idx]) * weights[token_idx, slot].unsqueeze(-1)
+                output.index_add_(0, token_idx, out.to(output.dtype))
         mean_probability = probabilities.mean(dim=0)
-        usage = torch.bincount(selected, minlength=self.num_experts).to(probabilities.dtype) / max(1, selected.numel())
+        usage = torch.bincount(selected.reshape(-1), minlength=self.num_experts).to(probabilities.dtype) / max(1, selected.numel())
         self.last_usage = usage.detach()
         self.last_aux_loss = self.balance_coeff * self.num_experts * torch.sum(mean_probability * usage)
         return output.reshape(original_shape)
@@ -442,7 +451,9 @@ class NeuroCoreBlock(nn.Module):
             self.attn = ALRAAttention(config.alra, bitnet_config)
         self.norm2 = DynamicScaleNorm(dim)
         if use_moe and moe_config is not None and getattr(moe_config, "real_top1", False):
-            self.mlp = Top1MoEProjection(config.sgp, moe_config.num_experts, moe_config.load_balance_coeff, bitnet_config)
+            self.mlp = Top1MoEProjection(config.sgp, moe_config.num_experts, moe_config.load_balance_coeff, bitnet_config,
+                                         top_k=getattr(moe_config, "top_k", 1),
+                                         expert_expansion=getattr(moe_config, "expert_expansion", 0))
         elif config.sgp.implementation == "swiglu":
             self.mlp = SwiGLUProjection(config.sgp, bitnet_config)
         else:

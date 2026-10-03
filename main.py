@@ -3,6 +3,7 @@ main.py — Tantra command line. Every task is one --mode.
 
   python main.py --mode train                 train (continues automatically if a checkpoint exists)
   python main.py --mode train --fresh         start a new model (old checkpoints are moved to Model/_old/)
+  python main.py --mode train --fresh --preset moe   start a bigger mixture-of-experts model (8 experts, 2 per token)
   python main.py --mode chat                  talk to the model in the terminal
   python main.py --mode eval                  validation loss + 50-question probe + speed
   python main.py --mode serve                 WebUI + OpenAI-compatible API on http://127.0.0.1:8000
@@ -99,6 +100,8 @@ def archive_old_run(model_dir: str, reason: str) -> None:
 def build_config(args, vocab_size: int) -> NeuroCoreConfig:
     if args.preset == "billion":
         cfg = NeuroCoreConfig.billion(vocab_size)
+    elif args.preset == "moe":
+        cfg = NeuroCoreConfig.mixture(vocab_size)
     elif args.preset == "tiny":
         cfg = NeuroCoreConfig.tiny()
         cfg.vocab.vocab_size = cfg.vocab.byte_bpe_vocab = vocab_size
@@ -198,10 +201,11 @@ def run_train(args, hw) -> None:
         if not args.fresh:
             archive("Starting a new model.")
         cfg = build_config(args, tok.vocab_size)
-        model = NeuroCoreModel(cfg, use_mtp=args.mtp).to(hw.device)
+        model = NeuroCoreModel(cfg, use_mtp=args.mtp, use_moe=bool(cfg.moe.real_top1)).to(hw.device)
         log.info(f"New model: {sum(p.numel() for p in model.parameters())/1e6:.1f}M params | "
                  f"dim {cfg.block.alra.dim} x {cfg.block.num_layers} layers | vocab {tok.vocab_size:,} | "
-                 f"softmax window {cfg.block.alra.local_window} every {cfg.block.alra.local_attn_every} layers")
+                 f"softmax window {cfg.block.alra.local_window} every {cfg.block.alra.local_attn_every} layers"
+                 + (f" | {cfg.moe.num_experts} experts, {cfg.moe.top_k} per token" if model.use_moe else ""))
 
     if args.adapter:
         if args.adapter not in model.category_layers:
@@ -469,7 +473,8 @@ def main() -> None:
     p.add_argument("--prefs", default=os.path.join(DATA_DIR, "preference_pairs.jsonl"), help="DPO chosen/rejected pairs")
     p.add_argument("--stage", choices=["sft", "pretrain"], default="sft", help="sft = learn answers only; pretrain = learn all text")
     # model
-    p.add_argument("--preset", choices=["small", "billion", "tiny"], default="small")
+    p.add_argument("--preset", choices=["small", "moe", "billion", "tiny"], default="small",
+                   help="new models only: small ~67M | moe ~255M (105M per token) | billion ~1B")
     p.add_argument("--dim", type=int)
     p.add_argument("--layers", type=int)
     p.add_argument("--heads", type=int)
