@@ -542,7 +542,7 @@ class NeuroTrainer:
                 margin = beta * ((pc - pr) - (rc - rr))
                 loss = -F.logsigmoid(margin).mean()
                 (loss / self.grad_accumulation_steps).backward()
-                stats.append((float(loss), float((margin > 0).float().mean())))
+                stats.append((float(loss.detach()), float((margin > 0).float().mean())))
             torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
             self.optimizer.step()
             self.step_count += 1

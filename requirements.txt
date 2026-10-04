@@ -11,6 +11,7 @@ python-multipart>=0.0.9
 
 # Tests
 pytest>=8.0
+httpx>=0.27
 
 # Optional, offline speech (open-source models, downloaded once on first use):
 #   pip install openai-whisper          speech-to-text (MIT)   — needs ffmpeg on PATH
