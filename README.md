@@ -19,7 +19,7 @@
   <a href="https://pytorch.org/"><img src="https://img.shields.io/badge/pytorch-2.2%2B-ee4c2c.svg" alt="PyTorch 2.2+"/></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-F7931A.svg?style=flat-square" alt="MIT License"/></a>
   <a href="#-honest-status"><img src="https://img.shields.io/badge/status-v2_rebuild-orange.svg" alt="Status: v2 rebuild"/></a>
-  <a href="#-tests"><img src="https://img.shields.io/badge/tests-18_passing-brightgreen.svg" alt="18 tests passing"/></a>
+  <a href="#-tests"><img src="https://img.shields.io/badge/tests-59_passing-brightgreen.svg" alt="59 tests passing"/></a>
   <a href="#"><img src="https://img.shields.io/badge/Made_in-India_🇮🇳-FF9933.svg" alt="Made in India"/></a>
 </p>
 

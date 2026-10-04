@@ -127,7 +127,7 @@ def build_config(args, vocab_size: int) -> NeuroCoreConfig:
 # Files from the old (v1) layout. On the first run they are MOVED (not deleted) to _old_code/.
 # Check that folder, then delete it yourself.
 LEGACY = [
-    "ARCHITECTURE.md", "ROADMAP.md", "SECURITY.md", "CONTRIBUTING.md", "CHANGELOG.md", "pyproject.toml",
+    "ARCHITECTURE.md", "SECURITY.md", "CONTRIBUTING.md",
     "benchmark.py", "chat.py", "train.bat", "tantra.ps1", "tantra_kaggle_training.ipynb", "tools",
     # (Tantra/Smriti.py from v1 is NOT listed: Windows paths ignore case and v2 has Tantra/smriti.py)
     "Tantra/Chitta.py", "Tantra/CognitiveOS.py", "Tantra/Manas.py", "Tantra/Nirikshak.py",

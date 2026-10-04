@@ -10,11 +10,11 @@
 ## 🔄 In Progress
 - [ ] INT8 quantization for CPU inference
 - [ ] Hindi instruction dataset (supervised fine-tuning)
-- [ ] Model size variants: 7M, 70M, 350M parameters
+- [ ] Model size presets: tiny, small (~70M), moe, billion (first long training run next)
 
 ## 🔮 Planned
 - [ ] INT4 quantization for Raspberry Pi / mobile
-- [ ] REST API server for integration with Atulya-Tantra
+- [x] OpenAI-compatible API server (`--mode serve`) — integration with Atulya-Tantra still to do
 - [ ] GGUF export for llama.cpp compatibility
 - [ ] Devanagari-aware tokenizer improvements
 - [ ] Benchmark vs IndicBERT and MuRIL on Hindi NLU tasks

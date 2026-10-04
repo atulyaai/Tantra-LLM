@@ -6,9 +6,17 @@ Follows [Semantic Versioning](https://semver.org/) and [Keep a Changelog](https:
 ---
 
 ## [Unreleased]
+### Fixed
+- `main.py` no longer moves `ROADMAP.md`, `CHANGELOG.md` and `pyproject.toml` into `_old_code/` on the first run
+- README test badge now shows 59 passing tests
+
+### Notes
+- OpenAI-compatible API + WebUI is served by `python main.py --mode serve`
+- Config lives in `Tantra/config.py` (presets: tiny, small, moe, billion)
+
+### Planned
 - Quantized INT4 inference for Raspberry Pi
 - Hindi instruction-tuning dataset (10k examples)
-- REST API server (`python serve.py`)
 
 ---
 
