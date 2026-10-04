@@ -176,3 +176,19 @@ def test_moe_preset_size():
     active = total - (cfg.moe.num_experts - cfg.moe.top_k) * expert * cfg.block.num_layers
     assert m.layers[0].mlp.shared is not None
     assert 250e6 < total < 300e6 and 95e6 < active < 120e6
+
+
+def test_moe_expert_usage_tracking_and_z_loss():
+    torch.manual_seed(0)
+    cfg = NeuroCoreConfig.tiny()
+    cfg.vocab.vocab_size = cfg.vocab.byte_bpe_vocab = 300
+    cfg.moe.num_experts, cfg.moe.top_k, cfg.moe.expert_expansion, cfg.moe.real_top1 = 4, 2, 2, True
+    cfg.moe.router_z_coeff = 1e-3
+    m = NeuroCoreModel(cfg, use_mtp=False, use_moe=True).train()
+    assert m.expert_usage() == []                       # nothing routed yet
+    m(token_ids=torch.randint(0, 300, (2, 16)))
+    assert float(m.get_aux_loss()) > 0
+    usage = m.expert_usage()
+    assert usage and all(abs(sum(u["share"]) - 1) < 0.01 for u in usage)   # shares sum to 1 per layer
+    assert m.expert_usage() == []                       # reset after reading
+    assert "usage_total" not in "".join(m.state_dict().keys())              # not saved in checkpoints

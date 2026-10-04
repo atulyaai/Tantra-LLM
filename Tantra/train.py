@@ -347,8 +347,12 @@ class NeuroTrainer:
                 log.info(f"step {s:,}/{max_steps:,} | loss {sum(window)/max(len(window),1):.4f} | "
                          f"acc {sum(accs)/max(len(accs),1):.1f}% | lr {self.optimizer.param_groups[0]['lr']:.2e} | "
                          f"grad {r['grad_norm']:.2f} | {tok_s:,.0f} tok/s | ETA {fmt_duration(eta)}")
+                usage = unwrap_model(self.model).expert_usage() if hasattr(unwrap_model(self.model), "expert_usage") else []
+                if usage:
+                    log.info("experts | " + " ".join(f"L{u['layer']}: dead {u['dead']}, max {u['max_over_fair']}x" for u in usage))
                 self._status("running", max_steps, t0, start_step, session_tokens0,
-                             loss=sum(window) / max(len(window), 1), accuracy=sum(accs) / max(len(accs), 1))
+                             loss=sum(window) / max(len(window), 1), accuracy=sum(accs) / max(len(accs), 1),
+                             **({"experts": usage} if usage else {}))
                 window.clear()
                 accs.clear()
 

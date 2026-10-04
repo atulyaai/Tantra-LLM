@@ -94,6 +94,7 @@ class MoEConfig:
     router_dim: int = 512
     router_layers: int = 2
     load_balance_coeff: float = 0.01
+    router_z_coeff: float = 0.0      # >0: penalise large router logits (stabler routing); 1e-3 is typical
     expert_cache_size: int = 8
     expert_dir: str = "Experts"
     real_top1: bool = False
@@ -232,6 +233,7 @@ class NeuroCoreConfig:
         cfg = cls(model_name="tantra-moe").set_shape(640, 10, 10, vocab_size=vocab_size)
         cfg.block.alra.local_attn_every, cfg.block.alra.local_window = 4, 512
         cfg.moe.num_experts, cfg.moe.top_k, cfg.moe.expert_expansion, cfg.moe.shared_expansion = 16, 2, 1, 2
+        cfg.moe.router_z_coeff = 1e-3
         cfg.moe.real_top1 = True         # (historic name) = real per-token expert routing on
         return cfg
 

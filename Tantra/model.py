@@ -397,9 +397,10 @@ class Top1MoEProjection(nn.Module):
     """
     def __init__(self, config: SGPConfig, num_experts: int, balance_coeff: float = 0.01,
                  bitnet_config: Optional[BitNetConfig] = None, top_k: int = 1, expert_expansion: int = 0,
-                 shared_expansion: int = 0):
+                 shared_expansion: int = 0, router_z_coeff: float = 0.0):
         super().__init__()
         import dataclasses
+        self.router_z_coeff = router_z_coeff
         self.num_experts = max(2, num_experts)
         self.top_k = max(1, min(int(top_k or 1), self.num_experts))
         self.balance_coeff = balance_coeff
@@ -411,11 +412,14 @@ class Top1MoEProjection(nn.Module):
                        if shared_expansion else None)
         self.last_aux_loss: Optional[Tensor] = None
         self.last_usage: Optional[Tensor] = None
+        # tokens routed to each expert since the last expert_usage() call (not saved in checkpoints)
+        self.register_buffer("usage_total", torch.zeros(self.num_experts), persistent=False)
 
     def forward(self, x: Tensor) -> Tensor:
         original_shape = x.shape
         flat = x.reshape(-1, original_shape[-1])
-        probabilities = torch.softmax(self.router(flat).float(), dim=-1)
+        router_logits = self.router(flat).float()
+        probabilities = torch.softmax(router_logits, dim=-1)
         weights, selected = probabilities.topk(self.top_k, dim=-1)                 # [N, k]
         if self.top_k > 1:
             weights = weights / weights.sum(dim=-1, keepdim=True)
@@ -431,6 +435,10 @@ class Top1MoEProjection(nn.Module):
         usage = torch.bincount(selected.reshape(-1), minlength=self.num_experts).to(probabilities.dtype) / max(1, selected.numel())
         self.last_usage = usage.detach()
         self.last_aux_loss = self.balance_coeff * self.num_experts * torch.sum(mean_probability * usage)
+        if self.router_z_coeff > 0:   # z-loss: keeps router logits small so routing stays stable
+            self.last_aux_loss = self.last_aux_loss + self.router_z_coeff * torch.logsumexp(router_logits, dim=-1).pow(2).mean()
+        if self.training:
+            self.usage_total += torch.bincount(selected.reshape(-1), minlength=self.num_experts).to(self.usage_total)
         return output.reshape(original_shape)
 
 
@@ -460,7 +468,8 @@ class NeuroCoreBlock(nn.Module):
             self.mlp = Top1MoEProjection(config.sgp, moe_config.num_experts, moe_config.load_balance_coeff, bitnet_config,
                                          top_k=getattr(moe_config, "top_k", 1),
                                          expert_expansion=getattr(moe_config, "expert_expansion", 0),
-                                         shared_expansion=getattr(moe_config, "shared_expansion", 0))
+                                         shared_expansion=getattr(moe_config, "shared_expansion", 0),
+                                         router_z_coeff=getattr(moe_config, "router_z_coeff", 0.0))
         elif config.sgp.implementation == "swiglu":
             self.mlp = SwiGLUProjection(config.sgp, bitnet_config)
         else:
@@ -700,6 +709,25 @@ class NeuroCoreModel(nn.Module):
         for parameter in self.category_gates[category]:
             parameter.requires_grad_(True)
         self.active_category = category
+
+    def expert_usage(self, reset: bool = True) -> list:
+        """Per MoE layer: share of tokens each expert received since the last call (empty list if no MoE)."""
+        out = []
+        for i, layer in enumerate(self.layers):
+            mlp = getattr(layer, "mlp", None)
+            if not isinstance(mlp, Top1MoEProjection):
+                continue
+            total = float(mlp.usage_total.sum())
+            if total <= 0:
+                continue
+            share = (mlp.usage_total / total).tolist()
+            even = 1.0 / len(share)
+            out.append({"layer": i, "share": [round(v, 4) for v in share],
+                        "dead": sum(v < even * 0.1 for v in share),      # experts getting <10% of a fair share
+                        "max_over_fair": round(max(share) / even, 2)})
+            if reset:
+                mlp.usage_total.zero_()
+        return out
 
     def get_aux_loss(self) -> Tensor:
         """Aggregate real-MoE router balancing losses for training."""
