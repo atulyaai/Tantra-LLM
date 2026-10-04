@@ -949,6 +949,9 @@ def load_model(path: str, device: str = "cpu", int8: bool = False) -> Tuple["Neu
 
     ckpt = safe_load_checkpoint(path, map_location="cpu")
     state = ckpt.get("model_state_dict", ckpt)
+    if ckpt.get("int4"):   # exported with --int4: weights are stored in 4 bits, run in float
+        from Tantra.export import dequantize_int4_state
+        state = dequantize_int4_state(state, ckpt["int4"])
     cfg = ckpt.get("config")
     if isinstance(cfg, dict):
         cfg = NeuroCoreConfig._from_dict(cfg)

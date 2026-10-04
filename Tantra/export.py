@@ -109,7 +109,44 @@ def load_bitnet_state_dict(model, state_dict: dict) -> tuple:
     return model.load_state_dict(state_dict, strict=False)
 
 
-def export_clean_checkpoint(input_path: str, output_path: str, half: bool = True) -> str:
+INT4_GROUP = 64
+# Kept in fp16: embeddings / tied output head, norms, biases, the MoE router, MTP head and tiny tensors.
+# (Colibri found int4 speculative/MTP heads collapse, so they stay high precision.)
+_INT4_SKIP = ("embed", "router", "mtp_head", "norm", "bias")
+
+
+def quantize_int4_state(state: dict, group: int = INT4_GROUP) -> tuple:
+    """Pack big 2-D weights to 4 bits (two per byte) with one fp16 scale per `group` weights.
+
+    Returns (state with those tensors removed, {name: {"q", "scale", "shape"}}).
+    """
+    rest, packed = {}, {}
+    for name, w in state.items():
+        ok = (torch.is_tensor(w) and w.is_floating_point() and w.dim() == 2 and w.shape[1] % group == 0
+              and w.numel() >= 4096 and not any(t in name for t in _INT4_SKIP))
+        if not ok:
+            rest[name] = w
+            continue
+        out_f, in_f = w.shape
+        g = w.detach().float().reshape(out_f, in_f // group, group)
+        scale = (g.abs().amax(-1, keepdim=True) / 7).clamp_min(1e-8)
+        q = ((g / scale).round().clamp(-8, 7) + 8).to(torch.uint8).reshape(-1, 2)
+        packed[name] = {"q": (q[:, 0] | (q[:, 1] << 4)).reshape(out_f, in_f // 2),
+                        "scale": scale.squeeze(-1).half(), "shape": [out_f, in_f]}
+    return rest, packed
+
+
+def dequantize_int4_state(state: dict, packed: dict) -> dict:
+    """Inverse of quantize_int4_state: put float weights back into `state` (in place) and return it."""
+    for name, d in packed.items():
+        out_f, in_f = d["shape"]
+        q = d["q"].reshape(-1)
+        both = torch.stack((q & 15, q >> 4), dim=-1).reshape(out_f, -1, INT4_GROUP).float() - 8
+        state[name] = (both * d["scale"].float().unsqueeze(-1)).reshape(out_f, in_f)
+    return state
+
+
+def export_clean_checkpoint(input_path: str, output_path: str, half: bool = True, int4: bool = False) -> str:
     """Drop optimizer state (and store weights as float16 when half=True).
 
     A training checkpoint holds weights + 2 AdamW buffers (3x the size).
@@ -136,6 +173,11 @@ def export_clean_checkpoint(input_path: str, output_path: str, half: bool = True
                 halved[k] = v
         model_state = halved
 
+    packed4: dict = {}
+    if int4:
+        model_state, packed4 = quantize_int4_state(model_state)
+        log.info(f"INT4 (group {INT4_GROUP}): packed {len(packed4)} weight matrices")
+
     clean_payload = {
         "model_state_dict": model_state,
         "config": config_dict,
@@ -144,8 +186,10 @@ def export_clean_checkpoint(input_path: str, output_path: str, half: bool = True
         "best_loss": raw.get("best_loss", float('inf')),
         "total_tokens": raw.get("total_tokens", 0),
         "exported_at": time.time(),
-        "format": "tantra-v2-inference-fp16" if half else "tantra-v2-inference"
+        "format": "tantra-v2-inference-int4" if int4 else "tantra-v2-inference-fp16" if half else "tantra-v2-inference"
     }
+    if packed4:
+        clean_payload["int4"] = packed4
 
     os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
     torch.save(clean_payload, output_path)

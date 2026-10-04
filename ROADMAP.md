@@ -13,7 +13,7 @@
 - [ ] Model size presets: tiny, small (~70M), moe, billion (first long training run next)
 
 ## 🔮 Planned
-- [ ] INT4 quantization for Raspberry Pi / mobile
+- [x] INT4 group-scaled export (`--mode export --int4`, 4-bit storage, runs in float) — native int4 compute kernels for Raspberry Pi / mobile still to do
 - [x] OpenAI-compatible API server (`--mode serve`) — integration with Atulya-Tantra still to do
 - [ ] GGUF export for llama.cpp compatibility
 - [ ] Devanagari-aware tokenizer improvements
