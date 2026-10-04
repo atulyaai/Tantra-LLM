@@ -7,7 +7,7 @@ main.py — Tantra command line. Every task is one --mode.
   python main.py --mode chat                  talk to the model in the terminal
   python main.py --mode eval                  validation loss + 50-question probe + speed
   python main.py --mode serve                 WebUI + OpenAI-compatible API on http://127.0.0.1:8000
-  python main.py --mode export                small fp16 file for inference (Model/tantra.pt)
+  python main.py --mode export [--int4]       small fp16 file for inference (Model/tantra.pt); --int4 = 4-bit weights
   python main.py --mode data                  clean + mix all data -> Datasets/pretrain.jsonl, sft.jsonl, val_*.jsonl
   python main.py --mode boost                 add identity + extra open datasets to sft.jsonl (run after data)
   python main.py --mode knowledge             fetch FineWeb-Edu + Hindi/English Wikipedia + Sangraha -> pretrain_knowledge.jsonl
@@ -364,7 +364,7 @@ def run_eval(args, hw) -> None:
 def run_export(args) -> None:
     from Tantra.export import export_clean_checkpoint
     src = args.checkpoint or default_checkpoint(args.model_dir)
-    export_clean_checkpoint(src, args.output or os.path.join(args.model_dir, "tantra.pt"))
+    export_clean_checkpoint(src, args.output or os.path.join(args.model_dir, "tantra.pt"), int4=args.int4)
 
 
 def run_dpo(args, hw) -> None:
@@ -493,6 +493,7 @@ def main() -> None:
     p.add_argument("--mtp", action="store_true", help="extra head predicting 2 tokens ahead (slower on CPU)")
     p.add_argument("--vocab-size", type=int, default=64000, help="tokenizer mode only (keep 64000 forever)")
     # training
+    p.add_argument("--int4", action="store_true", help="export: store big weights in 4 bits (group scale 64), ~3-4x smaller file")
     p.add_argument("--fresh", action="store_true", help="start a new model (old checkpoints moved to Model/_old)")
     p.add_argument("--steps", type=int, default=20000)
     p.add_argument("--batch-size", type=int, default=4)

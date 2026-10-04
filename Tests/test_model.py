@@ -176,3 +176,40 @@ def test_moe_preset_size():
     active = total - (cfg.moe.num_experts - cfg.moe.top_k) * expert * cfg.block.num_layers
     assert m.layers[0].mlp.shared is not None
     assert 250e6 < total < 300e6 and 95e6 < active < 120e6
+
+
+def test_moe_expert_usage_tracking_and_z_loss():
+    torch.manual_seed(0)
+    cfg = NeuroCoreConfig.tiny()
+    cfg.vocab.vocab_size = cfg.vocab.byte_bpe_vocab = 300
+    cfg.moe.num_experts, cfg.moe.top_k, cfg.moe.expert_expansion, cfg.moe.real_top1 = 4, 2, 2, True
+    cfg.moe.router_z_coeff = 1e-3
+    m = NeuroCoreModel(cfg, use_mtp=False, use_moe=True).train()
+    assert m.expert_usage() == []                       # nothing routed yet
+    m(token_ids=torch.randint(0, 300, (2, 16)))
+    assert float(m.get_aux_loss().detach()) > 0
+    usage = m.expert_usage()
+    assert usage and all(abs(sum(u["share"]) - 1) < 0.01 for u in usage)   # shares sum to 1 per layer
+    assert m.expert_usage() == []                       # reset after reading
+    assert "usage_total" not in "".join(m.state_dict().keys())              # not saved in checkpoints
+
+
+def test_int4_export_is_smaller_and_reloads_close(tmp_path):
+    from Tantra.export import export_clean_checkpoint
+    torch.manual_seed(0)
+    cfg = NeuroCoreConfig.tiny()
+    cfg.vocab.vocab_size = cfg.vocab.byte_bpe_vocab = 300
+    m = NeuroCoreModel(cfg, use_mtp=False).eval()
+    ids = torch.randint(21, 300, (1, 12))
+    with torch.no_grad():
+        ref = m(ids, use_latent_reasoning=False)[0]
+    src, fp16, i4 = tmp_path / "s.pt", tmp_path / "f.pt", tmp_path / "i.pt"
+    torch.save({"model_state_dict": m.state_dict(), "config": cfg, "step_count": 1}, src)
+    export_clean_checkpoint(str(src), str(fp16))
+    export_clean_checkpoint(str(src), str(i4), int4=True)
+    assert i4.stat().st_size < fp16.stat().st_size
+    loaded, _ = load_model(str(i4))
+    with torch.no_grad():
+        out = loaded(ids, use_latent_reasoning=False)[0]
+    assert torch.isfinite(out).all()
+    assert (out.argmax(-1) == ref.argmax(-1)).float().mean() > 0.5      # 4-bit noise, same overall behaviour

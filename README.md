@@ -19,7 +19,7 @@
   <a href="https://pytorch.org/"><img src="https://img.shields.io/badge/pytorch-2.2%2B-ee4c2c.svg" alt="PyTorch 2.2+"/></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-F7931A.svg?style=flat-square" alt="MIT License"/></a>
   <a href="#-honest-status"><img src="https://img.shields.io/badge/status-v2_rebuild-orange.svg" alt="Status: v2 rebuild"/></a>
-  <a href="#-tests"><img src="https://img.shields.io/badge/tests-59_passing-brightgreen.svg" alt="59 tests passing"/></a>
+  <a href="#-tests"><img src="https://img.shields.io/badge/tests-61_passing-brightgreen.svg" alt="61 tests passing"/></a>
   <a href="#"><img src="https://img.shields.io/badge/Made_in-India_🇮🇳-FF9933.svg" alt="Made in India"/></a>
 </p>
 
@@ -115,6 +115,7 @@ python main.py --mode chat --int8    # int8 output head = ~1.3x faster on CPU
 python main.py --mode serve --int8   # WebUI on http://127.0.0.1:8000
 python main.py --mode eval           # val loss + 50 questions + speed
 python -m pytest Tests -q            # code tests
+python main.py --mode export --int4  # small inference file: 4-bit weights (group scale 64), ~2.4x smaller than fp16
 ```
 
 **Train on a free GPU (Kaggle or Colab)** — much faster than a laptop CPU, uses all GPUs:
@@ -133,7 +134,9 @@ uses every local GPU.
 
 **Bigger model (mixture of experts):** `--fresh --preset moe` starts a new ~280M-parameter model: per layer 16 small
 experts (each token uses 2) plus one shared expert every token uses (DeepSeek-MoE layout), ~108M active. It has ~4x
-the room for facts of the small model at ~2x its cost per token. It is a new model, so pretrain it from scratch (`--stage pretrain`); later sessions continue without `--fresh`.
+the room for facts of the small model at ~2x its cost per token. While it trains, the log shows per layer how many experts
+are "dead" (get under 10% of a fair share of tokens) and how overloaded the busiest one is; the same numbers go to
+`Model/training_status.json`. It is a new model, so pretrain it from scratch (`--stage pretrain`); later sessions continue without `--fresh`.
 
 **Making it know more (general knowledge)** — the order that gives the most per GPU hour:
 
@@ -225,7 +228,7 @@ In the default `sft` stage only the answers are learned. Rows whose question is 
 ## 🧪 Tests
 
 ```bash
-python -m pytest Tests -q      # 18 passed
+python -m pytest Tests -q      # 61 passed
 ```
 
 ## 🗺️ Roadmap (in order)
