@@ -102,6 +102,7 @@ class HTTPTeacher:
     def __init__(self, url: str, model: str = "default", api_key: str = "", workers: int = 2, timeout: float = 600.0):
         self.endpoint = url.rstrip("/") + "/chat/completions"
         self.model, self.api_key, self.workers, self.timeout = model, api_key, max(1, workers), timeout
+        self.fail_streak = 0
 
     def _one(self, prompt: str, max_new_tokens: int) -> str:
         import urllib.request
@@ -112,9 +113,22 @@ class HTTPTeacher:
             headers["Authorization"] = "Bearer " + self.api_key
         try:
             with urllib.request.urlopen(urllib.request.Request(self.endpoint, body, headers), timeout=self.timeout) as r:
-                return json.loads(r.read().decode("utf-8"))["choices"][0]["message"]["content"] or ""
+                reply = json.loads(r.read().decode("utf-8"))["choices"][0]["message"]["content"] or ""
+            self.fail_streak = 0
+            return reply
         except Exception as exc:
-            log.warning(f"teacher request failed: {exc}")
+            detail = ""
+            if hasattr(exc, "read"):          # HTTPError: the server's own message says what is wrong
+                try:
+                    detail = " — " + exc.read().decode("utf-8", "replace")[:300]
+                except Exception:
+                    pass
+            log.warning(f"teacher request failed: {exc}{detail}")
+            self.fail_streak += 1
+            if self.fail_streak >= 6:
+                raise RuntimeError(f"The teacher at {self.endpoint} failed {self.fail_streak} requests in a row "
+                                   f"(model name '{self.model}'). Check the server is running and --teacher-model "
+                                   f"is a name it lists at {self.endpoint.rsplit('/', 1)[0]}/models.") from exc
             return ""
 
     def __call__(self, prompts: List[str], max_new_tokens: int = 600) -> List[str]:
@@ -140,6 +154,7 @@ def build(data_dir: str, teacher: str = "Qwen/Qwen2.5-3B-Instruct", n: int = 200
     generate = generate or (HTTPTeacher(teacher_url, teacher_model, workers=workers) if teacher_url else Teacher(teacher))
     if teacher_url:
         teacher = f"{teacher_model} @ {teacher_url}"
+        batch_size = max(1, workers)      # a slow local teacher: save after every few passages, lose nothing on Ctrl-C
     source = source or passages(rng)
     stats = {"pairs": done, "passages": 0, "replies_without_pairs": 0}
     log.info(f"Distilling with {teacher} -> {out_path} ({done:,} pairs already there, target {n:,})")

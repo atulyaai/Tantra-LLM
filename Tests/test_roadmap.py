@@ -222,6 +222,11 @@ def test_distill_http_teacher_talks_openai_api(tmp_path):
         stats = build(str(tmp_path), n=1, batch_size=1, per_passage=1, teacher_url=url, teacher_model="olmoe",
                       source=iter(["Paris is the capital and largest city of France. " * 12]))
         assert stats["pairs"] == 1
-        assert HTTPTeacher("http://127.0.0.1:9/v1", timeout=1)(["x"]) == [""]      # dead server -> skipped, no crash
+        assert HTTPTeacher("http://127.0.0.1:9/v1", timeout=1)(["x"]) == [""]      # one failure -> skipped, no crash
+        import pytest
+        dead = HTTPTeacher("http://127.0.0.1:9/v1", timeout=1)
+        with pytest.raises(RuntimeError, match="in a row"):                         # a dead server stops the run
+            for _ in range(6):
+                dead(["x"])
     finally:
         srv.shutdown()
