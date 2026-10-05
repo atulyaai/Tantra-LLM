@@ -195,6 +195,22 @@ def test_distill_parses_checks_and_writes(tmp_path):
     assert rec["messages"][1]["role"] == "assistant"
 
 
+def test_distill_own_questions(tmp_path):
+    from Tantra.distill import build, load_questions
+    qf = tmp_path / "q.txt"
+    qf.write_text("What is the capital of France?\n\nWhat is the capital of France?\n"
+                  '{"question": "What is the capital of Japan?"}\n', encoding="utf-8")
+    assert load_questions(str(qf)) == ["What is the capital of France?", "What is the capital of Japan?"]
+    asked = []
+    gen = lambda ps: asked.extend(ps) or ["The capital city is a well known place."] * len(ps)
+    stats = build(str(tmp_path), n=10, batch_size=1, generate=gen, questions=str(qf))
+    assert stats["pairs"] == 2 and len(asked) == 2
+    rec = json.loads((tmp_path / "sft_distill.jsonl").read_text(encoding="utf-8").splitlines()[0])
+    assert rec["messages"][0]["content"] == "What is the capital of France?"
+    build(str(tmp_path), n=10, batch_size=1, generate=gen, questions=str(qf))     # resume: nothing asked twice
+    assert len(asked) == 2
+
+
 def test_distill_http_teacher_talks_openai_api(tmp_path):
     """The teacher can be any OpenAI-compatible server (Colibri `coli serve`, llama.cpp, Ollama)."""
     import http.server, threading

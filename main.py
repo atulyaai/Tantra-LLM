@@ -513,6 +513,8 @@ def main() -> None:
                    "e.g. http://127.0.0.1:8000/v1 (Colibri `coli serve`, llama.cpp, Ollama) instead of loading --teacher")
     p.add_argument("--teacher-model", default="auto", help="distill: model name sent to --teacher-url (auto = ask GET /models)")
     p.add_argument("--teacher-workers", type=int, default=2, help="distill: parallel requests to --teacher-url")
+    p.add_argument("--questions", default="", help="distill: your own question list (.txt one per line, or .jsonl with "
+                   "\"question\"); the teacher answers them instead of writing questions from Wikipedia")
     p.add_argument("--samples", type=int, default=20000, help="rag / distill: how many examples to make")
     p.add_argument("--max-grad-norm", type=float, default=1.0)
     p.add_argument("--log-every", type=int, default=50)
@@ -578,7 +580,7 @@ def main() -> None:
     if args.mode == "distill":
         from Tantra.distill import build as build_distill
         return build_distill(DATA_DIR, teacher=args.teacher, n=args.samples, teacher_url=args.teacher_url,
-                             teacher_model=args.teacher_model, workers=args.teacher_workers)
+                             teacher_model=args.teacher_model, workers=args.teacher_workers, questions=args.questions)
     if args.mode == "boost":
         from Tantra.data_boost import boost
         return boost(DATA_DIR)
