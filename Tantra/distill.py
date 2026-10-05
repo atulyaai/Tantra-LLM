@@ -18,6 +18,7 @@ import json
 import os
 import random
 import re
+import time
 from typing import Callable, Dict, Iterator, List, Optional
 
 from Tantra.data_prep import _wiki_text, foreign_assistant, lang_of, norm
@@ -62,6 +63,43 @@ def load_questions(path: str) -> List[str]:
                 seen.add(q)
                 out.append(q)
     return out
+
+
+def _short(text: str, n: int = 110) -> str:
+    text = " ".join((text or "").split())
+    return text if len(text) <= n else text[:n - 1] + "…"
+
+
+class Progress:
+    """Live view of a distill run: what is being sent, what came back, how long it took, and the ETA."""
+
+    def __init__(self, target: int, start: int, quiet: bool = False):
+        import time
+        self.target, self.start, self.quiet, self.t0 = target, start, quiet, time.time()
+
+    def sending(self, items: List[str], what: str) -> None:
+        if self.quiet:
+            return
+        for x in items:
+            log.info(f"  -> {what}: {_short(x)}")
+
+    def received(self, items: List[str], replies: List[str], seconds: float) -> None:
+        if self.quiet:
+            return
+        per = seconds / max(1, len(items))
+        for x, r in zip(items, replies):
+            log.info(f"  <- {_short(r, 160) if (r or '').strip() else '(no reply)'}")
+        log.info(f"     {seconds:.0f}s for {len(items)} request(s), {per:.0f}s each")
+
+    def line(self, pairs: int) -> str:
+        import time
+        made = pairs - self.start
+        el = time.time() - self.t0
+        eta = ""
+        if made > 0 and pairs < self.target:
+            rem = (self.target - pairs) * el / made
+            eta = f", ~{int(rem // 3600)}h{int(rem % 3600 // 60):02d}m left" if rem >= 3600 else f", ~{int(rem // 60)}m left"
+        return f"{pairs:,}/{self.target:,} pairs ({made:,} new in {int(el // 60)}m{int(el % 60):02d}s{eta})"
 
 
 def passages(rng: random.Random, hindi_share: float = 0.6) -> Iterator[str]:
@@ -194,7 +232,7 @@ def build(data_dir: str, teacher: str = "Qwen/Qwen2.5-3B-Instruct", n: int = 200
           per_passage: int = 3, seed: Optional[int] = None,
           generate: Optional[Callable[[List[str]], List[str]]] = None,
           source: Optional[Iterator[str]] = None, teacher_url: str = "", teacher_model: str = "default",
-          workers: int = 2, questions: str = "") -> Dict:
+          workers: int = 2, questions: str = "", quiet: bool = False) -> Dict:
     out_dir = "/kaggle/working" if os.path.isdir("/kaggle/working") else data_dir
     out_path = os.path.join(out_dir, "sft_distill.jsonl")
     done = sum(1 for _ in open(out_path, encoding="utf-8")) if os.path.isfile(out_path) else 0
@@ -209,10 +247,11 @@ def build(data_dir: str, teacher: str = "Qwen/Qwen2.5-3B-Instruct", n: int = 200
         teacher = f"{teacher_model} @ {teacher_url}"
         batch_size = max(1, workers)      # a slow local teacher: save after every few passages, lose nothing on Ctrl-C
     if questions:
-        return _answer_questions(questions, out_path, generate, probe, batch_size, n, teacher)
+        return _answer_questions(questions, out_path, generate, probe, batch_size, n, teacher, quiet)
     source = source or passages(rng)
     stats = {"pairs": done, "passages": 0, "replies_without_pairs": 0}
     log.info(f"Distilling with {teacher} -> {out_path} ({done:,} pairs already there, target {n:,})")
+    prog = Progress(n, done, quiet)
     with open(out_path, "a", encoding="utf-8") as f:
         while stats["pairs"] < n:
             batch = []
@@ -224,23 +263,31 @@ def build(data_dir: str, teacher: str = "Qwen/Qwen2.5-3B-Instruct", n: int = 200
                     break
             if not batch:
                 break
+            prog.sending([p for p, _ in batch], "passage")
+            t = time.time()
             replies = generate([PROMPT[lang].format(k=per_passage, passage=p) for p, lang in batch])
+            prog.received([p for p, _ in batch], replies, time.time() - t)
             for (p, lang), reply in zip(batch, replies):
                 stats["passages"] += 1
                 pairs = parse_pairs(reply, lang, probe)
                 if not pairs:
                     stats["replies_without_pairs"] += 1
+                if not quiet:
+                    for qa in pairs:
+                        log.info(f"  + Q: {_short(qa['q'])}\n    A: {_short(qa['a'], 160)}")
+                    if not pairs:
+                        log.info("  (reply had no usable question/answer pairs)")
                 for qa in pairs:
                     f.write(json.dumps({"messages": [{"role": "user", "content": qa["q"]},
                                                      {"role": "assistant", "content": qa["a"]}]}, ensure_ascii=False) + "\n")
                     stats["pairs"] += 1
             f.flush()
-            log.info(f"  {stats['pairs']:,}/{n:,} pairs from {stats['passages']:,} passages")
+            log.info(f"  {prog.line(stats['pairs'])} from {stats['passages']:,} passages")
     return stats
 
 
 def _answer_questions(path: str, out_path: str, generate: Callable[[List[str]], List[str]], probe: set,
-                      batch_size: int, n: int, teacher: str) -> Dict:
+                      batch_size: int, n: int, teacher: str, quiet: bool = False) -> Dict:
     """The teacher answers YOUR questions (no Wikipedia). Questions already in the output file are skipped."""
     asked = set()
     if os.path.isfile(out_path):
@@ -253,12 +300,16 @@ def _answer_questions(path: str, out_path: str, generate: Callable[[List[str]], 
     todo = [q for q in load_questions(path) if q not in asked and q not in probe and lang_of(q) in ANSWER_PROMPT]
     stats = {"pairs": len(asked), "questions": 0, "skipped_replies": 0}
     log.info(f"Answering {len(todo):,} of your questions with {teacher} -> {out_path} ({len(asked):,} already done)")
+    prog = Progress(min(n, len(asked) + len(todo)), len(asked), quiet)
     with open(out_path, "a", encoding="utf-8") as f:
         for i in range(0, len(todo), batch_size):
             if stats["pairs"] >= n:
                 break
             batch = todo[i:i + batch_size]
+            prog.sending(batch, "question")
+            t = time.time()
             replies = generate([ANSWER_PROMPT[lang_of(q)].format(q=q) for q in batch])
+            prog.received(batch, replies, time.time() - t)
             for q, reply in zip(batch, replies):
                 stats["questions"] += 1
                 a = norm(reply or "")
@@ -269,5 +320,5 @@ def _answer_questions(path: str, out_path: str, generate: Callable[[List[str]], 
                                                  {"role": "assistant", "content": a}]}, ensure_ascii=False) + "\n")
                 stats["pairs"] += 1
             f.flush()
-            log.info(f"  {stats['pairs']:,} pairs ({stats['questions']:,} questions asked)")
+            log.info(f"  {prog.line(stats['pairs'])}")
     return stats

@@ -207,8 +207,24 @@ def test_distill_own_questions(tmp_path):
     assert stats["pairs"] == 2 and len(asked) == 2
     rec = json.loads((tmp_path / "sft_distill.jsonl").read_text(encoding="utf-8").splitlines()[0])
     assert rec["messages"][0]["content"] == "What is the capital of France?"
-    build(str(tmp_path), n=10, batch_size=1, generate=gen, questions=str(qf))     # resume: nothing asked twice
+    build(str(tmp_path), n=10, batch_size=1, generate=gen, questions=str(qf), quiet=True)     # resume: nothing asked twice
     assert len(asked) == 2
+
+
+def test_distill_shows_progress(tmp_path, caplog):
+    import logging
+    from Tantra.distill import build
+    qf = tmp_path / "q.txt"
+    qf.write_text("What is the capital of France?\nWhat is the capital of Japan?\n", encoding="utf-8")
+    gen = lambda ps: ["The capital city is a well known place."] * len(ps)
+    with caplog.at_level(logging.INFO, logger="tantra.distill"):
+        build(str(tmp_path), n=2, batch_size=1, generate=gen, questions=str(qf))
+    text = caplog.text
+    assert "What is the capital of France?" in text and "well known place" in text and "1/2 pairs" in text
+    caplog.clear()
+    with caplog.at_level(logging.INFO, logger="tantra.distill"):
+        build(str(tmp_path), n=3, batch_size=1, generate=gen, questions=str(qf), quiet=True)
+    assert "-> question" not in caplog.text
 
 
 def test_distill_http_teacher_talks_openai_api(tmp_path):
