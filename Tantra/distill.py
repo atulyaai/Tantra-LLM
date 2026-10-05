@@ -101,7 +101,8 @@ class HTTPTeacher:
 
     def __init__(self, url: str, model: str = "default", api_key: str = "", workers: int = 2, timeout: float = 600.0,
                  retries: int = 2, backoff: float = 2.0):
-        self.endpoint = url.rstrip("/") + "/chat/completions"
+        self.base = url.rstrip("/")
+        self.endpoint = self.base + "/chat/completions"
         self.model, self.api_key, self.workers, self.timeout = model, api_key, max(1, workers), timeout
         self.retries, self.backoff = max(0, retries), backoff
         self.fail_streak = 0
@@ -111,7 +112,7 @@ class HTTPTeacher:
     def _discover_model(self) -> None:
         """Ask the server which model it serves (GET <base>/models) when no real name was given."""
         import urllib.request
-        base = self.endpoint.rsplit("/", 1)[0]
+        base = self.base
         headers = {"Authorization": "Bearer " + self.api_key} if self.api_key else {}
         try:
             with urllib.request.urlopen(urllib.request.Request(base + "/models", headers=headers), timeout=30) as r:
@@ -152,7 +153,7 @@ class HTTPTeacher:
                 if self.fail_streak >= 6:
                     raise RuntimeError(f"The teacher at {self.endpoint} failed {self.fail_streak} requests in a row "
                                        f"(model name '{self.model}'). Check the server is running and --teacher-model "
-                                       f"is a name it lists at {self.endpoint.rsplit('/', 1)[0]}/models.") from exc
+                                       f"is a name it lists at {self.base}/models.") from exc
                 return ""
         return ""
 
