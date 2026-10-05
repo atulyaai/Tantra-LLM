@@ -103,6 +103,20 @@ class HTTPTeacher:
         self.endpoint = url.rstrip("/") + "/chat/completions"
         self.model, self.api_key, self.workers, self.timeout = model, api_key, max(1, workers), timeout
         self.fail_streak = 0
+        if model in ("", "default", "auto"):
+            self._discover_model()
+
+    def _discover_model(self) -> None:
+        """Ask the server which model it serves (GET <base>/models) when no real name was given."""
+        import urllib.request
+        base = self.endpoint.rsplit("/", 1)[0]
+        headers = {"Authorization": "Bearer " + self.api_key} if self.api_key else {}
+        try:
+            with urllib.request.urlopen(urllib.request.Request(base + "/models", headers=headers), timeout=30) as r:
+                self.model = json.loads(r.read().decode("utf-8"))["data"][0]["id"]
+            log.info(f"teacher model: {self.model}")
+        except Exception as exc:
+            log.warning(f"could not read {base}/models ({exc}); keeping model name '{self.model}'")
 
     def _one(self, prompt: str, max_new_tokens: int) -> str:
         import urllib.request

@@ -202,6 +202,11 @@ def test_distill_http_teacher_talks_openai_api(tmp_path):
     seen = []
 
     class H(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            data = json.dumps({"data": [{"id": "olmoe-served"}]}).encode()
+            self.send_response(200); self.send_header("Content-Length", str(len(data))); self.end_headers()
+            self.wfile.write(data)
+
         def do_POST(self):
             body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
             seen.append((self.path, body["model"], self.headers.get("Authorization")))
@@ -219,6 +224,8 @@ def test_distill_http_teacher_talks_openai_api(tmp_path):
         url = f"http://127.0.0.1:{srv.server_port}/v1"
         assert HTTPTeacher(url, "olmoe", api_key="k")(["hi"])[0].startswith("[")
         assert seen[0] == ("/v1/chat/completions", "olmoe", "Bearer k")
+        auto = HTTPTeacher(url)                                  # no model name -> asked from GET /models
+        assert auto.model == "olmoe-served"
         stats = build(str(tmp_path), n=1, batch_size=1, per_passage=1, teacher_url=url, teacher_model="olmoe",
                       source=iter(["Paris is the capital and largest city of France. " * 12]))
         assert stats["pairs"] == 1
