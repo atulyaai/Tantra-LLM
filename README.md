@@ -152,6 +152,17 @@ are "dead" (get under 10% of a fair share of tokens) and how overloaded the busi
    ```python
    !cd /tmp/Tantra-LLM && python main.py --mode distill --samples 20000
    ```
+   **Teacher served by Colibri (or llama.cpp / Ollama) on your own PC** — any OpenAI-compatible server works, no GPU
+   needed in Python. Start the teacher (Colibri supports a 7B OLMoE model), then point distill at it:
+   ```bash
+   ./coli serve --model <path-to-7B-model>        # Colibri (Linux/Mac), default http://127.0.0.1:8000/v1
+   # Windows PowerShell:  cd D:\colibri; $env:COLI_MODEL="D:\colibri-models\olmoe"; .\coli.cmd serve
+   python main.py --mode distill --teacher-url http://127.0.0.1:8000/v1 --teacher-model default --samples 5000
+   ```
+   It resumes where it stopped (`Datasets/sft_distill.jsonl`). A CPU teacher is slow (measured ~1.3 words/s with the 7B OLMoE on a laptop, about 1 pair per minute): use it for
+   small checked sets, and use the Kaggle GPU route above for bulk data. Start small, raise
+   `--teacher-workers` if the server can take parallel requests. If you run `--mode serve` on the same PC, give one of
+   them another port (`--port 8001`) because both default to 8000.
 5. Train with Muon and the warmup-stable-decay schedule:
    `%run /tmp/Tantra-LLM/cloud_train.py --stage pretrain --fresh --preset moe --optimizer muon --schedule wsd`.
    SFT then picks up `sft_rag.jsonl` and `sft_distill.jsonl` automatically when they are in the dataset

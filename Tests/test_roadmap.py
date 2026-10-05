@@ -193,3 +193,40 @@ def test_distill_parses_checks_and_writes(tmp_path):
     assert stats["pairs"] >= 3
     rec = json.loads((tmp_path / "sft_distill.jsonl").read_text(encoding="utf-8").splitlines()[0])
     assert rec["messages"][1]["role"] == "assistant"
+
+
+def test_distill_http_teacher_talks_openai_api(tmp_path):
+    """The teacher can be any OpenAI-compatible server (Colibri `coli serve`, llama.cpp, Ollama)."""
+    import http.server, threading
+    from Tantra.distill import HTTPTeacher, build
+    seen = []
+
+    class H(http.server.BaseHTTPRequestHandler):
+        def do_POST(self):
+            body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+            seen.append((self.path, body["model"], self.headers.get("Authorization")))
+            reply = json.dumps([{"q": "What is the capital of France?", "a": "The capital of France is the city of Paris."}])
+            data = json.dumps({"choices": [{"message": {"content": reply}}]}).encode()
+            self.send_response(200); self.send_header("Content-Length", str(len(data))); self.end_headers()
+            self.wfile.write(data)
+
+        def log_message(self, *a):
+            pass
+
+    srv = http.server.HTTPServer(("127.0.0.1", 0), H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        url = f"http://127.0.0.1:{srv.server_port}/v1"
+        assert HTTPTeacher(url, "olmoe", api_key="k")(["hi"])[0].startswith("[")
+        assert seen[0] == ("/v1/chat/completions", "olmoe", "Bearer k")
+        stats = build(str(tmp_path), n=1, batch_size=1, per_passage=1, teacher_url=url, teacher_model="olmoe",
+                      source=iter(["Paris is the capital and largest city of France. " * 12]))
+        assert stats["pairs"] == 1
+        assert HTTPTeacher("http://127.0.0.1:9/v1", timeout=1)(["x"]) == [""]      # one failure -> skipped, no crash
+        import pytest
+        dead = HTTPTeacher("http://127.0.0.1:9/v1", timeout=1)
+        with pytest.raises(RuntimeError, match="in a row"):                         # a dead server stops the run
+            for _ in range(6):
+                dead(["x"])
+    finally:
+        srv.shutdown()
