@@ -199,10 +199,14 @@ def test_distill_http_teacher_talks_openai_api(tmp_path):
     """The teacher can be any OpenAI-compatible server (Colibri `coli serve`, llama.cpp, Ollama)."""
     import http.server, threading
     from Tantra.distill import HTTPTeacher, build
-    seen = []
+    seen, gets = [], []
 
     class H(http.server.BaseHTTPRequestHandler):
         def do_GET(self):
+            gets.append(self.path)
+            if self.path != "/v1/models":                      # like Colibri: anything else is a 404
+                self.send_response(404); self.send_header("Content-Length", "0"); self.end_headers()
+                return
             data = json.dumps({"data": [{"id": "olmoe-served"}]}).encode()
             self.send_response(200); self.send_header("Content-Length", str(len(data))); self.end_headers()
             self.wfile.write(data)
@@ -225,7 +229,7 @@ def test_distill_http_teacher_talks_openai_api(tmp_path):
         assert HTTPTeacher(url, "olmoe", api_key="k")(["hi"])[0].startswith("[")
         assert seen[0] == ("/v1/chat/completions", "olmoe", "Bearer k")
         auto = HTTPTeacher(url)                                  # no model name -> asked from GET /models
-        assert auto.model == "olmoe-served"
+        assert auto.model == "olmoe-served" and gets == ["/v1/models"]
         stats = build(str(tmp_path), n=1, batch_size=1, per_passage=1, teacher_url=url, teacher_model="olmoe",
                       source=iter(["Paris is the capital and largest city of France. " * 12]))
         assert stats["pairs"] == 1
