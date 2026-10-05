@@ -229,11 +229,27 @@ def test_distill_http_teacher_talks_openai_api(tmp_path):
         stats = build(str(tmp_path), n=1, batch_size=1, per_passage=1, teacher_url=url, teacher_model="olmoe",
                       source=iter(["Paris is the capital and largest city of France. " * 12]))
         assert stats["pairs"] == 1
-        assert HTTPTeacher("http://127.0.0.1:9/v1", timeout=1)(["x"]) == [""]      # one failure -> skipped, no crash
+        assert HTTPTeacher("http://127.0.0.1:9/v1", timeout=1, retries=1, backoff=0)(["x"]) == [""]      # one failure -> skipped, no crash
         import pytest
-        dead = HTTPTeacher("http://127.0.0.1:9/v1", timeout=1)
+        dead = HTTPTeacher("http://127.0.0.1:9/v1", timeout=1, retries=1, backoff=0)
         with pytest.raises(RuntimeError, match="in a row"):                         # a dead server stops the run
             for _ in range(6):
                 dead(["x"])
+        hits = []
+
+        class Flaky(H):
+            def do_POST(self):
+                hits.append(1)
+                if len(hits) < 3:                                  # two 503s, then a good answer
+                    self.send_response(503); self.send_header("Content-Length", "0"); self.end_headers()
+                else:
+                    super().do_POST()
+        srv2 = http.server.HTTPServer(("127.0.0.1", 0), Flaky)
+        threading.Thread(target=srv2.serve_forever, daemon=True).start()
+        try:
+            got = HTTPTeacher(f"http://127.0.0.1:{srv2.server_port}/v1", "m", retries=2, backoff=0)(["hi"])[0]
+            assert got.startswith("[") and len(hits) == 3
+        finally:
+            srv2.shutdown()
     finally:
         srv.shutdown()
