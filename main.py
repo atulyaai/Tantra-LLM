@@ -509,6 +509,10 @@ def main() -> None:
                    help="wsd = warmup, flat, short cool-down at the end (easy to extend with more --steps)")
     p.add_argument("--scale", type=float, default=1.0, help="knowledge: multiply all source budgets")
     p.add_argument("--teacher", default="Qwen/Qwen2.5-7B-Instruct", help="distill: the model that writes Q&A")
+    p.add_argument("--teacher-url", default="", help="distill: use a teacher served over an OpenAI-compatible API, "
+                   "e.g. http://127.0.0.1:8000/v1 (Colibri `coli serve`, llama.cpp, Ollama) instead of loading --teacher")
+    p.add_argument("--teacher-model", default="default", help="distill: model name sent to --teacher-url")
+    p.add_argument("--teacher-workers", type=int, default=2, help="distill: parallel requests to --teacher-url")
     p.add_argument("--samples", type=int, default=20000, help="rag / distill: how many examples to make")
     p.add_argument("--max-grad-norm", type=float, default=1.0)
     p.add_argument("--log-every", type=int, default=50)
@@ -573,7 +577,8 @@ def main() -> None:
         return build_rag(DATA_DIR, os.path.join(MODEL_DIR, "smriti.db"), n=args.samples)
     if args.mode == "distill":
         from Tantra.distill import build as build_distill
-        return build_distill(DATA_DIR, teacher=args.teacher, n=args.samples)
+        return build_distill(DATA_DIR, teacher=args.teacher, n=args.samples, teacher_url=args.teacher_url,
+                             teacher_model=args.teacher_model, workers=args.teacher_workers)
     if args.mode == "boost":
         from Tantra.data_boost import boost
         return boost(DATA_DIR)

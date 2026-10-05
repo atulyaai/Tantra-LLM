@@ -11,6 +11,7 @@ Follows [Semantic Versioning](https://semver.org/) and [Keep a Changelog](https:
 - README test badge now shows 59 passing tests
 
 ### Added
+- `--mode distill --teacher-url URL`: use any OpenAI-compatible server (Colibri `coli serve`, llama.cpp, Ollama) as the teacher instead of loading one on a GPU
 - `--mode export --int4`: 4-bit group-scaled (64) weight storage, about 2.4x smaller than fp16 on the moe preset; embeddings, norms, router and MTP head stay fp16; `load_model` reads it transparently
 - MoE: per-layer expert usage (dead experts, busiest-expert load) logged during training and written to `training_status.json`
 - MoE: optional router z-loss (`moe.router_z_coeff`, 1e-3 in the moe preset)
