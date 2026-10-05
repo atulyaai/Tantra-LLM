@@ -156,10 +156,15 @@ are "dead" (get under 10% of a fair share of tokens) and how overloaded the busi
    needed in Python. Start the teacher (Colibri supports a 7B OLMoE model), then point distill at it:
    ```bash
    ./coli serve --model <path-to-7B-model>        # Colibri (Linux/Mac), default http://127.0.0.1:8000/v1
-   # Windows PowerShell:  cd D:\colibri; $env:COLI_MODEL="D:\colibri-models\olmoe"; .\coli.cmd serve
-   python main.py --mode distill --teacher-url http://127.0.0.1:8000/v1 --teacher-model default --samples 5000
+   # Windows PowerShell (Colibri in D:\colibri), one window for the server:
+   #   cd D:\colibri; $env:COLI_MODEL="D:\colibri-models\olmoe"; .\coli.cmd serve
+   # and a second window for distill, from the Tantra-LLM folder:
+   #   python main.py --mode distill --teacher-url http://127.0.0.1:8000/v1 --samples 200
+   python main.py --mode distill --teacher-url http://127.0.0.1:8000/v1 --samples 5000
    ```
-   It resumes where it stopped (`Datasets/sft_distill.jsonl`). A CPU teacher is slow (measured ~1.3 words/s with the 7B OLMoE on a laptop, about 1 pair per minute): use it for
+   The model name is read from the server (`GET /v1/models`); pass `--teacher-model <id>` only to override it.
+   Timeouts, dropped connections and 429/5xx replies are retried twice with backoff; six failed passages in a row stop
+   the run with a message, and what was written so far is kept. It resumes where it stopped (`Datasets/sft_distill.jsonl`). A CPU teacher is slow (measured ~1.3 words/s with the 7B OLMoE on a laptop, about 1 pair per minute): use it for
    small checked sets, and use the Kaggle GPU route above for bulk data. Start small, raise
    `--teacher-workers` if the server can take parallel requests. If you run `--mode serve` on the same PC, give one of
    them another port (`--port 8001`) because both default to 8000.

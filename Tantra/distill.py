@@ -99,10 +99,26 @@ class HTTPTeacher:
     Passages are sent in parallel (`workers`); a failed request gives an empty reply, which is simply skipped.
     """
 
-    def __init__(self, url: str, model: str = "default", api_key: str = "", workers: int = 2, timeout: float = 600.0):
+    def __init__(self, url: str, model: str = "default", api_key: str = "", workers: int = 2, timeout: float = 600.0,
+                 retries: int = 2, backoff: float = 2.0):
         self.endpoint = url.rstrip("/") + "/chat/completions"
         self.model, self.api_key, self.workers, self.timeout = model, api_key, max(1, workers), timeout
+        self.retries, self.backoff = max(0, retries), backoff
         self.fail_streak = 0
+        if model in ("", "default", "auto"):
+            self._discover_model()
+
+    def _discover_model(self) -> None:
+        """Ask the server which model it serves (GET <base>/models) when no real name was given."""
+        import urllib.request
+        base = self.endpoint.rsplit("/", 1)[0]
+        headers = {"Authorization": "Bearer " + self.api_key} if self.api_key else {}
+        try:
+            with urllib.request.urlopen(urllib.request.Request(base + "/models", headers=headers), timeout=30) as r:
+                self.model = json.loads(r.read().decode("utf-8"))["data"][0]["id"]
+            log.info(f"teacher model: {self.model}")
+        except Exception as exc:
+            log.warning(f"could not read {base}/models ({exc}); keeping model name '{self.model}'")
 
     def _one(self, prompt: str, max_new_tokens: int) -> str:
         import urllib.request
@@ -111,25 +127,34 @@ class HTTPTeacher:
         headers = {"Content-Type": "application/json"}
         if self.api_key:
             headers["Authorization"] = "Bearer " + self.api_key
-        try:
-            with urllib.request.urlopen(urllib.request.Request(self.endpoint, body, headers), timeout=self.timeout) as r:
-                reply = json.loads(r.read().decode("utf-8"))["choices"][0]["message"]["content"] or ""
-            self.fail_streak = 0
-            return reply
-        except Exception as exc:
-            detail = ""
-            if hasattr(exc, "read"):          # HTTPError: the server's own message says what is wrong
-                try:
-                    detail = " — " + exc.read().decode("utf-8", "replace")[:300]
-                except Exception:
-                    pass
-            log.warning(f"teacher request failed: {exc}{detail}")
-            self.fail_streak += 1
-            if self.fail_streak >= 6:
-                raise RuntimeError(f"The teacher at {self.endpoint} failed {self.fail_streak} requests in a row "
-                                   f"(model name '{self.model}'). Check the server is running and --teacher-model "
-                                   f"is a name it lists at {self.endpoint.rsplit('/', 1)[0]}/models.") from exc
-            return ""
+        import time
+        for attempt in range(self.retries + 1):
+            try:
+                with urllib.request.urlopen(urllib.request.Request(self.endpoint, body, headers), timeout=self.timeout) as r:
+                    reply = json.loads(r.read().decode("utf-8"))["choices"][0]["message"]["content"] or ""
+                self.fail_streak = 0
+                return reply
+            except Exception as exc:
+                code = getattr(exc, "code", None)
+                detail = ""
+                if hasattr(exc, "read"):      # HTTPError: the server's own message says what is wrong
+                    try:
+                        detail = " — " + exc.read().decode("utf-8", "replace")[:300]
+                    except Exception:
+                        pass
+                # timeouts, dropped connections, 429 and 5xx are worth retrying; other 4xx (bad model name) are not
+                if attempt < self.retries and (code is None or code == 429 or code >= 500):
+                    log.warning(f"teacher request failed: {exc}{detail}; retry {attempt + 1}/{self.retries}")
+                    time.sleep(self.backoff * 2 ** attempt)
+                    continue
+                log.warning(f"teacher request failed: {exc}{detail}")
+                self.fail_streak += 1
+                if self.fail_streak >= 6:
+                    raise RuntimeError(f"The teacher at {self.endpoint} failed {self.fail_streak} requests in a row "
+                                       f"(model name '{self.model}'). Check the server is running and --teacher-model "
+                                       f"is a name it lists at {self.endpoint.rsplit('/', 1)[0]}/models.") from exc
+                return ""
+        return ""
 
     def __call__(self, prompts: List[str], max_new_tokens: int = 600) -> List[str]:
         from concurrent.futures import ThreadPoolExecutor

@@ -511,7 +511,7 @@ def main() -> None:
     p.add_argument("--teacher", default="Qwen/Qwen2.5-7B-Instruct", help="distill: the model that writes Q&A")
     p.add_argument("--teacher-url", default="", help="distill: use a teacher served over an OpenAI-compatible API, "
                    "e.g. http://127.0.0.1:8000/v1 (Colibri `coli serve`, llama.cpp, Ollama) instead of loading --teacher")
-    p.add_argument("--teacher-model", default="default", help="distill: model name sent to --teacher-url")
+    p.add_argument("--teacher-model", default="auto", help="distill: model name sent to --teacher-url (auto = ask GET /models)")
     p.add_argument("--teacher-workers", type=int, default=2, help="distill: parallel requests to --teacher-url")
     p.add_argument("--samples", type=int, default=20000, help="rag / distill: how many examples to make")
     p.add_argument("--max-grad-norm", type=float, default=1.0)
