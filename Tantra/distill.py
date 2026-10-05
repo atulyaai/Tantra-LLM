@@ -37,6 +37,33 @@ PROMPT = {
 }
 
 
+ANSWER_PROMPT = {
+    "hindi": "नीचे दिए गए प्रश्न का उत्तर हिंदी में एक या दो पूरे वाक्यों में दें। केवल उत्तर लिखें।\n\nप्रश्न: {q}",
+    "english": "Answer the question below in one or two complete sentences. Write only the answer.\n\nQuestion: {q}",
+}
+
+
+def load_questions(path: str) -> List[str]:
+    """Your own question list: .txt (one question per line) or .jsonl ({"question": ...} or {"q": ...} per line)."""
+    out, seen = [], set()
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            if line.startswith("{"):
+                try:
+                    obj = json.loads(line)
+                except ValueError:
+                    continue
+                line = str(obj.get("question") or obj.get("q") or "").strip()
+            q = norm(line)
+            if q and q not in seen:
+                seen.add(q)
+                out.append(q)
+    return out
+
+
 def passages(rng: random.Random, hindi_share: float = 0.6) -> Iterator[str]:
     """Wikipedia passages, ~60% Hindi, streamed (no full download)."""
     from datasets import load_dataset
@@ -167,7 +194,7 @@ def build(data_dir: str, teacher: str = "Qwen/Qwen2.5-3B-Instruct", n: int = 200
           per_passage: int = 3, seed: Optional[int] = None,
           generate: Optional[Callable[[List[str]], List[str]]] = None,
           source: Optional[Iterator[str]] = None, teacher_url: str = "", teacher_model: str = "default",
-          workers: int = 2) -> Dict:
+          workers: int = 2, questions: str = "") -> Dict:
     out_dir = "/kaggle/working" if os.path.isdir("/kaggle/working") else data_dir
     out_path = os.path.join(out_dir, "sft_distill.jsonl")
     done = sum(1 for _ in open(out_path, encoding="utf-8")) if os.path.isfile(out_path) else 0
@@ -181,6 +208,8 @@ def build(data_dir: str, teacher: str = "Qwen/Qwen2.5-3B-Instruct", n: int = 200
     if teacher_url:
         teacher = f"{teacher_model} @ {teacher_url}"
         batch_size = max(1, workers)      # a slow local teacher: save after every few passages, lose nothing on Ctrl-C
+    if questions:
+        return _answer_questions(questions, out_path, generate, probe, batch_size, n, teacher)
     source = source or passages(rng)
     stats = {"pairs": done, "passages": 0, "replies_without_pairs": 0}
     log.info(f"Distilling with {teacher} -> {out_path} ({done:,} pairs already there, target {n:,})")
@@ -207,4 +236,38 @@ def build(data_dir: str, teacher: str = "Qwen/Qwen2.5-3B-Instruct", n: int = 200
                     stats["pairs"] += 1
             f.flush()
             log.info(f"  {stats['pairs']:,}/{n:,} pairs from {stats['passages']:,} passages")
+    return stats
+
+
+def _answer_questions(path: str, out_path: str, generate: Callable[[List[str]], List[str]], probe: set,
+                      batch_size: int, n: int, teacher: str) -> Dict:
+    """The teacher answers YOUR questions (no Wikipedia). Questions already in the output file are skipped."""
+    asked = set()
+    if os.path.isfile(out_path):
+        with open(out_path, encoding="utf-8") as f:
+            for l in f:
+                try:
+                    asked.add(norm(json.loads(l)["messages"][0]["content"]))
+                except (ValueError, KeyError, IndexError):
+                    pass
+    todo = [q for q in load_questions(path) if q not in asked and q not in probe and lang_of(q) in ANSWER_PROMPT]
+    stats = {"pairs": len(asked), "questions": 0, "skipped_replies": 0}
+    log.info(f"Answering {len(todo):,} of your questions with {teacher} -> {out_path} ({len(asked):,} already done)")
+    with open(out_path, "a", encoding="utf-8") as f:
+        for i in range(0, len(todo), batch_size):
+            if stats["pairs"] >= n:
+                break
+            batch = todo[i:i + batch_size]
+            replies = generate([ANSWER_PROMPT[lang_of(q)].format(q=q) for q in batch])
+            for q, reply in zip(batch, replies):
+                stats["questions"] += 1
+                a = norm(reply or "")
+                if len(a) < 8 or len(a) > 800 or foreign_assistant(a) or lang_of(q + " " + a) != lang_of(q):
+                    stats["skipped_replies"] += 1
+                    continue
+                f.write(json.dumps({"messages": [{"role": "user", "content": q},
+                                                 {"role": "assistant", "content": a}]}, ensure_ascii=False) + "\n")
+                stats["pairs"] += 1
+            f.flush()
+            log.info(f"  {stats['pairs']:,} pairs ({stats['questions']:,} questions asked)")
     return stats
