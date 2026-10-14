@@ -35,13 +35,13 @@ def main():
     )
 
     args = TrainArgs(
-        steps=100,
+        steps=1000,
         batch_size=8,
         gradient_accumulation=2,
         max_len=160,
-        lr=2e-4,
-        warmup=20,
-        log_every=10,
+        lr=1.5e-4,
+        warmup=30,
+        log_every=25,
         weight_decay=0.01,
     )
 
@@ -51,10 +51,11 @@ def main():
         a=args,
         resume=True,
         chat_fraction=0.20,
-        general_limit=40_000,
+        general_limit=60_000,
     )
 
-    logging.info(f"Adaptation finished. Current model parameters: {model.num_params():,}")
+    trainer.snapshot("small_bilingual_1000")
+    logging.info(f"Training complete. Current model parameters: {model.num_params():,}")
 
 
 if __name__ == "__main__":
