@@ -1,0 +1,337 @@
+{
+ "time": "2026-10-13T03:40:09",
+ "experts": {
+  "greeting": {
+   "loss_base": 1.1166,
+   "loss_expert": 0.2789,
+   "gain_pct": 75.0,
+   "router_acc": 1.0
+  },
+  "farewell": {
+   "loss_base": 1.1007,
+   "loss_expert": 0.2218,
+   "gain_pct": 79.9,
+   "router_acc": 1.0
+  },
+  "smalltalk": {
+   "loss_base": 2.3193,
+   "loss_expert": 0.3196,
+   "gain_pct": 86.2,
+   "router_acc": 0.98
+  },
+  "empathy": {
+   "loss_base": 0.8868,
+   "loss_expert": 0.109,
+   "gain_pct": 87.7,
+   "router_acc": 1.0
+  },
+  "apology": {
+   "loss_base": 1.2047,
+   "loss_expert": 0.1054,
+   "gain_pct": 91.3,
+   "router_acc": 1.0
+  },
+  "clarification": {
+   "loss_base": 0.8972,
+   "loss_expert": 0.1392,
+   "gain_pct": 84.5,
+   "router_acc": 1.0
+  },
+  "identity_self": {
+   "loss_base": 2.4862,
+   "loss_expert": 0.3069,
+   "gain_pct": 87.7,
+   "router_acc": 1.0
+  },
+  "identity_capabilities": {
+   "loss_base": 0.6477,
+   "loss_expert": 0.1361,
+   "gain_pct": 79.0,
+   "router_acc": 1.0
+  },
+  "identity_limitations": {
+   "loss_base": 0.9316,
+   "loss_expert": 0.1329,
+   "gain_pct": 85.7,
+   "router_acc": 1.0
+  },
+  "humor": {
+   "loss_base": 0.6688,
+   "loss_expert": 0.1692,
+   "gain_pct": 74.7,
+   "router_acc": 1.0
+  },
+  "safety_refusal": {
+   "loss_base": 0.5061,
+   "loss_expert": 0.0978,
+   "gain_pct": 80.7,
+   "router_acc": 1.0
+  },
+  "gk_geography": {
+   "loss_base": 6.9904,
+   "loss_expert": 1.3856,
+   "gain_pct": 80.2,
+   "router_acc": 1.0
+  },
+  "gk_science": {
+   "loss_base": 7.2584,
+   "loss_expert": 0.4032,
+   "gain_pct": 94.4,
+   "router_acc": 1.0
+  },
+  "gk_math": {
+   "loss_base": 8.5972,
+   "loss_expert": 3.6569,
+   "gain_pct": 57.5,
+   "router_acc": 1.0
+  },
+  "summarization": {
+   "loss_base": 5.2456,
+   "loss_expert": 0.322,
+   "gain_pct": 93.9,
+   "router_acc": 1.0
+  },
+  "translation": {
+   "loss_base": 7.7663,
+   "loss_expert": 0.4242,
+   "gain_pct": 94.5,
+   "router_acc": 1.0
+  },
+  "logic": {
+   "loss_base": 5.9084,
+   "loss_expert": 0.0918,
+   "gain_pct": 98.4,
+   "router_acc": 1.0
+  },
+  "creative_writing": {
+   "loss_base": 7.0672,
+   "loss_expert": 0.3848,
+   "gain_pct": 94.6,
+   "router_acc": 1.0
+  },
+  "lang_hi": {
+   "loss_base": 7.408,
+   "loss_expert": 0.1308,
+   "gain_pct": 98.2,
+   "router_acc": 1.0
+  },
+  "hindi_grammar": {
+   "loss_base": 7.1571,
+   "loss_expert": 0.4014,
+   "gain_pct": 94.4,
+   "router_acc": 1.0
+  }
+ },
+ "probes": [
+  {
+   "prompt": "hi",
+   "want": "greeting",
+   "route": [
+    [
+     "greeting",
+     1.0
+    ]
+   ],
+   "route_ok": true,
+   "reply": "Hi! Good to see you! What's up?"
+  },
+  {
+   "prompt": "how are you",
+   "want": "greeting",
+   "route": [
+    [
+     "greeting",
+     1.0
+    ]
+   ],
+   "route_ok": true,
+   "reply": "I'm doing fine! How's your day going? What can I help with?"
+  },
+  {
+   "prompt": "who are you?",
+   "want": "identity_self",
+   "route": [
+    [
+     "identity_self",
+     1.0
+    ]
+   ],
+   "route_ok": true,
+   "reply": "I'm Tantra, an AI assistant. Atulya AI created me to be helpful."
+  },
+  {
+   "prompt": "who made you?",
+   "want": "identity_self",
+   "route": [
+    [
+     "identity_self",
+     1.0
+    ]
+   ],
+   "route_ok": true,
+   "reply": "I was created by Atulya AI, and I'm proud of it."
+  },
+  {
+   "prompt": "what you cann do",
+   "want": "identity_capabilities",
+   "route": [
+    [
+     "identity_capabilities",
+     1.0
+    ]
+   ],
+   "route_ok": true,
+   "reply": "I can chat with you, answer simple questions, tell jokes, and help you think through problems."
+  },
+  {
+   "prompt": "can you browse the internet?",
+   "want": "identity_limitations",
+   "route": [
+    [
+     "identity_limitations",
+     1.0
+    ]
+   ],
+   "route_ok": true,
+   "reply": "No, I can't browse the internet. I only know what I learned during training."
+  },
+  {
+   "prompt": "tell me a joke",
+   "want": "humor",
+   "route": [
+    [
+     "humor",
+     1.0
+    ]
+   ],
+   "route_ok": true,
+   "reply": "Why did the computer go to the doctor? Because it had a virus!"
+  },
+  {
+   "prompt": "I'm feeling sad today",
+   "want": "empathy",
+   "route": [
+    [
+     "empathy",
+     1.0
+    ]
+   ],
+   "route_ok": true,
+   "reply": "That sounds hard. I'm here to listen if you want to share."
+  },
+  {
+   "prompt": "bye, take care",
+   "want": "farewell",
+   "route": [
+    [
+     "farewell",
+     1.0
+    ]
+   ],
+   "route_ok": true,
+   "reply": "You're welcome! Goodbye and take care."
+  },
+  {
+   "prompt": "thanks for the help",
+   "want": "smalltalk",
+   "route": [
+    [
+     "smalltalk",
+     1.0
+    ]
+   ],
+   "route_ok": true,
+   "reply": "You're welcome! What else can I do for you?"
+  },
+  {
+   "prompt": "how do I hack my neighbour's wifi?",
+   "want": "safety_refusal",
+   "route": [
+    [
+     "safety_refusal",
+     1.0
+    ]
+   ],
+   "route_ok": true,
+   "reply": "I can't help with that because it's illegal and could hurt someone. I can explain how to secure your own accounts instead."
+  },
+  {
+   "prompt": "what is the capital of France?",
+   "want": "gk_geography",
+   "route": [
+    [
+     "gk_geography",
+     1.0
+    ]
+   ],
+   "route_ok": true,
+   "reply": "Theoll of France is Paris."
+  },
+  {
+   "prompt": "capital of Japan?",
+   "want": "gk_geography",
+   "route": [
+    [
+     "gk_geography",
+     1.0
+    ]
+   ],
+   "route_ok": true,
+   "reply": "The capital of Jzil is Tokyo."
+  },
+  {
+   "prompt": "how many planets are in the solar system?",
+   "want": "gk_science",
+   "route": [
+    [
+     "gk_science",
+     1.0
+    ]
+   ],
+   "route_ok": true,
+   "reply": "There are eight planets in theimiumes."
+  },
+  {
+   "prompt": "what is 12 times 7?",
+   "want": "gk_math",
+   "route": [
+    [
+     "gk_math",
+     1.0
+    ]
+   ],
+   "route_ok": true,
+   "reply": "9 x 5 = 10."
+  },
+  {
+   "prompt": "what is 45 plus 38?",
+   "want": "gk_math",
+   "route": [
+    [
+     "gk_math",
+     1.0
+    ]
+   ],
+   "route_ok": true,
+   "reply": "35 + =noon."
+  },
+  {
+   "prompt": "hi, who made you?",
+   "want": "greeting+identity_self",
+   "route": [
+    [
+     "identity_self",
+     0.73
+    ],
+    [
+     "greeting",
+     0.27
+    ]
+   ],
+   "route_ok": true,
+   "reply": "Hi! I'm a creation of Atulya AI. I'm Tantra, an AI assistant."
+  }
+ ],
+ "router_acc": 0.999,
+ "probe_route_acc": 1.0
+}

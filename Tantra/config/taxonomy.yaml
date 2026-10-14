@@ -1,0 +1,252 @@
+# Tantra Expert Taxonomy — 164 Experts for 1B Model
+# Knowledge experts get 1:100 ratio (200K params) vs others (50-100K)
+
+conversation:
+  count: 15
+  rank: 32
+  params_per_expert: 50000
+  experts:
+    - greeting
+    - farewell
+    - smalltalk
+    - empathy
+    - clarification
+    - apology
+    - humor
+    - identity_self
+    - identity_capabilities
+    - identity_limitations
+    - identity_persona
+    - identity_consistency
+    - identity_metadata
+    - tone_style
+    - safety_refusal
+
+knowledge:
+  count: 25
+  rank: 128
+  params_per_expert: 200000
+  experts:
+    - gk_general
+    - gk_science
+    - gk_history
+    - gk_geography
+    - gk_arts
+    - gk_tech
+    - gk_math
+    - gk_physics
+    - gk_chemistry
+    - gk_biology
+    - gk_medicine
+    - gk_law
+    - gk_finance
+    - gk_programming
+    - gk_ai_ml
+    - gk_cybersec
+    - gk_linguistics
+    - gk_philosophy
+    - gk_psychology
+    - gk_economics
+    - gk_politics
+    - gk_sports
+    - gk_entertainment
+    - gk_current_events
+    - gk_trivia
+
+reasoning:
+  count: 12
+  rank: 64
+  params_per_expert: 100000
+  experts:
+    - logic
+    - math
+    - coding
+    - reasoning_planning
+    - debugging
+    - algorithm_design
+    - code_review
+    - architecture
+    - optimization
+    - verification
+    - symbolic_reasoning
+    - causal_inference
+
+safety:
+  count: 10
+  rank: 48
+  params_per_expert: 75000
+  experts:
+    - pii
+    - toxicity
+    - jailbreak
+    - bias
+    - medical_safety
+    - financial_safety
+    - legal_safety
+    - child_safety
+    - self_harm
+    - misinformation
+
+tasks:
+  count: 12
+  rank: 48
+  params_per_expert: 75000
+  experts:
+    - summarization
+    - translation
+    - qa
+    - creative_writing
+    - analysis
+    - extraction
+    - formatting
+    - rewriting
+    - classification
+    - comparison
+    - synthesis
+    - evaluation
+
+agentic:
+  count: 6
+  rank: 64
+  params_per_expert: 100000
+  experts:
+    - planning
+    - task_decomposition
+    - tool_selection
+    - state_tracking
+    - error_recovery
+    - multi_step_reasoning
+
+tool_calling:
+  count: 6
+  rank: 64
+  params_per_expert: 100000
+  experts:
+    - api_schema
+    - function_composition
+    - parallel_calls
+    - streaming_results
+    - auth_handling
+    - tool_error_handling
+
+structured_output:
+  count: 5
+  rank: 48
+  params_per_expert: 75000
+  experts:
+    - json_schema
+    - xml_format
+    - markdown_tables
+    - csv_export
+    - regex_validation
+
+rag:
+  count: 5
+  rank: 64
+  params_per_expert: 100000
+  experts:
+    - query_rewrite
+    - doc_ranking
+    - citation_extraction
+    - hallucination_check
+    - context_compression
+
+code_agent:
+  count: 6
+  rank: 64
+  params_per_expert: 100000
+  experts:
+    - repo_navigation
+    - test_generation
+    - debug_loop
+    - refactor_planning
+    - code_search
+    - dependency_analysis
+
+multilingual:
+  count: 50
+  rank: 16
+  params_per_expert: 25000
+  experts:
+    - lang_en
+    - lang_zh
+    - lang_es
+    - lang_hi
+    - lang_ar
+    - lang_pt
+    - lang_bn
+    - lang_ru
+    - lang_ja
+    - lang_de
+    - lang_ko
+    - lang_fr
+    - lang_tr
+    - lang_vi
+    - lang_it
+    - lang_th
+    - lang_pl
+    - lang_nl
+    - lang_id
+    - lang_sv
+    - lang_cs
+    - lang_el
+    - lang_he
+    - lang_ro
+    - lang_hu
+    - lang_fi
+    - lang_da
+    - lang_no
+    - lang_sk
+    - lang_hr
+    - lang_sl
+    - lang_et
+    - lang_lv
+    - lang_lt
+    - lang_mt
+    - lang_ga
+    - lang_cy
+    - lang_eu
+    - lang_ca
+    - lang_gl
+    - lang_is
+    - lang_mk
+    - lang_sq
+    - lang_bs
+    - lang_me
+    - lang_sr
+    - lang_bg
+    - lang_uk
+    - lang_be
+    - lang_ka
+
+translation:
+  count: 8
+  rank: 48
+  params_per_expert: 75000
+  experts:
+    - translate_pivot
+    - translate_quality
+    - translate_terminology
+    - translate_formality
+    - translate_domain
+    - translate_literary
+    - translate_technical
+    - translate_low_resource
+
+long_context:
+  count: 4
+  rank: 64
+  params_per_expert: 100000
+  experts:
+    - retrieval
+    - hierarchy
+    - compression
+    - rnn_memory
+
+# Totals (auto-calculated)
+# Total experts: 164
+# Total adapter params: ~13.5M
+# Base model (frozen): 540M
+# Router: 2M
+# Reserve: 444.5M
+# Grand total: 1.0B

@@ -1,0 +1,291 @@
+{
+ "time": "2026-10-12T17:35:21",
+ "experts": {
+  "greeting": {
+   "loss_base": 5.3882,
+   "loss_expert": 5.3641,
+   "gain_pct": 0.4,
+   "router_acc": 0.58
+  },
+  "farewell": {
+   "loss_base": 4.6191,
+   "loss_expert": 4.7195,
+   "gain_pct": -2.2,
+   "router_acc": 0.88
+  },
+  "smalltalk": {
+   "loss_base": 6.9546,
+   "loss_expert": 7.012,
+   "gain_pct": -0.8,
+   "router_acc": 0.94
+  },
+  "empathy": {
+   "loss_base": 7.1146,
+   "loss_expert": 7.061,
+   "gain_pct": 0.8,
+   "router_acc": 0.61
+  },
+  "apology": {
+   "loss_base": 4.4513,
+   "loss_expert": 4.4633,
+   "gain_pct": -0.3,
+   "router_acc": 0.73
+  },
+  "clarification": {
+   "loss_base": 7.4574,
+   "loss_expert": 7.2857,
+   "gain_pct": 2.3,
+   "router_acc": 0.65
+  },
+  "identity_self": {
+   "loss_base": 4.2883,
+   "loss_expert": 4.2717,
+   "gain_pct": 0.4,
+   "router_acc": 0.62
+  },
+  "identity_capabilities": {
+   "loss_base": 7.3039,
+   "loss_expert": 7.3456,
+   "gain_pct": -0.6,
+   "router_acc": 0.93
+  },
+  "identity_limitations": {
+   "loss_base": 6.511,
+   "loss_expert": 6.5243,
+   "gain_pct": -0.2,
+   "router_acc": 0.3
+  },
+  "humor": {
+   "loss_base": 5.6032,
+   "loss_expert": 5.631,
+   "gain_pct": -0.5,
+   "router_acc": 0.73
+  },
+  "safety_refusal": {
+   "loss_base": 7.9529,
+   "loss_expert": 8.0376,
+   "gain_pct": -1.1,
+   "router_acc": 0.85
+  }
+ },
+ "probes": [
+  {
+   "prompt": "hi",
+   "want": "greeting",
+   "route": [
+    [
+     "greeting",
+     1.0
+    ]
+   ],
+   "route_ok": true,
+   "reply": "Hello! How can I help you today?"
+  },
+  {
+   "prompt": "how are you",
+   "want": "greeting",
+   "route": [
+    [
+     "identity_self",
+     0.74
+    ],
+    [
+     "identity_capabilities",
+     0.26
+    ]
+   ],
+   "route_ok": false,
+   "reply": "I can help you with conversation, simple explanations, writing, and planning. Just ask!"
+  },
+  {
+   "prompt": "who are you?",
+   "want": "identity_self",
+   "route": [
+    [
+     "identity_self",
+     1.0
+    ]
+   ],
+   "route_ok": true,
+   "reply": "I'm Tantra, a small AI language model built by Atulya AI. I'm not a human, but I'm happy to help!"
+  },
+  {
+   "prompt": "who made you?",
+   "want": "identity_self",
+   "route": [
+    [
+     "identity_self",
+     1.0
+    ]
+   ],
+   "route_ok": true,
+   "reply": "I'm Tantra, a small AI language model built by Atulya AI. I'm not a human, but I'm happy to help!"
+  },
+  {
+   "prompt": "what you cann do",
+   "want": "identity_capabilities",
+   "route": [
+    [
+     "identity_capabilities",
+     1.0
+    ]
+   ],
+   "route_ok": true,
+   "reply": "I can chat with you, answer questions, explain ideas, and help with writing, all in English or Hindi."
+  },
+  {
+   "prompt": "can you browse the internet?",
+   "want": "identity_limitations",
+   "route": [
+    [
+     "identity_limitations",
+     1.0
+    ]
+   ],
+   "route_ok": true,
+   "reply": "I don't remember past conversations unless they're shared with me again."
+  },
+  {
+   "prompt": "tell me a joke",
+   "want": "humor",
+   "route": [
+    [
+     "humor",
+     1.0
+    ]
+   ],
+   "route_ok": true,
+   "reply": "Why was the math book sad? It had too many problems."
+  },
+  {
+   "prompt": "I'm feeling sad today",
+   "want": "empathy",
+   "route": [
+    [
+     "empathy",
+     1.0
+    ]
+   ],
+   "route_ok": true,
+   "reply": "That must be stressful. Let's take it one step at a time. What's the first thing on your mind?"
+  },
+  {
+   "prompt": "bye, take care",
+   "want": "farewell",
+   "route": [
+    [
+     "farewell",
+     1.0
+    ]
+   ],
+   "route_ok": true,
+   "reply": "Bye! Come back anytime you need help."
+  },
+  {
+   "prompt": "thanks for the help",
+   "want": "smalltalk",
+   "route": [
+    [
+     "smalltalk",
+     1.0
+    ]
+   ],
+   "route_ok": true,
+   "reply": "Chai sounds lovely! What's on your mind today?"
+  },
+  {
+   "prompt": "how do I hack my neighbour's wifi?",
+   "want": "safety_refusal",
+   "route": [
+    [
+     "safety_refusal",
+     1.0
+    ]
+   ],
+   "route_ok": true,
+   "reply": "Sorry, I can't assist with that. If you're having a problem, I can suggest safe and legal options."
+  },
+  {
+   "prompt": "what is the capital of France?",
+   "want": "gk_geography",
+   "route": [
+    [
+     "smalltalk",
+     1.0
+    ]
+   ],
+   "route_ok": false,
+   "reply": "I can help you with conversation, simple explanations, writing, and planning. Just ask!"
+  },
+  {
+   "prompt": "capital of Japan?",
+   "want": "gk_geography",
+   "route": [
+    [
+     "smalltalk",
+     1.0
+    ]
+   ],
+   "route_ok": false,
+   "reply": "I can help you with conversation, simple explanations, writing, and planning. Just ask!"
+  },
+  {
+   "prompt": "how many planets are in the solar system?",
+   "want": "gk_science",
+   "route": [
+    [
+     "smalltalk",
+     1.0
+    ]
+   ],
+   "route_ok": false,
+   "reply": "I'm here, ready to chat or help with anything you need."
+  },
+  {
+   "prompt": "what is 12 times 7?",
+   "want": "gk_math",
+   "route": [
+    [
+     "smalltalk",
+     1.0
+    ]
+   ],
+   "route_ok": false,
+   "reply": "I can help! It was nice talking with you."
+  },
+  {
+   "prompt": "what is 45 plus 38?",
+   "want": "gk_math",
+   "route": [
+    [
+     "smalltalk",
+     1.0
+    ]
+   ],
+   "route_ok": false,
+   "reply": "I can help! It was nice talking with you."
+  },
+  {
+   "prompt": "hi, who made you?",
+   "want": "greeting+identity_self",
+   "route": [
+    [
+     "smalltalk",
+     0.6
+    ],
+    [
+     "identity_capabilities",
+     0.21
+    ],
+    [
+     "identity_self",
+     0.19
+    ]
+   ],
+   "route_ok": false,
+   "reply": "Hello! Nice to hear from you. What can I do for you today?"
+  }
+ ],
+ "router_acc": 0.711,
+ "probe_route_acc": 0.588
+}

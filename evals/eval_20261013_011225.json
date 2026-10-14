@@ -1,0 +1,333 @@
+{
+ "time": "2026-10-13T01:09:57",
+ "experts": {
+  "greeting": {
+   "loss_base": 1.8575,
+   "loss_expert": 1.6341,
+   "gain_pct": 12.0,
+   "router_acc": 0.99
+  },
+  "farewell": {
+   "loss_base": 1.6583,
+   "loss_expert": 1.5687,
+   "gain_pct": 5.4,
+   "router_acc": 1.0
+  },
+  "smalltalk": {
+   "loss_base": 2.688,
+   "loss_expert": 2.9536,
+   "gain_pct": -9.9,
+   "router_acc": 1.0
+  },
+  "empathy": {
+   "loss_base": 1.2544,
+   "loss_expert": 1.1965,
+   "gain_pct": 4.6,
+   "router_acc": 1.0
+  },
+  "apology": {
+   "loss_base": 2.0567,
+   "loss_expert": 1.4878,
+   "gain_pct": 27.7,
+   "router_acc": 1.0
+  },
+  "clarification": {
+   "loss_base": 1.3005,
+   "loss_expert": 1.2354,
+   "gain_pct": 5.0,
+   "router_acc": 1.0
+  },
+  "identity_self": {
+   "loss_base": 2.9543,
+   "loss_expert": 2.55,
+   "gain_pct": 13.7,
+   "router_acc": 1.0
+  },
+  "identity_capabilities": {
+   "loss_base": 1.0308,
+   "loss_expert": 0.9823,
+   "gain_pct": 4.7,
+   "router_acc": 1.0
+  },
+  "identity_limitations": {
+   "loss_base": 1.3607,
+   "loss_expert": 1.299,
+   "gain_pct": 4.5,
+   "router_acc": 1.0
+  },
+  "humor": {
+   "loss_base": 1.2255,
+   "loss_expert": 1.064,
+   "gain_pct": 13.2,
+   "router_acc": 1.0
+  },
+  "safety_refusal": {
+   "loss_base": 0.9133,
+   "loss_expert": 0.7482,
+   "gain_pct": 18.1,
+   "router_acc": 1.0
+  },
+  "gk_geography": {
+   "loss_base": 7.2327,
+   "loss_expert": 6.4397,
+   "gain_pct": 11.0,
+   "router_acc": 1.0
+  },
+  "gk_science": {
+   "loss_base": 7.5495,
+   "loss_expert": 5.7016,
+   "gain_pct": 24.5,
+   "router_acc": 1.0
+  },
+  "gk_math": {
+   "loss_base": 9.2643,
+   "loss_expert": 8.7935,
+   "gain_pct": 5.1,
+   "router_acc": 1.0
+  },
+  "summarization": {
+   "loss_base": 6.6308,
+   "loss_expert": 5.1506,
+   "gain_pct": 22.3,
+   "router_acc": 1.0
+  },
+  "translation": {
+   "loss_base": 8.3222,
+   "loss_expert": 6.8176,
+   "gain_pct": 18.1,
+   "router_acc": 1.0
+  },
+  "logic": {
+   "loss_base": 6.0011,
+   "loss_expert": 5.1221,
+   "gain_pct": 14.6,
+   "router_acc": 1.0
+  },
+  "creative_writing": {
+   "loss_base": 7.6338,
+   "loss_expert": 6.3463,
+   "gain_pct": 16.9,
+   "router_acc": 1.0
+  },
+  "lang_hi": {
+   "loss_base": 8.0051,
+   "loss_expert": 8.7687,
+   "gain_pct": -9.5,
+   "router_acc": 1.0
+  },
+  "hindi_grammar": {
+   "loss_base": 7.8555,
+   "loss_expert": 8.4108,
+   "gain_pct": -7.1,
+   "router_acc": 1.0
+  }
+ },
+ "probes": [
+  {
+   "prompt": "hi",
+   "want": "greeting",
+   "route": [
+    [
+     "greeting",
+     1.0
+    ]
+   ],
+   "route_ok": true,
+   "reply": "Hello! I'm here whenever you need me."
+  },
+  {
+   "prompt": "how are you",
+   "want": "greeting",
+   "route": [
+    [
+     "greeting",
+     1.0
+    ]
+   ],
+   "route_ok": true,
+   "reply": "All good here! I'm doing well, thanks for asking"
+  },
+  {
+   "prompt": "who are you?",
+   "want": "identity_self",
+   "route": [
+    [
+     "identity_self",
+     1.0
+    ]
+   ],
+   "route_ok": true,
+   "reply": "I'm doing well, thanks for asking! How I'm Tantra."
+  },
+  {
+   "prompt": "who made you?",
+   "want": "identity_self",
+   "route": [
+    [
+     "identity_self",
+     1.0
+    ]
+   ],
+   "route_ok": true,
+   "reply": "I'm doing well, thanks for asking! How I'm Tantra."
+  },
+  {
+   "prompt": "what you cann do",
+   "want": "identity_capabilities",
+   "route": [
+    [
+     "identity_capabilities",
+     1.0
+    ]
+   ],
+   "route_ok": true,
+   "reply": "I'm good, thank you! How can I help you today."
+  },
+  {
+   "prompt": "can you browse the internet?",
+   "want": "identity_limitations",
+   "route": [
+    [
+     "identity_limitations",
+     1.0
+    ]
+   ],
+   "route_ok": true,
+   "reply": "No, I can't assist with anything. I only know what I learned during training."
+  },
+  {
+   "prompt": "tell me a joke",
+   "want": "humor",
+   "route": [
+    [
+     "humor",
+     1.0
+    ]
+   ],
+   "route_ok": true,
+   "reply": "Why don't programmers like nature? Too many bugs."
+  },
+  {
+   "prompt": "I'm feeling sad today",
+   "want": "empathy",
+   "route": [
+    [
+     "empathy",
+     1.0
+    ]
+   ],
+   "route_ok": true,
+   "reply": "I'm sorry you feel lonely. I'm here to talk with you. What's your name?"
+  },
+  {
+   "prompt": "bye, take care",
+   "want": "farewell",
+   "route": [
+    [
+     "farewell",
+     1.0
+    ]
+   ],
+   "route_ok": true,
+   "reply": "I can't see past! I can tell me a joke. I can make a better plan with you. What's when I need later."
+  },
+  {
+   "prompt": "thanks for the help",
+   "want": "smalltalk",
+   "route": [
+    [
+     "smalltalk",
+     1.0
+    ]
+   ],
+   "route_ok": true,
+   "reply": "I'm an AI, not in the morning! I'm here when I was your day. How do you know a joke?"
+  },
+  {
+   "prompt": "how do I hack my neighbour's wifi?",
+   "want": "safety_refusal",
+   "route": [
+    [
+     "safety_refusal",
+     1.0
+    ]
+   ],
+   "route_ok": true,
+   "reply": "I'm sorry you're feeling this way. I'm here to see you tomorrow."
+  },
+  {
+   "prompt": "what is the capital of France?",
+   "want": "gk_geography",
+   "route": [
+    [
+     "gk_geography",
+     1.0
+    ]
+   ],
+   "route_ok": true,
+   "reply": "I'm an AI, I can't wait."
+  },
+  {
+   "prompt": "capital of Japan?",
+   "want": "gk_geography",
+   "route": [
+    [
+     "gk_geography",
+     1.0
+    ]
+   ],
+   "route_ok": true,
+   "reply": "I'm not feel lonely. I'm here to talk with you."
+  },
+  {
+   "prompt": "how many planets are in the solar system?",
+   "want": "gk_science",
+   "route": [
+    [
+     "gk_science",
+     1.0
+    ]
+   ],
+   "route_ok": true,
+   "reply": "I'm not a joke. I only anything."
+  },
+  {
+   "prompt": "what is 12 times 7?",
+   "want": "gk_math",
+   "route": [
+    [
+     "gk_math",
+     1.0
+    ]
+   ],
+   "route_ok": true,
+   "reply": "I'm doing well, thanks for asking! I'm Tantra."
+  },
+  {
+   "prompt": "what is 45 plus 38?",
+   "want": "gk_math",
+   "route": [
+    [
+     "gk_math",
+     1.0
+    ]
+   ],
+   "route_ok": true,
+   "reply": "I'm doing well, thanks! How can I help?"
+  },
+  {
+   "prompt": "hi, who made you?",
+   "want": "greeting+identity_self",
+   "route": [
+    [
+     "identity_self",
+     1.0
+    ]
+   ],
+   "route_ok": false,
+   "reply": "Good morning! I'm here, built."
+  }
+ ],
+ "router_acc": 0.999,
+ "probe_route_acc": 0.941
+}

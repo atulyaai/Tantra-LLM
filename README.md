@@ -1,289 +1,230 @@
-<!-- Full-width hero banner -->
-<div align="center">
-  <img src="Assets/tantra_hero_banner_animated.gif" alt="Tantra LLM - Weaving Intelligence" width="100%"/>
-</div>
+# Tantra-LLM
 
-<div align="center">
-  <h1>
-    <img src="https://readme-typing-svg.herokuapp.com?font=Cinzel&weight=700&size=45&duration=4000&pause=1000&color=F7931A&center=true&vCenter=true&width=600&height=80&lines=TANTRA+LLM;WEAVING+INTELLIGENCE;तन्त्र" alt="TANTRA LLM — Weaving Intelligence तन्त्र" />
-  </h1>
-</div>
+A CPU-first sparse Mixture-of-Adapters language model. One small shared base transformer, many tiny LoRA experts, and a cheap router that picks which experts each request needs.
 
-<p align="center">
-  <em><strong>तन्त्र</strong> (Sanskrit) — An instrument that weaves threads of knowledge ·
-  <strong>तंत्र</strong> (Hindi) — System, mechanism, governance</em>
-</p>
+**Current model (stage 1)**: 4.7M base + 11 conversation experts, ~29 tokens/sec on a laptop CPU.
 
-<p align="center">
-  <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.10%2B-blue.svg" alt="Python 3.10+"/></a>
-  <a href="https://pytorch.org/"><img src="https://img.shields.io/badge/pytorch-2.2%2B-ee4c2c.svg" alt="PyTorch 2.2+"/></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-F7931A.svg?style=flat-square" alt="MIT License"/></a>
-  <a href="#-honest-status"><img src="https://img.shields.io/badge/status-v2_rebuild-orange.svg" alt="Status: v2 rebuild"/></a>
-  <a href="#-tests"><img src="https://img.shields.io/badge/tests-61_passing-brightgreen.svg" alt="61 tests passing"/></a>
-  <a href="#"><img src="https://img.shields.io/badge/Made_in-India_🇮🇳-FF9933.svg" alt="Made in India"/></a>
-</p>
+---
 
-**Tantra** is the brain of **Atulya** — a **Hindi-first, CPU-first language model built from scratch**.
-**Atulya** is the assistant ecosystem (app, memory, tools, voice); **Tantra** is the model that thinks.
-Tokenizer, architecture, training loop and WebUI are all our own code — no pretrained language model from anyone else.
-
-> **Current state (26 Sep 2026):** v2 code is complete and tested. **No trained model yet** — the first long training run is next. No benchmark numbers are claimed until a command in this repo measures them.
+## How it works
 
 ```
- ┌──────────────────────────────────────────────────────────────────────────────┐
- │                               TANTRA  v2                                     │
- ├──────────────────────────────────────────────────────────────────────────────┤
- │  💬 Hindi · Hinglish · English  ──►  64k Byte-level BPE tokenizer            │
- │                                              │                               │
- │            ═══════►  [ ALRA, ALRA, ALRA, Window-Attention ] × N  ═══════►    │
- │                       linear-time memory   exact recall of last 512 tokens   │
- │                                              │                               │
- │            + optional category layer (greetings / math / code …)             │
- │                                              ▼                               │
- │   🖥️ WebUI (chat · training · model)   🔌 OpenAI-compatible API   🎙️ voice   │
- │                                                                              │
- │        ⚡ ~70M "small" preset · grows toward ~1B · 100% offline on CPU        │
- └──────────────────────────────────────────────────────────────────────────────┘
+   user message
+        │
+        ▼
+┌─────────────────┐   bag-of-embeddings classifier, one tiny matmul
+│     Router      │   → picks 1-4 experts (adaptive: "hi" = 1, "hi, who are you?" = 2)
+└────────┬────────┘
+         │  active = [("greeting", 0.7), ("identity_self", 0.3)]
+         ▼
+┌─────────────────────────────────────────────────────┐
+│           shared base transformer                   │
+│   RoPE · grouped-query attention · SwiGLU · RMSNorm │
+│   tied embeddings · KV-cached generation            │
+│                                                     │
+│   every Linear layer can carry named LoRA experts:  │
+│                                                     │
+│   y = base(x) + Σ  (x @ Aₙ @ Bₙ) · scale · wₙ     │
+│                     └ only ACTIVE experts run ──┘   │
+└─────────────────────────────────────────────────────┘
+```
+
+Design points:
+
+- **Sparse, not dense.** Only the selected experts run, so adding expert #1000 costs disk space, not CPU time.
+- **One file per expert.** `Model/experts/greeting.pt` can be trained, replaced or deleted without touching anything else.
+- **Adaptive routing.** The router decides *how many* experts a message needs (up to 4), based on cumulative probability.
+- **Function-preserving growth.** `grow_depth()` inserts layers with zeroed output projections — output is bit-identical, training continues from there: tiny → small → base → 1B on the same laptop.
+- **CPU-first.** INT8 dynamic quantization of base matmuls (~4× smaller); experts stay fp32 because they're tiny.
+
+---
+
+## Training pipeline
+
+| Stage | What | Command |
+|-------|------|---------|
+| 0 | Seed curated data + general corpus | `python -m Tantra seed` |
+| 1 | Train BPE tokenizer (8k vocab) | `python -m Tantra tokenizer` |
+| 2 | Train base on **general text** | `python -m Tantra base --preset tiny --steps 1500` |
+| 3 | Train each expert alone (frozen base) | `python -m Tantra expert greeting identity_self` |
+| 4 | Train router (message → experts) | `python -m Tantra router` |
+| 5 | Grow, then continue | `python -m Tantra grow --layers 2` |
+
+Everything at once:
+
+```bash
+python -m Tantra stage1 --preset tiny
+```
+
+**Base vs expert data.** The base trains on the general corpus
+(`Datasets/general/`) **plus all the chat data**, which is what keeps
+conversation fluent (a plain-text-only base writes gibberish in chat —
+measured). Each expert then refines on its own full dataset while everything
+else is frozen, sharpening its domain style when the router activates it.
+
+> Note on the held-out metric: the stage-1 data is template-generated and very
+> homogeneous, so the base already predicts any held-out slice at low loss.
+> Held-out loss therefore stays roughly flat across expert training — it is
+> not a meaningful quality signal at this scale. What matters is the generated
+> replies and routing, both of which are verified end-to-end.
+
+**Router learns mixed messages.** During router training, user texts from two
+different experts are concatenated and labeled with both, so `"hi, who made
+you?"` activates *greeting* and *identity_* experts together instead of
+picking one.
+
+Each expert trains in isolation — training `greeting` never touches
+`identity_self`, so experts can be retrained one at a time.
+
+**Checkpoints.** `stage1` snapshots the full model state (tokenizer + base +
+router + all experts) to `checkpoints/stage1_latest/` when it finishes. Save a
+named snapshot anytime with:
+
+```bash
+python -m Tantra checkpoint --tag before_growth
 ```
 
 ---
 
-## 📊 Honest status
+## Inference
 
-| Part | State |
-| :--- | :---: |
-| **Tokenizer** — 64k Hindi+English BPE, fixed for all model sizes | ✅ |
-| **Architecture** — hybrid 3 ALRA : 1 sliding-window attention (cached generation = full recompute, tested) | ✅ |
-| **Training** — streams any-size JSONL, packs windows, resumes exactly (fp32 weights + optimizer + LR schedule) | ✅ |
-| **Growth** — new layers start as an exact identity, so growing never makes the model forget | ✅ |
-| **Category layers** — one specialist layer per topic, trained while the base is frozen | ✅ |
-| **Evaluation** — validation loss + fixed 50-question recall probe every eval | ✅ |
-| **WebUI** — streaming chat, live training dashboard, checkpoint manager, test & export | ✅ |
-| **Trained model** | ⏳ next |
-| **Speech** — Whisper (STT) / Kokoro-82M (TTS) as optional plug-ins | 🔌 optional |
-| **Knowledge store (Smriti / "DNA memory")** | 🗺️ planned |
+```bash
+python -m Tantra ask "who are you?"        # single question
+python -m Tantra chat                      # interactive, shows router weights
+python -m Tantra chat --int8               # INT8 quantized (less RAM, faster)
+python -m Tantra bench                     # real tokens/sec on your CPU
+```
+
+Example:
+
+```
+You: hi, who made you?
+Tantra: I'm Tantra, an AI assistant made by Atulya AI.
+   [greeting:0.45, identity_self:0.55]
+```
 
 ---
 
-## 🏛️ How it works
+## Model sizes
 
-<div align="center">
-  <img src="Assets/tantra_logo.jpg" alt="Tantra LLM Official Emblem" width="260"/>
-  <p><em><strong>तन्त्र (Tantra)</strong> — The Sovereign Neural Engine of Atulya</em></p>
-  <br/>
-  <img src="Assets/tantra_architecture.png" alt="Tantra LLM Neural Architecture Pipeline" width="100%"/>
-  <p><em>Hybrid Transformer: 64k BPE Tokenizer ──▶ 3x ALRA (Linear Time Memory) : 1x Sliding-Window Attention (Exact Recall) ──▶ Category Layer ──▶ CPU-First Streaming WebUI</em></p>
-</div>
+| Preset | Base params | d_model | Layers | Use |
+|--------|------------|---------|--------|-----|
+| `tiny` | ~6.5M | 256 | 6 | smoke tests, current stage |
+| `small` | ~32M | 512 | 8 | first real stage |
+| `base` | ~213M | 1024 | 16 | mid scale |
+| `1b` | ~1012M | 2048 | 21 | target size |
+| `7b` | ~6624M | 4096 | 36 | beyond |
 
-
-```
-text ─► 64k tokenizer ─► embedding ─► [ ALRA, ALRA, ALRA, Window-Attention ] × N ─► next token
-                                         │ linear-time memory     │ exact recall of the last 512 tokens
-                                         └─ constant memory per generated token on CPU
-                                    + optional: category layer (e.g. "math") after the base stack
-```
-
-* **Why hybrid:** linear/recurrent layers are fast with constant memory but weak at exact recall; a few exact-attention layers fix that.
-* **Why 64k vocab for every size:** the tokenizer never changes, so a model grows from ~70M toward ~1B (more layers) without retraining from zero.
-* **Why ~70M first:** model size follows data (~20 tokens per parameter). `master_train.jsonl` ≈ 0.4B tokens → tens of millions of parameters.
-* **Speed on CPU:** chunked recurrent attention, one-pass prompt prefill, int8 inference (`--int8`).
-
-### 🔬 Math
-
-**ALRA gated linear attention** (exact chunkwise-parallel form of this recurrence):
-$$S_t = g_t \cdot S_{t-1} + K_t^T V_t, \quad z_t = g_t \cdot z_{t-1} + K_t, \quad o_t = \frac{Q_t \cdot S_t}{Q_t \cdot z_t + \epsilon}$$
-
-**DPO preference loss** (`--mode dpo`):
-$$\mathcal{L}_{\text{DPO}} = -\mathbb{E}\left[ \log \sigma \left( \beta \log \frac{\pi_\theta(y_w|x)}{\pi_{\text{ref}}(y_w|x)} - \beta \log \frac{\pi_\theta(y_l|x)}{\pi_{\text{ref}}(y_l|x)} \right) \right]$$
+Scaling path: train at `tiny`, finish the stage, `grow_depth()`, continue at the next size. The same checkpoints and expert files keep working.
 
 ---
 
-## 🚀 Start (Windows)
+## Stage-1 experts (11)
 
-Double-click **`tantra.bat`**:
+| Expert | Data |
+|--------|------|
+| greeting | hellos, first contact |
+| farewell | goodbyes, closing |
+| smalltalk | casual chat |
+| empathy | emotional support |
+| apology | sorry / recovery |
+| clarification | "what do you mean?" |
+| identity_self | who am I |
+| identity_capabilities | what can I do |
+| identity_limitations | what I can't do |
+| humor | jokes, lightening the mood |
+| safety_refusal | refusing harmful requests |
+
+Taxonomy for the full 164-expert / 13-domain design lives in `Tantra/config/taxonomy.yaml`.
+
+---
+
+## Data
 
 ```
-1 Train   2 Chat   3 WebUI   4 Test the model   5 Export   6 Build tokenizer   7 Install   8 Code tests
+Datasets/curated/<domain>/<expert>.jsonl   # specialist chat data (experts only)
+Datasets/general/general.jsonl             # plain English text (base only)
 ```
 
-Same from a terminal:
+Curated rows use the chat format:
+
+```json
+{"messages": [{"role": "user", "content": "hello"},
+              {"role": "assistant", "content": "Hi! What can I do for you?"}]}
+```
+
+General rows are plain text (no roles):
+
+```json
+{"text": "Water expands when it freezes, which is why ice floats on a lake."}
+```
+
+- 1,500 curated rows per stage-1 expert; ~6,000 general rows for base training
+- Junk filter drops template filler (`"Sample 12 of 10000"`) and exact duplicates at load time
+- Legacy `{"text": "<|user|>...<|assistant|>..."}` rows are converted automatically
+
+---
+
+## Project layout
+
+```
+Tantra/
+├── main.py                  # CLI (python -m Tantra ...)
+├── tokenizer.py             # byte-level BPE, 8k vocab, no <unk>
+├── config/                  # size presets, taxonomy
+│   └── taxonomy.yaml        # 164 experts / 13 domains (full design)
+├── model/tantra_model.py    # base transformer, LoRA experts, router, growth
+├── training/tantra_trainer.py  # 5-stage pipeline
+├── data/
+│   ├── expert_dataset.py    # jsonl loading, junk filter, encoding
+│   ├── seed_conversation.py # curated chat data generator (experts)
+│   └── seed_general.py      # plain-text corpus generator (base)
+├── inference/               # KV-cached engine, INT8, benchmark
+└── utils/                   # health monitor, expert lifecycle
+Datasets/curated/            # specialist chat data (11 experts)
+Datasets/general/            # plain English text for base training
+Model/
+├── tokenizer.json
+├── base.pt                  # base + router
+└── experts/<name>.pt        # one file per expert
+checkpoints/                 # saved snapshots (stage1_latest, custom tags)
+Model_v1/                    # backup of first trained model
+tests/test_tantra.py         # 14 tests (pytest)
+```
+
+---
+
+## Tests
+
+```bash
+python -m pytest tests/ -v
+```
+
+14 tests: forward/loss shapes, expert isolation, KV-cache equivalence, function-preserving growth, router add/remove, save/load roundtrip, INT8, adaptive routing count, junk filtering, end-to-end tiny pipeline.
+
+---
+
+## Known limitations (tiny stage)
+
+- **Template data caps quality.** Stage-1 data is template-composed English
+  (recombined intents/phrasings). The base reaches loss ~0.3 and replies are
+  fluent, but knowledge and open-ended ability are limited by the data, not
+  the architecture. Real scraped text is needed before the `base` preset.
+- **Mixed prompts**: the router mean-pools token embeddings, so in a mixed
+  message like `"hi, who made you?"` the second intent is diluted — it now
+  activates two experts (progress over one), but the pair isn't always the
+  right one. Attention pooling or a deeper router fixes this at higher presets.
+- **INT8 is slower at tiny size** (30.8 vs 55.1 tok/s measured): dynamic
+  quantization overhead outweighs the smaller matmuls when the base is only
+  4.7M params. INT8 pays off from the `small` preset up.
+
+---
+
+## Requirements
+
+- Python 3.12, PyTorch (CPU), `tokenizers`, `pyyaml`
+- ~450 MB RAM to train the tiny stage; no GPU needed
 
 ```bash
 pip install -r requirements.txt
-python main.py --mode train          # continues automatically; Ctrl+C saves
-python main.py --mode chat --int8    # int8 output head = ~1.3x faster on CPU
-python main.py --mode serve --int8   # WebUI on http://127.0.0.1:8000
-python main.py --mode eval           # val loss + 50 questions + speed
-python -m pytest Tests -q            # code tests
-python main.py --mode export --int4  # small inference file: 4-bit weights (group scale 64), ~2.4x smaller than fp16
 ```
-
-**Train on a free GPU (Kaggle or Colab)** — much faster than a laptop CPU, uses all GPUs:
-
-1. On your PC: `python main.py --mode pack --with-checkpoint` → upload the files in `kaggle_upload/` as a Kaggle dataset
-   named *tantra-data* (or to Google Drive → `MyDrive/tantra-data` for Colab).
-2. In a Kaggle/Colab notebook with a GPU, run one cell (or open `kaggle_train.ipynb`):
-
-```python
-!rm -rf /tmp/Tantra-LLM && git clone -q --depth 1 https://github.com/atulyaai/Tantra-LLM.git /tmp/Tantra-LLM
-%run /tmp/Tantra-LLM/cloud_train.py --stage pretrain
-```
-
-It stops cleanly before the time limit and continues next time. On your PC: `python main.py --mode train --gpus auto`
-uses every local GPU.
-
-**Bigger model (mixture of experts):** `--fresh --preset moe` starts a new ~280M-parameter model: per layer 16 small
-experts (each token uses 2) plus one shared expert every token uses (DeepSeek-MoE layout), ~108M active. It has ~4x
-the room for facts of the small model at ~2x its cost per token. While it trains, the log shows per layer how many experts
-are "dead" (get under 10% of a fair share of tokens) and how overloaded the busiest one is; the same numbers go to
-`Model/training_status.json`. It is a new model, so pretrain it from scratch (`--stage pretrain`); later sessions continue without `--fresh`.
-
-**Making it know more (general knowledge)** — the order that gives the most per GPU hour:
-
-1. `python main.py --mode knowledge` (on your PC, needs internet; `--scale 0.1` for a quick small build) →
-   `pretrain_knowledge.jsonl`: FineWeb-Edu (English, educational pages only), Hindi + English Wikipedia
-   (shown twice) and Sangraha Hindi filtered for explanatory text. Pretraining mixes it with `pretrain.jsonl` by size.
-2. `python main.py --mode boost` → rebuilds `sft.jsonl` and now drops "As an AI language model…" / "made by
-   OpenAI" answers (they taught the model to refuse "Who created you?").
-3. `python main.py --mode rag` (after `--mode smriti`) → `sft_rag.jsonl`: fact questions with the looked-up facts
-   in the same layout the WebUI uses, so the model learns to read Smriti instead of guessing. ~1 example/s.
-4. On Kaggle (GPU), a big open model writes GK Q&A from Wikipedia → `/kaggle/working/sft_distill.jsonl`
-   (resumes where it stopped; `--teacher Qwen/Qwen2.5-7B-Instruct` is better Hindi but ~2x slower):
-   ```python
-   !cd /tmp/Tantra-LLM && python main.py --mode distill --samples 20000
-   ```
-   **Teacher served by Colibri (or llama.cpp / Ollama) on your own PC** — any OpenAI-compatible server works, no GPU
-   needed in Python. Start the teacher (Colibri supports a 7B OLMoE model), then point distill at it:
-   ```bash
-   ./coli serve --model <path-to-7B-model>        # Colibri (Linux/Mac), default http://127.0.0.1:8000/v1
-   # Windows PowerShell (Colibri in D:\colibri), one window for the server:
-   #   cd D:\colibri; $env:COLI_MODEL="D:\colibri-models\olmoe"; .\coli.cmd serve
-   # and a second window for distill, from the Tantra-LLM folder:
-   #   python main.py --mode distill --teacher-url http://127.0.0.1:8000/v1 --samples 200
-   python main.py --mode distill --teacher-url http://127.0.0.1:8000/v1 --samples 5000
-   ```
-   The model name is read from the server (`GET /v1/models`); pass `--teacher-model <id>` only to override it.
-   Timeouts, dropped connections and 429/5xx replies are retried twice with backoff; six failed passages in a row stop
-   the run with a message, and what was written so far is kept. It resumes where it stopped (`Datasets/sft_distill.jsonl`). A CPU teacher is slow (measured ~1.3 words/s with the 7B OLMoE on a laptop, about 1 pair per minute): use it for
-   small checked sets, and use the Kaggle GPU route above for bulk data. Start small, raise
-   `--teacher-workers` if the server can take parallel requests. If you run `--mode serve` on the same PC, give one of
-   them another port (`--port 8001`) because both default to 8000.
-5. Train with Muon and the warmup-stable-decay schedule:
-   `%run /tmp/Tantra-LLM/cloud_train.py --stage pretrain --fresh --preset moe --optimizer muon --schedule wsd`.
-   SFT then picks up `sft_rag.jsonl` and `sft_distill.jsonl` automatically when they are in the dataset
-   (`--mode pack` includes them).
-
----
-
-## 🖥️ WebUI
-
-`python main.py --mode serve` → **http://127.0.0.1:8000**
-
-| Tab | What you get |
-| :--- | :--- |
-| **Home** | Greeting, ask box, model / Smriti / training tiles, live loss chart, skills, reminders, daily brief, recent chats |
-| **Voice** | Hands-free: talk, pause, Tantra answers out loud (Whisper in, Kokoro or Windows voices out), optional wake word "तन्त्र" |
-| **Memory** | What Tantra remembers about you ("याद रखो …"), reminders ("10 मिनट बाद याद दिलाना …"), answers you taught with 👎 |
-| **Documents** | Drop .txt/.md/.docx/.html/.pdf files; chat answers from them and shows the source |
-| **Chat** | Streaming replies with **Stop**, markdown/code, copy · regenerate · edit · read aloud, saved & searchable chats, settings (temperature, top-p, repetition penalty, max tokens, system prompt), voice input, "still training" notice |
-| **Training** | Live tiles (status, step, loss, val loss, speed, ETA, tokens), progress bar, **loss chart**, **remembered X/50 chart**, start/stop with options, live log |
-| **Model** | Loaded model + hardware, checkpoint table (step, val loss, size, date) with Load / INT8, **Run test**, **Export**, datasets |
-
-API: OpenAI-compatible `POST /v1/chat/completions` (stream or not). Set `TANTRA_API_KEY` to protect training/checkpoint actions. Binds to 127.0.0.1 only.
-
----
-
-### 🧰 Skills (exact, instant, no model needed)
-Calculator with steps (`250 × 18 + 5%`), time/date in Hindi or English, units incl. lakh/crore, memory, reminders & timers,
-daily brief, training status, file-name search in folders you allow, open allowed apps (with confirmation), run Python
-code blocks (isolated, 10 s limit), translate / tutor modes, and knowledge answers from Smriti or your documents.
-Phone: `python main.py --mode serve --lan` (same Wi-Fi, key required).
-
-## 🗂️ Folders
-
-```
-Tantra-LLM/
-├── main.py              every command (--mode train|chat|generate|serve|eval|export|tokenizer|dpo|adapter|hardware)
-├── tantra.bat           menu for the above
-├── requirements.txt
-├── Tantra/              the engine
-│   ├── config.py        all settings + presets (tiny, small ≈70M, billion ≈1B)
-│   ├── tokenizer.py     64k byte-level BPE, build once
-│   ├── model.py         the network + generation + load_model()
-│   ├── dataset.py       JSONL → training windows (chat masking, packing)
-│   ├── train.py         training loop, checkpoints, DPO, live status for the WebUI
-│   ├── eval_suite.py    validation metrics, speed, 50-question probe
-│   ├── evolution.py     growing layers / category layers
-│   ├── adapters.py      category registry + request router
-│   ├── bitnet.py        ternary weights (for later, after training)
-│   ├── export.py        small fp16 file for use (Model/tantra.pt)
-│   ├── hardware.py      CPU/RAM/GPU detection
-│   └── utils.py         logging, seeds, safe checkpoint loading
-├── WebUI/               server.py + index.html + app.js + app.css
-├── Tests/               test_model.py · test_data_train.py · test_webui.py
-├── Datasets/            your .jsonl files (+ probe_50.jsonl)
-├── Model/               tokenizer.json · latest.pt · best.pt · tantra.pt
-└── Assets/              images
-```
-
-## 📝 Data format
-
-One JSON object per line, any of:
-
-```json
-{"messages": [{"role": "user", "content": "भारत की राजधानी?"}, {"role": "assistant", "content": "नई दिल्ली।"}]}
-{"user": "...", "assistant": "..."}
-{"instruction": "...", "input": "...", "output": "..."}
-{"text": "plain text / articles"}
-```
-
-In the default `sft` stage only the answers are learned. Rows whose question is generic filler ("इसके बारे में विस्तृत जानकारी दें:" + an article) are learned as plain text instead.
-
----
-
-## 🧪 Tests
-
-```bash
-python -m pytest Tests -q      # 61 passed
-```
-
-## 🗺️ Roadmap (in order)
-
-1. Rebuild tokenizer once with Hindi + English + Sanskrit samples → then freeze forever.
-2. Long training run (laptop or Kaggle) until the 50-question probe climbs.
-3. Knowledge store (Smriti): compressed facts + retrieval before answering.
-4. Delta-rule upgrade of ALRA (better recall), then grow depth.
-5. Category layers: greetings, math, code, sentiment/emotion.
-6. Our own speech models (Hindi STT/TTS) replacing the plug-ins.
-
-## 🤝 Rules for contributors
-
-* One place for each thing. No duplicate scripts, no one-time files in the repo.
-* No number goes in this README unless a command in this repo measured it.
-* `python -m pytest Tests -q` must pass before every commit.
-
----
-
-<p align="center">📄 MIT License · Copyright (c) 2026 Atulya AI (atulyaai) · Made in India 🇮🇳</p>
-
----
-
----
-
-## 🤝 Contributing
-
-Contributions, bug reports, and ideas are welcome!
-
-1. **Fork** the repository
-2. **Create** a feature branch: `git checkout -b feat/your-feature`
-3. **Commit** your changes: `git commit -m "feat: add your feature"`
-4. **Push** and open a **Pull Request**
-
-Please keep PRs focused and include tests where relevant.  
-For major changes, open an issue first to discuss what you'd like to change.
-
-> All contributions are released under the [MIT License](LICENSE).
-
-## 📜 License
-
-MIT License. Copyright (c) 2026 Atulya AI (atulyaai). See [LICENSE](LICENSE).

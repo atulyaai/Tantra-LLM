@@ -10,17 +10,15 @@ Model/**/*.pt
 Model/**/*.pt.meta.json
 Model/**/*.tmp
 Model/_old/
-Model/STOP
-Model/train_log.txt
-Model/logs/
-Model/eval_report.json
-Model/training_status.json
-Model/probe_history.jsonl
-Model/saved_chats.json
-Model/Adapters/registry.json
+Model_small/**/*.pt
+Model_v1/
+checkpoints/
+logs/
+*.log
 
 # Datasets (big) — the fixed probe is tracked
 Datasets/**/*.jsonl
+Datasets/general/*.txt
 !Datasets/probe_50.jsonl
 
 # Secrets / OS / IDE

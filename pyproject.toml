@@ -22,3 +22,9 @@ classifiers = [
 [project.urls]
 Homepage = "https://www.atulvij.com"
 Repository = "https://github.com/atulyaai/Tantra-LLM"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+]
