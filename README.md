@@ -1,230 +1,162 @@
-# Tantra-LLM
+<!-- Full-width hero banner -->
+<div align="center">
+  <img src="Assets/tantra_hero_banner_animated.gif" alt="Tantra LLM - Weaving Intelligence" width="100%"/>
+</div>
 
-A CPU-first sparse Mixture-of-Adapters language model. One small shared base transformer, many tiny LoRA experts, and a cheap router that picks which experts each request needs.
+<div align="center">
+  <h1>
+    <img src="https://readme-typing-svg.herokuapp.com?font=Cinzel&weight=700&size=45&duration=4000&pause=1000&color=F7931A&center=true&vCenter=true&width=600&height=80&lines=TANTRA+LLM;WEAVING+INTELLIGENCE;तन्त्र" alt="TANTRA LLM — Weaving Intelligence तन्त्र" />
+  </h1>
+</div>
 
-**Current model (stage 1)**: 4.7M base + 11 conversation experts, ~29 tokens/sec on a laptop CPU.
+<p align="center">
+  <em><strong>तन्त्र</strong> (Sanskrit) — An instrument that weaves threads of knowledge ·
+  <strong>तंत्र</strong> (Hindi) — System, mechanism, governance</em>
+</p>
 
----
+<p align="center">
+  <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.10%2B-blue.svg" alt="Python 3.10+"/></a>
+  <a href="https://pytorch.org/"><img src="https://img.shields.io/badge/pytorch-2.2%2B-ee4c2c.svg" alt="PyTorch 2.2+"/></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-F7931A.svg?style=flat-square" alt="MIT License"/></a>
+  <a href="#"><img src="https://img.shields.io/badge/Architecture-Sparse--MoA-purple.svg" alt="Architecture: Sparse-MoA"/></a>
+  <a href="#"><img src="https://img.shields.io/badge/Tokenizer-10k_Bilingual_BPE-brightgreen.svg" alt="10k Bilingual BPE"/></a>
+  <a href="#"><img src="https://img.shields.io/badge/Made_in-India_🇮🇳-FF9933.svg" alt="Made in India"/></a>
+</p>
 
-## How it works
-
-```
-   user message
-        │
-        ▼
-┌─────────────────┐   bag-of-embeddings classifier, one tiny matmul
-│     Router      │   → picks 1-4 experts (adaptive: "hi" = 1, "hi, who are you?" = 2)
-└────────┬────────┘
-         │  active = [("greeting", 0.7), ("identity_self", 0.3)]
-         ▼
-┌─────────────────────────────────────────────────────┐
-│           shared base transformer                   │
-│   RoPE · grouped-query attention · SwiGLU · RMSNorm │
-│   tied embeddings · KV-cached generation            │
-│                                                     │
-│   every Linear layer can carry named LoRA experts:  │
-│                                                     │
-│   y = base(x) + Σ  (x @ Aₙ @ Bₙ) · scale · wₙ     │
-│                     └ only ACTIVE experts run ──┘   │
-└─────────────────────────────────────────────────────┘
-```
-
-Design points:
-
-- **Sparse, not dense.** Only the selected experts run, so adding expert #1000 costs disk space, not CPU time.
-- **One file per expert.** `Model/experts/greeting.pt` can be trained, replaced or deleted without touching anything else.
-- **Adaptive routing.** The router decides *how many* experts a message needs (up to 4), based on cumulative probability.
-- **Function-preserving growth.** `grow_depth()` inserts layers with zeroed output projections — output is bit-identical, training continues from there: tiny → small → base → 1B on the same laptop.
-- **CPU-first.** INT8 dynamic quantization of base matmuls (~4× smaller); experts stay fp32 because they're tiny.
+<div align="center">
+  <img src="Assets/tantra_logo.jpg" alt="Tantra LLM Official Emblem" width="240"/>
+</div>
 
 ---
 
-## Training pipeline
+**Tantra** is a **CPU-first, bilingual (Hindi + Sanskrit + English) language model built from scratch**.
+It combines a 28.8M parameter base transformer with independent LoRA domain experts, an n-gram/embedding router, and a decoupled high-density DNA relational knowledge engine.
 
-| Stage | What | Command |
-|-------|------|---------|
-| 0 | Seed curated data + general corpus | `python -m Tantra seed` |
-| 1 | Train BPE tokenizer (8k vocab) | `python -m Tantra tokenizer` |
-| 2 | Train base on **general text** | `python -m Tantra base --preset tiny --steps 1500` |
-| 3 | Train each expert alone (frozen base) | `python -m Tantra expert greeting identity_self` |
-| 4 | Train router (message → experts) | `python -m Tantra router` |
-| 5 | Grow, then continue | `python -m Tantra grow --layers 2` |
+- **Canonical Model Directory**: `Model/` (28.8M base parameters, $d=512$, 8 layers, 8 heads, 4 KV heads, GQA, RoPE, SwiGLU, RMSNorm).
+- **10k Bilingual Tokenizer**: ByteLevel BPE with 10,277 vocabulary, reducing Indic token fragmentation by **3x** (from 57 tokens down to 19 tokens for typical sentences).
+- **DNA Relational Knowledge Engine**: 8,175 facts across 24 encyclopedic domains + $(S, P, O)$ relational triples with **`0.05 ms`** CPU retrieval latency.
+- **CPU Inference**: Blazing fast on standard laptop CPUs with optional **INT8 dynamic quantization** (~0.24s latency).
 
-Everything at once:
+---
 
+## Architecture Overview
+
+<div align="center">
+  <img src="Assets/tantra_architecture.png" alt="Tantra LLM Neural Architecture Pipeline" width="100%"/>
+</div>
+
+```
+   User Query (English / Hindi / Sanskrit)
+                    │
+                    ▼
+       ┌────────────────────────┐
+       │   Fast N-Gram Router   │  Unicode-aware word & char n-grams
+       └────────────┬───────────┘
+                    │  active = [("gk_indic", 0.8), ("greeting", 0.2)]
+                    ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                    Shared Base Transformer                      │
+│      28.8M params · RoPE · GQA · SwiGLU · RMSNorm · Tied Head   │
+│                                                                 │
+│      Dynamic LoRA Modules on Q, V, O, and Down-projections:     │
+│             y = base(x) + Σ (x @ Aₙ @ Bₙ) · scale · wₙ          │
+│                      └ only ACTIVE experts run ─┘               │
+└───────────────────────────────┬─────────────────────────────────┘
+                                │
+                                ▼
+┌─────────────────────────────────────────────────────────────────┐
+│               Tantra Decoupled Knowledge Engine                 │
+│      1. DNA Integer TripleStore (0.05ms O(1) relational graph)  │
+│      2. Hybrid Inverted BM25 + Dense SIMD 64-dim Vector Index   │
+│      3. Self-Learning Verifier (auto-curates offline facts)      │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Key Design Principles
+
+1. **Sparse Mixture-of-Adapters (MoA)**: Adding 100 new experts costs disk space, not CPU execution time. Only the router-selected experts run.
+2. **Decoupled High-Density Memory**: Large language models waste parameters memorizing static facts. Tantra stores thousands of encyclopedic facts in an integer-indexed DNA relational triple store (`Model/memory.pt` is under 2 MB), freeing the transformer to focus on language structure and reasoning.
+3. **Indic-First Tokenization**: ByteLevel BPE with 10,277 tokens preserves Devanagari conjuncts, matras, and Sanskrit roots without Unicode codepoint shattering.
+4. **Function-Preserving Growth**: `grow_depth()` inserts layers with zeroed output projections, making depth expansion bit-identical and seamlessly resumable on the same laptop.
+
+---
+
+## Directory Structure
+
+```
+Tantra-LLM/
+├── Assets/                 # Official banners, logos, and architecture diagrams
+├── Datasets/
+│   ├── curated/            # Curated domain dialogs (knowledge, conversation, reasoning)
+│   ├── experts/knowledge/  # 24 encyclopedic knowledge domains (physics, medicine, law, etc.)
+│   └── general/            # Plain-text pretraining corpus
+├── Model/                  # Canonical unified model directory
+│   ├── base.pt             # 28.8M base model checkpoint
+│   ├── memory.pt           # 1.87 MB packed high-density knowledge memory
+│   ├── tokenizer.json      # 10,277 bilingual BPE tokenizer
+│   ├── router_ngram.pt     # Fast Unicode n-gram router
+│   └── experts/            # 20 independent LoRA expert weights
+├── Tantra/
+│   ├── config/             # Model presets, hyperparameters, and taxonomy
+│   ├── data/               # Expert dataset loaders and chat encoders
+│   ├── inference/          # Inference engine, KV-cache, and streaming
+│   ├── memory/             # Dense SIMD index, inverted BM25, and DNA TripleStore
+│   ├── model/              # TantraModel, LoRALinear, RoPE, and Router
+│   ├── reasoning.py        # Think -> Check -> Verify -> Learn reasoning loop
+│   ├── tokenizer.py        # Tokenizer wrapper and chat formatting
+│   └── training/           # Training pipeline, cosine LR scheduler, and growth
+├── tests/                  # Unit and integration test suite (29 tests)
+├── pyproject.toml          # Project configuration and metadata
+└── train_small_bilingual.py # Base model pretraining & adaptation script
+```
+
+---
+
+## Quickstart & CLI
+
+### 1. Interactive Chat & Questions
 ```bash
-python -m Tantra stage1 --preset tiny
+# Ask a question using the full Reasoning & Knowledge loop:
+python -m Tantra ask "What is the capital of India?"
+python -m Tantra ask "भारत की राजधानी क्या है?"
+python -m Tantra ask "Who wrote Ashtadhyayi?"
+
+# Interactive chat:
+python -m Tantra chat
+
+# Fast CPU inference with INT8 dynamic quantization:
+python -m Tantra chat --int8
 ```
 
-**Base vs expert data.** The base trains on the general corpus
-(`Datasets/general/`) **plus all the chat data**, which is what keeps
-conversation fluent (a plain-text-only base writes gibberish in chat —
-measured). Each expert then refines on its own full dataset while everything
-else is frozen, sharpening its domain style when the router activates it.
-
-> Note on the held-out metric: the stage-1 data is template-generated and very
-> homogeneous, so the base already predicts any held-out slice at low loss.
-> Held-out loss therefore stays roughly flat across expert training — it is
-> not a meaningful quality signal at this scale. What matters is the generated
-> replies and routing, both of which are verified end-to-end.
-
-**Router learns mixed messages.** During router training, user texts from two
-different experts are concatenated and labeled with both, so `"hi, who made
-you?"` activates *greeting* and *identity_* experts together instead of
-picking one.
-
-Each expert trains in isolation — training `greeting` never touches
-`identity_self`, so experts can be retrained one at a time.
-
-**Checkpoints.** `stage1` snapshots the full model state (tokenizer + base +
-router + all experts) to `checkpoints/stage1_latest/` when it finishes. Save a
-named snapshot anytime with:
-
+### 2. Knowledge Memory Ingestion
+Pack encyclopedic knowledge across 24 domains and DNA relational triples into `Model/memory.pt`:
 ```bash
-python -m Tantra checkpoint --tag before_growth
+python build_knowledge_memory.py
 ```
 
----
-
-## Inference
-
+### 3. Training
+Train or adapt the base model on CPU:
 ```bash
-python -m Tantra ask "who are you?"        # single question
-python -m Tantra chat                      # interactive, shows router weights
-python -m Tantra chat --int8               # INT8 quantized (less RAM, faster)
-python -m Tantra bench                     # real tokens/sec on your CPU
+# Launch full 1000-step bilingual training pipeline:
+python train_small_bilingual.py
+
+# Train a single expert in complete isolation:
+python -m Tantra expert greeting --steps 300
 ```
 
-Example:
-
-```
-You: hi, who made you?
-Tantra: I'm Tantra, an AI assistant made by Atulya AI.
-   [greeting:0.45, identity_self:0.55]
-```
-
----
-
-## Model sizes
-
-| Preset | Base params | d_model | Layers | Use |
-|--------|------------|---------|--------|-----|
-| `tiny` | ~6.5M | 256 | 6 | smoke tests, current stage |
-| `small` | ~32M | 512 | 8 | first real stage |
-| `base` | ~213M | 1024 | 16 | mid scale |
-| `1b` | ~1012M | 2048 | 21 | target size |
-| `7b` | ~6624M | 4096 | 36 | beyond |
-
-Scaling path: train at `tiny`, finish the stage, `grow_depth()`, continue at the next size. The same checkpoints and expert files keep working.
-
----
-
-## Stage-1 experts (11)
-
-| Expert | Data |
-|--------|------|
-| greeting | hellos, first contact |
-| farewell | goodbyes, closing |
-| smalltalk | casual chat |
-| empathy | emotional support |
-| apology | sorry / recovery |
-| clarification | "what do you mean?" |
-| identity_self | who am I |
-| identity_capabilities | what can I do |
-| identity_limitations | what I can't do |
-| humor | jokes, lightening the mood |
-| safety_refusal | refusing harmful requests |
-
-Taxonomy for the full 164-expert / 13-domain design lives in `Tantra/config/taxonomy.yaml`.
-
----
-
-## Data
-
-```
-Datasets/curated/<domain>/<expert>.jsonl   # specialist chat data (experts only)
-Datasets/general/general.jsonl             # plain English text (base only)
-```
-
-Curated rows use the chat format:
-
-```json
-{"messages": [{"role": "user", "content": "hello"},
-              {"role": "assistant", "content": "Hi! What can I do for you?"}]}
-```
-
-General rows are plain text (no roles):
-
-```json
-{"text": "Water expands when it freezes, which is why ice floats on a lake."}
-```
-
-- 1,500 curated rows per stage-1 expert; ~6,000 general rows for base training
-- Junk filter drops template filler (`"Sample 12 of 10000"`) and exact duplicates at load time
-- Legacy `{"text": "<|user|>...<|assistant|>..."}` rows are converted automatically
-
----
-
-## Project layout
-
-```
-Tantra/
-├── main.py                  # CLI (python -m Tantra ...)
-├── tokenizer.py             # byte-level BPE, 8k vocab, no <unk>
-├── config/                  # size presets, taxonomy
-│   └── taxonomy.yaml        # 164 experts / 13 domains (full design)
-├── model/tantra_model.py    # base transformer, LoRA experts, router, growth
-├── training/tantra_trainer.py  # 5-stage pipeline
-├── data/
-│   ├── expert_dataset.py    # jsonl loading, junk filter, encoding
-│   ├── seed_conversation.py # curated chat data generator (experts)
-│   └── seed_general.py      # plain-text corpus generator (base)
-├── inference/               # KV-cached engine, INT8, benchmark
-└── utils/                   # health monitor, expert lifecycle
-Datasets/curated/            # specialist chat data (11 experts)
-Datasets/general/            # plain English text for base training
-Model/
-├── tokenizer.json
-├── base.pt                  # base + router
-└── experts/<name>.pt        # one file per expert
-checkpoints/                 # saved snapshots (stage1_latest, custom tags)
-Model_v1/                    # backup of first trained model
-tests/test_tantra.py         # 14 tests (pytest)
-```
-
----
-
-## Tests
-
+### 4. Running Benchmarks & Tests
 ```bash
-python -m pytest tests/ -v
-```
+# Real tokens/second on your CPU:
+python bench_test.py
 
-14 tests: forward/loss shapes, expert isolation, KV-cache equivalence, function-preserving growth, router add/remove, save/load roundtrip, INT8, adaptive routing count, junk filtering, end-to-end tiny pipeline.
+# Run test suite:
+pytest
+```
 
 ---
 
-## Known limitations (tiny stage)
+## License
 
-- **Template data caps quality.** Stage-1 data is template-composed English
-  (recombined intents/phrasings). The base reaches loss ~0.3 and replies are
-  fluent, but knowledge and open-ended ability are limited by the data, not
-  the architecture. Real scraped text is needed before the `base` preset.
-- **Mixed prompts**: the router mean-pools token embeddings, so in a mixed
-  message like `"hi, who made you?"` the second intent is diluted — it now
-  activates two experts (progress over one), but the pair isn't always the
-  right one. Attention pooling or a deeper router fixes this at higher presets.
-- **INT8 is slower at tiny size** (30.8 vs 55.1 tok/s measured): dynamic
-  quantization overhead outweighs the smaller matmuls when the base is only
-  4.7M params. INT8 pays off from the `small` preset up.
-
----
-
-## Requirements
-
-- Python 3.12, PyTorch (CPU), `tokenizers`, `pyyaml`
-- ~450 MB RAM to train the tiny stage; no GPU needed
-
-```bash
-pip install -r requirements.txt
-```
+This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.

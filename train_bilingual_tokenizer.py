@@ -115,11 +115,11 @@ def main():
     print(f"  · English: '{en_sample}' -> {len(en_toks)} tokens")
     print(f"  · Hindi:   '{hi_sample}' -> {len(hi_toks)} tokens (reduced from 57!)")
 
-    # Save to Model_small
-    out_path = Path("Model_small/tokenizer.json")
+    # Save to Model
+    out_path = Path("Model/tokenizer.json")
     out_path.parent.mkdir(parents=True, exist_ok=True)
     if out_path.exists():
-        backup = Path("Model_small/tokenizer_backup_8k.json")
+        backup = Path("Model/tokenizer_backup_8k.json")
         if not backup.exists():
             shutil.copy2(out_path, backup)
             print(f"Backed up previous 8k tokenizer -> {backup}")

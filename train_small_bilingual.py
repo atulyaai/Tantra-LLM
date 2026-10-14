@@ -29,7 +29,7 @@ def main():
     logging.info("Starting Model_small bilingual base adaptation...")
 
     trainer = TantraTrainer(
-        model_dir="Model_small",
+        model_dir="Model",
         data_dirs=["Datasets/curated"],
         general_dir="Datasets/general",
     )

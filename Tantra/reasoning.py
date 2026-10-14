@@ -83,7 +83,7 @@ class KnowledgeIndex:
         from Tantra.memory import TantraMemoryStore
         loaded = False
         is_default_dirs = [str(d).replace("\\", "/") for d in data_dirs] == ["Datasets/curated"]
-        candidates = [Path(memory_path)] if memory_path else ([Path("Model_small/memory.pt"), Path("Model/memory.pt")] if is_default_dirs else [])
+        candidates = [Path(memory_path)] if memory_path else ([Path("Model/memory.pt")] if is_default_dirs else [])
         for p in candidates:
             if p and p.exists():
                 try:

@@ -21,8 +21,8 @@ print("=" * 60, flush=True)
 print("1. INFERENCE BENCHMARK (Tokens / Sec)", flush=True)
 print("=" * 60, flush=True)
 
-for mdir in ["Model", "Model_small"]:
-    print(f"\n--- Model Directory: {mdir} ---", flush=True)
+for mdir in ["Model"]:
+    print(f"\n--- Canonical Model Directory: {mdir} ---", flush=True)
     try:
         e_fp32 = TantraEngine(mdir, int8=False)
         res_fp32 = e_fp32.benchmark(n_tokens=64)

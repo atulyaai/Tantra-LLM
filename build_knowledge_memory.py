@@ -111,8 +111,8 @@ def build_memory(max_per_domain: int = 500):
     print(f"TOTAL MEMORY CAPACITY: {total_facts:,} facts")
     print("=" * 60)
 
-    # 4. Save Packed Snapshot to Model_small/memory.pt
-    out_file = Path("Model_small/memory.pt")
+    # 4. Save Packed Snapshot to Model/memory.pt
+    out_file = Path("Model/memory.pt")
     out_file.parent.mkdir(parents=True, exist_ok=True)
     t0 = time.perf_counter()
     store.save(out_file)
