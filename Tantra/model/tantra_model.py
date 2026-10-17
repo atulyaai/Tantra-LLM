@@ -354,7 +354,7 @@ class TantraModel(nn.Module):
         seen = ids[0].tolist()
         for _ in range(max_new_tokens):
             if repetition_penalty != 1.0 and seen:
-                s = torch.tensor(sorted(set(seen[-64:])))
+                s = torch.tensor(sorted(set(seen[-64:])), device=logits.device)
                 lg = logits[0, s]
                 logits[0, s] = torch.where(lg > 0, lg / repetition_penalty, lg * repetition_penalty)
             if temperature <= 0:

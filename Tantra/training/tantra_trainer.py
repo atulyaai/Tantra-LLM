@@ -63,6 +63,10 @@ def _lr(step: int, a: TrainArgs) -> float:
 
 def _loop(model: TantraModel, params: List[torch.nn.Parameter], data: EncodedDataset,
           a: TrainArgs, tag: str, save_fn=None) -> float:
+    if not len(data):
+        raise ValueError('No trainable samples; check data and truncation')
+    if min(a.steps,a.batch_size,a.log_every,a.gradient_accumulation)<1:
+        raise ValueError('Training steps, batch size, logging and accumulation must be positive')
     opt = torch.optim.AdamW(params, lr=a.lr, weight_decay=a.weight_decay, betas=(0.9, 0.95))
     rng = random.Random(a.seed)
     model.train()
@@ -75,6 +79,9 @@ def _loop(model: TantraModel, params: List[torch.nn.Parameter], data: EncodedDat
             for g in opt.param_groups:
                 g["lr"] = _lr(step, a)
             loss = model.loss(ids, labels) / grad_accum
+            if not torch.isfinite(loss):
+                opt.zero_grad(set_to_none=True)
+                raise FloatingPointError('Non-finite training loss')
             loss.backward()
             micro_step += 1
             if micro_step == grad_accum:
@@ -307,7 +314,7 @@ class TantraTrainer:
         for t, l in zip(texts, labels):
             by.setdefault(l, []).append(t)
         keys = list(by)
-        for _ in range(len(texts) // 4):
+        for _ in range(len(texts) // 4 if len(keys)>=2 else 0):
             a, b = rng.sample(keys, 2)
             mix = rng.choice(by[a]).rstrip("?.!") + rng.choice([", ", " and ", ". "]) + rng.choice(by[b])
             texts += [mix, mix]; labels += [a, b]
@@ -338,7 +345,7 @@ class TantraTrainer:
         pool = {n: [tok.encode(first_user_text(r))[:48] or [tok.pad_id]
                     for r in read_jsonl(files[n], limit=200)] for n in by_name}
         names_ok = [n for n in pool if pool[n]]
-        for _ in range(len(X) // 3):
+        for _ in range(len(X) // 3 if len(names_ok)>=2 else 0):
             a, b = rng_mix.sample(names_ok, 2)
             mix = (rng_mix.choice(pool[a]) + rng_mix.choice(pool[b]))[:64]
             X.append(mix); Y.append(by_name[a])

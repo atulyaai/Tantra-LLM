@@ -1,0 +1,51 @@
+{
+  "purpose": "Repeated development monitoring, never final release testing or training data",
+  "review": "AI-authored references; Hindi/Hinglish fluent review pending",
+  "cases": [
+    {
+      "language": "en",
+      "question": "Hello there.",
+      "reference": "Hello!"
+    },
+    {
+      "language": "en",
+      "question": "Please identify your developer.",
+      "reference": "Atulya AI developed me."
+    },
+    {
+      "language": "en",
+      "question": "Can you promise every answer is correct?",
+      "reference": "No. I can make mistakes."
+    },
+    {
+      "language": "hi",
+      "question": "नमस्कार।",
+      "reference": "नमस्कार!"
+    },
+    {
+      "language": "hi",
+      "question": "तुम्हें किसने विकसित किया है?",
+      "reference": "मुझे Atulya AI ने विकसित किया है।"
+    },
+    {
+      "language": "hi",
+      "question": "क्या तुम गलती कर सकते हो?",
+      "reference": "हाँ, मुझसे गलती हो सकती है।"
+    },
+    {
+      "language": "hinglish",
+      "question": "Hello, namaste!",
+      "reference": "Namaste!"
+    },
+    {
+      "language": "hinglish",
+      "question": "Tumhare developer ka naam batao.",
+      "reference": "Atulya AI."
+    },
+    {
+      "language": "hinglish",
+      "question": "Kya tum galti kar sakte ho?",
+      "reference": "Haan, mujhse galti ho sakti hai."
+    }
+  ]
+}

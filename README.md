@@ -37,6 +37,20 @@ It combines a 28.8M parameter base transformer with independent LoRA domain expe
 - **DNA Relational Knowledge Engine**: 8,175 facts across 24 encyclopedic domains + $(S, P, O)$ relational triples with **`0.05 ms`** CPU retrieval latency.
 - **CPU Inference**: Blazing fast on standard laptop CPUs with optional **INT8 dynamic quantization** (~0.24s latency).
 
+### 📍 Current status (October 2026)
+
+| Area | State |
+| --- | --- |
+| Deployed `Model/` | 28.8M base, 10K tokenizer, 20 LoRA adapters; direct replies are often incorrect or garbled |
+| New 64K candidate | 57.2M base, 65,536-token tokenizer, continued pretraining on Hindi/English Wikipedia (separate from `Model/`, not deployed) |
+| Validation at update 2,310 | Hindi loss 2.83, English loss 5.93 (down from 3.95 / 7.05 at stage start) |
+| Conversation | **Not chat-ready.** Greeting/identity probe answers are still incoherent; pretraining alone does not teach dialogue |
+| GPU training | `TANTRA_DEVICE=cuda` runs the same resumable trainer on Kaggle (~3,500 tok/s vs ~325 tok/s on a 4-core CPU); see `scripts/kaggle/` |
+| Conversation data | 129 English drafts + Hindi/Hinglish writing sheet await human review; `python -m Tantra.data.review_sheets` imports approved rows |
+| Expert adapters | Trained on the old base; must be retrained against the 64K base before use |
+
+Developers and coding models: read [AGENTS.md](AGENTS.md) and [docs/HANDOFF.md](docs/HANDOFF.md) first.
+
 ---
 
 ## Architecture Overview

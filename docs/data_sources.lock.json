@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "sources": [
+    {
+      "id": "wikipedia-hi",
+      "repo": "wikimedia/wikipedia",
+      "revision": "b04c8d1ceb2f5cd4588862100d08de323dccfbaa",
+      "path": "20231101.hi/train-00000-of-00002.parquet",
+      "size": 134883945,
+      "sha256": "48001d229cb28d1e74c1f6bac76a1d0ccfc2ffa05c8fb9c2201a5b56108e7c58",
+      "language": "hi",
+      "license": "CC-BY-SA-3.0; see source terms",
+      "kind": "encyclopedia"
+    },
+    {
+      "id": "wikipedia-en",
+      "repo": "wikimedia/wikipedia",
+      "revision": "b04c8d1ceb2f5cd4588862100d08de323dccfbaa",
+      "path": "20231101.en/train-00000-of-00041.parquet",
+      "size": 420296449,
+      "sha256": "382e7f6f09e488b24793a7f7cfc659879d5a22da2cf2efec6491665f0c019677",
+      "language": "en",
+      "license": "CC-BY-SA-3.0; see source terms",
+      "kind": "encyclopedia"
+    },
+    {
+      "id": "oasst1",
+      "repo": "OpenAssistant/oasst1",
+      "revision": "fdf72ae0827c1cda404aff25b6603abec9e3399b",
+      "path": "2023-04-12_oasst_ready.trees.jsonl.gz",
+      "size": 34145252,
+      "sha256": "2a9a8fd343e9b28e04a895a669d3253f82d93e9c174d440199ae19d5fafbdff7",
+      "language": "multilingual",
+      "license": "Apache-2.0",
+      "kind": "community_conversation"
+    }
+  ]
+}

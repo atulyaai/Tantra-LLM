@@ -1,0 +1,25 @@
+{
+  "sources": [
+    {
+      "id": "aya-instructions",
+      "repo": "CohereForAI/aya_dataset",
+      "revision": "f9ea04583f02a8f86404ff6c58bf75fe637df8a2",
+      "path": "data/train-00000-of-00001.parquet",
+      "size": 137195800,
+      "sha256": "51baa85043b569ba117f41516b32d1b0e4e2647fb203a08933f98a556fb1fb06",
+      "license": "Apache-2.0",
+      "kind": "human_annotated_instruction_candidates"
+    },
+    {
+      "id": "aya-heldout",
+      "repo": "CohereForAI/aya_dataset",
+      "revision": "f9ea04583f02a8f86404ff6c58bf75fe637df8a2",
+      "path": "data/test-00000-of-00001.parquet",
+      "size": 977517,
+      "sha256": "52bbb79461bff9887c9987a5737d9a06f5ec6c78c08d770828c37fc182ce2cca",
+      "license": "Apache-2.0",
+      "kind": "reserved_source_test"
+    }
+  ],
+  "policy": "Review-only source acquisition; never treat source labels as Tantra expert/fluent review or mix the source test into training"
+}

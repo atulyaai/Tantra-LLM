@@ -1,0 +1,329 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Tantra expert record v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "expert",
+    "language",
+    "family_id",
+    "template_id",
+    "messages",
+    "source",
+    "review"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "expert": {
+      "enum": [
+        "greeting",
+        "farewell",
+        "smalltalk",
+        "empathy",
+        "clarification",
+        "apology",
+        "humor",
+        "identity_self",
+        "identity_capabilities",
+        "identity_limitations",
+        "identity_persona",
+        "identity_consistency",
+        "identity_metadata",
+        "tone_style",
+        "safety_refusal",
+        "gk_general",
+        "gk_science",
+        "gk_history",
+        "gk_geography",
+        "gk_arts",
+        "gk_tech",
+        "gk_math",
+        "gk_physics",
+        "gk_chemistry",
+        "gk_biology",
+        "gk_medicine",
+        "gk_law",
+        "gk_finance",
+        "gk_programming",
+        "gk_ai_ml",
+        "gk_cybersec",
+        "gk_linguistics",
+        "gk_philosophy",
+        "gk_psychology",
+        "gk_economics",
+        "gk_politics",
+        "gk_sports",
+        "gk_entertainment",
+        "gk_current_events",
+        "gk_trivia",
+        "logic",
+        "math",
+        "coding",
+        "reasoning_planning",
+        "debugging",
+        "algorithm_design",
+        "code_review",
+        "architecture",
+        "optimization",
+        "verification",
+        "symbolic_reasoning",
+        "causal_inference",
+        "pii",
+        "toxicity",
+        "jailbreak",
+        "bias",
+        "medical_safety",
+        "financial_safety",
+        "legal_safety",
+        "child_safety",
+        "self_harm",
+        "misinformation",
+        "summarization",
+        "translation",
+        "qa",
+        "creative_writing",
+        "analysis",
+        "extraction",
+        "formatting",
+        "rewriting",
+        "classification",
+        "comparison",
+        "synthesis",
+        "evaluation",
+        "planning",
+        "task_decomposition",
+        "tool_selection",
+        "state_tracking",
+        "error_recovery",
+        "multi_step_reasoning",
+        "api_schema",
+        "function_composition",
+        "parallel_calls",
+        "streaming_results",
+        "auth_handling",
+        "tool_error_handling",
+        "json_schema",
+        "xml_format",
+        "markdown_tables",
+        "csv_export",
+        "regex_validation",
+        "query_rewrite",
+        "doc_ranking",
+        "citation_extraction",
+        "hallucination_check",
+        "context_compression",
+        "repo_navigation",
+        "test_generation",
+        "debug_loop",
+        "refactor_planning",
+        "code_search",
+        "dependency_analysis",
+        "lang_en",
+        "lang_zh",
+        "lang_es",
+        "lang_hi",
+        "lang_ar",
+        "lang_pt",
+        "lang_bn",
+        "lang_ru",
+        "lang_ja",
+        "lang_de",
+        "lang_ko",
+        "lang_fr",
+        "lang_tr",
+        "lang_vi",
+        "lang_it",
+        "lang_th",
+        "lang_pl",
+        "lang_nl",
+        "lang_id",
+        "lang_sv",
+        "lang_cs",
+        "lang_el",
+        "lang_he",
+        "lang_ro",
+        "lang_hu",
+        "lang_fi",
+        "lang_da",
+        "lang_no",
+        "lang_sk",
+        "lang_hr",
+        "lang_sl",
+        "lang_et",
+        "lang_lv",
+        "lang_lt",
+        "lang_mt",
+        "lang_ga",
+        "lang_cy",
+        "lang_eu",
+        "lang_ca",
+        "lang_gl",
+        "lang_is",
+        "lang_mk",
+        "lang_sq",
+        "lang_bs",
+        "lang_me",
+        "lang_sr",
+        "lang_bg",
+        "lang_uk",
+        "lang_be",
+        "lang_ka",
+        "translate_pivot",
+        "translate_quality",
+        "translate_terminology",
+        "translate_formality",
+        "translate_domain",
+        "translate_literary",
+        "translate_technical",
+        "translate_low_resource",
+        "retrieval",
+        "hierarchy",
+        "compression",
+        "rnn_memory"
+      ]
+    },
+    "language": {
+      "enum": [
+        "en",
+        "zh",
+        "es",
+        "hi",
+        "ar",
+        "pt",
+        "bn",
+        "ru",
+        "ja",
+        "de",
+        "ko",
+        "fr",
+        "tr",
+        "vi",
+        "it",
+        "th",
+        "pl",
+        "nl",
+        "id",
+        "sv",
+        "cs",
+        "el",
+        "he",
+        "ro",
+        "hu",
+        "fi",
+        "da",
+        "no",
+        "sk",
+        "hr",
+        "sl",
+        "et",
+        "lv",
+        "lt",
+        "mt",
+        "ga",
+        "cy",
+        "eu",
+        "ca",
+        "gl",
+        "is",
+        "mk",
+        "sq",
+        "bs",
+        "me",
+        "sr",
+        "bg",
+        "uk",
+        "be",
+        "ka",
+        "hinglish"
+      ]
+    },
+    "family_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "template_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "messages": {
+      "type": "array",
+      "minItems": 2,
+      "items": {
+        "type": "object",
+        "required": [
+          "role",
+          "content"
+        ],
+        "properties": {
+          "role": {
+            "enum": [
+              "system",
+              "user",
+              "assistant"
+            ]
+          },
+          "content": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "source": {
+      "type": "object",
+      "required": [
+        "id",
+        "revision",
+        "license",
+        "kind"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "revision": {
+          "type": "string",
+          "minLength": 1
+        },
+        "license": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "type": "string",
+          "minLength": 1
+        },
+        "url": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "review": {
+      "type": "object",
+      "required": [
+        "status",
+        "reviewer"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "reviewed",
+            "verified_auto"
+          ]
+        },
+        "reviewer": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "verification": {
+      "type": "object"
+    }
+  },
+  "additionalProperties": true
+}

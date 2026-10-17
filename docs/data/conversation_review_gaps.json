@@ -1,0 +1,63 @@
+{
+  "scope": "Authored v2 seed only; not full corpus inventory",
+  "coverage": {
+    "greeting": {
+      "hi": {
+        "reviewed": 0,
+        "pending": 4
+      },
+      "en": {
+        "reviewed": 21,
+        "pending": 0
+      },
+      "hinglish": {
+        "reviewed": 0,
+        "pending": 2
+      }
+    },
+    "identity_self": {
+      "hi": {
+        "reviewed": 0,
+        "pending": 3
+      },
+      "en": {
+        "reviewed": 15,
+        "pending": 0
+      },
+      "hinglish": {
+        "reviewed": 0,
+        "pending": 2
+      }
+    },
+    "identity_capabilities": {
+      "hi": {
+        "reviewed": 0,
+        "pending": 1
+      },
+      "en": {
+        "reviewed": 13,
+        "pending": 0
+      },
+      "hinglish": {
+        "reviewed": 0,
+        "pending": 1
+      }
+    },
+    "identity_limitations": {
+      "hi": {
+        "reviewed": 0,
+        "pending": 1
+      },
+      "en": {
+        "reviewed": 14,
+        "pending": 0
+      },
+      "hinglish": {
+        "reviewed": 0,
+        "pending": 1
+      }
+    }
+  },
+  "next_action": "Acquire distinct source/problem families; fluent review for Hindi/Hinglish; never duplicate examples to balance counts",
+  "release_ready": false
+}

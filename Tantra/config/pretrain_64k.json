@@ -1,0 +1,19 @@
+{
+  "model_dir": "runs/pretraining-20m-v1/source-model",
+  "corpus": "runs/pretraining-20m-v1/corpus-19m",
+  "output": "runs/pretraining-20m-v1/base-training",
+  "threads": 4,
+  "max_updates": 0,
+  "validation_windows": 128,
+  "checkpoint_updates": 10,
+  "learning_rate": 0.0001,
+  "optimizer": "AdamW",
+  "weight_decay": 0.01,
+  "sequence_targets": 256,
+  "tokens_per_update": 4096,
+  "microbatch": "benchmark:1,2,4",
+  "precision": "float32",
+  "validation_note": "Spread windows across held-out shards; new evaluation protocol differs from earlier first-window scores",
+  "early_stopping_patience": 5,
+  "probe_suite": "docs/data/training_probes.v1.json"
+}

@@ -1,10 +1,9 @@
 # Tantra Expert Taxonomy — 164 Experts for 1B Model
-# Knowledge experts get 1:100 ratio (200K params) vs others (50-100K)
+# Ranks below are target configurations, not measured expert sizes or deployed weights.
 
 conversation:
   count: 15
   rank: 32
-  params_per_expert: 50000
   experts:
     - greeting
     - farewell
@@ -25,7 +24,6 @@ conversation:
 knowledge:
   count: 25
   rank: 128
-  params_per_expert: 200000
   experts:
     - gk_general
     - gk_science
@@ -56,7 +54,6 @@ knowledge:
 reasoning:
   count: 12
   rank: 64
-  params_per_expert: 100000
   experts:
     - logic
     - math
@@ -74,7 +71,6 @@ reasoning:
 safety:
   count: 10
   rank: 48
-  params_per_expert: 75000
   experts:
     - pii
     - toxicity
@@ -90,7 +86,6 @@ safety:
 tasks:
   count: 12
   rank: 48
-  params_per_expert: 75000
   experts:
     - summarization
     - translation
@@ -108,7 +103,6 @@ tasks:
 agentic:
   count: 6
   rank: 64
-  params_per_expert: 100000
   experts:
     - planning
     - task_decomposition
@@ -120,7 +114,6 @@ agentic:
 tool_calling:
   count: 6
   rank: 64
-  params_per_expert: 100000
   experts:
     - api_schema
     - function_composition
@@ -132,7 +125,6 @@ tool_calling:
 structured_output:
   count: 5
   rank: 48
-  params_per_expert: 75000
   experts:
     - json_schema
     - xml_format
@@ -143,7 +135,6 @@ structured_output:
 rag:
   count: 5
   rank: 64
-  params_per_expert: 100000
   experts:
     - query_rewrite
     - doc_ranking
@@ -154,7 +145,6 @@ rag:
 code_agent:
   count: 6
   rank: 64
-  params_per_expert: 100000
   experts:
     - repo_navigation
     - test_generation
@@ -166,7 +156,6 @@ code_agent:
 multilingual:
   count: 50
   rank: 16
-  params_per_expert: 25000
   experts:
     - lang_en
     - lang_zh
@@ -222,7 +211,6 @@ multilingual:
 translation:
   count: 8
   rank: 48
-  params_per_expert: 75000
   experts:
     - translate_pivot
     - translate_quality
@@ -236,17 +224,11 @@ translation:
 long_context:
   count: 4
   rank: 64
-  params_per_expert: 100000
   experts:
     - retrieval
     - hierarchy
     - compression
     - rnn_memory
 
-# Totals (auto-calculated)
-# Total experts: 164
-# Total adapter params: ~13.5M
-# Base model (frozen): 540M
-# Router: 2M
-# Reserve: 444.5M
-# Grand total: 1.0B
+# 164 capability IDs. Actual adapter parameters depend on model shape, rank and targets.
+# Use python -m Tantra.data.expert_workbench init for calculated budgets.

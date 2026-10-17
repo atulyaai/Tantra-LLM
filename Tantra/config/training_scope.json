@@ -1,0 +1,23 @@
+{
+  "version": 2,
+  "base_token_shares": {
+    "hi": 0.5,
+    "en": 0.5
+  },
+  "conversation_languages": [
+    "hi",
+    "en",
+    "hinglish"
+  ],
+  "hinglish_policy": "Separate reviewed conversation coverage and evaluation; never fill shortages by repeating examples",
+  "tokenizer_balance": "Equal training Unicode-character budgets for Hindi and English; Hinglish separately reported",
+  "deployment": "Require per-language evaluation; corpus or vocabulary size alone is not capability",
+  "next_tokenizer": {
+    "vocab_size": 65536,
+    "artifact": "runs/tokenizer-extended-64k-v1/tokenizer.json",
+    "sha256": "a9d2915fa0000758f766995f301787e5386db970c093f7d97cd761ae568fd80f",
+    "existing_ids_preserved": true,
+    "state": "candidate_requires_embedding_expansion_and_training",
+    "current_model_vocab_size": 10277
+  }
+}

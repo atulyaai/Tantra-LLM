@@ -68,10 +68,15 @@ def test_memory_store_hybrid_and_save_load(tmp_path):
     assert "Einstein" in res_loaded[1]
 
 
-def test_memory_store_dataset_ingest():
+def test_memory_store_dataset_ingest(tmp_path):
+    import json
+    folder=tmp_path/'curated'/'knowledge'
+    folder.mkdir(parents=True)
+    row={'messages':[{'role':'user','content':'What is the capital of India?'},{'role':'assistant','content':'New Delhi'}]}
+    (folder/'gk_geography.jsonl').write_text(json.dumps(row)+'\n',encoding='utf-8')
     store = TantraMemoryStore()
-    n = store.load_from_datasets(["Datasets/curated"], learned_path="Datasets/learned/facts.jsonl", max_per_file=50)
-    assert n > 0
+    n = store.load_from_datasets([folder.parent], learned_path=None, max_per_file=50)
+    assert n == 1
     res = store.search("capital")
     assert res is not None
 

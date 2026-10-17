@@ -5,7 +5,7 @@ __pycache__/
 venv/
 .pytest_cache/
 
-# Model files (too big for git — share via Kaggle / releases)
+# Model files (too big for git â€” share via Kaggle / releases)
 Model/**/*.pt
 Model/**/*.pt.meta.json
 Model/**/*.tmp
@@ -16,7 +16,7 @@ checkpoints/
 logs/
 *.log
 
-# Datasets (big) — the fixed probe is tracked
+# Datasets (big) â€” the fixed probe is tracked
 Datasets/**/*.jsonl
 Datasets/general/*.txt
 !Datasets/probe_50.jsonl
@@ -47,3 +47,14 @@ Datasets/feedback.jsonl
 Model/assistant.json
 .venv/
 kaggle_upload/
+
+# Reproducible local workbench artifacts; specifications and generators are tracked
+Datasets/workbench/
+runs/
+LOCAL_CHECK_REPORT.*
+
+# Versioned local prepared dataset bundles
+Datasets/workbench-*/
+
+.pip-cache/
+.kaggle/

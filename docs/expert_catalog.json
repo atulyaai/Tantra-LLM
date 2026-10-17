@@ -1,0 +1,3185 @@
+{
+  "version": 1,
+  "experts": {
+    "greeting": {
+      "expert": "greeting",
+      "domain": "conversation",
+      "goal": "Recognize greetings and return a concise, language-matched welcome.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 32,
+      "adapter_parameters_small": 1212416,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 0,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "farewell": {
+      "expert": "farewell",
+      "domain": "conversation",
+      "goal": "Recognize conversation endings and respond without restarting the conversation.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 32,
+      "adapter_parameters_small": 1212416,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 1,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "smalltalk": {
+      "expert": "smalltalk",
+      "domain": "conversation",
+      "goal": "Handle thanks and everyday social questions without inventing personal experiences.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 32,
+      "adapter_parameters_small": 1212416,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 2,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "empathy": {
+      "expert": "empathy",
+      "domain": "conversation",
+      "goal": "Acknowledge feelings supportively without diagnosis or pretending to have feelings.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 32,
+      "adapter_parameters_small": 1212416,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 4,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "clarification": {
+      "expert": "clarification",
+      "domain": "conversation",
+      "goal": "Ask the minimum useful question when the request lacks required context.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 32,
+      "adapter_parameters_small": 1212416,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 3,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "apology": {
+      "expert": "apology",
+      "domain": "conversation",
+      "goal": "Acknowledge a concrete error and correct it without repeated apologies.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 32,
+      "adapter_parameters_small": 1212416,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "humor": {
+      "expert": "humor",
+      "domain": "conversation",
+      "goal": "Produce relevant, harmless jokes and distinguish literal from humorous requests.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 32,
+      "adapter_parameters_small": 1212416,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "identity_self": {
+      "expert": "identity_self",
+      "domain": "conversation",
+      "goal": "Identify consistently as Tantra, a language model from Atulya AI.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 32,
+      "adapter_parameters_small": 1212416,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 5,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "identity_capabilities": {
+      "expert": "identity_capabilities",
+      "domain": "conversation",
+      "goal": "Describe only capabilities available in the actual deployment.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 32,
+      "adapter_parameters_small": 1212416,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 6,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "identity_limitations": {
+      "expert": "identity_limitations",
+      "domain": "conversation",
+      "goal": "Explain uncertainty, access limits and possible errors honestly.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 32,
+      "adapter_parameters_small": 1212416,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 7,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "identity_persona": {
+      "expert": "identity_persona",
+      "domain": "conversation",
+      "goal": "Maintain a helpful consistent voice without claiming human identity.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 32,
+      "adapter_parameters_small": 1212416,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "identity_consistency": {
+      "expert": "identity_consistency",
+      "domain": "conversation",
+      "goal": "Keep identity facts consistent across paraphrases and multi-turn challenges.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 32,
+      "adapter_parameters_small": 1212416,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "identity_metadata": {
+      "expert": "identity_metadata",
+      "domain": "conversation",
+      "goal": "Report supplied model metadata; do not invent version or training facts.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 32,
+      "adapter_parameters_small": 1212416,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "tone_style": {
+      "expert": "tone_style",
+      "domain": "conversation",
+      "goal": "Follow explicit tone and style constraints while preserving meaning.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 32,
+      "adapter_parameters_small": 1212416,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "safety_refusal": {
+      "expert": "safety_refusal",
+      "domain": "conversation",
+      "goal": "Refuse harmful requests briefly and offer a relevant safe alternative.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 32,
+      "adapter_parameters_small": 1212416,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 8,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "gk_general": {
+      "expert": "gk_general",
+      "domain": "knowledge",
+      "goal": "Answer general questions with checkable references, explicit uncertainty and dated sources for changing facts.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 128,
+      "adapter_parameters_small": 4849664,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "gk_science": {
+      "expert": "gk_science",
+      "domain": "knowledge",
+      "goal": "Answer science questions with checkable references, explicit uncertainty and dated sources for changing facts.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 128,
+      "adapter_parameters_small": 4849664,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "gk_history": {
+      "expert": "gk_history",
+      "domain": "knowledge",
+      "goal": "Answer history questions with checkable references, explicit uncertainty and dated sources for changing facts.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 128,
+      "adapter_parameters_small": 4849664,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "gk_geography": {
+      "expert": "gk_geography",
+      "domain": "knowledge",
+      "goal": "Answer geography questions with checkable references, explicit uncertainty and dated sources for changing facts.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 128,
+      "adapter_parameters_small": 4849664,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "gk_arts": {
+      "expert": "gk_arts",
+      "domain": "knowledge",
+      "goal": "Answer arts questions with checkable references, explicit uncertainty and dated sources for changing facts.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 128,
+      "adapter_parameters_small": 4849664,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "gk_tech": {
+      "expert": "gk_tech",
+      "domain": "knowledge",
+      "goal": "Answer tech questions with checkable references, explicit uncertainty and dated sources for changing facts.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 128,
+      "adapter_parameters_small": 4849664,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "gk_math": {
+      "expert": "gk_math",
+      "domain": "knowledge",
+      "goal": "Answer mathematical definitions and facts (arithmetic computation belongs to math) questions with checkable references, explicit uncertainty and dated sources for changing facts.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 128,
+      "adapter_parameters_small": 4849664,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "gk_physics": {
+      "expert": "gk_physics",
+      "domain": "knowledge",
+      "goal": "Answer physics questions with checkable references, explicit uncertainty and dated sources for changing facts.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 128,
+      "adapter_parameters_small": 4849664,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "gk_chemistry": {
+      "expert": "gk_chemistry",
+      "domain": "knowledge",
+      "goal": "Answer chemistry questions with checkable references, explicit uncertainty and dated sources for changing facts.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 128,
+      "adapter_parameters_small": 4849664,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "gk_biology": {
+      "expert": "gk_biology",
+      "domain": "knowledge",
+      "goal": "Answer biology questions with checkable references, explicit uncertainty and dated sources for changing facts.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 128,
+      "adapter_parameters_small": 4849664,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "gk_medicine": {
+      "expert": "gk_medicine",
+      "domain": "knowledge",
+      "goal": "Answer medicine questions with checkable references, explicit uncertainty and dated sources for changing facts.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 128,
+      "adapter_parameters_small": 4849664,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "gk_law": {
+      "expert": "gk_law",
+      "domain": "knowledge",
+      "goal": "Answer law questions with checkable references, explicit uncertainty and dated sources for changing facts.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 128,
+      "adapter_parameters_small": 4849664,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "gk_finance": {
+      "expert": "gk_finance",
+      "domain": "knowledge",
+      "goal": "Answer finance questions with checkable references, explicit uncertainty and dated sources for changing facts.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 128,
+      "adapter_parameters_small": 4849664,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "gk_programming": {
+      "expert": "gk_programming",
+      "domain": "knowledge",
+      "goal": "Answer programming questions with checkable references, explicit uncertainty and dated sources for changing facts.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 128,
+      "adapter_parameters_small": 4849664,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "gk_ai_ml": {
+      "expert": "gk_ai_ml",
+      "domain": "knowledge",
+      "goal": "Answer ai ml questions with checkable references, explicit uncertainty and dated sources for changing facts.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 128,
+      "adapter_parameters_small": 4849664,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "gk_cybersec": {
+      "expert": "gk_cybersec",
+      "domain": "knowledge",
+      "goal": "Answer cybersec questions with checkable references, explicit uncertainty and dated sources for changing facts.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 128,
+      "adapter_parameters_small": 4849664,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "gk_linguistics": {
+      "expert": "gk_linguistics",
+      "domain": "knowledge",
+      "goal": "Answer linguistics questions with checkable references, explicit uncertainty and dated sources for changing facts.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 128,
+      "adapter_parameters_small": 4849664,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "gk_philosophy": {
+      "expert": "gk_philosophy",
+      "domain": "knowledge",
+      "goal": "Answer philosophy questions with checkable references, explicit uncertainty and dated sources for changing facts.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 128,
+      "adapter_parameters_small": 4849664,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "gk_psychology": {
+      "expert": "gk_psychology",
+      "domain": "knowledge",
+      "goal": "Answer psychology questions with checkable references, explicit uncertainty and dated sources for changing facts.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 128,
+      "adapter_parameters_small": 4849664,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "gk_economics": {
+      "expert": "gk_economics",
+      "domain": "knowledge",
+      "goal": "Answer economics questions with checkable references, explicit uncertainty and dated sources for changing facts.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 128,
+      "adapter_parameters_small": 4849664,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "gk_politics": {
+      "expert": "gk_politics",
+      "domain": "knowledge",
+      "goal": "Answer politics questions with checkable references, explicit uncertainty and dated sources for changing facts.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 128,
+      "adapter_parameters_small": 4849664,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "gk_sports": {
+      "expert": "gk_sports",
+      "domain": "knowledge",
+      "goal": "Answer sports questions with checkable references, explicit uncertainty and dated sources for changing facts.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 128,
+      "adapter_parameters_small": 4849664,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "gk_entertainment": {
+      "expert": "gk_entertainment",
+      "domain": "knowledge",
+      "goal": "Answer entertainment questions with checkable references, explicit uncertainty and dated sources for changing facts.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 128,
+      "adapter_parameters_small": 4849664,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "gk_current_events": {
+      "expert": "gk_current_events",
+      "domain": "knowledge",
+      "goal": "Answer current events questions with checkable references, explicit uncertainty and dated sources for changing facts.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 128,
+      "adapter_parameters_small": 4849664,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "gk_trivia": {
+      "expert": "gk_trivia",
+      "domain": "knowledge",
+      "goal": "Answer trivia questions with checkable references, explicit uncertainty and dated sources for changing facts.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 128,
+      "adapter_parameters_small": 4849664,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "logic": {
+      "expert": "logic",
+      "domain": "reasoning",
+      "goal": "Solve finite logical problems with checkable premises and conclusions.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 64,
+      "adapter_parameters_small": 2424832,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "math": {
+      "expert": "math",
+      "domain": "reasoning",
+      "goal": "Solve arithmetic and algebra with exact, programmatically checkable answers.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 64,
+      "adapter_parameters_small": 2424832,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "coding": {
+      "expert": "coding",
+      "domain": "reasoning",
+      "goal": "Write small correct programs that satisfy supplied specifications and tests.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 64,
+      "adapter_parameters_small": 2424832,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "reasoning_planning": {
+      "expert": "reasoning_planning",
+      "domain": "reasoning",
+      "goal": "Explain a feasible plan with explicit assumptions and dependencies.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 64,
+      "adapter_parameters_small": 2424832,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "debugging": {
+      "expert": "debugging",
+      "domain": "reasoning",
+      "goal": "Identify the actual cause in a supplied failing program and propose a minimal fix.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 64,
+      "adapter_parameters_small": 2424832,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "algorithm_design": {
+      "expert": "algorithm_design",
+      "domain": "reasoning",
+      "goal": "Choose and explain an algorithm with correct complexity and edge cases.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 64,
+      "adapter_parameters_small": 2424832,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "code_review": {
+      "expert": "code_review",
+      "domain": "reasoning",
+      "goal": "Find actionable defects in supplied code, with a concrete failure example.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 64,
+      "adapter_parameters_small": 2424832,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "architecture": {
+      "expert": "architecture",
+      "domain": "reasoning",
+      "goal": "Compare system designs against stated constraints without inventing requirements.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 64,
+      "adapter_parameters_small": 2424832,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "optimization": {
+      "expert": "optimization",
+      "domain": "reasoning",
+      "goal": "Optimize measured bottlenecks while preserving tested behavior.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 64,
+      "adapter_parameters_small": 2424832,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "verification": {
+      "expert": "verification",
+      "domain": "reasoning",
+      "goal": "Check a proposed answer or proof against its stated requirements.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 64,
+      "adapter_parameters_small": 2424832,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "symbolic_reasoning": {
+      "expert": "symbolic_reasoning",
+      "domain": "reasoning",
+      "goal": "Apply explicit symbolic rules without changing their meaning.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 64,
+      "adapter_parameters_small": 2424832,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "causal_inference": {
+      "expert": "causal_inference",
+      "domain": "reasoning",
+      "goal": "Distinguish correlation from causation and identify necessary assumptions.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 64,
+      "adapter_parameters_small": 2424832,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "pii": {
+      "expert": "pii",
+      "domain": "safety",
+      "goal": "Identify sensitive personal data and transform it according to a stated privacy policy.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 48,
+      "adapter_parameters_small": 1818624,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "toxicity": {
+      "expert": "toxicity",
+      "domain": "safety",
+      "goal": "Recognize abusive content and provide a non-abusive response or rewrite.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 48,
+      "adapter_parameters_small": 1818624,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "jailbreak": {
+      "expert": "jailbreak",
+      "domain": "safety",
+      "goal": "Keep instruction boundaries when untrusted text asks to override them.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 48,
+      "adapter_parameters_small": 1818624,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "bias": {
+      "expert": "bias",
+      "domain": "safety",
+      "goal": "Identify unsupported stereotypes and respond fairly using relevant evidence.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 48,
+      "adapter_parameters_small": 1818624,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "medical_safety": {
+      "expert": "medical_safety",
+      "domain": "safety",
+      "goal": "Handle medical questions cautiously, with uncertainty and appropriate escalation.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 48,
+      "adapter_parameters_small": 1818624,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "financial_safety": {
+      "expert": "financial_safety",
+      "domain": "safety",
+      "goal": "Explain financial concepts without guaranteed returns or fabricated certainty.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 48,
+      "adapter_parameters_small": 1818624,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "legal_safety": {
+      "expert": "legal_safety",
+      "domain": "safety",
+      "goal": "Distinguish general legal information from jurisdiction-specific professional advice.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 48,
+      "adapter_parameters_small": 1818624,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "child_safety": {
+      "expert": "child_safety",
+      "domain": "safety",
+      "goal": "Respond appropriately to child-related risk without sexual or exploitative material.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 48,
+      "adapter_parameters_small": 1818624,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "self_harm": {
+      "expert": "self_harm",
+      "domain": "safety",
+      "goal": "Respond compassionately to distress; never generate harmful procedural instructions.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 48,
+      "adapter_parameters_small": 1818624,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "misinformation": {
+      "expert": "misinformation",
+      "domain": "safety",
+      "goal": "Identify unsupported claims and separate evidence from speculation.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 48,
+      "adapter_parameters_small": 1818624,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "summarization": {
+      "expert": "summarization",
+      "domain": "tasks",
+      "goal": "Summarize supplied text accurately with requested length and coverage.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 48,
+      "adapter_parameters_small": 1818624,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "translation": {
+      "expert": "translation",
+      "domain": "tasks",
+      "goal": "Translate between explicitly specified languages without adding facts.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 48,
+      "adapter_parameters_small": 1818624,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "qa": {
+      "expert": "qa",
+      "domain": "tasks",
+      "goal": "Answer only what the supplied evidence supports and abstain when evidence is missing.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 48,
+      "adapter_parameters_small": 1818624,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "creative_writing": {
+      "expert": "creative_writing",
+      "domain": "tasks",
+      "goal": "Produce original writing satisfying explicit genre, tone and length constraints.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 48,
+      "adapter_parameters_small": 1818624,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "analysis": {
+      "expert": "analysis",
+      "domain": "tasks",
+      "goal": "Analyze supplied material using supported observations and stated assumptions.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 48,
+      "adapter_parameters_small": 1818624,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "extraction": {
+      "expert": "extraction",
+      "domain": "tasks",
+      "goal": "Extract requested fields exactly from supplied records or text.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 48,
+      "adapter_parameters_small": 1818624,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "formatting": {
+      "expert": "formatting",
+      "domain": "tasks",
+      "goal": "Change representation without changing the underlying data.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 48,
+      "adapter_parameters_small": 1818624,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "rewriting": {
+      "expert": "rewriting",
+      "domain": "tasks",
+      "goal": "Rewrite supplied text while preserving specified facts and constraints.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 48,
+      "adapter_parameters_small": 1818624,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "classification": {
+      "expert": "classification",
+      "domain": "tasks",
+      "goal": "Assign only labels from a supplied ontology and explain ambiguous cases.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 48,
+      "adapter_parameters_small": 1818624,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "comparison": {
+      "expert": "comparison",
+      "domain": "tasks",
+      "goal": "Compare options on explicit criteria without inventing attributes.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 48,
+      "adapter_parameters_small": 1818624,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "synthesis": {
+      "expert": "synthesis",
+      "domain": "tasks",
+      "goal": "Combine supplied sources while preserving disagreements and attribution.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 48,
+      "adapter_parameters_small": 1818624,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "evaluation": {
+      "expert": "evaluation",
+      "domain": "tasks",
+      "goal": "Assess supplied work against an explicit rubric.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 48,
+      "adapter_parameters_small": 1818624,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "planning": {
+      "expert": "planning",
+      "domain": "agentic",
+      "goal": "Produce executable steps with prerequisites, success checks and stop conditions.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 64,
+      "adapter_parameters_small": 2424832,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "task_decomposition": {
+      "expert": "task_decomposition",
+      "domain": "agentic",
+      "goal": "Break a request into non-overlapping tasks with dependencies.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 64,
+      "adapter_parameters_small": 2424832,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "tool_selection": {
+      "expert": "tool_selection",
+      "domain": "agentic",
+      "goal": "Choose an available tool from its actual schema; abstain if none fits.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 64,
+      "adapter_parameters_small": 2424832,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "state_tracking": {
+      "expert": "state_tracking",
+      "domain": "agentic",
+      "goal": "Update an explicit task state consistently across turns.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 64,
+      "adapter_parameters_small": 2424832,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "error_recovery": {
+      "expert": "error_recovery",
+      "domain": "agentic",
+      "goal": "Select a bounded retry or rollback based on a supplied failure.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 64,
+      "adapter_parameters_small": 2424832,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "multi_step_reasoning": {
+      "expert": "multi_step_reasoning",
+      "domain": "agentic",
+      "goal": "Complete linked steps while retaining intermediate constraints.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 64,
+      "adapter_parameters_small": 2424832,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "api_schema": {
+      "expert": "api_schema",
+      "domain": "tool_calling",
+      "goal": "Emit calls matching a supplied API schema without inventing fields.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 64,
+      "adapter_parameters_small": 2424832,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "function_composition": {
+      "expert": "function_composition",
+      "domain": "tool_calling",
+      "goal": "Connect tool outputs to compatible downstream inputs.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 64,
+      "adapter_parameters_small": 2424832,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "parallel_calls": {
+      "expert": "parallel_calls",
+      "domain": "tool_calling",
+      "goal": "Parallelize independent calls while preserving dependency order.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 64,
+      "adapter_parameters_small": 2424832,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "streaming_results": {
+      "expert": "streaming_results",
+      "domain": "tool_calling",
+      "goal": "Assemble partial results and distinguish partial from completed output.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 64,
+      "adapter_parameters_small": 2424832,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "auth_handling": {
+      "expert": "auth_handling",
+      "domain": "tool_calling",
+      "goal": "Handle authorization errors without exposing or fabricating credentials.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 64,
+      "adapter_parameters_small": 2424832,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "tool_error_handling": {
+      "expert": "tool_error_handling",
+      "domain": "tool_calling",
+      "goal": "Interpret structured tool failures and choose a justified response.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 64,
+      "adapter_parameters_small": 2424832,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "json_schema": {
+      "expert": "json_schema",
+      "domain": "structured_output",
+      "goal": "Emit syntactically valid JSON satisfying a supplied schema.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 48,
+      "adapter_parameters_small": 1818624,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "xml_format": {
+      "expert": "xml_format",
+      "domain": "structured_output",
+      "goal": "Emit well-formed XML with required structure and correct escaping.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 48,
+      "adapter_parameters_small": 1818624,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "markdown_tables": {
+      "expert": "markdown_tables",
+      "domain": "structured_output",
+      "goal": "Render supplied records as correct, escaped Markdown tables.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 48,
+      "adapter_parameters_small": 1818624,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "csv_export": {
+      "expert": "csv_export",
+      "domain": "structured_output",
+      "goal": "Serialize supplied records as CSV with correct quoting and column order.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 48,
+      "adapter_parameters_small": 1818624,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "regex_validation": {
+      "expert": "regex_validation",
+      "domain": "structured_output",
+      "goal": "Match or validate strings using a stated pattern and check edge cases.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 48,
+      "adapter_parameters_small": 1818624,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "query_rewrite": {
+      "expert": "query_rewrite",
+      "domain": "rag",
+      "goal": "Rewrite a search query without introducing unsupported entities or claims.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 64,
+      "adapter_parameters_small": 2424832,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "doc_ranking": {
+      "expert": "doc_ranking",
+      "domain": "rag",
+      "goal": "Rank supplied documents by their evidence for a given query.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 64,
+      "adapter_parameters_small": 2424832,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "citation_extraction": {
+      "expert": "citation_extraction",
+      "domain": "rag",
+      "goal": "Attach claims to exact supplied source spans and identifiers.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 64,
+      "adapter_parameters_small": 2424832,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "hallucination_check": {
+      "expert": "hallucination_check",
+      "domain": "rag",
+      "goal": "Flag claims unsupported by supplied evidence and propose grounded corrections.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 64,
+      "adapter_parameters_small": 2424832,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "context_compression": {
+      "expert": "context_compression",
+      "domain": "rag",
+      "goal": "Compress supplied evidence while retaining facts required by a question.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 64,
+      "adapter_parameters_small": 2424832,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "repo_navigation": {
+      "expert": "repo_navigation",
+      "domain": "code_agent",
+      "goal": "Find relevant files and symbols from a supplied repository snapshot.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 64,
+      "adapter_parameters_small": 2424832,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "test_generation": {
+      "expert": "test_generation",
+      "domain": "code_agent",
+      "goal": "Create tests that fail for a concrete supplied defect.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 64,
+      "adapter_parameters_small": 2424832,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "debug_loop": {
+      "expert": "debug_loop",
+      "domain": "code_agent",
+      "goal": "Use a supplied failure/test result to propose and validate the next fix.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 64,
+      "adapter_parameters_small": 2424832,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "refactor_planning": {
+      "expert": "refactor_planning",
+      "domain": "code_agent",
+      "goal": "Plan behavior-preserving changes with dependency and test coverage.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 64,
+      "adapter_parameters_small": 2424832,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "code_search": {
+      "expert": "code_search",
+      "domain": "code_agent",
+      "goal": "Locate code matching a query and cite the actual supplied paths.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 64,
+      "adapter_parameters_small": 2424832,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "dependency_analysis": {
+      "expert": "dependency_analysis",
+      "domain": "code_agent",
+      "goal": "Explain actual dependencies and cycles from supplied manifests or code.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 64,
+      "adapter_parameters_small": 2424832,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "lang_en": {
+      "expert": "lang_en",
+      "domain": "multilingual",
+      "goal": "Understand and respond naturally in English, with native-speaker review; English text with a language tag is not valid evidence.",
+      "languages": [
+        "en"
+      ],
+      "target_rank": 16,
+      "adapter_parameters_small": 606208,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "lang_zh": {
+      "expert": "lang_zh",
+      "domain": "multilingual",
+      "goal": "Understand and respond naturally in Chinese, with native-speaker review; English text with a language tag is not valid evidence.",
+      "languages": [
+        "zh"
+      ],
+      "target_rank": 16,
+      "adapter_parameters_small": 606208,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "lang_es": {
+      "expert": "lang_es",
+      "domain": "multilingual",
+      "goal": "Understand and respond naturally in Spanish, with native-speaker review; English text with a language tag is not valid evidence.",
+      "languages": [
+        "es"
+      ],
+      "target_rank": 16,
+      "adapter_parameters_small": 606208,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "lang_hi": {
+      "expert": "lang_hi",
+      "domain": "multilingual",
+      "goal": "Understand and respond naturally in Hindi, with native-speaker review; English text with a language tag is not valid evidence.",
+      "languages": [
+        "hi"
+      ],
+      "target_rank": 16,
+      "adapter_parameters_small": 606208,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 9,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "lang_ar": {
+      "expert": "lang_ar",
+      "domain": "multilingual",
+      "goal": "Understand and respond naturally in Arabic, with native-speaker review; English text with a language tag is not valid evidence.",
+      "languages": [
+        "ar"
+      ],
+      "target_rank": 16,
+      "adapter_parameters_small": 606208,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "lang_pt": {
+      "expert": "lang_pt",
+      "domain": "multilingual",
+      "goal": "Understand and respond naturally in Portuguese, with native-speaker review; English text with a language tag is not valid evidence.",
+      "languages": [
+        "pt"
+      ],
+      "target_rank": 16,
+      "adapter_parameters_small": 606208,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "lang_bn": {
+      "expert": "lang_bn",
+      "domain": "multilingual",
+      "goal": "Understand and respond naturally in Bengali, with native-speaker review; English text with a language tag is not valid evidence.",
+      "languages": [
+        "bn"
+      ],
+      "target_rank": 16,
+      "adapter_parameters_small": 606208,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "lang_ru": {
+      "expert": "lang_ru",
+      "domain": "multilingual",
+      "goal": "Understand and respond naturally in Russian, with native-speaker review; English text with a language tag is not valid evidence.",
+      "languages": [
+        "ru"
+      ],
+      "target_rank": 16,
+      "adapter_parameters_small": 606208,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "lang_ja": {
+      "expert": "lang_ja",
+      "domain": "multilingual",
+      "goal": "Understand and respond naturally in Japanese, with native-speaker review; English text with a language tag is not valid evidence.",
+      "languages": [
+        "ja"
+      ],
+      "target_rank": 16,
+      "adapter_parameters_small": 606208,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "lang_de": {
+      "expert": "lang_de",
+      "domain": "multilingual",
+      "goal": "Understand and respond naturally in German, with native-speaker review; English text with a language tag is not valid evidence.",
+      "languages": [
+        "de"
+      ],
+      "target_rank": 16,
+      "adapter_parameters_small": 606208,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "lang_ko": {
+      "expert": "lang_ko",
+      "domain": "multilingual",
+      "goal": "Understand and respond naturally in Korean, with native-speaker review; English text with a language tag is not valid evidence.",
+      "languages": [
+        "ko"
+      ],
+      "target_rank": 16,
+      "adapter_parameters_small": 606208,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "lang_fr": {
+      "expert": "lang_fr",
+      "domain": "multilingual",
+      "goal": "Understand and respond naturally in French, with native-speaker review; English text with a language tag is not valid evidence.",
+      "languages": [
+        "fr"
+      ],
+      "target_rank": 16,
+      "adapter_parameters_small": 606208,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "lang_tr": {
+      "expert": "lang_tr",
+      "domain": "multilingual",
+      "goal": "Understand and respond naturally in Turkish, with native-speaker review; English text with a language tag is not valid evidence.",
+      "languages": [
+        "tr"
+      ],
+      "target_rank": 16,
+      "adapter_parameters_small": 606208,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "lang_vi": {
+      "expert": "lang_vi",
+      "domain": "multilingual",
+      "goal": "Understand and respond naturally in Vietnamese, with native-speaker review; English text with a language tag is not valid evidence.",
+      "languages": [
+        "vi"
+      ],
+      "target_rank": 16,
+      "adapter_parameters_small": 606208,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "lang_it": {
+      "expert": "lang_it",
+      "domain": "multilingual",
+      "goal": "Understand and respond naturally in Italian, with native-speaker review; English text with a language tag is not valid evidence.",
+      "languages": [
+        "it"
+      ],
+      "target_rank": 16,
+      "adapter_parameters_small": 606208,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "lang_th": {
+      "expert": "lang_th",
+      "domain": "multilingual",
+      "goal": "Understand and respond naturally in Thai, with native-speaker review; English text with a language tag is not valid evidence.",
+      "languages": [
+        "th"
+      ],
+      "target_rank": 16,
+      "adapter_parameters_small": 606208,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "lang_pl": {
+      "expert": "lang_pl",
+      "domain": "multilingual",
+      "goal": "Understand and respond naturally in Polish, with native-speaker review; English text with a language tag is not valid evidence.",
+      "languages": [
+        "pl"
+      ],
+      "target_rank": 16,
+      "adapter_parameters_small": 606208,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "lang_nl": {
+      "expert": "lang_nl",
+      "domain": "multilingual",
+      "goal": "Understand and respond naturally in Dutch, with native-speaker review; English text with a language tag is not valid evidence.",
+      "languages": [
+        "nl"
+      ],
+      "target_rank": 16,
+      "adapter_parameters_small": 606208,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "lang_id": {
+      "expert": "lang_id",
+      "domain": "multilingual",
+      "goal": "Understand and respond naturally in Indonesian, with native-speaker review; English text with a language tag is not valid evidence.",
+      "languages": [
+        "id"
+      ],
+      "target_rank": 16,
+      "adapter_parameters_small": 606208,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "lang_sv": {
+      "expert": "lang_sv",
+      "domain": "multilingual",
+      "goal": "Understand and respond naturally in Swedish, with native-speaker review; English text with a language tag is not valid evidence.",
+      "languages": [
+        "sv"
+      ],
+      "target_rank": 16,
+      "adapter_parameters_small": 606208,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "lang_cs": {
+      "expert": "lang_cs",
+      "domain": "multilingual",
+      "goal": "Understand and respond naturally in Czech, with native-speaker review; English text with a language tag is not valid evidence.",
+      "languages": [
+        "cs"
+      ],
+      "target_rank": 16,
+      "adapter_parameters_small": 606208,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "lang_el": {
+      "expert": "lang_el",
+      "domain": "multilingual",
+      "goal": "Understand and respond naturally in Greek, with native-speaker review; English text with a language tag is not valid evidence.",
+      "languages": [
+        "el"
+      ],
+      "target_rank": 16,
+      "adapter_parameters_small": 606208,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "lang_he": {
+      "expert": "lang_he",
+      "domain": "multilingual",
+      "goal": "Understand and respond naturally in Hebrew, with native-speaker review; English text with a language tag is not valid evidence.",
+      "languages": [
+        "he"
+      ],
+      "target_rank": 16,
+      "adapter_parameters_small": 606208,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "lang_ro": {
+      "expert": "lang_ro",
+      "domain": "multilingual",
+      "goal": "Understand and respond naturally in Romanian, with native-speaker review; English text with a language tag is not valid evidence.",
+      "languages": [
+        "ro"
+      ],
+      "target_rank": 16,
+      "adapter_parameters_small": 606208,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "lang_hu": {
+      "expert": "lang_hu",
+      "domain": "multilingual",
+      "goal": "Understand and respond naturally in Hungarian, with native-speaker review; English text with a language tag is not valid evidence.",
+      "languages": [
+        "hu"
+      ],
+      "target_rank": 16,
+      "adapter_parameters_small": 606208,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "lang_fi": {
+      "expert": "lang_fi",
+      "domain": "multilingual",
+      "goal": "Understand and respond naturally in Finnish, with native-speaker review; English text with a language tag is not valid evidence.",
+      "languages": [
+        "fi"
+      ],
+      "target_rank": 16,
+      "adapter_parameters_small": 606208,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "lang_da": {
+      "expert": "lang_da",
+      "domain": "multilingual",
+      "goal": "Understand and respond naturally in Danish, with native-speaker review; English text with a language tag is not valid evidence.",
+      "languages": [
+        "da"
+      ],
+      "target_rank": 16,
+      "adapter_parameters_small": 606208,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "lang_no": {
+      "expert": "lang_no",
+      "domain": "multilingual",
+      "goal": "Understand and respond naturally in Norwegian, with native-speaker review; English text with a language tag is not valid evidence.",
+      "languages": [
+        "no"
+      ],
+      "target_rank": 16,
+      "adapter_parameters_small": 606208,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "lang_sk": {
+      "expert": "lang_sk",
+      "domain": "multilingual",
+      "goal": "Understand and respond naturally in Slovak, with native-speaker review; English text with a language tag is not valid evidence.",
+      "languages": [
+        "sk"
+      ],
+      "target_rank": 16,
+      "adapter_parameters_small": 606208,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "lang_hr": {
+      "expert": "lang_hr",
+      "domain": "multilingual",
+      "goal": "Understand and respond naturally in Croatian, with native-speaker review; English text with a language tag is not valid evidence.",
+      "languages": [
+        "hr"
+      ],
+      "target_rank": 16,
+      "adapter_parameters_small": 606208,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "lang_sl": {
+      "expert": "lang_sl",
+      "domain": "multilingual",
+      "goal": "Understand and respond naturally in Slovenian, with native-speaker review; English text with a language tag is not valid evidence.",
+      "languages": [
+        "sl"
+      ],
+      "target_rank": 16,
+      "adapter_parameters_small": 606208,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "lang_et": {
+      "expert": "lang_et",
+      "domain": "multilingual",
+      "goal": "Understand and respond naturally in Estonian, with native-speaker review; English text with a language tag is not valid evidence.",
+      "languages": [
+        "et"
+      ],
+      "target_rank": 16,
+      "adapter_parameters_small": 606208,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "lang_lv": {
+      "expert": "lang_lv",
+      "domain": "multilingual",
+      "goal": "Understand and respond naturally in Latvian, with native-speaker review; English text with a language tag is not valid evidence.",
+      "languages": [
+        "lv"
+      ],
+      "target_rank": 16,
+      "adapter_parameters_small": 606208,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "lang_lt": {
+      "expert": "lang_lt",
+      "domain": "multilingual",
+      "goal": "Understand and respond naturally in Lithuanian, with native-speaker review; English text with a language tag is not valid evidence.",
+      "languages": [
+        "lt"
+      ],
+      "target_rank": 16,
+      "adapter_parameters_small": 606208,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "lang_mt": {
+      "expert": "lang_mt",
+      "domain": "multilingual",
+      "goal": "Understand and respond naturally in Maltese, with native-speaker review; English text with a language tag is not valid evidence.",
+      "languages": [
+        "mt"
+      ],
+      "target_rank": 16,
+      "adapter_parameters_small": 606208,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "lang_ga": {
+      "expert": "lang_ga",
+      "domain": "multilingual",
+      "goal": "Understand and respond naturally in Irish, with native-speaker review; English text with a language tag is not valid evidence.",
+      "languages": [
+        "ga"
+      ],
+      "target_rank": 16,
+      "adapter_parameters_small": 606208,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "lang_cy": {
+      "expert": "lang_cy",
+      "domain": "multilingual",
+      "goal": "Understand and respond naturally in Welsh, with native-speaker review; English text with a language tag is not valid evidence.",
+      "languages": [
+        "cy"
+      ],
+      "target_rank": 16,
+      "adapter_parameters_small": 606208,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "lang_eu": {
+      "expert": "lang_eu",
+      "domain": "multilingual",
+      "goal": "Understand and respond naturally in Basque, with native-speaker review; English text with a language tag is not valid evidence.",
+      "languages": [
+        "eu"
+      ],
+      "target_rank": 16,
+      "adapter_parameters_small": 606208,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "lang_ca": {
+      "expert": "lang_ca",
+      "domain": "multilingual",
+      "goal": "Understand and respond naturally in Catalan, with native-speaker review; English text with a language tag is not valid evidence.",
+      "languages": [
+        "ca"
+      ],
+      "target_rank": 16,
+      "adapter_parameters_small": 606208,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "lang_gl": {
+      "expert": "lang_gl",
+      "domain": "multilingual",
+      "goal": "Understand and respond naturally in Galician, with native-speaker review; English text with a language tag is not valid evidence.",
+      "languages": [
+        "gl"
+      ],
+      "target_rank": 16,
+      "adapter_parameters_small": 606208,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "lang_is": {
+      "expert": "lang_is",
+      "domain": "multilingual",
+      "goal": "Understand and respond naturally in Icelandic, with native-speaker review; English text with a language tag is not valid evidence.",
+      "languages": [
+        "is"
+      ],
+      "target_rank": 16,
+      "adapter_parameters_small": 606208,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "lang_mk": {
+      "expert": "lang_mk",
+      "domain": "multilingual",
+      "goal": "Understand and respond naturally in Macedonian, with native-speaker review; English text with a language tag is not valid evidence.",
+      "languages": [
+        "mk"
+      ],
+      "target_rank": 16,
+      "adapter_parameters_small": 606208,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "lang_sq": {
+      "expert": "lang_sq",
+      "domain": "multilingual",
+      "goal": "Understand and respond naturally in Albanian, with native-speaker review; English text with a language tag is not valid evidence.",
+      "languages": [
+        "sq"
+      ],
+      "target_rank": 16,
+      "adapter_parameters_small": 606208,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "lang_bs": {
+      "expert": "lang_bs",
+      "domain": "multilingual",
+      "goal": "Understand and respond naturally in Bosnian, with native-speaker review; English text with a language tag is not valid evidence.",
+      "languages": [
+        "bs"
+      ],
+      "target_rank": 16,
+      "adapter_parameters_small": 606208,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "lang_me": {
+      "expert": "lang_me",
+      "domain": "multilingual",
+      "goal": "Understand and respond naturally in Montenegrin, with native-speaker review; English text with a language tag is not valid evidence.",
+      "languages": [
+        "me"
+      ],
+      "target_rank": 16,
+      "adapter_parameters_small": 606208,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "lang_sr": {
+      "expert": "lang_sr",
+      "domain": "multilingual",
+      "goal": "Understand and respond naturally in Serbian, with native-speaker review; English text with a language tag is not valid evidence.",
+      "languages": [
+        "sr"
+      ],
+      "target_rank": 16,
+      "adapter_parameters_small": 606208,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "lang_bg": {
+      "expert": "lang_bg",
+      "domain": "multilingual",
+      "goal": "Understand and respond naturally in Bulgarian, with native-speaker review; English text with a language tag is not valid evidence.",
+      "languages": [
+        "bg"
+      ],
+      "target_rank": 16,
+      "adapter_parameters_small": 606208,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "lang_uk": {
+      "expert": "lang_uk",
+      "domain": "multilingual",
+      "goal": "Understand and respond naturally in Ukrainian, with native-speaker review; English text with a language tag is not valid evidence.",
+      "languages": [
+        "uk"
+      ],
+      "target_rank": 16,
+      "adapter_parameters_small": 606208,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "lang_be": {
+      "expert": "lang_be",
+      "domain": "multilingual",
+      "goal": "Understand and respond naturally in Belarusian, with native-speaker review; English text with a language tag is not valid evidence.",
+      "languages": [
+        "be"
+      ],
+      "target_rank": 16,
+      "adapter_parameters_small": 606208,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "lang_ka": {
+      "expert": "lang_ka",
+      "domain": "multilingual",
+      "goal": "Understand and respond naturally in Georgian, with native-speaker review; English text with a language tag is not valid evidence.",
+      "languages": [
+        "ka"
+      ],
+      "target_rank": 16,
+      "adapter_parameters_small": 606208,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "translate_pivot": {
+      "expert": "translate_pivot",
+      "domain": "translation",
+      "goal": "Translate through a pivot language while checking meaning preservation.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 48,
+      "adapter_parameters_small": 1818624,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "translate_quality": {
+      "expert": "translate_quality",
+      "domain": "translation",
+      "goal": "Evaluate adequacy and fluency against a supplied source and rubric.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 48,
+      "adapter_parameters_small": 1818624,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "translate_terminology": {
+      "expert": "translate_terminology",
+      "domain": "translation",
+      "goal": "Preserve a supplied terminology glossary consistently.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 48,
+      "adapter_parameters_small": 1818624,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "translate_formality": {
+      "expert": "translate_formality",
+      "domain": "translation",
+      "goal": "Control register and honorifics without changing meaning.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 48,
+      "adapter_parameters_small": 1818624,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "translate_domain": {
+      "expert": "translate_domain",
+      "domain": "translation",
+      "goal": "Translate domain text with appropriate terminology and uncertainty.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 48,
+      "adapter_parameters_small": 1818624,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "translate_literary": {
+      "expert": "translate_literary",
+      "domain": "translation",
+      "goal": "Translate literary meaning, voice and imagery with documented tradeoffs.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 48,
+      "adapter_parameters_small": 1818624,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "translate_technical": {
+      "expert": "translate_technical",
+      "domain": "translation",
+      "goal": "Translate technical instructions while preserving identifiers and numbers.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 48,
+      "adapter_parameters_small": 1818624,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "translate_low_resource": {
+      "expert": "translate_low_resource",
+      "domain": "translation",
+      "goal": "Handle supported low-resource language pairs with native-speaker review.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 48,
+      "adapter_parameters_small": 1818624,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "retrieval": {
+      "expert": "retrieval",
+      "domain": "long_context",
+      "goal": "Retrieve exact evidence from long supplied documents.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 64,
+      "adapter_parameters_small": 2424832,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "hierarchy": {
+      "expert": "hierarchy",
+      "domain": "long_context",
+      "goal": "Organize long material into a faithful hierarchical outline.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 64,
+      "adapter_parameters_small": 2424832,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "compression": {
+      "expert": "compression",
+      "domain": "long_context",
+      "goal": "Compress long material under a budget while preserving required information.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 64,
+      "adapter_parameters_small": 2424832,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    },
+    "rnn_memory": {
+      "expert": "rnn_memory",
+      "domain": "long_context",
+      "goal": "Maintain explicit sequential state over a supplied long sequence.",
+      "languages": [
+        "hi",
+        "hinglish",
+        "en"
+      ],
+      "target_rank": 64,
+      "adapter_parameters_small": 2424832,
+      "minimum": {
+        "train": 1000,
+        "val": 100,
+        "test": 100
+      },
+      "priority": 100,
+      "deployment": "disabled_until_independent_held_out_gain",
+      "pilot_rank": 8
+    }
+  }
+}
