@@ -48,3 +48,20 @@ review coverage, checkpoint state and unchanged source model.
 Continue the base with `python -m Tantra.pretrain --resume --microbatch 16 --dashboard`.
 The base process was restarted only after checking that no existing pretrain worker
 was alive. This does not start the blocked chat stage.
+
+## English-only pilot mode (2026-10-18)
+
+`python -m Tantra.conversation_train train --english-pilot --epochs N ...` is an explicitly
+labelled, undersized English-only pilot. It uses English rows only, reports family
+minimums without enforcing them, needs reviewed train and validation rows, and its
+readiness is always `english_pilot_undersized` (never `data_ready`). Final state is
+`english_pilot_complete_unvalidated`, with `pilot_warning`, `mode` and `epochs` in the
+report; it is never deployed. `--epochs` (shuffled passes, no repeats within a pass) is
+rejected outside pilot mode. `TANTRA_DEVICE=cuda` runs it on a GPU. The balanced
+trilingual gate for normal training is unchanged.
+
+Bundle `Datasets/workbench-chat-en-pilot-v1`: owner-approved English rows only
+(identity_self v3-v6, greeting/smalltalk/farewell v5): 253/11/15 rows. Local CPU smoke
+run (1 epoch, 85 updates, 3.2 min): English assistant-token validation loss 6.85 -> 3.76.
+Kaggle GPU run (10 epochs): `scripts/kaggle/chat_pilot_upload.ps1` + `chat_pilot_kaggle.py`,
+kernel tantrallm/tantra-chat-en-pilot; it also writes base vs pilot answers to fresh prompts.

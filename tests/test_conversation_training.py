@@ -50,3 +50,34 @@ def test_real_supervised_training_masks_user_and_preserves_source(tmp_path,monke
     assert labels[0]==-100 and sum(v!=-100 for v in labels)>0
     saved=torch.load(tmp_path/'candidate/latest.pt',weights_only=False)
     assert saved['cursor']==3 and 'optimizer' in saved and 'torch_rng' in saved
+
+
+def test_english_pilot_is_labelled_and_never_data_ready(tmp_path,monkeypatch):
+    import torch
+    from Tantra.config import ModelConfig
+    from Tantra.model.tantra_model import TantraModel
+    from Tantra.tokenizer import TantraTokenizer
+    from Tantra.conversation_train import pilot_order
+    import Tantra.conversation_train as module
+    import Tantra.data.train_base_pilot as resources
+    tok=TantraTokenizer.train(['Hello hi welcome thanks I am Tantra.']*3,vocab_size=280,min_frequency=1)
+    source=tmp_path/'source';source.mkdir();tok.save(source/'tokenizer.json')
+    model=TantraModel(ModelConfig(vocab_size=tok.vocab_size,d_model=16,n_layers=1,n_heads=2,n_kv_heads=1,mlp_mult=4,max_seq_len=256))
+    torch.save({'config':model.cfg.to_dict(),'state':model.state_dict()},source/'base.pt')
+    (source/'report.json').write_text(json.dumps({'state':'pilot_complete','latest_validation':{'hi':{'loss':1},'en':{'loss':1}},'baseline_validation':{'hi':{'loss':2},'en':{'loss':2}}}))
+    row={'language':'en','messages':[{'role':'user','content':'Hello'},{'role':'assistant','content':'Hi!'}]}
+    records={'train':[row]*3,'val':[row],'test':[row]}
+    calls=[]
+    def fake_inspect(bundle,english_pilot=False):
+        calls.append(english_pilot)
+        return records,{'state':'english_pilot_undersized','bundle_manifest_sha256':'test-fixture'}
+    monkeypatch.setattr(module,'inspect',fake_inspect)
+    monkeypatch.setattr(resources,'memory_ok',lambda:True)
+    with pytest.raises(ValueError,match='epochs'):train(tmp_path/'fixture',source,tmp_path/'x',epochs=2)
+    result=train(tmp_path/'fixture',source,tmp_path/'pilot',english_pilot=True,epochs=2)
+    assert calls==[True]
+    assert result['state']=='english_pilot_complete_unvalidated' and result['updates']==2
+    assert result['languages']==['en'] and result['mode']=='english_pilot' and not result['deployed']
+    assert result['pilot_warning'] and set(result['validation'])=={'en'}
+    order=pilot_order(records['train'],2)
+    assert len(order)==6 and sorted(order[:3])==[0,1,2]
