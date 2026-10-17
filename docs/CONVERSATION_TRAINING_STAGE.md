@@ -65,3 +65,13 @@ Bundle `Datasets/workbench-chat-en-pilot-v1`: owner-approved English rows only
 run (1 epoch, 85 updates, 3.2 min): English assistant-token validation loss 6.85 -> 3.76.
 Kaggle GPU run (10 epochs): `scripts/kaggle/chat_pilot_upload.ps1` + `chat_pilot_kaggle.py`,
 kernel tantrallm/tantra-chat-en-pilot; it also writes base vs pilot answers to fresh prompts.
+
+Local CPU 10-epoch result (2026-10-18): `runs/chat-en-pilot-local-v1`, 844 updates, English
+validation loss 6.85 -> 3.05, state english_pilot_complete_unvalidated, not deployed.
+On 14 fresh prompts (scripts/compare_chat_pilot.py) the base gives Wikipedia fragments for all 14.
+The pilot gives coherent, on-fact identity replies for about 8 of 10 identity prompts
+("Who is the mind behind you?" -> "Atul Vij is the person who created me.") but
+over-applies identity to chat: "Hello there, friend." -> "I'm Tantra! What's Atulya AI?",
+"It is so cold today." -> "Tantra AI is my parent company.", "Good evening!" -> "Good morning!...".
+Cause: identity is 162 of 215 train families. Next: many more greeting/smalltalk/farewell
+families so the data is balanced across situations.
