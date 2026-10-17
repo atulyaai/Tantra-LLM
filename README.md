@@ -43,7 +43,7 @@ It combines a 28.8M parameter base transformer with independent LoRA domain expe
 | --- | --- |
 | Deployed `Model/` | 28.8M base, 10K tokenizer, 20 LoRA adapters; direct replies are often incorrect or garbled |
 | New 64K candidate | 57.2M base, 65,536-token tokenizer, continued pretraining on Hindi/English Wikipedia (separate from `Model/`, not deployed) |
-| Validation at update 2,310 | Hindi loss 2.83, English loss 5.93 (down from 3.95 / 7.05 at stage start) |
+| 19M-token stage | **Complete** (4,639 updates). Final validation: Hindi loss 2.64 / top-1 43%, English loss 5.70 / top-1 22% (stage start: 3.95 / 7.05) |
 | Conversation | **Not chat-ready.** Greeting/identity probe answers are still incoherent; pretraining alone does not teach dialogue |
 | GPU training | `TANTRA_DEVICE=cuda` runs the same resumable trainer on Kaggle (~3,500 tok/s vs ~325 tok/s on a 4-core CPU); see `scripts/kaggle/` |
 | Conversation data | 129 English drafts + Hindi/Hinglish writing sheet await human review; `python -m Tantra.data.review_sheets` imports approved rows |
