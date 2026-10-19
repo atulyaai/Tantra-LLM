@@ -13,7 +13,8 @@ from .expert_workbench import catalog, digest, validate_record, verify_auto, wri
 
 def load_split(root, item, expert):
     import hashlib
-    path=Path(root)/'prepared'/item['path']
+    # Manifests written on Windows store backslash paths; accept them on every OS.
+    path=Path(root)/'prepared'/Path(*item['path'].replace('\\','/').split('/'))
     if hashlib.sha256(path.read_bytes()).hexdigest()!=item['sha256']:
         raise ValueError('Prepared split checksum mismatch: '+str(path))
     rows=[]

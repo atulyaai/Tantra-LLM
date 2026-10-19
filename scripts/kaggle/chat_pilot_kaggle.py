@@ -1,6 +1,6 @@
 """Kaggle GPU run: English-only conversation pilot on the 64K base (full-model SFT).
 
-Inputs: dataset tantra-chat-en-pilot-v1 (code + approved English bundle) and
+Inputs: dataset tantra-chat-en-pilot-vN (code + one approved English bundle) and
 dataset tantra-64k-base-v1 (base.pt, tokenizer.json, report.json).
 Outputs in /kaggle/working/chat-pilot: base.pt, report.json, responses.json.
 The result is an undersized, English-only pilot and is never deployed automatically.
@@ -12,13 +12,14 @@ BASE = next(os.path.dirname(p) for p in glob.glob('/kaggle/input/**/base.pt', re
 WORK = '/kaggle/working/tantra'
 OUT = '/kaggle/working/chat-pilot'
 EPOCHS = int(os.environ.get('TANTRA_EPOCHS', '10'))
+BUNDLE = next(os.path.relpath(os.path.dirname(os.path.dirname(p)), CODE) for p in glob.glob(CODE + '/Datasets/*/prepared'))
 if not os.path.exists(WORK):
     shutil.copytree(CODE, WORK)
 subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', 'tokenizers', 'psutil'], check=False)
 subprocess.run(['nvidia-smi'], check=False)
 env = dict(os.environ, TANTRA_DEVICE='cuda', PYTHONUNBUFFERED='1')
 cmd = [sys.executable, '-m', 'Tantra.conversation_train', 'train', '--english-pilot', '--epochs', str(EPOCHS),
-       '--bundle', 'Datasets/workbench-chat-en-pilot-v1', '--source', BASE, '--output', OUT]
+       '--bundle', BUNDLE, '--source', BASE, '--output', OUT]
 code = subprocess.run(cmd, cwd=WORK, env=env).returncode
 if code:
     sys.exit(code)

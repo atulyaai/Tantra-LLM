@@ -112,3 +112,16 @@ def test_undersized_pilot_is_explicit_and_cannot_validate_release(tmp_path):
         train_one(tmp_path,'greeting',tmp_path/'Model',tmp_path/'candidate')
     with pytest.raises(ValueError,match='cannot request release'):
         train_one(tmp_path,'greeting',tmp_path/'Model',tmp_path/'candidate',small_pilot=True,release_check=True)
+
+
+def test_load_split_accepts_windows_manifest_paths(tmp_path):
+    import hashlib
+    from Tantra.data.train_prepared import load_split
+    row={'schema_version':1,'expert':'greeting','language':'en','family_id':'greeting:t','template_id':'t',
+         'messages':[{'role':'user','content':'Hi'},{'role':'assistant','content':'Hello!'}],
+         'source':{'id':'t','revision':'1','license':'MIT','kind':'original_ai_authored'},
+         'review':{'status':'reviewed','reviewer':'tester','rationale':'fixture'}}
+    path=tmp_path/'prepared'/'train'/'conversation'/'greeting.jsonl'; path.parent.mkdir(parents=True)
+    path.write_text(json.dumps(row)+'\n',encoding='utf-8')
+    item={'path':'train\\conversation\\greeting.jsonl','sha256':hashlib.sha256(path.read_bytes()).hexdigest()}
+    assert load_split(tmp_path,item,'greeting')[0]['messages'][1]['content']=='Hello!'
