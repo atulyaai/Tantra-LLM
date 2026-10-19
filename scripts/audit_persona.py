@@ -9,11 +9,12 @@ import json, re, sys
 from pathlib import Path
 
 ASKS_AI = re.compile(r'\b(ai|a\.i\.|human|person|people|real|robot|bot|machine|program|alive|conscious|feel|feelings|'
-                     r'chatgpt|gpt|gemini|siri|alexa|claude|copilot|bard|llama|jarvis|model|computer|what are you|what is this)\b', re.I)
+                     r'chatgpt|gpt|gemini|siri|alexa|claude|copilot|bard|llama|jarvis|model|computer|what are you|what is this|'
+                     r'someone|customer care|meet|turing|are you (him|her)|grandma)\b', re.I)
 ASKS_CREATOR = re.compile(r'\b(made|make|maker|creat\w*|built|build|develop\w*|coded|program\w*|train\w*|invent\w*|designed|'
                           r'behind|owns?|owner|company|firm|startup|brand|organi[sz]ation|founder|founded|dev|from|origin|'
                           r'atul|atulya|microsoft|amazon|apple|meta|openai|facebook|tata|reliance|government|university|'
-                          r'credit|life|mind|responsible|thank|boss)\b', re.I)
+                          r'credit|life|mind|responsible|thank|boss|world|father|parent|raised|story|existence)\b', re.I)
 SAYS_AI = re.compile(r'\b(an ai|i\'m an ai|i am an ai|ai assistant|language model|computer program)\b', re.I)
 SAYS_CREATOR = re.compile(r'\b(atul vij|atulya ai)\b', re.I)
 
