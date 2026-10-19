@@ -79,5 +79,6 @@ def test_english_pilot_is_labelled_and_never_data_ready(tmp_path,monkeypatch):
     assert result['state']=='english_pilot_complete_unvalidated' and result['updates']==2
     assert result['languages']==['en'] and result['mode']=='english_pilot' and not result['deployed']
     assert result['pilot_warning'] and set(result['validation'])=={'en'}
+    assert result['best_update']==2 and (tmp_path/'pilot/best.pt').exists()
     order=pilot_order(records['train'],2)
     assert len(order)==6 and sorted(order[:3])==[0,1,2]

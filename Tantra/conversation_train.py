@@ -132,11 +132,18 @@ def train(bundle,source,output,resume=False,english_pilot=False,epochs=1):
             state=torch.load(output/'latest.pt',map_location='cpu',weights_only=False)
             if state['identity']!=identity:raise ValueError('Resume identity mismatch')
             model.load_state_dict(state['state']);optimizer.load_state_dict(state['optimizer']);torch.set_rng_state(state['torch_rng'])
-            cursor,updates,tokens=state['cursor'],state['updates'],state['tokens'];baseline=state['baseline'];del state
-        else:baseline=evaluate()
+            cursor,updates,tokens=state['cursor'],state['updates'],state['tokens'];baseline=state['baseline']
+            best=state.get('best',{'loss':float('inf'),'update':None});del state
+        else:baseline=evaluate();best={'loss':float('inf'),'update':None}
+        def mean_loss(result):return sum(v['loss'] for v in result.values())/len(result)
         def save():
             atomic_checkpoint(output/'latest.pt',{'config':model.cfg.to_dict(),'state':model.state_dict(),'optimizer':optimizer.state_dict(),
-                'cursor':cursor,'updates':updates,'tokens':tokens,'identity':identity,'baseline':baseline,'torch_rng':torch.get_rng_state(),'order_seed':42})
+                'cursor':cursor,'updates':updates,'tokens':tokens,'identity':identity,'baseline':baseline,'torch_rng':torch.get_rng_state(),'order_seed':42,'best':best})
+        def keep_best(result):
+            # Small datasets overfit; keep the weights with the lowest validation loss seen so far.
+            if mean_loss(result)<best['loss']:
+                best.update(loss=mean_loss(result),update=updates,validation=result)
+                atomic_checkpoint(output/'best.pt',{'config':model.cfg.to_dict(),'state':model.state_dict(),'router_names':[],'validation':result,'updates':updates})
         save();status='running'
         try:
             while cursor<len(order):
@@ -154,15 +161,17 @@ def train(bundle,source,output,resume=False,english_pilot=False,epochs=1):
                 if not bool(torch.isfinite(norm)):raise FloatingPointError('SFT gradients')
                 optimizer.step();cursor+=len(ids);updates+=1;tokens+=count
                 if updates%10==0:save();print(f'Chat update {updates} | assistant targets {tokens}',flush=True)
-                if updates%50==0:print(json.dumps({'update':updates,'validation':evaluate()}),flush=True)
+                if updates%50==0:
+                    result=evaluate();keep_best(result);print(json.dumps({'update':updates,'validation':result}),flush=True)
         except KeyboardInterrupt:status='interrupted'
-        validation=evaluate();save()
+        validation=evaluate();keep_best(validation);save()
         if cursor==len(order):status='english_pilot_complete_unvalidated' if english_pilot else 'sft_pass_complete_unvalidated'
         atomic_checkpoint(output/'base.pt',{'config':model.cfg.to_dict(),'state':model.state_dict(),'router_names':[]})
         shutil.copy2(source/'tokenizer.json',output/'tokenizer.json')
         report={'state':status,'updates':updates,'assistant_targets':tokens,'baseline':baseline,'validation':validation,
                 'identity':identity,'deployed':False,'quality_gate':'Independent answer and router tests still required','data_readiness':readiness['state'],
                 'mode':identity['mode'],'epochs':epochs,'languages':list(languages),
+                'best_update':best['update'],'best_validation':best.get('validation'),
                 'pilot_warning':'English-only, undersized, AI-drafted/owner-approved data; not a release candidate' if english_pilot else None}
         (output/'report.json').write_text(json.dumps(report,indent=2)+'\n',encoding='utf-8');return report
     finally:lock.unlink()
