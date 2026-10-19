@@ -8,11 +8,15 @@ The result is an undersized, English-only pilot and is never deployed automatica
 import glob, json, os, shutil, subprocess, sys
 
 CODE = next(os.path.dirname(p) for p in glob.glob('/kaggle/input/**/requirements.txt', recursive=True))
-BASE = next(os.path.dirname(p) for p in glob.glob('/kaggle/input/**/base.pt', recursive=True))
+BASES = [os.path.dirname(p) for p in glob.glob('/kaggle/input/**/base.pt', recursive=True)]
+if not BASES:
+    sys.exit('base.pt not found under /kaggle/input; inputs: ' + ', '.join(sorted(glob.glob('/kaggle/input/*/*'))))
+BASE = BASES[0]
 WORK = '/kaggle/working/tantra'
 OUT = '/kaggle/working/chat-pilot'
 EPOCHS = int(os.environ.get('TANTRA_EPOCHS', '10'))
-BUNDLE = next(os.path.relpath(os.path.dirname(os.path.dirname(p)), CODE) for p in glob.glob(CODE + '/Datasets/*/prepared'))
+# <bundle>/prepared/manifest.json -> <bundle>
+BUNDLE = next(os.path.relpath(os.path.dirname(os.path.dirname(p)), CODE) for p in glob.glob(CODE + '/Datasets/*/prepared/manifest.json'))
 if not os.path.exists(WORK):
     shutil.copytree(CODE, WORK)
 subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', 'tokenizers', 'psutil'], check=False)

@@ -75,3 +75,14 @@ over-applies identity to chat: "Hello there, friend." -> "I'm Tantra! What's Atu
 "It is so cold today." -> "Tantra AI is my parent company.", "Good evening!" -> "Good morning!...".
 Cause: identity is 162 of 215 train families. Next: many more greeting/smalltalk/farewell
 families so the data is balanced across situations.
+
+Pilot v2 (2026-10-19): bundle `Datasets/workbench-chat-en-pilot-v2` adds 148 owner-approved v7
+greeting/smalltalk/farewell drafts (387/16/24 rows; identity 46% of train families, was 75%).
+Local CPU, 10 epochs, 1,290 updates (stopped at 620 and resumed): English validation loss
+7.07 -> 3.49 on 16 rows (different validation set from v1, so not directly comparable).
+Fresh-prompt comparison vs v1: casual chat improved ("I have to leave now, bye." -> "No problem!
+Take care."; "Hello there, friend." -> a greeting instead of an identity reply), identity mostly
+held ("Who coded you?" -> "Atul Vij created me."). Still wrong: "Good evening!" -> "Good morning!...",
+"It is so cold today." -> unrelated, "Which company do you represent?" garbled, "Are you Atul Vij
+himself?" -> "Atul Vij created me." The Kaggle helper now locates the bundle from its manifest
+(the earlier version pointed at Datasets/ and failed), and code, bundle and model ship as one dataset.
