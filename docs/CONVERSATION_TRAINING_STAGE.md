@@ -86,3 +86,11 @@ held ("Who coded you?" -> "Atul Vij created me."). Still wrong: "Good evening!" 
 "It is so cold today." -> unrelated, "Which company do you represent?" garbled, "Are you Atul Vij
 himself?" -> "Atul Vij created me." The Kaggle helper now locates the bundle from its manifest
 (the earlier version pointed at Datasets/ and failed), and code, bundle and model ship as one dataset.
+
+Pilot v3 (2026-10-19): bundle `Datasets/workbench-chat-en-pilot-v3` (owner-approved v8 persona
+revisions replace 51 replies that mentioned AI/creator unasked; 459/19/30 rows). Local CPU, 6 epochs,
+918 updates, best.pt at update 918, English validation 7.07 -> 3.14. Despite the lower loss, answers on
+22 fresh prompts regressed in style: repetition ("I'm Tantra, and I'm Tantra"), unasked "I'm an AI",
+"Good morning!" to bye/evening, and unrelated creator lines ("My exam went well today!" -> "Atul Vij is
+my creator."). Conclusion: a few hundred rows teach a few patterns; the next step is 10K+ own,
+filtered conversations (see docs/BULK_DATA_POLICY.md).

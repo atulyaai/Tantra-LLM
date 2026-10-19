@@ -1,6 +1,6 @@
 """Compare base vs chat-pilot answers on fresh prompts absent from training data.
 
-Usage: .venv\\Scripts\\python.exe scripts\\compare_chat_pilot.py <pilot_dir> [base_dir]
+Usage: .venv\\Scripts\\python.exe scripts\\compare_chat_pilot.py <pilot_dir> [base_dir] [checkpoint, default base.pt]
 Writes <pilot_dir>/responses.json. Development inspection only, not a release score.
 """
 import json, sys
@@ -17,13 +17,18 @@ FRESH = ['Hey, what do people call you?', 'Who gave you life?', 'Introduce yours
          'Which company do you represent?', 'Who coded you?', 'Are you Atul Vij himself?',
          'What should I know about you?', 'Good evening!', 'Hello there, friend.', 'I have to leave now, bye.',
          'It is so cold today.']
+# Persona-rule checks (2026-10-19): no unasked AI/creator mention, keep the chat going, honest when asked.
+PERSONA = ['Yo Tantra, wassup?', 'Who brought you up?', 'What are your limits?', 'Can you tell jokes?',
+           'Hey, nice to meet you!', 'Are you a living being?', 'My exam went well today!', 'Catch you tomorrow, Tantra.']
+FRESH = FRESH + PERSONA
 
 
 def main():
     pilot = Path(sys.argv[1]); base = Path(sys.argv[2] if len(sys.argv) > 2 else 'runs/kaggle-output/base-training')
+    checkpoint = sys.argv[3] if len(sys.argv) > 3 else 'base.pt'
     tok = TantraTokenizer.load(pilot / 'tokenizer.json')
     results = {}
-    for label, path in (('base', base / 'base.pt'), ('pilot', pilot / 'base.pt')):
+    for label, path in (('base', base / 'base.pt'), ('pilot', pilot / checkpoint)):
         ck = torch.load(path, map_location='cpu', weights_only=False)
         model = TantraModel(ModelConfig.from_dict(ck['config'])); model.load_state_dict(ck['state'], strict=False); model.eval()
         results[label] = {}
