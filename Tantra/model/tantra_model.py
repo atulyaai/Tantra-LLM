@@ -62,12 +62,17 @@ class LoRALinear(nn.Module):
     def weight(self) -> Tensor:
         return self.base.weight
 
+    def _device(self) -> torch.device:
+        # After dynamic INT8 quantisation `base` has no parameters (weight is packed); experts stay on CPU.
+        p = next(self.base.parameters(), None)
+        return p.device if p is not None else torch.device("cpu")
+
     def add_expert(self, name: str, rank: int, alpha: float) -> None:
         d_in, d_out = self.base.in_features, self.base.out_features
-        A = torch.empty(rank, d_in, device=self.weight.device)
+        A = torch.empty(rank, d_in, device=self._device())
         nn.init.kaiming_uniform_(A, a=math.sqrt(5))
         self.lora_A[name] = nn.Parameter(A)
-        self.lora_B[name] = nn.Parameter(torch.zeros(d_out, rank, device=self.weight.device))
+        self.lora_B[name] = nn.Parameter(torch.zeros(d_out, rank, device=self._device()))
         self.scale[name] = alpha / rank
 
     def remove_expert(self, name: str) -> None:
@@ -291,6 +296,40 @@ class TantraModel(nn.Module):
         return {n: p.detach().cpu().clone() for n, p in self.named_parameters()
                 if n.endswith(f"lora_A.{name}") or n.endswith(f"lora_B.{name}")}
 
+    def lora_shapes(self, name: str, rank: int) -> Dict[str, Tuple[int, ...]]:
+        """Parameter names and shapes an adapter `name` of `rank` must provide for this base."""
+        where = {id(m): n for n, m in self.named_modules()}
+        shapes = {}
+        for mod in self._lora_targets():
+            prefix = where[id(mod)]
+            shapes[f"{prefix}.lora_A.{name}"] = (rank, mod.base.in_features)
+            shapes[f"{prefix}.lora_B.{name}"] = (mod.base.out_features, rank)
+        return shapes
+
+    def attach_lora(self, name: str, state: Dict[str, Tensor], rank: int) -> None:
+        """Attach only the LoRA weights of an expert already known to the router (lazy loading).
+        Refuses any missing, extra or mis-shaped tensor instead of skipping it."""
+        expected = self.lora_shapes(name, rank)
+        given = {k: tuple(v.shape) for k, v in state.items()}
+        if given != expected:
+            missing = sorted(set(expected) - set(given)); extra = sorted(set(given) - set(expected))
+            wrong = sorted(k for k in set(given) & set(expected) if given[k] != expected[k])
+            raise ValueError(f"Adapter '{name}' does not fit this base: missing={missing[:3]} extra={extra[:3]} wrong_shape={wrong[:3]}")
+        for mod in self._lora_targets():
+            mod.add_expert(name, rank, self.cfg.lora_alpha)
+        params = dict(self.named_parameters())
+        with torch.no_grad():
+            for k, v in state.items():
+                params[k].copy_(v)
+        self.expert_ranks[name] = rank
+
+    def detach_lora(self, name: str) -> None:
+        """Free an expert's LoRA weights but keep its router entry."""
+        for mod in self._all_lora():
+            mod.remove_expert(name)
+            mod.active = [(n, w) for n, w in mod.active if n != name]
+        self.expert_ranks.pop(name, None)
+
     def load_expert_state(self, name: str, state: Dict[str, Tensor], rank: int) -> None:
         self.add_expert(name, rank)
         params = dict(self.named_parameters())
@@ -419,12 +458,20 @@ class TantraModel(nn.Module):
 
     @classmethod
     def load(cls, path: str | Path, experts_dir: Optional[str | Path] = None,
-             map_location: str = "cpu") -> "TantraModel":
+             map_location: str = "cpu", lazy: bool = False) -> "TantraModel":
+        """lazy=True registers experts with the router only; Tantra.inference.expert_cache
+        attaches each adapter's weights when a request is routed to it."""
         ck = torch.load(path, map_location=map_location, weights_only=False)
         model = cls(ModelConfig.from_dict(ck["config"]))
         ranks = ck.get("expert_ranks", {})
         for name in ck.get("router_names", []):
-            model.add_expert(name, ranks.get(name))
+            if lazy:
+                model.router.add_expert(name)
+            else:
+                model.add_expert(name, ranks.get(name))
+        if lazy:
+            model.load_state_dict({k: v for k, v in ck["state"].items() if "lora_" not in k}, strict=False)
+            return model
         model.load_state_dict(ck["state"], strict=False)
         if experts_dir is not None:
             for name in model.expert_names:
@@ -435,11 +482,17 @@ class TantraModel(nn.Module):
         return model
 
 
-def save_expert(model: TantraModel, name: str, experts_dir: str | Path) -> Path:
+def save_expert(model: TantraModel, name: str, experts_dir: str | Path, base_sha256: Optional[str] = None,
+                tokenizer_sha256: Optional[str] = None) -> Path:
     d = Path(experts_dir)
     d.mkdir(parents=True, exist_ok=True)
     f = d / f"{name}.pt"
-    torch.save({"rank": model.expert_ranks[name], "state": model.expert_state(name)}, f)
+    payload = {"rank": model.expert_ranks[name], "state": model.expert_state(name)}
+    if base_sha256:
+        payload["base_sha256"] = base_sha256
+    if tokenizer_sha256:
+        payload["tokenizer_sha256"] = tokenizer_sha256
+    torch.save(payload, f)
     return f
 
 

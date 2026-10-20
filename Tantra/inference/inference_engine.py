@@ -39,11 +39,19 @@ def resolve_model_dir(model_dir: str | Path) -> Path:
 
 class TantraEngine:
     def __init__(self, model_dir: str | Path = "Model", int8: bool = False, max_experts: int = 2,
-                 cum_prob: float = 0.8):
+                 cum_prob: float = 0.8, lazy: bool = True, expert_cache: int = 8):
         model_dir = resolve_model_dir(model_dir)
         self.model_dir = model_dir
         self.tok =TantraTokenizer.load(model_dir / "tokenizer.json")
-        self.model = TantraModel.load(model_dir / "base.pt", model_dir / "experts").eval()
+        # Lazy (default): experts are registered with the router, and an adapter's weights are
+        # loaded only when a request routes to it (at most `expert_cache` resident).
+        self.model = TantraModel.load(model_dir / "base.pt", None if lazy else model_dir / "experts", lazy=lazy).eval()
+        self.cache = None
+        if lazy:
+            from Tantra.data.public_sources import sha256
+            from Tantra.inference.expert_cache import ExpertCache
+            self.cache = ExpertCache(self.model, model_dir / "experts", max(expert_cache, max_experts),
+                                     sha256(model_dir / "base.pt"), sha256(model_dir / "tokenizer.json"))
         if int8:
             quantize_for_cpu(self.model)
         self.max_experts = max_experts
@@ -69,7 +77,7 @@ class TantraEngine:
                top_p: float = 0.9, experts: Optional[List[tuple]] = None) -> Iterator[str]:
         last_user = next((m["content"] for m in reversed(messages) if m["role"] == "user"), "")
         self.last_route = experts if experts is not None else self.route(last_user)
-        self.model.set_active(self.last_route)
+        self._activate(self.last_route)
         ids, _ = self.tok.encode_chat(messages, add_generation_prompt=True)
         # Streams sentence by sentence. Stops early (saving tokens) when the model
         # starts repeating a sentence or exceeds max_sentences - small models tend
@@ -99,16 +107,23 @@ class TantraEngine:
         if rest and re.sub(r"\W+", " ", rest.lower()).strip() not in seen:
             yield (" " if done else "") + rest
 
+    def _activate(self, route: List[tuple]) -> None:
+        if self.cache is not None:
+            self.cache.activate(route)
+        else:
+            self.model.set_active(route)
+
     def chat(self, messages: List[Dict[str, str]], **kw) -> str:
         return "".join(self.stream(messages, **kw)).strip()
 
     @torch.no_grad()
     def benchmark(self, prompt: str = "hello, who are you?", n_tokens: int = 64) -> Dict[str, float]:
-        self.model.set_active(self.route(prompt))
+        self._activate(self.route(prompt))
         ids = torch.tensor([self.tok.encode_chat([{"role": "user", "content": prompt}], True)[0]])
         t0 = time.perf_counter()
         n = sum(1 for _ in self.model.generate(ids, n_tokens, temperature=1.0, top_k=0, top_p=1.0))
         dt = time.perf_counter() - t0
         return {"tokens": n, "seconds": round(dt, 3), "tokens_per_sec": round(n / dt, 1),
                 "base_params_M": round(self.model.num_params() / 1e6, 2),
-                "experts": len(self.model.expert_names)}
+                "experts": len(self.model.expert_names),
+                "experts_resident": len(self.cache.resident) if self.cache else len(self.model.expert_names)}
