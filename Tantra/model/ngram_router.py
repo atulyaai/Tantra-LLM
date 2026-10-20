@@ -65,16 +65,24 @@ class NgramRouter(nn.Module):
 
 def train_ngram_router(texts: List[str], labels: List[int], names: Sequence[str], epochs: int = 8,
                        lr: float = 0.5, batch_size: int = 64, seed: int = 0,
-                       holdout: float = 0.1) -> Tuple[NgramRouter, float]:
+                       holdout: float = 0.1, groups: Optional[List[str]] = None) -> Tuple[NgramRouter, float]:
     """Returns (router, held-out accuracy). Duplicate texts with different labels
-    (mixed messages) teach the router to split probability between experts."""
+    (mixed messages) teach the router to split probability between experts.
+    Pass `groups` (e.g. family ids) so paraphrases of one source never sit on both
+    sides of the hold-out; without groups the accuracy is optimistic."""
     import random
     rng = random.Random(seed)
     torch.manual_seed(seed)
-    idx = list(range(len(texts)))
-    rng.shuffle(idx)
-    n_hold = int(len(idx) * holdout)
-    hold, train = idx[:n_hold], idx[n_hold:]
+    if groups is not None:
+        keys = sorted(set(groups)); rng.shuffle(keys)
+        held = set(keys[:int(len(keys) * holdout)])
+        hold = [i for i, g in enumerate(groups) if g in held]
+        train = [i for i, g in enumerate(groups) if g not in held]
+    else:
+        idx = list(range(len(texts)))
+        rng.shuffle(idx)
+        n_hold = int(len(idx) * holdout)
+        hold, train = idx[:n_hold], idx[n_hold:]
     feats = [features(t) for t in texts]
     r = NgramRouter(names)
     opt = torch.optim.Adagrad(r.parameters(), lr=lr)
