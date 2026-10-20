@@ -374,6 +374,9 @@ class TantraModel(nn.Module):
         x = self.embed(input_ids)
         for i, layer in enumerate(self.layers):
             x = layer(x, cos, sin, None if caches is None else caches[i])
+        q_head = self.__dict__.get("_q_head")  # INT8 copy of the tied head, set by quantize_for_cpu
+        if q_head is not None:
+            return q_head(self.norm(x))
         return F.linear(self.norm(x), self.embed.weight)  # tied head
 
     def loss(self, input_ids: Tensor, labels: Tensor) -> Tensor:
@@ -384,14 +387,24 @@ class TantraModel(nn.Module):
     @torch.no_grad()
     def generate(self, input_ids: Tensor, max_new_tokens: int = 64, temperature: float = 0.7,
                  top_k: int = 40, top_p: float = 0.9, stop_ids: Sequence[int] = (),
-                 repetition_penalty: float = 1.1):
-        """Yields token ids one at a time (KV-cached)."""
+                 repetition_penalty: float = 1.1, no_repeat_ngram: int = 0):
+        """Yields token ids one at a time (KV-cached).
+
+        no_repeat_ngram=n forbids any token that would repeat an n-gram already generated in
+        this reply (small models otherwise loop: "I'm Tantra, and I'm Tantra")."""
         caches = [{} for _ in self.layers]
         ids = input_ids[:, -(self.cfg.max_seq_len - max_new_tokens):]
         logits = self(ids, caches, 0)[:, -1]
         pos = ids.shape[1]
         seen = ids[0].tolist()
+        gen: List[int] = []
         for _ in range(max_new_tokens):
+            if no_repeat_ngram and len(gen) >= no_repeat_ngram - 1:
+                prefix = tuple(gen[len(gen) - no_repeat_ngram + 1:]) if no_repeat_ngram > 1 else ()
+                banned = [gen[i + no_repeat_ngram - 1] for i in range(len(gen) - no_repeat_ngram + 1)
+                          if tuple(gen[i:i + no_repeat_ngram - 1]) == prefix]
+                if banned:
+                    logits[0, banned] = -float("inf")
             if repetition_penalty != 1.0 and seen:
                 s = torch.tensor(sorted(set(seen[-64:])), device=logits.device)
                 lg = logits[0, s]
@@ -414,7 +427,7 @@ class TantraModel(nn.Module):
             if tok in stop_ids or pos >= self.cfg.max_seq_len:
                 return
             yield tok
-            seen.append(tok)
+            seen.append(tok); gen.append(tok)
             logits = self(nxt, caches, pos)[:, -1]
             pos += 1
 
@@ -505,12 +518,22 @@ def build_model(preset_or_cfg="tiny", vocab_size: Optional[int] = None) -> Tantr
     return TantraModel(cfg)
 
 
-def quantize_for_cpu(model: TantraModel) -> TantraModel:
-    """INT8 dynamic quantization of the big base matmuls (~4x smaller, faster on CPU).
-    LoRA experts stay fp32 (they are tiny)."""
+def quantize_for_cpu(model: TantraModel, layers: bool = True, head: bool = True) -> TantraModel:
+    """INT8 dynamic quantization for CPU inference; LoRA experts stay fp32 (they are tiny).
+
+    Measured on the 64K base (docs/ROADMAP_CPU_EXPERTS.md): head-only keeps ~94% top-1
+    agreement with FP32; quantising the transformer layers drops it to ~84%."""
     model.eval()
-    for layer in model.layers:
+    for layer in (model.layers if layers else []):
         for mod in layer.lora_modules().values():
             mod.base = torch.ao.quantization.quantize_dynamic(
                 nn.Sequential(mod.base), {nn.Linear}, dtype=torch.qint8)[0]
+    if not head:
+        return model
+    # The tied output head (vocab x d_model) is the largest matmul per generated token; give
+    # inference an INT8 copy. Kept outside the module tree so state_dict and training are unchanged.
+    head = nn.Linear(model.cfg.d_model, model.cfg.vocab_size, bias=False)
+    with torch.no_grad():
+        head.weight.copy_(model.embed.weight)
+    model.__dict__["_q_head"] = torch.ao.quantization.quantize_dynamic(nn.Sequential(head), {nn.Linear}, dtype=torch.qint8)[0]
     return model

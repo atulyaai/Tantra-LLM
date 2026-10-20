@@ -56,6 +56,7 @@ def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument('--base', type=Path, default=ROOT / 'runs/kaggle-output/base-training')
     p.add_argument('--tag', required=True); p.add_argument('--int8', action='store_true')
+    p.add_argument('--int8-head-only', action='store_true', help='quantise only the output head (less drift)')
     p.add_argument('--experts', type=int, default=0); p.add_argument('--rank', type=int, default=8)
     p.add_argument('--mode', choices=['lazy', 'eager'], default='lazy'); p.add_argument('--cache', type=int, default=8)
     p.add_argument('--tokens', type=int, default=64); p.add_argument('--threads', type=int, default=4)
@@ -66,8 +67,8 @@ def main():
     tok = TantraTokenizer.load(model_dir / 'tokenizer.json')
     lazy = a.mode == 'lazy'
     model = TantraModel.load(model_dir / 'base.pt', None if lazy else model_dir / 'experts', lazy=lazy).eval()
-    if a.int8:
-        quantize_for_cpu(model)
+    if a.int8 or a.int8_head_only:
+        quantize_for_cpu(model, layers=not a.int8_head_only)
     cache = None
     if lazy and a.experts:
         from Tantra.inference.expert_cache import ExpertCache
@@ -90,7 +91,7 @@ def main():
             runs.append({'prompt': prompt, 'tokens': n, 'ttft_s': round(first or 0, 4), 'tok_per_s': round(n / dt, 1),
                          'expert_switch_s': round(switch_s, 4)})
     warm = runs[1:]  # first run includes one-off warm-up
-    result = {'tag': a.tag, 'model_dir': str(model_dir), 'int8': a.int8, 'threads': a.threads, 'mode': a.mode,
+    result = {'tag': a.tag, 'model_dir': str(model_dir), 'int8': a.int8, 'int8_head_only': a.int8_head_only, 'threads': a.threads, 'mode': a.mode,
               'synthetic_experts': a.experts, 'rank': a.rank, 'cache': a.cache if lazy else None,
               'base_params_M': round(model.num_params() / 1e6, 2), 'load_s': round(load_s, 2),
               'rss_mb_before_load': round(rss0), 'rss_mb_loaded': round(rss_loaded), 'rss_mb_peak_after_runs': round(rss_mb()),

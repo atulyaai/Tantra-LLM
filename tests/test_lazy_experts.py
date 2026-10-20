@@ -87,3 +87,29 @@ def test_unknown_route_names_are_ignored_and_quantized_base_accepts_experts(save
     assert cache.activate([('not-an-expert', 1.0), ('expert00', 1.0)]) == [('expert00', 1.0)]
     with torch.no_grad():
         assert model(torch.randint(0, 64, (1, 5))).shape == (1, 5, 64)
+
+
+def test_no_repeat_ngram_blocks_repeated_trigrams():
+    torch.manual_seed(0)
+    model = TantraModel(tiny_cfg()).eval()
+    with torch.no_grad():  # force a model that always prefers tokens 5, 6, 7 in a loop
+        model.embed.weight.zero_(); model.embed.weight[5, 0] = model.embed.weight[6, 1] = model.embed.weight[7, 2] = 1.0
+    ids = torch.tensor([[5, 6, 7]])
+    free = list(model.generate(ids, 12, temperature=0, repetition_penalty=1.0))
+    blocked = list(model.generate(ids, 12, temperature=0, repetition_penalty=1.0, no_repeat_ngram=3))
+    trigrams = [tuple(blocked[i:i + 3]) for i in range(len(blocked) - 2)]
+    assert len(trigrams) == len(set(trigrams))
+    assert len(blocked) == len(free) == 12
+
+
+def test_int8_head_matches_fp32_closely():
+    torch.manual_seed(0)
+    fp = TantraModel(tiny_cfg()).eval()
+    q = TantraModel(tiny_cfg()).eval(); q.load_state_dict(fp.state_dict())
+    quantize_for_cpu(q, layers=False)
+    x = torch.randint(0, 64, (1, 12))
+    with torch.no_grad():
+        a, b = fp(x), q(x)
+    assert '_q_head' in q.__dict__ and '_q_head' not in fp.__dict__
+    assert (a.argmax(-1) == b.argmax(-1)).float().mean() >= 0.9
+    assert set(q.state_dict()) == set(fp.state_dict())  # the INT8 copy never leaks into checkpoints

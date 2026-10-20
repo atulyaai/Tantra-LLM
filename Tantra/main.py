@@ -76,7 +76,8 @@ def main(argv=None) -> int:
     p = sub.add_parser("checkpoint"); p.add_argument("--tag", required=True, help="snapshot name under checkpoints/")
     for name in ("chat", "ask", "bench"):
         p = sub.add_parser(name)
-        p.add_argument("--int8", action="store_true")
+        p.add_argument("--int8", action="store_true", help="INT8 output head (faster, ~94%% top-1 agreement)")
+        p.add_argument("--int8-full", action="store_true", help="also quantise transformer layers (more drift)")
         p.add_argument("--temperature", type=float, default=0.7)
         p.add_argument("--max-tokens", type=int, default=96)
         p.add_argument("--no-think", action="store_true", help="skip check/search/fix loop")
@@ -158,8 +159,8 @@ def main(argv=None) -> int:
         from Tantra.training.tantra_trainer import setup_cpu
         from Tantra.inference.inference_engine import TantraEngine
         setup_cpu(a.threads)
-        eng = TantraEngine(a.model_dir, int8=a.int8, max_experts=a.max_experts, lazy=not a.eager,
-                           expert_cache=a.max_resident)
+        eng = TantraEngine(a.model_dir, int8=a.int8 or a.int8_full, max_experts=a.max_experts, lazy=not a.eager,
+                           expert_cache=a.max_resident, int8_layers=a.int8_full)
         timing = lambda: (f"   [route {eng.last_timing['route_s']}s | experts loaded {eng.last_timing['experts_loaded']} "
                           f"in {eng.last_timing['expert_load_s']}s | first token {eng.last_timing['ttft_s']}s | "
                           f"{eng.last_timing['tok_per_s']} tok/s]") if a.timing and getattr(eng, 'last_timing', None) else ""
