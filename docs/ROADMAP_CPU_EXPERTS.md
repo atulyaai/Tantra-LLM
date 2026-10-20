@@ -183,6 +183,30 @@ loads experts on demand by default and prints per-turn route, expert-load, first
 weights, no experts, 4 threads): route < 1 ms, first token ~0.04 s warm (0.65 s on the first call), 34-37 tok/s.
 Not yet done: the `--chat-script` p50/p95 replay and a frozen M3 serving base with retrained experts.
 
+### M3/M4 first experiment (2026-10-20): what experts need
+
+Rank-8 adapters, 300-400 steps, CPU, `Datasets/workbench-chat-en-pilot-v3` splits (`runs/experts-64k-*`):
+
+| Expert | On chat-tuned base (pilot v2) val loss | On raw pretrained base val loss |
+|---|---|---|
+| identity_self (12 val rows) | 3.29 -> 3.52 (worse) | 6.77 -> 3.40 (better) |
+| greeting (5) | 3.84 -> 4.13 (worse) | 8.23 -> 4.78 (better) |
+| smalltalk (1) | 6.24 -> 7.34 (worse) | 6.94 -> 7.81 (worse) |
+| farewell (1) | 7.86 -> 9.05 (worse) | 8.91 -> 9.84 (worse) |
+
+`scripts/build_serving.py` assembled `runs/serve-64k-raw-v1` (raw base + identity_self + greeting +
+n-gram router with a base-only `none` class; router test top-1 0.78 / top-2 0.89 on 27 rows), and
+`scripts/compare_serving.py` compared it with the single chat-tuned model on 22 fresh prompts. Routing
+worked (identity questions -> identity_self, greetings -> greeting), but answers were worse than the
+single chat-tuned model, and anything routed to the raw base alone was incoherent.
+
+Conclusions: (1) the serving base must itself be chat-tuned; (2) an expert only helps when trained on
+data the base has not already absorbed; experts trained on the base's own SFT data overfit and are kept
+disabled. So the order is: chat-tune the base on the large general batch (bulk-v1 after the owner's
+spot-check), freeze it (M3), then train experts only on distinct domain data (M4/M7).
+Fixed on the way: when the router's top class is `none`, the request now runs on the base alone
+(previously the losing expert was applied at its small weight).
+
 ## M7. Build new experts in priority order
 
 Order (all English first; Hindi/Hinglish rows need a named fluent reviewer):

@@ -133,3 +133,12 @@ identity_self v4 pilot (2026-10-17): owner approved all 100 v4 drafts in chat (D
 v5 pilots (2026-10-17): owner approved all 88 v5 drafts in chat (Datasets/conversation-reviewed-v5). identity_self on v3+v4+v5 (Datasets/workbench-identity-v5, 182 rows, families 162/10/10): runs/identity-self-pilot-64k-v5, 400 steps, val 6.81 -> 3.47. On 10 unseen prompts v5 beats v4 on two-part and other-company questions ("Tell me who you are and who built you." -> "I'm Tantra, an AI. Atul Vij created me.") but regressed on "What is your name?" (garbled) and "Who is the person behind Tantra?". greeting on v5 only (Datasets/workbench-greeting-v5, families 26/1/1): runs/greeting-pilot-64k-v5, 200 steps, val 7.99 -> 7.33 on 1 row; friendly style learned but errors ("Good evening" -> "Good morning!", garbled festival names). Both undersized_pilot_unvalidated, not deployed. Adapter-only pilots plateau; more families and the full chat stage are needed.
 
 identity_self v6 pilot (2026-10-17): owner approved 41 v6 drafts (extra wordings/replies joined to existing families, Datasets/conversation-reviewed-identity-v6). Datasets/workbench-identity-v6: 223 rows, families unchanged 162/10/10. runs/identity-self-pilot-64k-v6: 500 steps, 158 s, val 6.81 -> 3.62 (v5: 3.47). On 12 fresh prompts absent from all data, v5 and v6 each answer about 5-6 acceptably; v6 fixed "Who gave you life?" and "Do I speak with a machine?" but broke "Are you a Google product?" and stays garbled on "Which company do you represent?" / "What should I know about you?". Conclusion: rank-8 adapter pilots on this base have plateaued; further gains need full-model supervised chat training (GPU) and more families, not more paraphrases.
+
+Many-expert CPU serving (2026-10-20): lazy expert loading (Tantra/inference/expert_cache.py), CPU benchmark
+(scripts/bench_cpu.py, runs/bench/), router evaluation with a base-only class (Tantra/eval/router_eval.py),
+per-turn timing in chat/ask (--timing), and serving-folder assembly (scripts/build_serving.py, manifest.json
+records the source base/tokenizer hashes adapters must match). First expert experiment: experts on the
+chat-tuned base made validation worse; on the raw base identity_self and greeting improved but the routed
+system answered worse than the single chat-tuned model. See docs/ROADMAP_CPU_EXPERTS.md (M0-M6 status, M3/M4
+findings). No serving folder is deployed; runs/serve-64k-v0 (chat pilot v2 weights) is the best chat model.
+Blocked on the owner: spot-check marks for runs/conversation-bulk-v1 (90 stratified rows) before the bulk SFT.

@@ -7,6 +7,7 @@ Optional INT8 dynamic quantization of the base for ~4x less memory.
 
 from __future__ import annotations
 
+import json
 import re
 import time
 from pathlib import Path
@@ -50,8 +51,13 @@ class TantraEngine:
         if lazy:
             from Tantra.data.public_sources import sha256
             from Tantra.inference.expert_cache import ExpertCache
+            # A serving folder's manifest records the base the adapters were trained on (its base.pt
+            # also carries router entries, so its own file hash differs); otherwise hash the files.
+            manifest = model_dir / "manifest.json"
+            ids = json.loads(manifest.read_text(encoding="utf-8")) if manifest.exists() else {}
             self.cache = ExpertCache(self.model, model_dir / "experts", max(expert_cache, max_experts),
-                                     sha256(model_dir / "base.pt"), sha256(model_dir / "tokenizer.json"))
+                                     ids.get("base_sha256") or sha256(model_dir / "base.pt"),
+                                     ids.get("tokenizer_sha256") or sha256(model_dir / "tokenizer.json"))
         if int8:
             quantize_for_cpu(self.model)
         self.max_experts = max_experts
@@ -62,14 +68,20 @@ class TantraEngine:
         if ng.exists():
             from Tantra.model.ngram_router import NgramRouter
             r = NgramRouter.load(ng)
-            if set(r.names) <= set(self.model.expert_names):
+            # 'none' is the router's base-only class; every other name must be a registered expert.
+            if set(r.names) - {"none"} <= set(self.model.expert_names):
                 self.ngram = r
         self.cum_prob = cum_prob
 
     def route(self, text: str) -> List[tuple]:
         if self.ngram is not None:
             from Tantra.model.ngram_router import route_probs_to_experts
-            return route_probs_to_experts(self.ngram.probs(text), self.ngram.names, self.max_experts, self.cum_prob)
+            route = route_probs_to_experts(self.ngram.probs(text), self.ngram.names, self.max_experts, self.cum_prob)
+            if route and route[0][0] == "none":
+                return []  # the router's best guess is "no expert": answer with the base alone
+            kept = [(n, w) for n, w in route if n != "none"]
+            total = sum(w for _, w in kept)
+            return [(n, w / total) for n, w in kept] if total else []
         ids = torch.tensor([self.tok.encode(text) or [self.tok.pad_id]])
         return self.model.route(ids, self.max_experts, self.cum_prob)
 
