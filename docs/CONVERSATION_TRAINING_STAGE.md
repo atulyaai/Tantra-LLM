@@ -101,3 +101,17 @@ filtered conversations (see docs/BULK_DATA_POLICY.md).
 
 Measured (2026-10-20, pilot-v1 bundle, 1 epoch, CPU): batched 3 rows/update 2.4 min vs 3.2 min before, identical validation 6.85 -> 3.76; 12 rows/update 1.2 min per epoch but 4.47 after one epoch (fewer updates), so larger updates need more epochs.
 
+
+## Bulk batch v4 result (2026-10-21): template collapse
+
+Owner spot-check approved bulk-v1 (90 stratified rows, 2 N; 9,240 rows kept, families
+`greeting:bulk-v1:morning` and `smalltalk:bulk-v1:play-sport` dropped). Bundle
+`Datasets/workbench-chat-en-v4` = bulk + row-reviewed persona data (8,333/754/660). Kaggle GPU,
+3 epochs, 8,333 updates: validation 7.89 -> best 4.19 at update 950 -> 5.06 final. Both the
+final weights and best.pt answer the 22 fresh prompts with stitched template fragments
+("I can't watch it, but I love go! What about you?") and lose the identity answers.
+Cause: 9,240 rows but only ~800 distinct replies from 90 topic packs, so each reply is seen
+~10x per epoch (audit A7). Row count is not diversity. A CPU run of the same bundle was resumed
+and stopped at update 2,100 by another agent in this checkout (report state stopped_requested).
+Next: `scripts/subsample_bulk.py` caps each reply at 2 occurrences (9,240 -> 528 rows, all
+topics kept) for bundle v5; real progress needs many more distinct situations, not more rows.
