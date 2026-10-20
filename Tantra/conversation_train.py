@@ -76,7 +76,7 @@ def prepare(bundle,output):
     return report
 
 
-def train(bundle,source,output,resume=False,english_pilot=False,epochs=1):
+def train(bundle,source,output,resume=False,english_pilot=False,epochs=1,rows_per_update=3):
     import numpy as np
     import torch
     from Tantra.config import ModelConfig
@@ -85,6 +85,7 @@ def train(bundle,source,output,resume=False,english_pilot=False,epochs=1):
     from Tantra.data.expert_dataset import encode_row,collate
     from Tantra.data.train_base_pilot import memory_ok,atomic_checkpoint
     if epochs<1 or (epochs>1 and not english_pilot):raise ValueError('Multiple epochs are only allowed for the English pilot')
+    if rows_per_update<1 or (rows_per_update!=3 and not english_pilot):raise ValueError('Balanced training uses one row per language per update')
     if english_pilot:
         # Explicitly undersized English-only pilot: never data_ready, never deployable.
         rows,readiness=inspect(bundle,english_pilot=True);languages=('en',)
@@ -125,6 +126,7 @@ def train(bundle,source,output,resume=False,english_pilot=False,epochs=1):
         cursor=updates=tokens=0;optimizer=torch.optim.AdamW(model.parameters(),lr=2e-5,weight_decay=.01)
         identity={'bundle':readiness['bundle_manifest_sha256'],'source':sha256(source/'base.pt'),'tokenizer':sha256(source/'tokenizer.json'),
                   'mode':'english_pilot' if english_pilot else 'balanced','epochs':epochs}
+        if rows_per_update!=3:identity['rows_per_update']=rows_per_update  # older runs stay resumable
         def evaluate():
             model.eval();result={}
             with torch.no_grad():
@@ -161,14 +163,14 @@ def train(bundle,source,output,resume=False,english_pilot=False,epochs=1):
             while cursor<len(order):
                 if (output/'stop.request').exists():(output/'stop.request').unlink();status='stopped_requested';break
                 if not memory_ok() or shutil.disk_usage(output).free<2*1024**3:status='paused_resources';break
-                # Each three-record microbatch has one example per language (English pilot: three English rows).
-                ids=order[cursor:cursor+3];model.train();optimizer.zero_grad(set_to_none=True)
-                batches=[batch(encoded['train'][i]) for i in ids]
-                count=sum(int((labels[:,1:]!=-100).sum()) for _,labels,_ in batches)
-                for x,labels,_ in batches:
-                    n=int((labels[:,1:]!=-100).sum());loss=model.loss(x,labels)
-                    if not bool(torch.isfinite(loss)):raise FloatingPointError('SFT loss')
-                    (loss*n/count).backward()
+                # One update = rows_per_update records (balanced mode: one per language), run as ONE right-padded
+                # batch. Attention is causal and pads sit after real tokens, and loss() averages over every
+                # supervised token, so this equals the old per-row token-weighted sum, with fewer passes.
+                ids=order[cursor:cursor+rows_per_update];model.train();optimizer.zero_grad(set_to_none=True)
+                x,labels,_=collate([encoded['train'][i] for i in ids],tok.pad_id);x,labels=x.to(device),labels.to(device)
+                count=int((labels[:,1:]!=-100).sum());loss=model.loss(x,labels)
+                if not bool(torch.isfinite(loss)):raise FloatingPointError('SFT loss')
+                loss.backward()
                 norm=torch.nn.utils.clip_grad_norm_(model.parameters(),1.)
                 if not bool(torch.isfinite(norm)):raise FloatingPointError('SFT gradients')
                 optimizer.step();cursor+=len(ids);updates+=1;tokens+=count
@@ -196,8 +198,9 @@ def main():
     p.add_argument('--source',type=Path,default=ROOT/'runs/pretraining-20m-v1/base-training')
     p.add_argument('--output',type=Path,required=True);p.add_argument('--resume',action='store_true')
     p.add_argument('--english-pilot',action='store_true',help='Explicit undersized English-only pilot; never data_ready or deployable')
-    p.add_argument('--epochs',type=int,default=1,help='English pilot only: shuffled passes over the train split');a=p.parse_args()
-    report=prepare(a.bundle,a.output) if a.command=='prepare' else train(a.bundle,a.source,a.output,a.resume,a.english_pilot,a.epochs)
+    p.add_argument('--epochs',type=int,default=1,help='English pilot only: shuffled passes over the train split')
+    p.add_argument('--rows-per-update',type=int,default=3,help='English pilot only: conversations per optimizer update');a=p.parse_args()
+    report=prepare(a.bundle,a.output) if a.command=='prepare' else train(a.bundle,a.source,a.output,a.resume,a.english_pilot,a.epochs,a.rows_per_update)
     print(json.dumps({'state':report['state'],'shortages':len(report.get('shortages',[]))},indent=2))
 
 if __name__=='__main__':main()

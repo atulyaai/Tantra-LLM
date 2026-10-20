@@ -30,6 +30,10 @@ Only assistant tokens contribute to supervised loss. Three-record balanced updat
 include one example per language, use the smallest available language pool without
 duplicating other rows, and perform one shuffled pass. This balances example counts,
 not necessarily target-token counts; report language coverage separately.
+Each update runs its records as one right-padded batch (2026-10-20); because attention is
+causal and the loss averages over all supervised tokens, this is numerically the same as the
+earlier per-row token-weighted passes (`tests/test_batched_sft.py`) but needs one forward/backward.
+English pilots may set `--rows-per-update N` for larger updates; balanced mode stays at 3.
 
 The base is fine-tuned with four CPU threads, FP32, AdamW LR 2e-5, gradient clipping,
 resource checks, separate atomic weights/optimizer/RNG/cursor checkpoints, clean
@@ -94,3 +98,6 @@ revisions replace 51 replies that mentioned AI/creator unasked; 459/19/30 rows).
 "Good morning!" to bye/evening, and unrelated creator lines ("My exam went well today!" -> "Atul Vij is
 my creator."). Conclusion: a few hundred rows teach a few patterns; the next step is 10K+ own,
 filtered conversations (see docs/BULK_DATA_POLICY.md).
+
+Measured (2026-10-20, pilot-v1 bundle, 1 epoch, CPU): batched 3 rows/update 2.4 min vs 3.2 min before, identical validation 6.85 -> 3.76; 12 rows/update 1.2 min per epoch but 4.47 after one epoch (fewer updates), so larger updates need more epochs.
+
