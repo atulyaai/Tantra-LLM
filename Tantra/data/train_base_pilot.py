@@ -160,6 +160,8 @@ def _train(output,model_dir,identities,maps,train,order,sequence,max_updates,res
         print('Evaluation protocol changed; resetting baseline/best/patience for comparable scores.',flush=True)
         base_eval={};best=float('inf');bad_evals=0
     if not base_eval: base_eval=evaluate()
+    # The starting weights are the bar to beat: a worse first evaluation must not become best-base.pt.
+    if best==float('inf'): best=sum(v['loss'] for v in base_eval.values())/2
     metadata={'model':cfg.to_dict(),'base_parameters':model.num_params(),'optimizer':'AdamW','precision':'float32',
               'threads':threads,'microbatch':chosen,'tokens_per_update':4096,'sequence_targets':sequence,
               'evaluation_every':50,'validation_windows':val_windows,'checkpoint_updates':checkpoint_updates,
@@ -225,8 +227,12 @@ def _train(output,model_dir,identities,maps,train,order,sequence,max_updates,res
                 state='stopped_early';print('Early stopping: validation stopped improving.',flush=True);break
         if state=='running': state='pilot_complete' if cursor==len(order) else 'paused_update_limit'
         validation=evaluate(); checkpoint()
-        atomic_checkpoint(output/'base.pt',{'config':cfg.to_dict(),'state':model.state_dict(),'router_names':[],
-                         'identities':identities,'validation':validation,'updates':updates})
+        final={'config':cfg.to_dict(),'state':model.state_dict(),'router_names':[],
+               'identities':identities,'validation':validation,'updates':updates}
+        if state=='stopped_early' and (output/'best-base.pt').exists():
+            # Early stopping means later weights were worse; promote the best evaluated weights.
+            final=torch.load(output/'best-base.pt',map_location='cpu',weights_only=False); final['promoted_from']='best-base.pt'
+        atomic_checkpoint(output/'base.pt',final)
         shutil.copy2(model_dir/'tokenizer.json',output/'tokenizer.json')
     except KeyboardInterrupt:
         optimizer.zero_grad(set_to_none=True)

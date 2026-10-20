@@ -12,10 +12,12 @@ it does not change the rules for Hindi/Hinglish or for persona data.
    creator/company mention, no service wording), English rows contain no non-Latin script,
    length limits (≤ 8 turns, ≤ 400 characters per turn), exact-duplicate removal.
    Every row must pass; failures are listed in `filter-report.json`.
-2. **Owner spot-check** (`sample`, then `approve`): a seeded random sample (default 50)
-   of the filtered rows is written to `spot-check.csv`. The owner marks every sampled row
-   Y or N. The batch is approved only if at least 95% are Y; rows marked N are dropped.
-   Below the threshold the generator must be fixed and a new batch drawn.
+2. **Owner spot-check** (`sample`, then `approve`): a seeded, stratified sample is written to
+   `spot-check.csv`: at least one row from every family and at least 50 rows. The draw
+   (seed, row ids, batch hash) is recorded in `spot-check.draw.json`, and `approve` accepts
+   only that exact sample, fully marked Y/N, for an unchanged batch. The batch is approved only
+   if at least 95% are Y. A row marked N drops its whole family, because templated siblings
+   share the defect. Below the threshold the generator must be fixed and a new sample drawn.
 3. **Provenance on every row**: `review_method: owner_sample_spot_check`, sample size,
    approval rate, batch size, filter list and the SHA-256 of the marked sample. The reviewer
    string says "spot-checked N of M", so it is never mistaken for row-by-row review.

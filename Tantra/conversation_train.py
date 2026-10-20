@@ -31,6 +31,10 @@ def inspect(bundle,experts=EXPERTS,english_pilot=False):
         coverage[expert]={lang:{s:{'rows':counts[lang][s],'families':len(families[lang][s]),'minimum':meta['experts'][expert]['minimum'][s]} for s in rows} for lang in languages}
     groups={s:{r['split_group'] for r in records} for s,records in rows.items()}
     if any(groups[a]&groups[b] for a,b in [('train','val'),('train','test'),('val','test')]):raise ValueError('Cross-split family leakage')
+    # Families come from authoring scripts; the same opener can still sit in two splits. Report it.
+    opener=lambda r:' '.join(next(m['content'] for m in r['messages'] if m['role']=='user').lower().split())
+    openers={s:{opener(r) for r in records} for s,records in rows.items()}
+    overlap={f'{a}/{b}':sorted(openers[a]&openers[b]) for a,b in [('train','val'),('train','test'),('val','test')]}
     shortages=[]
     for expert,languages in coverage.items():
         for lang,splits in languages.items():
@@ -42,7 +46,8 @@ def inspect(bundle,experts=EXPERTS,english_pilot=False):
     else:state='data_ready' if not shortages and not rejected else 'needs_reviewed_data'
     return rows,{'state':state,'coverage':coverage,'shortages':shortages,
                  'rejected':rejected,'bundle_manifest_sha256':sha256(bundle/'prepared/manifest.json'),
-                 'policy':'No fabricated review or oversampling; require independent minimums per expert and language'}
+                 'policy':'No fabricated review or oversampling; require independent minimums per expert and language',
+                 'opener_overlap':{k:len(v) for k,v in overlap.items()},'opener_overlap_examples':{k:v[:5] for k,v in overlap.items()}}
 
 
 def balanced_order(rows,seed=42,languages=LANGUAGES):
@@ -89,7 +94,7 @@ def train(bundle,source,output,resume=False,english_pilot=False,epochs=1):
     source,output=Path(source).resolve(),Path(output).resolve()
     if output==source or output.is_relative_to(source) or source.is_relative_to(output):raise ValueError('Output must be separate from source')
     source_report=json.loads((source/'report.json').read_text(encoding='utf-8'))
-    if source_report.get('state')!='pilot_complete':raise ValueError('Finish and evaluate the base stage first')
+    if source_report.get('state') not in ('pilot_complete','stopped_early'):raise ValueError('Finish and evaluate the base stage first')
     if any(source_report['latest_validation'][lang]['loss']>=source_report['baseline_validation'][lang]['loss'] for lang in ('hi','en')):raise ValueError('Base language gate failed')
     if output.exists() and not resume:raise ValueError('Use new output or explicit resume')
     output.mkdir(parents=True,exist_ok=True)
@@ -143,7 +148,7 @@ def train(bundle,source,output,resume=False,english_pilot=False,epochs=1):
             # Small datasets overfit; keep the weights with the lowest validation loss seen so far.
             if mean_loss(result)<best['loss']:
                 best.update(loss=mean_loss(result),update=updates,validation=result)
-                atomic_checkpoint(output/'best.pt',{'config':model.cfg.to_dict(),'state':model.state_dict(),'router_names':[],'validation':result,'updates':updates})
+                atomic_checkpoint(output/'best.pt',{'config':model.cfg.to_dict(),'state':model.state_dict(),'router_names':[],'validation':result,'updates':updates,'identity':identity})
         save();status='running'
         try:
             while cursor<len(order):
@@ -171,7 +176,8 @@ def train(bundle,source,output,resume=False,english_pilot=False,epochs=1):
         report={'state':status,'updates':updates,'assistant_targets':tokens,'baseline':baseline,'validation':validation,
                 'identity':identity,'deployed':False,'quality_gate':'Independent answer and router tests still required','data_readiness':readiness['state'],
                 'mode':identity['mode'],'epochs':epochs,'languages':list(languages),
-                'best_update':best['update'],'best_validation':best.get('validation'),
+                'best_update':best['update'],'best_validation':best.get('validation'),'opener_overlap':readiness.get('opener_overlap'),
+                'validation_rows':len(rows['val']),
                 'pilot_warning':'English-only, undersized, AI-drafted/owner-approved data; not a release candidate' if english_pilot else None}
         (output/'report.json').write_text(json.dumps(report,indent=2)+'\n',encoding='utf-8');return report
     finally:lock.unlink()

@@ -16,9 +16,9 @@ def audit(paths):
     for path in paths:
         for line in Path(path).read_text(encoding='utf-8').splitlines():
             row = json.loads(line); msgs = row['messages']
-            for i in range(1, len(msgs), 2):
+            for i in range(len(msgs)):
                 why = turn_violations(msgs, i)
-                if why:
+                if why and msgs[i - 1:i]:
                     flagged.append({'file': str(path), 'family_id': row['family_id'], 'user': msgs[i - 1]['content'],
                                     'reply': msgs[i]['content'], 'why': why})
     return flagged
