@@ -15,18 +15,21 @@ import argparse
 import csv
 import hashlib
 import json
+import math
 import random
 import re
 from pathlib import Path
 from .expert_workbench import catalog, validate_record
-from .persona_rules import violations
+from .persona_rules import violations, SAYS_AI, SAYS_CREATOR
 from .public_sources import sha256
 
-FILTERS = ['schema', 'persona', 'english_script', 'length', 'exact_duplicate']
+FILTERS = ['schema', 'bulk_review_scope', 'persona', 'english_script', 'length', 'exact_duplicate']
+DRAW_VERSION = 2
+EXPERT_DOMAINS = {name: spec['domain'] for name, spec in catalog().items()}
 MAX_CHARS = 400
 MAX_TURNS = 8
 MIN_SAMPLE = 50
-NON_LATIN = re.compile(r'[ऀ-ॿ؀-ۿЀ-ӿ一-鿿]')
+NON_LATIN = re.compile(r'[\u0900-\u097f\u0600-\u06ff\u0400-\u04ff\u4e00-\u9fff]')
 
 
 def message_hash(row):
@@ -36,11 +39,25 @@ def message_hash(row):
 def check(row, seen):
     """Reasons a row fails the automatic filters (empty list = pass)."""
     reasons = []
+    if not isinstance(row, dict):
+        return ['schema: row must be an object']
+    if row.get('expert') not in EXPERT_DOMAINS:
+        return ['schema: unknown expert']
     try:
         validate_record({**row, 'review': {'status': 'reviewed', 'reviewer': 'filter-check', 'rationale': 'filter-check'}}, row['expert'])
     except (ValueError, KeyError, TypeError) as exc:
-        reasons.append('schema: ' + str(exc))
+        return ['schema: ' + str(exc)]
     msgs = row.get('messages', [])
+    # The owner policy permits sampled review for ordinary own-authored English
+    # conversation only. Identity/persona and safety still require individual review.
+    expert = row.get('expert', '')
+    if (expert.startswith('identity_') or EXPERT_DOMAINS.get(expert) == 'safety'
+            or expert == 'safety_refusal'
+            or any(SAYS_AI.search(m.get('content', '')) or SAYS_CREATOR.search(m.get('content', ''))
+                   for m in msgs if m.get('role') == 'assistant')):
+        reasons.append('bulk_review_scope: identity/persona/safety needs row-by-row review')
+    if row.get('source', {}).get('kind') not in ('original_ai_authored', 'original_ai_authored_templated', 'original_human_authored'):
+        reasons.append('bulk_review_scope: sampled review is only for own-authored conversation')
     reasons += ['persona: ' + v for v in violations(msgs)]
     if row.get('language') == 'en' and any(NON_LATIN.search(m['content']) for m in msgs):
         reasons.append('english_script: non-Latin text in an English row')
@@ -61,6 +78,9 @@ def load_queue(queue):
         if sha256(queue / name) != expected:
             raise ValueError('Queue checksum mismatch: ' + name)
         rows += [json.loads(l) for l in (queue / name).read_text(encoding='utf-8').splitlines() if l.strip()]
+    ids = [row.get('record_id') for row in rows]
+    if any(not isinstance(identity, str) or not identity for identity in ids) or len(ids) != len(set(ids)):
+        raise ValueError('Queue record IDs must be non-empty and unique')
     return rows
 
 
@@ -94,9 +114,9 @@ def draw_sample(queue, n=None, seed=0):
     with path.open('w', newline='', encoding='utf-8-sig') as f:
         w = csv.writer(f); w.writerow(['record_id', 'expert', 'conversation', 'ok (Y/N)', 'comment'])
         for row in sample:
-            convo = '\n'.join(('USER: ' if m['role'] == 'user' else 'TANTRA: ') + m['content'] for m in row['messages'])
+            convo = sample_conversation(row)
             w.writerow([row['record_id'], row['expert'], convo, '', ''])
-    draw = {'seed': seed, 'n': len(sample), 'families': len(families), 'record_ids': sorted(r['record_id'] for r in sample),
+    draw = {'version': DRAW_VERSION, 'seed': seed, 'n': len(sample), 'families': len(families), 'record_ids': sorted(r['record_id'] for r in sample),
             'batch_sha256': batch_hash(passed)}
     (Path(queue) / 'spot-check.draw.json').write_text(json.dumps(draw, indent=2), encoding='utf-8')
     return {'sample': len(sample), 'families_covered': len(families), 'passed': len(passed),
@@ -104,11 +124,20 @@ def draw_sample(queue, n=None, seed=0):
 
 
 def batch_hash(rows):
-    return hashlib.sha256('\n'.join(sorted(r['record_id'] for r in rows)).encode()).hexdigest()
+    # Bind all text and provenance, not merely caller-controlled record IDs.
+    payloads = sorted(json.dumps(row, ensure_ascii=False, sort_keys=True, separators=(',', ':')) for row in rows)
+    return hashlib.sha256('\n'.join(payloads).encode('utf-8')).hexdigest()
+
+
+def sample_conversation(row):
+    return '\n'.join(('USER: ' if m['role'] == 'user' else 'TANTRA: ') + m['content'] for m in row['messages'])
+
 
 
 def approve(queue, sample_csv, output, reviewer, rationale, min_rate=0.95):
     output = Path(output)
+    if not isinstance(min_rate, (int, float)) or not math.isfinite(min_rate) or not 0.95 <= min_rate <= 1.0:
+        raise ValueError('Approval threshold must be finite and between 0.95 and 1.0 (owner policy)')
     if output.exists():
         raise ValueError('Reviewed export must be a new directory')
     if not (reviewer or '').strip() or not (rationale or '').strip():
@@ -118,13 +147,26 @@ def approve(queue, sample_csv, output, reviewer, rationale, min_rate=0.95):
     if not draw_path.exists():
         raise ValueError('No recorded draw; run the sample command first')
     draw = json.loads(draw_path.read_text(encoding='utf-8'))
+    if draw.get('version') != DRAW_VERSION:
+        raise ValueError('Legacy sample draw does not bind content; run sample again before review')
     if draw['batch_sha256'] != batch_hash(passed):
         raise ValueError('The batch changed since the sample was drawn; draw a new sample')
     with Path(sample_csv).open(newline='', encoding='utf-8-sig') as f:
-        marks = {r['record_id']: (r.get('ok (Y/N)') or '').strip().upper() for r in csv.DictReader(f)}
+        sample_rows = list(csv.DictReader(f))
+    sample_ids = [row.get('record_id') for row in sample_rows]
+    if len(sample_ids) != len(set(sample_ids)):
+        raise ValueError('Duplicate record IDs in the marked sample')
+    marks = {r['record_id']: (r.get('ok (Y/N)') or '').strip().upper() for r in sample_rows}
+
     if sorted(marks) != draw['record_ids']:
         raise ValueError('The marked sample is not the recorded draw')
+    by_id = {row['record_id']: row for row in passed}
+    for shown in sample_rows:
+        source = by_id[shown['record_id']]
+        if shown.get('expert') != source['expert'] or shown.get('conversation') != sample_conversation(source):
+            raise ValueError('Displayed sample conversation/expert changed; fixes require a new queue and draw')
     if len(marks) < MIN_SAMPLE:
+
         raise ValueError(f'Sample has {len(marks)} rows; at least {MIN_SAMPLE} are required')
     if any(m not in ('Y', 'N') for m in marks.values()):
         raise ValueError('Every sampled row must be marked Y or N')

@@ -76,7 +76,16 @@ def prepare(bundle,output):
     return report
 
 
-def train(bundle,source,output,resume=False,english_pilot=False,epochs=1,rows_per_update=3):
+def validation_progress(best, loss):
+    """Update persisted validation patience; equal/worse loss is not improvement."""
+    if not math.isfinite(loss):
+        raise FloatingPointError('Non-finite conversation validation loss')
+    improved = loss < best['loss']
+    best['bad_evals'] = 0 if improved else best.get('bad_evals', 0) + 1
+    return improved
+
+
+def train(bundle,source,output,resume=False,english_pilot=False,epochs=1,rows_per_update=3,early_stopping_patience=5):
     import numpy as np
     import torch
     from Tantra.config import ModelConfig
@@ -84,6 +93,7 @@ def train(bundle,source,output,resume=False,english_pilot=False,epochs=1,rows_pe
     from Tantra.tokenizer import TantraTokenizer
     from Tantra.data.expert_dataset import encode_row,collate
     from Tantra.data.train_base_pilot import memory_ok,atomic_checkpoint
+    if early_stopping_patience<1:raise ValueError('Early stopping patience must be positive')
     if epochs<1 or (epochs>1 and not english_pilot):raise ValueError('Multiple epochs are only allowed for the English pilot')
     if rows_per_update<1 or (rows_per_update!=3 and not english_pilot):raise ValueError('Balanced training uses one row per language per update')
     if english_pilot:
@@ -96,7 +106,23 @@ def train(bundle,source,output,resume=False,english_pilot=False,epochs=1,rows_pe
     if output==source or output.is_relative_to(source) or source.is_relative_to(output):raise ValueError('Output must be separate from source')
     source_report=json.loads((source/'report.json').read_text(encoding='utf-8'))
     if source_report.get('state') not in ('pilot_complete','stopped_early'):raise ValueError('Finish and evaluate the base stage first')
-    if any(source_report['latest_validation'][lang]['loss']>=source_report['baseline_validation'][lang]['loss'] for lang in ('hi','en')):raise ValueError('Base language gate failed')
+    try:
+        healthy_source=all(math.isfinite(source_report['baseline_validation'][lang]['loss']) and
+            math.isfinite(source_report['latest_validation'][lang]['loss']) and
+            source_report['latest_validation'][lang]['loss']<source_report['baseline_validation'][lang]['loss']
+            for lang in ('hi','en'))
+    except (KeyError,TypeError,ValueError):healthy_source=False
+    if not healthy_source:raise ValueError('Base language gate failed: finite improving Hindi/English validation required')
+    source_binding={}
+    for field,filename in (('exported_base_sha256','base.pt'),('exported_tokenizer_sha256','tokenizer.json')):
+        expected=source_report.get(field)
+        if expected is not None:
+            if sha256(source/filename)!=expected:raise ValueError('Source report artifact checksum mismatch: '+filename)
+            source_binding[filename]='hash_verified'
+        else:source_binding[filename]='legacy_report_unbound'
+    if any(value=='legacy_report_unbound' for value in source_binding.values()):
+        print('WARNING: legacy source report is not cryptographically bound to all exported assets; '
+              'source hashes are recorded for this run, but this report is not release proof.',flush=True)
     if output.exists() and not resume:raise ValueError('Use new output or explicit resume')
     output.mkdir(parents=True,exist_ok=True)
     if shutil.disk_usage(output).free<3*1024**3:raise OSError('Need 3 GiB free disk')
@@ -143,24 +169,35 @@ def train(bundle,source,output,resume=False,english_pilot=False,epochs=1,rows_pe
                     result[lang]={'loss':total/count,'assistant_targets':count}
             return result
         if resume:
-            state=torch.load(output/'latest.pt',map_location='cpu',weights_only=False)
-            if state['identity']!=identity:raise ValueError('Resume identity mismatch')
+            from Tantra.training.checkpoints import load_resumable
+            state,recovery=load_resumable(output/'latest.pt',identity_key='identity',expected_identity=identity,
+                expected_config=model.cfg.to_dict(),required=('state','optimizer','torch_rng','cursor','updates','tokens','baseline'),
+                state_shapes=model.state_dict())
+            if recovery['fallback_used'] or recovery['legacy_without_checksum']:
+                print('Checkpoint resume evidence: '+json.dumps(recovery),flush=True)
+            with (output/'recovery_history.jsonl').open('a',encoding='utf-8') as history:
+                history.write(json.dumps(recovery)+'\n')
             model.load_state_dict(state['state']);optimizer.load_state_dict(state['optimizer']);torch.set_rng_state(state['torch_rng'])
             cursor,updates,tokens=state['cursor'],state['updates'],state['tokens'];baseline=state['baseline']
             best=state.get('best',{'loss':float('inf'),'update':None});del state
-        else:baseline=evaluate();best={'loss':float('inf'),'update':None}
+        else:
+            baseline=evaluate();best={'loss':sum(v['loss'] for v in baseline.values())/len(baseline),'update':0,'validation':baseline}
+            # The untrained starting point must remain best if every trained candidate regresses.
+            atomic_checkpoint(output/'best.pt',{'config':model.cfg.to_dict(),'state':model.state_dict(),
+                'router_names':[],'validation':baseline,'updates':0,'identity':identity})
         def mean_loss(result):return sum(v['loss'] for v in result.values())/len(result)
         def save():
             atomic_checkpoint(output/'latest.pt',{'config':model.cfg.to_dict(),'state':model.state_dict(),'optimizer':optimizer.state_dict(),
                 'cursor':cursor,'updates':updates,'tokens':tokens,'identity':identity,'baseline':baseline,'torch_rng':torch.get_rng_state(),'order_seed':42,'best':best})
         def keep_best(result):
             # Small datasets overfit; keep the weights with the lowest validation loss seen so far.
-            if mean_loss(result)<best['loss']:
+            if validation_progress(best,mean_loss(result)):
                 best.update(loss=mean_loss(result),update=updates,validation=result)
                 atomic_checkpoint(output/'best.pt',{'config':model.cfg.to_dict(),'state':model.state_dict(),'router_names':[],'validation':result,'updates':updates,'identity':identity})
         save();status='running'
+        if best.get('bad_evals',0)>=early_stopping_patience:status='stopped_early'
         try:
-            while cursor<len(order):
+            while cursor<len(order) and status=='running':
                 if (output/'stop.request').exists():(output/'stop.request').unlink();status='stopped_requested';break
                 if not memory_ok() or shutil.disk_usage(output).free<2*1024**3:status='paused_resources';break
                 # One update = rows_per_update records (balanced mode: one per language), run as ONE right-padded
@@ -176,17 +213,25 @@ def train(bundle,source,output,resume=False,english_pilot=False,epochs=1,rows_pe
                 optimizer.step();cursor+=len(ids);updates+=1;tokens+=count
                 if updates%10==0:save();print(f'Chat update {updates} | assistant targets {tokens}',flush=True)
                 if updates%50==0:
-                    result=evaluate();keep_best(result);print(json.dumps({'update':updates,'validation':result}),flush=True)
+                    result=evaluate();keep_best(result);save();print(json.dumps({'update':updates,'validation':result,'bad_evals':best.get('bad_evals',0),'patience':early_stopping_patience}),flush=True)
+                    if best.get('bad_evals',0)>=early_stopping_patience:status='stopped_early';break
         except KeyboardInterrupt:status='interrupted'
-        validation=evaluate();keep_best(validation);save()
+        validation=evaluate()
+        # Final reporting is not another independent validation interval.
+        if mean_loss(validation)<best['loss']:keep_best(validation)
+        save()
         if cursor==len(order):status='english_pilot_complete_unvalidated' if english_pilot else 'sft_pass_complete_unvalidated'
         atomic_checkpoint(output/'base.pt',{'config':model.cfg.to_dict(),'state':model.state_dict(),'router_names':[]})
+        shutil.copy2(output/'best.pt',output/'best-base.pt')
         shutil.copy2(source/'tokenizer.json',output/'tokenizer.json')
         report={'state':status,'updates':updates,'assistant_targets':tokens,'baseline':baseline,'validation':validation,
                 'identity':identity,'deployed':False,'quality_gate':'Independent answer and router tests still required','data_readiness':readiness['state'],
                 'mode':identity['mode'],'epochs':epochs,'languages':list(languages),
                 'best_update':best['update'],'best_validation':best.get('validation'),'opener_overlap':readiness.get('opener_overlap'),
                 'validation_rows':len(rows['val']),
+                'source_report_binding':source_binding,
+                'early_stopping':{'patience':early_stopping_patience,'bad_evals':best.get('bad_evals',0),'interval_updates':50},
+                'selected_checkpoint':'best-base.pt','final_checkpoint':'base.pt',
                 'pilot_warning':'English-only, undersized, AI-drafted/owner-approved data; not a release candidate' if english_pilot else None}
         (output/'report.json').write_text(json.dumps(report,indent=2)+'\n',encoding='utf-8');return report
     finally:lock.unlink()
@@ -198,9 +243,10 @@ def main():
     p.add_argument('--source',type=Path,default=ROOT/'runs/pretraining-20m-v1/base-training')
     p.add_argument('--output',type=Path,required=True);p.add_argument('--resume',action='store_true')
     p.add_argument('--english-pilot',action='store_true',help='Explicit undersized English-only pilot; never data_ready or deployable')
+    p.add_argument('--early-stopping-patience',type=int,default=5,help='Stop after this many validation intervals without lower loss')
     p.add_argument('--epochs',type=int,default=1,help='English pilot only: shuffled passes over the train split')
     p.add_argument('--rows-per-update',type=int,default=3,help='English pilot only: conversations per optimizer update');a=p.parse_args()
-    report=prepare(a.bundle,a.output) if a.command=='prepare' else train(a.bundle,a.source,a.output,a.resume,a.english_pilot,a.epochs,a.rows_per_update)
+    report=prepare(a.bundle,a.output) if a.command=='prepare' else train(a.bundle,a.source,a.output,a.resume,a.english_pilot,a.epochs,a.rows_per_update,a.early_stopping_patience)
     print(json.dumps({'state':report['state'],'shortages':len(report.get('shortages',[]))},indent=2))
 
 if __name__=='__main__':main()

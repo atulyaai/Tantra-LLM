@@ -141,4 +141,26 @@ records the source base/tokenizer hashes adapters must match). First expert expe
 chat-tuned base made validation worse; on the raw base identity_self and greeting improved but the routed
 system answered worse than the single chat-tuned model. See docs/ROADMAP_CPU_EXPERTS.md (M0-M6 status, M3/M4
 findings). No serving folder is deployed; runs/serve-64k-v0 (chat pilot v2 weights) is the best chat model.
-Blocked on the owner: spot-check marks for runs/conversation-bulk-v1 (90 stratified rows) before the bulk SFT.
+Owner spot-check now recorded: 88 Y / 2 N of 90 rows; the English bulk SFT is running in runs/chat-en-v4 on the separate workbench-chat-en-v4 bundle. Do not request the same approval again. This does not approve Hindi/Hinglish or persona identity by bulk sampling.
+
+
+2026-10-20 integrity follow-up: serving manifest v2 binds served files and adapter
+training identities; corrupted-checkpoint recovery is covered by tests. The
+workbench now groups reviewed-sheet translations with their English family
+without altering provenance or English split hashes (see DATASET_SPEC.md).
+Existing bundles and the live chat-en-v4 process were preserved; changes apply
+to new processes/bundles. Multilingual review and independent answer-quality
+gates remain outstanding. No release promotion or architecture expansion.
+
+
+Conversation regression control (2026-10-20): `conversation_train train` now
+accepts `--early-stopping-patience` (default 5 validation intervals, each 50
+updates). Equal/worse validation loss consumes patience; improvement resets it.
+The counter is checkpointed in `best.bad_evals`, so resume retains it. Legacy
+checkpoints start counting at resume. Final report validation is not counted as
+another interval. New completed exports include `best-base.pt` separately from
+last-update `base.pt`. Compare actual held-out replies before promotion; loss
+alone does not establish conversation quality. chat-en-v4 showed best loss
+4.1938 at update 950 and loss 4.4217 at update 2050; a cooperative stop was
+requested rather than blindly finishing three epochs. This is evidence of
+validation regression, not proof of a particular architecture defect.

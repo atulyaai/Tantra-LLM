@@ -43,21 +43,32 @@ class TantraEngine:
                  cum_prob: float = 0.8, lazy: bool = True, expert_cache: int = 8, int8_layers: bool = False):
         model_dir = resolve_model_dir(model_dir)
         self.model_dir = model_dir
+        from Tantra.inference.serving_manifest import load_serving_manifest, ServingIntegrityError
+        serving = load_serving_manifest(model_dir)
         self.tok =TantraTokenizer.load(model_dir / "tokenizer.json")
         # Lazy (default): experts are registered with the router, and an adapter's weights are
         # loaded only when a request routes to it (at most `expert_cache` resident).
-        self.model = TantraModel.load(model_dir / "base.pt", None if lazy else model_dir / "experts", lazy=lazy).eval()
+        self.model = TantraModel.load(model_dir / "base.pt", None if lazy or serving is not None else model_dir / "experts", lazy=lazy or serving is not None).eval()
+        if self.tok.vocab_size!=self.model.cfg.vocab_size:
+            raise ServingIntegrityError('Model/tokenizer vocabulary mismatch')
+        if serving is not None and set(serving['experts'])!=set(self.model.expert_names):
+            raise ServingIntegrityError('Model router registry and serving expert declarations differ')
         self.cache = None
-        if lazy:
+        if lazy or serving is not None:
             from Tantra.data.public_sources import sha256
             from Tantra.inference.expert_cache import ExpertCache
             # A serving folder's manifest records the base the adapters were trained on (its base.pt
             # also carries router entries, so its own file hash differs); otherwise hash the files.
-            manifest = model_dir / "manifest.json"
-            ids = json.loads(manifest.read_text(encoding="utf-8")) if manifest.exists() else {}
+            ids = serving or {}
             self.cache = ExpertCache(self.model, model_dir / "experts", max(expert_cache, max_experts),
                                      ids.get("base_sha256") or sha256(model_dir / "base.pt"),
-                                     ids.get("tokenizer_sha256") or sha256(model_dir / "tokenizer.json"))
+                                     ids.get("tokenizer_sha256") or sha256(model_dir / "tokenizer.json"),
+                                     declared_experts=serving['experts'] if serving is not None else None)
+            if not lazy:
+                # Eager is still integrity-checked; only the retention policy differs.
+                self.cache.capacity=max(self.cache.capacity,len(self.model.expert_names))
+                self.cache.ensure(self.model.expert_names)
+                self.cache=None
         if int8:
             # Head-only INT8 by default: ~45% faster with ~94% top-1 agreement; layers too drops to ~84%.
             quantize_for_cpu(self.model, layers=int8_layers)

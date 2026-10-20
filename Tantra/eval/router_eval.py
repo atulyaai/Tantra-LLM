@@ -24,7 +24,9 @@ NONE = 'none'
 
 
 def first_user(row: Dict) -> str:
-    return next(m['content'] for m in row['messages'] if m['role'] == 'user')
+    # Compatibility name: route the CURRENT request, as TantraEngine does.
+    from Tantra.data.expert_dataset import first_user_text
+    return first_user_text(row)
 
 
 def load_bundle_rows(bundle: Path, experts: Iterable[str]) -> Dict[str, List[Dict]]:
@@ -61,15 +63,25 @@ def evaluate(router: NgramRouter, data, names: Sequence[str]) -> Dict:
     confusion = {g: dict(Counter(names[p] for p, (_, y, _) in zip(top2[:, 0].tolist(), data) if names[y] == g)) for g in names}
     none_share = (top2[:, 0] == names.index(NONE)).float().mean().item() if NONE in names else 0.0
     errors = [{'text': t, 'gold': names[y], 'pred': names[p]} for (t, y, _), p in zip(data, top2[:, 0].tolist()) if p != y]
-    return {'rows': len(data), 'families': len({g for _, _, g in data}), 'top1_accuracy': round(top1, 4),
+    per_class={}
+    for i,name in enumerate(names):
+        tp=int(((top2[:,0]==i)&(gold==i)).sum());fp=int(((top2[:,0]==i)&(gold!=i)).sum());fn=int(((top2[:,0]!=i)&(gold==i)).sum())
+        per_class[name]={'support':int((gold==i).sum()),'precision':tp/(tp+fp) if tp+fp else 0.,
+                         'recall':tp/(tp+fn) if tp+fn else 0.,'f1':2*tp/(2*tp+fp+fn) if 2*tp+fp+fn else 0.}
+    return {'per_class':per_class,'macro_f1':sum(v['f1'] for v in per_class.values())/len(names),'rows': len(data), 'families': len({g for _, _, g in data}), 'top1_accuracy': round(top1, 4),
             'top2_recall': round(recall2, 4), 'routed_to_base_only': round(none_share, 4),
             'confusion': confusion, 'errors_sample': errors[:15]}
 
 
 def run(bundle: Path, experts: Sequence[str], none: Sequence[str] = (), split: str = 'test', save: Path | None = None,
         epochs: int = 8, seed: int = 0) -> Dict:
+    if not experts or len(set(experts))!=len(experts) or set(experts)&set(none) or NONE in experts or NONE in none:
+        raise ValueError('Expert and base-only classes must be nonempty, unique and disjoint')
     names = list(experts) + ([NONE] if none else [])
     rows = load_bundle_rows(bundle, list(experts) + list(none))
+    groups={s:{r.get('split_group') or r['family_id'] for r in rows[s]} for s in ('train','val','test')}
+    if any(groups[a]&groups[b] for a,b in [('train','val'),('train','test'),('val','test')]):
+        raise ValueError('Router train/validation/test families overlap')
     train = labelled(rows['train'], names, none)
     missing = [n for i, n in enumerate(names) if not any(y == i for _, y, _ in train)]
     if missing:

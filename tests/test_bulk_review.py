@@ -115,3 +115,79 @@ def test_unmarked_sample_is_refused(tmp_path):
     with pytest.raises(ValueError, match='marked'):
         approve(queue, queue / 'spot-check.csv', tmp_path / 'out', 'Owner', 'why')
     assert not (tmp_path / 'out').exists()
+
+
+def test_content_change_with_stable_record_ids_invalidates_draw(tmp_path):
+    queue = family_queue(tmp_path)
+    draw_sample(queue)
+    marked = mark(queue, lambda i, r: 'Y')
+    # Re-indexing the queue is not a review: unchanged caller IDs must not hide new text.
+    path = queue / 'drafts.jsonl'
+    rows = [json.loads(line) for line in path.read_text(encoding='utf-8').splitlines()]
+    rows[0]['messages'][-1]['content'] = 'A different otherwise valid answer.'
+    path.write_text(''.join(json.dumps(r) + '\n' for r in rows), encoding='utf-8')
+    (queue / 'index.json').write_text(json.dumps({'files': {path.name: hashlib.sha256(path.read_bytes()).hexdigest()}}))
+    with pytest.raises(ValueError, match='batch changed'):
+        approve(queue, marked, tmp_path / 'out', 'Owner', 'checked')
+    assert not (tmp_path / 'out').exists()
+
+
+def test_displayed_sample_must_match_the_actual_queue_text_and_expert(tmp_path):
+    queue = family_queue(tmp_path)
+    draw_sample(queue)
+    rows = read_sample(queue)
+    for row in rows:
+        row['ok (Y/N)'] = 'Y'
+    rows[0]['conversation'] = 'USER: A safer question\nTANTRA: A safer answer'
+    marked = write_sample(tmp_path / 'edited.csv', rows)
+    with pytest.raises(ValueError, match='Displayed sample'):
+        approve(queue, marked, tmp_path / 'edited-out', 'Owner', 'checked')
+    rows[0] = {**read_sample(queue)[0], 'ok (Y/N)': 'Y', 'expert': 'greeting'}
+    marked = write_sample(tmp_path / 'wrong-expert.csv', rows)
+    with pytest.raises(ValueError, match='Displayed sample'):
+        approve(queue, marked, tmp_path / 'wrong-expert-out', 'Owner', 'checked')
+
+
+def test_duplicate_sample_or_queue_ids_are_refused(tmp_path):
+    queue = family_queue(tmp_path)
+    draw_sample(queue)
+    rows = read_sample(queue)
+    for row in rows:
+        row['ok (Y/N)'] = 'Y'
+    marked = write_sample(tmp_path / 'duplicates.csv', rows + [rows[0]])
+    with pytest.raises(ValueError, match='Duplicate record IDs'):
+        approve(queue, marked, tmp_path / 'out', 'Owner', 'checked')
+    nested = tmp_path / 'nested'; nested.mkdir()
+    duplicate = record(1, 'Hello', 'Hi!')
+    with pytest.raises(ValueError, match='unique'):
+        run_filters(make_queue(nested, [duplicate, duplicate]))
+
+
+@pytest.mark.parametrize('rate', [0.0, 0.94, 1.01, float('nan'), float('inf')])
+def test_owner_approval_threshold_cannot_be_weakened(tmp_path, rate):
+    with pytest.raises(ValueError, match='between 0.95 and 1.0'):
+        approve(tmp_path, tmp_path / 'missing.csv', tmp_path / 'out', 'Owner', 'checked', min_rate=rate)
+
+
+def test_identity_safety_and_external_rows_stay_out_of_bulk_review(tmp_path):
+    rows = [record(1, 'Who made you?', 'Atul Vij made me.', expert='identity_self'),
+            record(2, 'Are you a machine?', 'I am an AI.', expert='smalltalk'),
+            record(3, 'Who made you?', 'Atul Vij made me.', expert='smalltalk'),
+            record(4, 'Should I do something dangerous?', 'Please avoid doing that.', expert='safety_refusal'),
+            record(5, 'A normal question', 'A normal answer')]
+    rows[-1]['source']['kind'] = 'community_conversation'
+    passed, report = run_filters(make_queue(tmp_path, rows))
+    assert not passed and report['rejected'] == 5
+    assert all(any(reason.startswith('bulk_review_scope:') for reason in item['reasons']) for item in report['rejections'])
+
+
+def test_old_id_only_draw_requires_fresh_review(tmp_path):
+    queue = family_queue(tmp_path)
+    draw_sample(queue)
+    marked = mark(queue, lambda i, r: 'Y')
+    path = queue / 'spot-check.draw.json'
+    draw = json.loads(path.read_text())
+    draw.pop('version')
+    path.write_text(json.dumps(draw))
+    with pytest.raises(ValueError, match='Legacy sample'):
+        approve(queue, marked, tmp_path / 'out', 'Owner', 'checked')

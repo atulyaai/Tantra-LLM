@@ -82,3 +82,17 @@ def test_english_pilot_is_labelled_and_never_data_ready(tmp_path,monkeypatch):
     assert result['best_update']==2 and (tmp_path/'pilot/best.pt').exists()
     order=pilot_order(records['train'],2)
     assert len(order)==6 and sorted(order[:3])==[0,1,2]
+
+
+def test_validation_patience_persists_and_resets_only_on_improvement():
+    from Tantra.conversation_train import validation_progress
+    best={'loss':4.19}
+    for loss in (4.32,4.19,4.40,4.35,4.42):
+        assert not validation_progress(best,loss)
+    assert best['bad_evals']==5
+    restored=json.loads(json.dumps(best))
+    assert not validation_progress(restored,4.2)
+    assert restored['bad_evals']==6
+    assert validation_progress(restored,4.1)
+    assert restored['bad_evals']==0
+    with pytest.raises(FloatingPointError):validation_progress(restored,float('nan'))

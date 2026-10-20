@@ -146,6 +146,21 @@ def split_for(family):
     return 'train' if n < 90 else 'val' if n < 95 else 'test'
 
 
+def family_key(row):
+    """Keep reviewed sheet translations in the original English split namespace.
+
+    Source attribution remains unchanged. Restrict the alias to the known sheet
+    source and family format; unrelated publishers retain independent families.
+    Existing English split hashes are preserved.
+    """
+    source = row['source']['id']
+    family = row['family_id']
+    if (source == 'tantra-conversation-human-v1'
+            and family.startswith(row['expert'] + ':draft-v1:')):
+        source = 'tantra-conversation-drafts-v1'
+    return source + ':' + family
+
+
 def catalog(taxonomy=None, config=None):
     taxonomy = taxonomy or load_taxonomy()
     errors = validate_taxonomy(taxonomy)
@@ -412,7 +427,7 @@ def prepare(out=DEFAULT_OUT):
                         try:
                             row=validate_record(json.loads(line),name)
                             key=digest(normalized(json.dumps(row['messages'],ensure_ascii=False,sort_keys=True)))
-                            family=row['source']['id']+':'+row['family_id']
+                            family=family_key(row)
                             prior=db.execute('SELECT family FROM documents WHERE hash=?',(key,)).fetchone()
                             if prior: union(family,prior[0])
                             else: db.execute('INSERT INTO documents VALUES (?,?)',(key,family))

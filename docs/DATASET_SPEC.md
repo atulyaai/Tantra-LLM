@@ -92,3 +92,13 @@ adapter at a time. Taxonomy ranks are targets, not measured deployment budgets.
 The `train` command exports a candidate to a separate output directory. A pilot
 is marked `pilot_unvalidated`. Even an answer-validated candidate is not automatically
 installed into `Model/`, and the router is not silently retrained.
+
+### Reviewed-sheet translation grouping (2026-10-20)
+
+The workbench groups `tantra-conversation-human-v1` records with an
+`<expert>:draft-v1:<situation>` family under the original
+`tantra-conversation-drafts-v1` split namespace. English, Hindi and Hinglish
+versions therefore share a split even though their attribution sources differ.
+The source fields remain unchanged; unrelated publishers are not merged merely
+because they use the same family ID. Existing English family hashes are unchanged.
+Previously prepared bundles are immutable: build a new bundle to apply this fix.

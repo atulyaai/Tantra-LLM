@@ -125,3 +125,33 @@ def test_load_split_accepts_windows_manifest_paths(tmp_path):
     path.write_text(json.dumps(row)+'\n',encoding='utf-8')
     item={'path':'train\\conversation\\greeting.jsonl','sha256':hashlib.sha256(path.read_bytes()).hexdigest()}
     assert load_split(tmp_path,item,'greeting')[0]['messages'][1]['content']=='Hello!'
+
+
+def test_sheet_translation_family_shares_split_without_changing_provenance(tmp_path):
+    from Tantra.data.expert_workbench import family_key
+    rows=[]
+    for language, source, question, answer in (
+        ('en', 'tantra-conversation-drafts-v1', 'Hello there', 'Hi!'),
+        ('hi', 'tantra-conversation-human-v1', 'नमस्ते', 'नमस्ते!'),
+        ('hinglish', 'tantra-conversation-human-v1', 'Namaste dost', 'Namaste!'),
+    ):
+        rows.append({'schema_version':1, 'expert':'greeting', 'language':language,
+            'family_id':'greeting:draft-v1:welcome', 'template_id':'draft-v1:welcome',
+            'messages':[{'role':'user','content':question},{'role':'assistant','content':answer}],
+            'source':{'id':source,'revision':'1','license':'MIT','kind':'original_human_authored'},
+            'review':{'status':'reviewed','reviewer':'fixture reviewer','fluent_language_review':True}})
+    expected='tantra-conversation-drafts-v1:greeting:draft-v1:welcome'
+    assert {family_key(row) for row in rows} == {expected}
+    unrelated={**rows[0], 'source':{**rows[0]['source'], 'id':'independent-source'}}
+    assert family_key(unrelated) != expected
+    path=tmp_path/'incoming'/'conversation'/'greeting.jsonl'
+    path.parent.mkdir(parents=True)
+    path.write_text(''.join(json.dumps(row,ensure_ascii=False)+'\n' for row in rows),encoding='utf-8')
+    manifest=prepare(tmp_path)
+    outputs=[]
+    for item in manifest['experts']['greeting']['files'].values():
+        outputs.extend(json.loads(line) for line in (tmp_path/'prepared'/item['path']).read_text(encoding='utf-8').splitlines())
+    assert len(outputs)==3
+    assert len({row['split'] for row in outputs})==1
+    assert {row['split_group'] for row in outputs}=={expected}
+    assert {row['source']['id'] for row in outputs}=={row['source']['id'] for row in rows}

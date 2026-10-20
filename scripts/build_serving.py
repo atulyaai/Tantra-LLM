@@ -53,7 +53,7 @@ def main():
     for name, (src, _) in adapters.items():
         shutil.copy2(src, a.out / 'experts' / f'{name}.pt')
     report = router_run(a.bundle, list(adapters), a.none, 'test', a.out / 'router_ngram.pt')
-    manifest = {'base_sha256': base_hash, 'tokenizer_sha256': tok_hash, 'source_base': str(a.base),
+    manifest = {'version':2, 'artifacts': {name:sha256(a.out/name) for name in ('base.pt','tokenizer.json','router_ngram.pt')}, 'base_sha256': base_hash, 'tokenizer_sha256': tok_hash, 'source_base': str(a.base),
                 'experts': {n: {'file': f'experts/{n}.pt', 'rank': int(p['rank']), 'sha256': sha256(a.out / 'experts' / f'{n}.pt')}
                             for n, (_, p) in adapters.items()},
                 'router': {'names': report['names'], 'none_experts': list(a.none), 'val': {k: report['val'].get(k) for k in ('rows', 'top1_accuracy', 'top2_recall')},

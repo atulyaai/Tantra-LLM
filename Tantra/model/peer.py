@@ -51,7 +51,10 @@ class ProductKeyExperts(nn.Module):
         gate = scores.softmax(-1)                                          # [T, H, k]
         down = self.down(ids)                                              # [T, H, k, d]
         h = F.gelu(torch.einsum('td,thkd->thk', x, down)) * gate
-        out = torch.einsum('thk,thkd->td', h, self.up(ids))
+        # Weighted sum of the chosen up-vectors without materialising a [T, H, k, d] tensor.
+        T = ids.shape[0]
+        out = F.embedding_bag(ids.reshape(T, -1), self.up.weight, per_sample_weights=h.reshape(T, -1),
+                              mode='sum', sparse=self.up.sparse)
         return out.reshape(shape)
 
     def active_params_per_token(self, d_model: int) -> int:

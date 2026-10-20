@@ -14,7 +14,7 @@ if not BASES:
 BASE = BASES[0]
 WORK = '/kaggle/working/tantra'
 OUT = '/kaggle/working/chat-pilot'
-EPOCHS = int(os.environ.get('TANTRA_EPOCHS', '10'))
+EPOCHS = int(os.environ.get('TANTRA_EPOCHS', '3'))  # best.pt keeps the lowest-validation weights
 # <bundle>/prepared/manifest.json -> <bundle>
 BUNDLE = next(os.path.relpath(os.path.dirname(os.path.dirname(p)), CODE) for p in glob.glob(CODE + '/Datasets/*/prepared/manifest.json'))
 if not os.path.exists(WORK):

@@ -41,6 +41,9 @@ def tensor_batch(files, positions, sequence):
 
 
 def atomic_checkpoint(path, payload):
+    if Path(path).name=='latest.pt':
+        from Tantra.training.checkpoints import save_resumable
+        save_resumable(path,payload);return
     temp=path.with_suffix('.tmp')
     with temp.open('wb') as writer:
         torch.save(payload,writer); writer.flush(); os.fsync(writer.fileno())
@@ -100,9 +103,15 @@ def _train(output,model_dir,identities,maps,train,order,sequence,max_updates,res
     last=output/'latest.pt'
     bad_evals=0;saved_protocol=None
     if resume:
-        saved=torch.load(last,map_location='cpu',weights_only=False)
-        if saved['identities']!=identities or saved['threads']!=threads or saved['sequence']!=sequence:
-            raise ValueError('Resume source/config mismatch')
+        from Tantra.training.checkpoints import load_resumable
+        saved,recovery=load_resumable(last,identity_key='identities',expected_identity=identities,
+            expected_config=cfg.to_dict(),expected_fields={'threads':threads,'sequence':sequence},
+            required=('state','optimizer','torch_rng','python_rng','numpy_rng','cursor','updates','tokens','microbatch',
+                      'benchmarks','baseline_validation','best_validation'),state_shapes=model.state_dict())
+        if recovery['fallback_used'] or recovery['legacy_without_checksum']:
+            print('Checkpoint resume evidence: '+json.dumps(recovery),flush=True)
+        with (output/'recovery_history.jsonl').open('a',encoding='utf-8') as history:
+            history.write(json.dumps(recovery)+'\n')
         model.load_state_dict(saved['state']); optimizer.load_state_dict(saved['optimizer'])
         torch.set_rng_state(saved['torch_rng']); random.setstate(saved['python_rng']); np.random.set_state(saved['numpy_rng'])
         cursor,updates,tokens=saved['cursor'],saved['updates'],saved['tokens']
@@ -249,8 +258,10 @@ def _train(output,model_dir,identities,maps,train,order,sequence,max_updates,res
             'benchmarks':benchmarks,'microbatch':chosen,'tokens_per_update':4096,'sampled_peak_rss_bytes':peak,
             'run_seconds':elapsed,'run_tokens_per_second':(tokens-run_start_tokens)/elapsed if elapsed else 0,
             'identities':identities,'source_model_changed':False,'expert_adapters_transferred':False,
+            'exported_base_sha256':sha256(output/'base.pt') if (output/'base.pt').exists() else None,
+            'exported_tokenizer_sha256':sha256(output/'tokenizer.json') if (output/'tokenizer.json').exists() else None,
             'limitations':['One-pass 1M-token pilot, not full pretraining','Validation loss is not conversation or factual accuracy',
-                           'No corrupted-checkpoint fallback or automatic recovery; resume is explicit',
+                           'Checksum-checked corruption fallback retains three generations; resume remains explicit and never falls back across identity/configuration mismatch',
                            'Base updates invalidate adapter compatibility; re-evaluate/retrain experts against this exact base']}
     (output/'report.json').write_text(json.dumps(report,indent=2)+'\n',encoding='utf-8')
     return report
