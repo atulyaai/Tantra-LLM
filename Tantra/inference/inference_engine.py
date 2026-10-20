@@ -76,8 +76,16 @@ class TantraEngine:
     def stream(self, messages: List[Dict[str, str]], max_new_tokens: int = 96, temperature: float = 0.7,
                top_p: float = 0.9, experts: Optional[List[tuple]] = None) -> Iterator[str]:
         last_user = next((m["content"] for m in reversed(messages) if m["role"] == "user"), "")
+        t0 = time.perf_counter()
         self.last_route = experts if experts is not None else self.route(last_user)
+        t1 = time.perf_counter()
+        loads_before = self.cache.loads if self.cache else 0
         self._activate(self.last_route)
+        t2 = time.perf_counter()
+        # Per-turn latency, filled in as generation proceeds (CPU budget tracking, roadmap M6).
+        self.last_timing = {"route_s": round(t1 - t0, 4), "expert_load_s": round(t2 - t1, 4),
+                            "experts_loaded": (self.cache.loads - loads_before) if self.cache else 0,
+                            "ttft_s": None, "tokens": 0, "tok_per_s": None}
         ids, _ = self.tok.encode_chat(messages, add_generation_prompt=True)
         # Streams sentence by sentence. Stops early (saving tokens) when the model
         # starts repeating a sentence or exceeds max_sentences - small models tend
@@ -85,9 +93,15 @@ class TantraEngine:
         out: List[int] = []
         sent, seen = 0, set()
         done = ""  # text already yielded
+        start = time.perf_counter()
         for t in self.model.generate(torch.tensor([ids]), max_new_tokens, temperature, top_p=top_p,
                                      stop_ids=(self.tok.end_id, self.tok.user_id)):
             out.append(t)
+            timing = self.last_timing
+            timing["tokens"] = len(out)
+            if timing["ttft_s"] is None:
+                timing["ttft_s"] = round(time.perf_counter() - start, 4)
+            timing["tok_per_s"] = round(len(out) / max(time.perf_counter() - start, 1e-9), 1)
             text = self.tok.decode(out)
             if text.endswith("�"):  # wait for complete utf-8 chars
                 continue

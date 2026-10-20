@@ -81,6 +81,10 @@ def main(argv=None) -> int:
         p.add_argument("--max-tokens", type=int, default=96)
         p.add_argument("--no-think", action="store_true", help="skip check/search/fix loop")
         p.add_argument("--offline", action="store_true", help="never use internet or teacher model")
+        p.add_argument("--eager", action="store_true", help="load every expert at start (default: on demand)")
+        p.add_argument("--max-resident", type=int, default=8, help="experts kept in RAM when loading on demand")
+        p.add_argument("--max-experts", type=int, default=2, help="experts active per request")
+        p.add_argument("--timing", action="store_true", help="print route/load/first-token latency per turn")
         if name == "ask":
             p.add_argument("prompt")
     p = sub.add_parser("grow"); p.add_argument("--layers", type=int, default=2)
@@ -154,7 +158,11 @@ def main(argv=None) -> int:
         from Tantra.training.tantra_trainer import setup_cpu
         from Tantra.inference.inference_engine import TantraEngine
         setup_cpu(a.threads)
-        eng = TantraEngine(a.model_dir, int8=a.int8)
+        eng = TantraEngine(a.model_dir, int8=a.int8, max_experts=a.max_experts, lazy=not a.eager,
+                           expert_cache=a.max_resident)
+        timing = lambda: (f"   [route {eng.last_timing['route_s']}s | experts loaded {eng.last_timing['experts_loaded']} "
+                          f"in {eng.last_timing['expert_load_s']}s | first token {eng.last_timing['ttft_s']}s | "
+                          f"{eng.last_timing['tok_per_s']} tok/s]") if a.timing and getattr(eng, 'last_timing', None) else ""
         if a.cmd == "bench":
             print(json.dumps(eng.benchmark(), indent=1))
         elif a.cmd == "ask":
@@ -166,7 +174,7 @@ def main(argv=None) -> int:
                 print(f"[experts: {res['route']} | {res['source']}]\n{res['reply']}")
             else:
                 out = eng.chat(msgs, temperature=a.temperature, max_new_tokens=a.max_tokens)
-                print(f"[experts: {eng.last_route}]\n{out}")
+                print(f"[experts: {eng.last_route}]\n{out}{timing()}")
         else:
             from Tantra.evaluate import ChatLog
             log_ = ChatLog(a.model_dir)
@@ -219,7 +227,7 @@ def main(argv=None) -> int:
                     reply, src = res["reply"], res["source"]
                     eng.last_route = res["route"]
                     print(reply, end="")
-                print(f"   [{', '.join(f'{n}:{w:.2f}' for n, w in eng.last_route)} | {src}]")
+                print(f"   [{', '.join(f'{n}:{w:.2f}' for n, w in eng.last_route)} | {src}]" + (timing() if src == "model" else ""))
                 if reasoner is not None and show_trace:
                     print("\n".join("    · " + t for t in reasoner.trace))
                 msgs.append({"role": "assistant", "content": reply.strip()})

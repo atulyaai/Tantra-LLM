@@ -175,6 +175,14 @@ M1 is implemented (`Tantra/inference/expert_cache.py`, `tests/test_lazy_experts.
   A slow test in `tests/` runs one scripted turn on a tiny model end to end.
 - Dependency: M1, M3; M5 for routed (otherwise `--experts` forced manually).
 
+### M6 status (2026-10-20)
+
+Implemented: `python -m Tantra --model-dir <dir> chat|ask ... [--eager] [--max-resident N] [--max-experts K] [--timing]`
+loads experts on demand by default and prints per-turn route, expert-load, first-token and tok/s numbers
+(`TantraEngine.last_timing`; test `tests/test_engine_lazy.py`). Smoke run on `runs/serve-64k-v0` (chat pilot v2
+weights, no experts, 4 threads): route < 1 ms, first token ~0.04 s warm (0.65 s on the first call), 34-37 tok/s.
+Not yet done: the `--chat-script` p50/p95 replay and a frozen M3 serving base with retrained experts.
+
 ## M7. Build new experts in priority order
 
 Order (all English first; Hindi/Hinglish rows need a named fluent reviewer):
