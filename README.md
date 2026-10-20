@@ -34,8 +34,8 @@ It combines a 28.8M parameter base transformer with independent LoRA domain expe
 
 - **Canonical Model Directory**: `Model/` (28.8M base parameters, $d=512$, 8 layers, 8 heads, 4 KV heads, GQA, RoPE, SwiGLU, RMSNorm).
 - **10k Bilingual Tokenizer**: ByteLevel BPE with 10,277 vocabulary, reducing Indic token fragmentation by **3x** (from 57 tokens down to 19 tokens for typical sentences).
-- **DNA Relational Knowledge Engine**: 8,175 facts across 24 encyclopedic domains + $(S, P, O)$ relational triples with **`0.05 ms`** CPU retrieval latency.
-- **CPU Inference**: Blazing fast on standard laptop CPUs with optional **INT8 dynamic quantization** (~0.24s latency).
+- **DNA Relational Knowledge Engine**: encyclopedic facts plus $(S, P, O)$ relational triples for fast CPU retrieval (the earlier 8,175-fact / 0.05 ms figures have no recorded run in this repo and are unverified).
+- **CPU Inference**: measured on a 4-core i3 with the 64K base: ~41 tok/s FP32, ~44 tok/s INT8, first token ~0.03 s, ~430 MB RSS (`scripts/bench_cpu.py`, `runs/bench/`).
 
 ### 📍 Current status (October 2026)
 
