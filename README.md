@@ -90,7 +90,7 @@ Developers and coding models: read [AGENTS.md](AGENTS.md) and [docs/HANDOFF.md](
 
 ## Key Design Principles
 
-1. **Sparse Mixture-of-Adapters (MoA)**: Adding 100 new experts costs disk space, not CPU execution time. Only the router-selected experts run.
+1. **Sparse Mixture-of-Adapters (MoA)**: Only the router-selected experts run. `TantraEngine` loads expert adapters on demand (at most 8 resident by default), so extra experts cost disk, not RAM: measured on a 4-core i3 with the 64K base, 160 synthetic rank-8 experts kept peak RSS at 447 MB (lazy) vs 623 MB (eager), at about 40 tok/s either way (`scripts/bench_cpu.py`, `runs/bench/`).
 2. **Decoupled High-Density Memory**: Large language models waste parameters memorizing static facts. Tantra stores thousands of encyclopedic facts in an integer-indexed DNA relational triple store (`Model/memory.pt` is under 2 MB), freeing the transformer to focus on language structure and reasoning.
 3. **Indic-First Tokenization**: ByteLevel BPE with 10,277 tokens preserves Devanagari conjuncts, matras, and Sanskrit roots without Unicode codepoint shattering.
 4. **Function-Preserving Growth**: `grow_depth()` inserts layers with zeroed output projections, making depth expansion bit-identical and seamlessly resumable on the same laptop.

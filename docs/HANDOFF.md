@@ -67,8 +67,8 @@ checkout is NOT in this restored repository.
 
 This is a shared dense base plus LoRA adapters (Q/V/O/down), usually routed once
 per request. It is not Colibri-style disk-streamed per-token MoE. The legacy
-inference loader loads all deployed adapters into RAM. The new pilot trainer
-loads only the base and one selected adapter. Do not claim lazy inference loading,
+inference loader (`TantraEngine`) now loads adapters on demand via `Tantra/inference/expert_cache.py` (LRU cap, shape and base/tokenizer hash checks); `TantraModel.load(..., lazy=False)` still loads all of them eagerly for training tools. The new pilot trainer
+loads only the base and one selected adapter. Lazy inference loading exists (measured in docs/ROADMAP_CPU_EXPERTS.md M0/M1); do not claim
 expert optimizer resume, automatic self-repair or automatic quality-gated growth. The separate public base pilot now supports explicit optimizer/RNG/cursor resume; see PUBLIC_DATA_PIPELINE.md.
 
 Use CPU, no paid APIs/compute, and an 8 GB process / 2 GB free-RAM check for pilots.

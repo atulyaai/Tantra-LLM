@@ -56,6 +56,22 @@ targets to measure in M1, then tighten; they are not measured numbers yet.
 - Budget: measure only. Dependency: none. Note: needs a model dir built by copying
   the 64K base and tokenizer into a NEW folder (e.g. `runs/serve-64k-v0/`).
 
+### M0/M1 measured (2026-10-20, i3-9100F, 4 threads, `scripts/bench_cpu.py`, raw JSON in `runs/bench/`)
+
+| Run | Load s | RSS loaded MB | Peak RSS MB | tok/s | TTFT s | Max expert switch s | Resident |
+|---|---|---|---|---|---|---|---|
+| 64K base FP32 | 1.24 | 511 | 428 | 40.8 | 0.034 | - | 0 |
+| 64K base INT8 | 1.43 | 564 | 377 | 44.4 | 0.027 | - | 0 |
+| 60 synthetic rank-8 experts, lazy (cap 8) | 1.11 | 639* | 435 | 40.2 | 0.029 | 0.030 | 6 |
+| 60 synthetic experts, eager | 2.33 | 714 | 501 | 40.9 | 0.033 | 0.000 | 60 |
+| 160 synthetic experts, lazy (cap 8) | 1.23 | 533 | 447 | 41.1 | 0.032 | 0.025 | 6 |
+| 160 synthetic experts, eager | 5.07 | 836 | 623 | 39.0 | 0.030 | 0.000 | 160 |
+
+Synthetic adapters are random weights: they measure memory and switching only, not quality.
+INT8 dynamic quantisation gives only ~9% here; the tied 64K-vocab embedding/output dominates.
+*first lazy-60 run shares the process with building the synthetic folder; the 160 run is clean.
+M1 is implemented (`Tantra/inference/expert_cache.py`, `tests/test_lazy_experts.py`).
+
 ## M1. Lazy, on-demand adapter loading
 
 - Goal: start with zero experts in RAM; load an adapter file on first route hit;

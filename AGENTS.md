@@ -7,7 +7,7 @@
 - Keep expert scopes distinct. Reuse the shared workbench/validators; do not copy pipelines or the same dataset into overlapping experts.
 - Use frozen train/validation/test splits. Group paraphrases and translations by source/problem family. Never train on test data.
 - Start at rank 8 and train one candidate adapter at a time. Require independent held-out gains before deployment.
-- Keep claims aligned with the current code: legacy inference eagerly loads adapters; expert optimizer resume and automatic repair/growth are absent. The separate public base pilot has explicit optimizer/RNG/cursor resume.
+- Keep claims aligned with the current code: inference loads adapters on demand (TantraEngine, LRU cap) while TantraModel.load(lazy=False) is eager; expert optimizer resume and automatic repair/growth are absent. The separate public base pilot has explicit optimizer/RNG/cursor resume.
 - Work offline by default for tests; no paid compute or paid generation is authorized.
 - Run `python -m pytest tests -m "not slow" -q` and relevant new tests. Do not run training scripts that overwrite `Model/` as a test.
 - Update README/status/handoff when behavior or measured capability changes. Do not label bootstrap examples production-ready.
