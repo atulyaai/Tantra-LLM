@@ -29,3 +29,24 @@ independent limit: billions of reviewed Hindi/English tokens are required at eve
    (Tantra/memory) rather than in weights at this scale.
 5. **1B** only with paid or donated GPU time and billions of curated tokens, or by starting from
    an existing open-weights model (the owner prefers own-trained weights, so this is not planned).
+
+## Experiment: 16K-262K tiny experts on CPU (2026-10-21)
+
+`Tantra/model/peer.py` adds a product-key expert layer (each expert = one hidden neuron; a token
+activates 4 heads x 16 experts, found in O(sqrt N) with product keys; sparse gradients touch only
+the chosen rows). Tests: `tests/test_peer.py` (exact top-k, no-op start, sparse gradients).
+CPU training step, d_model 512, 1,024 tokens, 2 threads, measured while another run shared the CPU:
+
+| Layer | Total params | Active params/token | Train tok/s | Extra RSS |
+|---|---|---|---|---|
+| Dense FFN (current block) | 1.44M | 1.44M | 7,517 | - |
+| 16,384 experts | 16.9M | 0.07M | 700 | +648 MB |
+| 65,536 experts | 67.3M | 0.07M | 523 | +872 MB |
+| 262,144 experts | 268.7M | 0.07M | 382 | +2.3 GB |
+
+Finding: capacity scales cheaply (16x more experts cost ~1.8x time), so a ~1B-total-parameter
+model with tiny active compute is a real design for this PC. But in plain PyTorch the gather and
+sparse-optimizer overhead makes it ~10x slower per token than the dense block, so it is not yet a
+training speed-up. Next: fused gather kernels or merging the down/up lookups, then a small
+pretraining A/B against the dense FFN at equal wall-clock time. Capacity still needs data: each
+expert must see enough tokens, so this does not remove the data requirement above.
