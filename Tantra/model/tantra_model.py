@@ -461,7 +461,8 @@ class TantraModel(nn.Module):
              map_location: str = "cpu", lazy: bool = False) -> "TantraModel":
         """lazy=True registers experts with the router only; Tantra.inference.expert_cache
         attaches each adapter's weights when a request is routed to it."""
-        ck = torch.load(path, map_location=map_location, weights_only=False)
+        # weights_only: model files hold tensors and plain metadata; never unpickle arbitrary objects.
+        ck = torch.load(path, map_location=map_location, weights_only=True)
         model = cls(ModelConfig.from_dict(ck["config"]))
         ranks = ck.get("expert_ranks", {})
         for name in ck.get("router_names", []):
@@ -477,7 +478,7 @@ class TantraModel(nn.Module):
             for name in model.expert_names:
                 f = Path(experts_dir) / f"{name}.pt"
                 if f.exists():
-                    e = torch.load(f, map_location=map_location, weights_only=False)
+                    e = torch.load(f, map_location=map_location, weights_only=True)
                     model.load_expert_state(name, e["state"], e["rank"])
         return model
 

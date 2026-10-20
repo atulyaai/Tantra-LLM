@@ -57,7 +57,7 @@ class NgramRouter(nn.Module):
 
     @classmethod
     def load(cls, path: str | Path) -> "NgramRouter":
-        ck = torch.load(path, map_location="cpu", weights_only=False)
+        ck = torch.load(path, map_location="cpu", weights_only=True)
         r = cls(ck["names"], ck["dim"])
         r.load_state_dict(ck["state"])
         return r.eval()

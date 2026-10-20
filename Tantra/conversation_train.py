@@ -100,6 +100,13 @@ def train(bundle,source,output,resume=False,english_pilot=False,epochs=1):
     output.mkdir(parents=True,exist_ok=True)
     if shutil.disk_usage(output).free<3*1024**3:raise OSError('Need 3 GiB free disk')
     lock=output/'training.lock'
+    if lock.exists():
+        # A lock left by a crashed run blocks resume; archive it only when its owner process is gone.
+        import psutil
+        try:pid=int(lock.read_text().strip())
+        except ValueError as exc:raise RuntimeError('Cannot read lock owner: '+str(lock)) from exc
+        if psutil.pid_exists(pid):raise RuntimeError(f'Training lock held by live PID {pid}: {lock}')
+        lock.rename(lock.with_name(f'training.lock.stale-{pid}'))
     with lock.open('x') as f:f.write(str(os.getpid()))
     try:
         torch.set_num_threads(4);torch.manual_seed(42)
