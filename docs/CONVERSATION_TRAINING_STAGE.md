@@ -115,3 +115,13 @@ Cause: 9,240 rows but only ~800 distinct replies from 90 topic packs, so each re
 and stopped at update 2,100 by another agent in this checkout (report state stopped_requested).
 Next: `scripts/subsample_bulk.py` caps each reply at 2 occurrences (9,240 -> 528 rows, all
 topics kept) for bundle v5; real progress needs many more distinct situations, not more rows.
+
+## Bundle v5 result (2026-10-21): generic-reply collapse
+
+`Datasets/workbench-chat-en-v5` = row-reviewed persona data + bulk-v1 capped at 2 uses per reply
+(1,035 conversations). Local CPU, early stopping (patience 5) at update 1,600; best.pt at 1,350,
+validation 3.96 (lowest of all runs). On the 22 fresh prompts best.pt answers almost everything
+with "I'm Tantra! What's your name?" and no longer names its creator; only "Good evening!" is
+handled well. v4 collapsed into stitched templates, v5 into one generic opener. Pilot v2
+(`runs/serve-64k-v0`) remains the best chat model. Lower validation loss has not predicted better
+replies in any run; future selection should use a scored fresh-prompt set, not loss alone.
