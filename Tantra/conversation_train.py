@@ -85,7 +85,7 @@ def validation_progress(best, loss):
     return improved
 
 
-def train(bundle,source,output,resume=False,english_pilot=False,epochs=1,rows_per_update=3,early_stopping_patience=5):
+def train(bundle,source,output,resume=False,english_pilot=False,epochs=1,rows_per_update=3,early_stopping_patience=5,select_by='loss'):
     import numpy as np
     import torch
     from Tantra.config import ModelConfig
@@ -94,6 +94,7 @@ def train(bundle,source,output,resume=False,english_pilot=False,epochs=1,rows_pe
     from Tantra.data.expert_dataset import encode_row,collate
     from Tantra.data.train_base_pilot import memory_ok,atomic_checkpoint
     if early_stopping_patience<1:raise ValueError('Early stopping patience must be positive')
+    if select_by not in ('loss','replies'):raise ValueError('select_by must be loss or replies')
     if epochs<1 or (epochs>1 and not english_pilot):raise ValueError('Multiple epochs are only allowed for the English pilot')
     if rows_per_update<1 or (rows_per_update!=3 and not english_pilot):raise ValueError('Balanced training uses one row per language per update')
     if english_pilot:
@@ -194,8 +195,20 @@ def train(bundle,source,output,resume=False,english_pilot=False,epochs=1,rows_pe
             if validation_progress(best,mean_loss(result)):
                 best.update(loss=mean_loss(result),update=updates,validation=result)
                 atomic_checkpoint(output/'best.pt',{'config':model.cfg.to_dict(),'state':model.state_dict(),'router_names':[],'validation':result,'updates':updates,'identity':identity})
+        # select_by='replies': score greedy replies to held-out prompts (Tantra/eval/reply_eval.py) at each
+        # interval, keep best_reply.pt, and stop on reply-score patience. Loss alone picked collapsed models.
+        def keep_best_replies():
+            from Tantra.eval.reply_eval import evaluate_model
+            rep=evaluate_model(model,tok);score=rep['reply_score']
+            if score>best.get('reply_score',-1.0):
+                best.update(reply_score=score,reply_update=updates,reply_bad=0,reply_summary={k:rep[k] for k in ('reply_score','mean_case_score','diversity','passed','cases')})
+                atomic_checkpoint(output/'best_reply.pt',{'config':model.cfg.to_dict(),'state':model.state_dict(),'router_names':[],'reply_eval':best['reply_summary'],'updates':updates,'identity':identity})
+            else:best['reply_bad']=best.get('reply_bad',0)+1
+            return rep
+        stall_key='reply_bad' if select_by=='replies' else 'bad_evals'
+        if select_by=='replies' and 'reply_score' not in best:keep_best_replies()  # the untrained start is the bar
         save();status='running'
-        if best.get('bad_evals',0)>=early_stopping_patience:status='stopped_early'
+        if best.get(stall_key,0)>=early_stopping_patience:status='stopped_early'
         try:
             while cursor<len(order) and status=='running':
                 if (output/'stop.request').exists():(output/'stop.request').unlink();status='stopped_requested';break
@@ -213,8 +226,11 @@ def train(bundle,source,output,resume=False,english_pilot=False,epochs=1,rows_pe
                 optimizer.step();cursor+=len(ids);updates+=1;tokens+=count
                 if updates%10==0:save();print(f'Chat update {updates} | assistant targets {tokens}',flush=True)
                 if updates%50==0:
-                    result=evaluate();keep_best(result);save();print(json.dumps({'update':updates,'validation':result,'bad_evals':best.get('bad_evals',0),'patience':early_stopping_patience}),flush=True)
-                    if best.get('bad_evals',0)>=early_stopping_patience:status='stopped_early';break
+                    result=evaluate();keep_best(result)
+                    rep=keep_best_replies() if select_by=='replies' else None
+                    save();print(json.dumps({'update':updates,'validation':result,'bad_evals':best.get('bad_evals',0),'patience':early_stopping_patience,
+                                             **({'reply_score':rep['reply_score'],'reply_passed':rep['passed'],'reply_bad':best.get('reply_bad',0)} if rep else {})}),flush=True)
+                    if best.get(stall_key,0)>=early_stopping_patience:status='stopped_early';break
         except KeyboardInterrupt:status='interrupted'
         validation=evaluate()
         # Final reporting is not another independent validation interval.
@@ -222,7 +238,8 @@ def train(bundle,source,output,resume=False,english_pilot=False,epochs=1,rows_pe
         save()
         if cursor==len(order):status='english_pilot_complete_unvalidated' if english_pilot else 'sft_pass_complete_unvalidated'
         atomic_checkpoint(output/'base.pt',{'config':model.cfg.to_dict(),'state':model.state_dict(),'router_names':[]})
-        shutil.copy2(output/'best.pt',output/'best-base.pt')
+        selected=output/('best_reply.pt' if select_by=='replies' and (output/'best_reply.pt').exists() else 'best.pt')
+        shutil.copy2(selected,output/'best-base.pt')
         shutil.copy2(source/'tokenizer.json',output/'tokenizer.json')
         report={'state':status,'updates':updates,'assistant_targets':tokens,'baseline':baseline,'validation':validation,
                 'identity':identity,'deployed':False,'quality_gate':'Independent answer and router tests still required','data_readiness':readiness['state'],
@@ -231,7 +248,8 @@ def train(bundle,source,output,resume=False,english_pilot=False,epochs=1,rows_pe
                 'validation_rows':len(rows['val']),
                 'source_report_binding':source_binding,
                 'early_stopping':{'patience':early_stopping_patience,'bad_evals':best.get('bad_evals',0),'interval_updates':50},
-                'selected_checkpoint':'best-base.pt','final_checkpoint':'base.pt',
+                'selected_checkpoint':'best-base.pt','selected_by':select_by,'selected_from':selected.name,'final_checkpoint':'base.pt',
+                'best_reply':({'score':best.get('reply_score'),'update':best.get('reply_update'),**best.get('reply_summary',{})} if select_by=='replies' else None),
                 'pilot_warning':'English-only, undersized, AI-drafted/owner-approved data; not a release candidate' if english_pilot else None}
         (output/'report.json').write_text(json.dumps(report,indent=2)+'\n',encoding='utf-8');return report
     finally:lock.unlink()
@@ -245,8 +263,9 @@ def main():
     p.add_argument('--english-pilot',action='store_true',help='Explicit undersized English-only pilot; never data_ready or deployable')
     p.add_argument('--early-stopping-patience',type=int,default=5,help='Stop after this many validation intervals without lower loss')
     p.add_argument('--epochs',type=int,default=1,help='English pilot only: shuffled passes over the train split')
-    p.add_argument('--rows-per-update',type=int,default=3,help='English pilot only: conversations per optimizer update');a=p.parse_args()
-    report=prepare(a.bundle,a.output) if a.command=='prepare' else train(a.bundle,a.source,a.output,a.resume,a.english_pilot,a.epochs,a.rows_per_update,a.early_stopping_patience)
+    p.add_argument('--rows-per-update',type=int,default=3,help='English pilot only: conversations per optimizer update')
+    p.add_argument('--select-by',choices=['loss','replies'],default='loss',help='replies: keep the checkpoint with the best held-out reply score');a=p.parse_args()
+    report=prepare(a.bundle,a.output) if a.command=='prepare' else train(a.bundle,a.source,a.output,a.resume,a.english_pilot,a.epochs,a.rows_per_update,a.early_stopping_patience,a.select_by)
     print(json.dumps({'state':report['state'],'shortages':len(report.get('shortages',[]))},indent=2))
 
 if __name__=='__main__':main()

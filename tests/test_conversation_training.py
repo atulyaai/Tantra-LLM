@@ -96,3 +96,33 @@ def test_validation_patience_persists_and_resets_only_on_improvement():
     assert validation_progress(restored,4.1)
     assert restored['bad_evals']==0
     with pytest.raises(FloatingPointError):validation_progress(restored,float('nan'))
+
+
+def test_select_by_replies_keeps_reply_scored_checkpoint(tmp_path,monkeypatch):
+    import torch
+    from Tantra.config import ModelConfig
+    from Tantra.model.tantra_model import TantraModel
+    from Tantra.tokenizer import TantraTokenizer
+    import Tantra.conversation_train as module
+    import Tantra.data.train_base_pilot as resources
+    import Tantra.eval.reply_eval as reply_eval
+    tok=TantraTokenizer.train(['Hello hi welcome thanks I am Tantra.']*3,vocab_size=280,min_frequency=1)
+    source=tmp_path/'source';source.mkdir();tok.save(source/'tokenizer.json')
+    model=TantraModel(ModelConfig(vocab_size=tok.vocab_size,d_model=16,n_layers=1,n_heads=2,n_kv_heads=1,mlp_mult=4,max_seq_len=256))
+    torch.save({'config':model.cfg.to_dict(),'state':model.state_dict()},source/'base.pt')
+    (source/'report.json').write_text(json.dumps({'state':'pilot_complete','latest_validation':{'hi':{'loss':1},'en':{'loss':1}},'baseline_validation':{'hi':{'loss':2},'en':{'loss':2}}}))
+    row={'language':'en','messages':[{'role':'user','content':'Hello'},{'role':'assistant','content':'Hi!'}]}
+    records={'train':[row]*3,'val':[row],'test':[row]}
+    monkeypatch.setattr(module,'inspect',lambda bundle,english_pilot=False:(records,{'state':'english_pilot_undersized','bundle_manifest_sha256':'t'}))
+    monkeypatch.setattr(resources,'memory_ok',lambda:True)
+    scored=[]
+    def fake_eval(model,tok,cases=None):
+        scored.append(1)
+        return {'reply_score':0.42,'mean_case_score':0.5,'diversity':0.9,'passed':3,'cases':32}
+    monkeypatch.setattr(reply_eval,'evaluate_model',fake_eval)
+    with pytest.raises(ValueError,match='select_by'):train(tmp_path/'f',source,tmp_path/'bad',english_pilot=True,select_by='vibes')
+    result=train(tmp_path/'f',source,tmp_path/'pilot',english_pilot=True,select_by='replies')
+    assert scored and result['selected_by']=='replies' and result['selected_from']=='best_reply.pt'
+    assert result['best_reply']['score']==0.42 and (tmp_path/'pilot/best_reply.pt').exists()
+    saved=torch.load(tmp_path/'pilot/best-base.pt',weights_only=False)
+    assert saved['reply_eval']['reply_score']==0.42

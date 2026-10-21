@@ -125,3 +125,28 @@ with "I'm Tantra! What's your name?" and no longer names its creator; only "Good
 handled well. v4 collapsed into stitched templates, v5 into one generic opener. Pilot v2
 (`runs/serve-64k-v0`) remains the best chat model. Lower validation loss has not predicted better
 replies in any run; future selection should use a scored fresh-prompt set, not loss alone.
+
+## Reply-quality evaluation and checkpoint selection (2026-10-21)
+
+`Tantra/eval/reply_eval.py` scores greedy replies (3-gram blocking) to 32 held-out prompts in
+`docs/data/reply_eval.v1.json`: 0.6 for an expected cue, 0.2 for no forbidden phrase (forbidden
+zeroes the case), 0.2 for no persona violation or repetition; the set mean is scaled by reply
+diversity so one line for everything cannot score well. `leaked_prompts()` confirms none of the
+prompts appear in any chat bundle. `conversation_train --select-by replies` scores replies at each
+interval, keeps `best_reply.pt`, stops on reply-score patience and selects it as `best-base.pt`.
+
+| Model | Reply score | Mean | Diversity | Passed (>=0.8) |
+|---|---|---|---|---|
+| Raw 64K base | 0.356 | 0.356 | 1.00 | 0/32 |
+| Pilot v1 final | 0.431 | 0.431 | 0.84 | 9/32 |
+| **Pilot v2 final (`runs/serve-64k-v0`)** | **0.531** | 0.531 | 0.84 | **12/32** |
+| Pilot v3 best-by-loss | 0.450 | 0.450 | 0.84 | 8/32 |
+| v4 best-by-loss | 0.393 | 0.438 | 0.72 | 2/32 |
+| v4 final | 0.467 | 0.569 | 0.66 | 9/32 |
+| v5 best-by-loss | 0.395 | 0.481 | 0.66 | 6/32 |
+| v5 final | 0.494 | 0.494 | 0.84 | 6/32 |
+
+Best-by-loss checkpoints scored below the final weights in v4 and v5: loss selection was choosing
+worse models. v2 passes 10/12 identity prompts but almost no everyday-chat prompts (rain, food,
+sadness, goodbyes) and often adds an unasked "an AI created by Atul Vij". Next data work should
+add distinct everyday situations, and future runs should use `--select-by replies`.
