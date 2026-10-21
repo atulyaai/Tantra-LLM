@@ -150,3 +150,20 @@ Best-by-loss checkpoints scored below the final weights in v4 and v5: loss selec
 worse models. v2 passes 10/12 identity prompts but almost no everyday-chat prompts (rain, food,
 sadness, goodbyes) and often adds an unasked "an AI created by Atul Vij". Next data work should
 add distinct everyday situations, and future runs should use `--select-by replies`.
+
+## v6 (2026-10-22): first run selected by reply quality
+
+Bundle `Datasets/workbench-chat-en-v6` = pilot-v2 data (30 old rows dropped by the persona gate) +
+122 owner-approved v9 everyday conversations (each a distinct situation with its own reply); 519 rows.
+CPU, 10 epochs, `--select-by replies --early-stopping-patience 10`, 1,567 updates; `best_reply.pt`
+at update 1,500 became `best-base.pt`.
+
+| Model | Reply score | Diversity | Passed |
+|---|---|---|---|
+| Pilot v2 | 0.531 | 0.84 | 12/32 |
+| **v6 (reply-selected)** | **0.606** | **0.97** | **13/32** |
+
+Gains: goodbyes, human/AI honesty, capabilities, fewer unasked "AI created by Atul Vij". Losses:
+some identity prompts ("I'm Tantra, Tantra."). Still failing: most everyday topics (rain, food,
+sadness, jokes) - 122 conversations moved the score but are not enough. Serving copy:
+`runs/serve-64k-v1` (v6 best-base + tokenizer).
