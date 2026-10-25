@@ -22,9 +22,11 @@ def summary(log: Path, total: int | None) -> str:
     for e in evals[-12:]:
         out.append(f"{e['update']:>7} {e['validation']['en']['loss']:>9.3f} {e.get('reply_score', 0) or 0:>7.3f} "
                    f"{str(e.get('reply_passed', '-')):>7} {str(e.get('reply_bad', e.get('bad_evals', '-'))) + '/' + str(e.get('patience', '?')):>8}")
-    tail = [l for l in lines if l.startswith(('train exit', 'resume exit', 'Traceback'))]
-    if tail:
-        out.append('finished: ' + tail[-1])
+    # A resumed run appends to the same log: only an exit line after the last update means "finished".
+    last_update = max((i for i, l in enumerate(lines) if l.startswith('Chat update')), default=-1)
+    ends = [(i, l) for i, l in enumerate(lines) if l.startswith(('train exit', 'resume exit', 'Traceback'))]
+    if ends and ends[-1][0] > last_update:
+        out.append('finished: ' + ends[-1][1])
     return '\n'.join(out)
 
 
