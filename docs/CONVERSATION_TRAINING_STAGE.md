@@ -167,3 +167,7 @@ Gains: goodbyes, human/AI honesty, capabilities, fewer unasked "AI created by At
 some identity prompts ("I'm Tantra, Tantra."). Still failing: most everyday topics (rain, food,
 sadness, jokes) - 122 conversations moved the score but are not enough. Serving copy:
 `runs/serve-64k-v1` (v6 best-base + tokenizer).
+
+## v7 (2026-10-26)
+
+Bundle v7 = v6 data + 371 spot-check-approved everyday-v10 rows (890). First run stopped early by noisy reply score (0.469); resumed with patience 30 to 2,670 updates. Selected best_reply at update 2,550: reply score 0.606 (13/32), diversity 1.00 - ties v6 (0.606, diversity 0.97). Reply score varies about +/-0.1 between checks, so use patience >= 30.
