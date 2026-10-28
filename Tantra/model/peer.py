@@ -6,10 +6,16 @@ top-k over k*k candidates), so lookup costs O(sqrt(N)) instead of O(N). Only the
 the expert tables are read, and with sparse gradients only those rows are updated. Total
 parameters grow with N (knowledge capacity) while compute per token stays roughly flat.
 Based on product-key memories (Lample et al. 2019) and PEER (He 2024).
+
+Improvements:
+- Explicit total / active parameter helpers
+- Optional activation counter for later pruning of redundant experts
+- Safer init comments and sparse-gradient notes
 """
 from __future__ import annotations
 
 import math
+from typing import Optional
 
 import torch
 import torch.nn as nn
@@ -19,10 +25,11 @@ from torch import Tensor
 
 class ProductKeyExperts(nn.Module):
     def __init__(self, d_model: int, n_keys: int = 128, heads: int = 4, top_k: int = 16,
-                 key_dim: int = 64, sparse: bool = True):
+                 key_dim: int = 64, sparse: bool = True, track_activations: bool = False):
         super().__init__()
         self.n_keys, self.heads, self.top_k, self.key_dim = n_keys, heads, top_k, key_dim
         self.n_experts = n_keys * n_keys
+        self.track_activations = track_activations
         self.query = nn.Linear(d_model, heads * key_dim, bias=False)
         self.keys = nn.Parameter(torch.randn(heads, 2, n_keys, key_dim // 2) / math.sqrt(key_dim // 2))
         # Expert tables as embeddings so backward touches only the selected rows (sparse=True).
@@ -30,6 +37,9 @@ class ProductKeyExperts(nn.Module):
         self.up = nn.Embedding(self.n_experts, d_model, sparse=sparse)
         nn.init.normal_(self.down.weight, std=d_model ** -0.5)
         nn.init.zeros_(self.up.weight)  # starts as a no-op, so it can be added to a trained model safely
+
+        if track_activations:
+            self.register_buffer("activation_counts", torch.zeros(self.n_experts, dtype=torch.long), persistent=False)
 
     def route(self, x: Tensor):
         """Top-k (scores, expert ids) per head for x of shape [T, d]."""
@@ -42,7 +52,11 @@ class ProductKeyExperts(nn.Module):
         cand = (v1.unsqueeze(-1) + v2.unsqueeze(-2)).flatten(-2)         # [T, H, k*k]
         ids = (i1.unsqueeze(-1) * self.n_keys + i2.unsqueeze(-2)).flatten(-2)
         scores, pick = cand.topk(self.top_k, -1)
-        return scores, ids.gather(-1, pick)                                # [T, H, k]
+        expert_ids = ids.gather(-1, pick)
+        if self.track_activations and self.training:
+            flat_ids = expert_ids.reshape(-1)
+            self.activation_counts.index_add_(0, flat_ids, torch.ones_like(flat_ids, dtype=torch.long))
+        return scores, expert_ids
 
     def forward(self, x: Tensor) -> Tensor:
         shape = x.shape
@@ -59,3 +73,25 @@ class ProductKeyExperts(nn.Module):
 
     def active_params_per_token(self, d_model: int) -> int:
         return self.heads * self.top_k * 2 * d_model
+
+    def total_expert_params(self) -> int:
+        return 2 * self.n_experts * self.down.embedding_dim
+
+    def usage_stats(self):
+        if not self.track_activations:
+            return None
+        counts = self.activation_counts
+        used = (counts > 0).sum().item()
+        return {
+            "n_experts": self.n_experts,
+            "used_experts": used,
+            "unused_experts": self.n_experts - used,
+            "max_activations": counts.max().item(),
+            "mean_activations": counts.float().mean().item(),
+        }
+
+    def prune_unused(self, min_activations: int = 1) -> int:
+        """Return number of experts that would be pruned (does not mutate weights; for analysis)."""
+        if not self.track_activations:
+            return 0
+        return int((self.activation_counts < min_activations).sum().item())
