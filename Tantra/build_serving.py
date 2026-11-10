@@ -1,6 +1,6 @@
 """Assemble a CPU serving folder: frozen base + expert adapters + n-gram router.
 
-  .venv\\Scripts\\python.exe scripts\\build_serving.py --base runs/serve-64k-v0 \\
+  python -m Tantra.build_serving --base runs/serve-64k-v0 \\
       --experts runs/experts-64k-v1/identity_self runs/experts-64k-v1/greeting ... \\
       --bundle Datasets/workbench-chat-en-pilot-v3 --none smalltalk --out runs/serve-64k-v1
 

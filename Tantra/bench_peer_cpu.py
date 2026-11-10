@@ -1,6 +1,6 @@
 """CPU size and speed check for float vs INT8 vs low-rank PEER tables.
 
-    PYTHONPATH=. python scripts/bench_peer_cpu.py
+    PYTHONPATH=. python -m Tantra.bench_peer_cpu
 
 Low-rank ~100:1 only preserves the function when the expert table is actually
 low-rank. Random tables are not. INT8 is ~4x with a small error. Compaction

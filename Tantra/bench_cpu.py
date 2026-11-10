@@ -4,10 +4,10 @@ token and tokens/s, optionally with N synthetic adapters to measure expert overh
 Synthetic adapters are random rank-r LoRA weights: they measure memory and switching
 cost only, never answer quality. Results go to runs/bench/<tag>.json.
 
-  .venv\\Scripts\\python.exe scripts\\bench_cpu.py --tag base64k-fp32
-  .venv\\Scripts\\python.exe scripts\\bench_cpu.py --tag base64k-int8 --int8
-  .venv\\Scripts\\python.exe scripts\\bench_cpu.py --tag lazy-60 --experts 60 --mode lazy
-  .venv\\Scripts\\python.exe scripts\\bench_cpu.py --tag eager-60 --experts 60 --mode eager
+  python -m Tantra.bench_cpu --tag base64k-fp32
+  python -m Tantra.bench_cpu --tag base64k-int8 --int8
+  python -m Tantra.bench_cpu --tag lazy-60 --experts 60 --mode lazy
+  python -m Tantra.bench_cpu --tag eager-60 --experts 60 --mode eager
 """
 import argparse, gc, json, shutil, sys, time
 from pathlib import Path

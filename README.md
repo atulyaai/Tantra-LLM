@@ -1,4 +1,4 @@
-# Tantra LLM
+﻿# Tantra LLM
 
 Tantra is a CPU-first bilingual language-model research project. The repository
 is intentionally source-only: no local checkpoint, downloaded corpus, candidate
@@ -11,7 +11,6 @@ Assets/       static project images
 Datasets/     local source data (created or downloaded locally; ignored by Git)
 Model/        local tokenizer and model artifacts (weights ignored by Git)
 Tantra/       application, model, training, inference, memory, and validation code
-scripts/      maintenance and reproducible utility commands
 Tests/        automated checks
 docs/         model, dataset, and training specifications
 ```
@@ -43,20 +42,20 @@ Before making dataset or training changes, read [AGENTS.md](AGENTS.md),
 Preview safe local-artifact cleanup:
 
 ```powershell
-.\scripts\clean_workspace.ps1 -Mode artifacts -WhatIf
+.\clean_workspace.ps1 -Mode artifacts -WhatIf
 ```
 
 Apply it to remove local datasets, runs, downloaded checkpoints, and generated
 caches while keeping source code, Git history, and the virtual environment:
 
 ```powershell
-.\scripts\clean_workspace.ps1 -Mode artifacts
+.\clean_workspace.ps1 -Mode artifacts
 ```
 
 To discard every local change and artifact and restore GitHub `main`:
 
 ```powershell
-.\scripts\clean_workspace.ps1 -Mode fresh-github
+.\clean_workspace.ps1 -Mode fresh-github
 ```
 
 This permanently deletes ignored local files, including local models and data.

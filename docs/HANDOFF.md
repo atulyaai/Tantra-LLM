@@ -1,4 +1,4 @@
-# Tantra handoff
+﻿# Tantra handoff
 
 ## Current baseline
 
@@ -9,7 +9,7 @@ contains tokenizer artifacts only; there is no runnable trained model.
 
 Use `python -m Tantra --help` as the sole command interface. Local generated
 artifacts belong in ignored `runs/`, `Datasets/`, and `Model/` paths. Use
-`scripts/clean_workspace.ps1` to remove them safely or reset to `origin/main`.
+`clean_workspace.ps1` to remove them safely or reset to `origin/main`.
 
 ## Training rules
 

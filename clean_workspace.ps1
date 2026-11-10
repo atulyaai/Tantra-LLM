@@ -5,7 +5,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+$root = $PSScriptRoot
 Set-Location $root
 
 function Remove-LocalArtifact {

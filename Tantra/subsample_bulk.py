@@ -6,7 +6,7 @@ assistant reply in them has appeared at most --max-repeats times, preferring row
 new replies. Review fields are kept as approved; the selection rule is recorded in a
 `subsample` note on each row.
 
-  .venv\\Scripts\\python.exe scripts\\subsample_bulk.py --src Datasets/conversation-reviewed-bulk-v1 --out Datasets/conversation-reviewed-bulk-v1-dedup2
+  python -m Tantra.subsample_bulk --src Datasets/conversation-reviewed-bulk-v1 --out Datasets/conversation-reviewed-bulk-v1-dedup2
 """
 import argparse, json, random
 from collections import Counter
@@ -36,7 +36,7 @@ def main():
                 replies = [m['content'] for m in row['messages'] if m['role'] == 'assistant']
                 if all(uses[r] < a.max_repeats for r in replies):
                     uses.update(replies)
-                    kept.append({**row, 'subsample': f'scripts/subsample_bulk.py max_repeats={a.max_repeats} seed={a.seed}'})
+                    kept.append({**row, 'subsample': f'Tantra.subsample_bulk max_repeats={a.max_repeats} seed={a.seed}'})
         out = a.out / path.relative_to(a.src); out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(''.join(json.dumps(r, ensure_ascii=False) + '\n' for r in kept), encoding='utf-8')
         kept_total += len(kept)
