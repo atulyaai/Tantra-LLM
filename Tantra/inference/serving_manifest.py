@@ -19,7 +19,7 @@ def load_serving_manifest(root):
     try:manifest=json.loads(path.read_text(encoding='utf-8'))
     except (OSError,ValueError) as exc:raise ServingIntegrityError('Invalid serving manifest') from exc
     if manifest.get('version')!=2:
-        raise ServingIntegrityError('Serving manifest lacks version-2 artifact binding; rebuild this candidate with scripts/build_serving.py')
+        raise ServingIntegrityError('Serving manifest lacks version-2 artifact binding; rebuild the candidate with the current serving workflow')
     for key in ('base_sha256','tokenizer_sha256'):
         value=manifest.get(key)
         if not isinstance(value,str) or len(value)!=64 or any(c not in '0123456789abcdef' for c in value):
