@@ -12,9 +12,9 @@ function Remove-LocalArtifact {
     param([string]$RelativePath)
     $target = Join-Path $root $RelativePath
     if (Test-Path -LiteralPath $target) {
-        if ($PSCmdlet.ShouldProcess($target, 'Permanently remove local artifact')) {
-            Remove-Item -LiteralPath $target -Recurse -Force
-        }
+        # $PSCmdlet is unreliable inside a plain function scope (it can throw
+        # NullReferenceException), so let WhatIfPreference propagate instead.
+        Remove-Item -LiteralPath $target -Recurse -Force -WhatIf:$WhatIfPreference
     }
 }
 
@@ -33,9 +33,7 @@ if ($Mode -eq 'artifacts') {
             -not $_.FullName.StartsWith($gitRoot, [System.StringComparison]::OrdinalIgnoreCase)
         } |
         ForEach-Object {
-            if ($PSCmdlet.ShouldProcess($_.FullName, 'Remove Python bytecode cache')) {
-                Remove-Item -LiteralPath $_.FullName -Recurse -Force
-            }
+            Remove-Item -LiteralPath $_.FullName -Recurse -Force -WhatIf:$WhatIfPreference
         }
     Write-Output 'Local artifacts cleaned. Source, documentation, tests, and tracked tokenizer files were preserved.'
     exit 0
@@ -43,7 +41,8 @@ if ($Mode -eq 'artifacts') {
 
 # This is the complete reset used for a fresh download. It removes every local
 # change and ignored artifact inside this repository, then restores origin/main.
-if (-not $PSCmdlet.ShouldProcess($root, 'Reset tracked files to origin/main and remove all ignored local files')) {
+if ($WhatIfPreference) {
+    Write-Output ('What if: resetting tracked files of {0} to origin/main and removing all ignored local files.' -f $root)
     exit 0
 }
 git fetch --prune origin

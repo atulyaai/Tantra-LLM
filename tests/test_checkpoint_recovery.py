@@ -4,10 +4,7 @@ from pathlib import Path
 import pytest
 import torch
 
-from Tantra.training.checkpoints import (
-    CheckpointCorruptError, CheckpointIdentityError, generations,
-    load_resumable, save_resumable,
-)
+from Tantra.train import CheckpointCorruptError, CheckpointIdentityError, generations, load_resumable, save_resumable
 
 
 def payload(step=0,identity=None):

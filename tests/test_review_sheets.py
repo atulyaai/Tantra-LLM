@@ -1,7 +1,7 @@
 import csv
 import json
 import pytest
-from Tantra.data.review_sheets import convert, parse_conversation
+from Tantra.dashboard import convert, parse_conversation
 
 
 def write_csv(path, header, rows):

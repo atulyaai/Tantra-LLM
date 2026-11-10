@@ -97,7 +97,7 @@ def test_chatty_expert_skips_fact_path(tmp_path, monkeypatch):
 
 
 def test_ngram_router_handles_typos_and_mixes():
-    from Tantra.model.ngram_router import route_probs_to_experts, train_ngram_router
+    from Tantra.main import route_probs_to_experts, train_ngram_router
     data = {"greeting": ["hi", "hello", "hey there", "good morning", "how are you"],
             "identity_self": ["who are you", "what is your name", "who made you", "who created you"],
             "gk_geography": ["what is the capital of france", "capital of japan", "capital of india"]}

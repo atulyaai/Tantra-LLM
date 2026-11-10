@@ -2,13 +2,13 @@ import json
 from pathlib import Path
 import pytest
 import torch
-from Tantra.config import ModelConfig
-from Tantra.model.tantra_model import TantraModel,save_expert
+from Tantra import ModelConfig
+from Tantra.train import TantraModel, save_expert
 from Tantra.tokenizer import TantraTokenizer
-from Tantra.data.public_sources import sha256
-from Tantra.inference.inference_engine import TantraEngine
-from Tantra.inference.serving_manifest import ServingIntegrityError
-from Tantra.inference.expert_cache import ExpertMismatch
+from Tantra import sha256
+from Tantra.main import TantraEngine
+from Tantra.main import ServingIntegrityError
+from Tantra.main import ExpertMismatch
 
 
 def candidate(root,hashes=True):

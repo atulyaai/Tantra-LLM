@@ -1,6 +1,6 @@
 import pytest
 from Tantra.tokenizer import TantraTokenizer
-from Tantra.data.tokenizer_candidates import extend_vocabulary
+from Tantra.tokenizer import extend_vocabulary
 
 
 def test_vocabulary_extension_preserves_ids_and_old_merge_priority():
@@ -20,7 +20,7 @@ def test_vocabulary_extension_preserves_ids_and_old_merge_priority():
 
 def test_embedding_migration_preserves_old_rows_and_rejects_renumbering():
     import torch
-    from Tantra.data.migrate_vocabulary import expand_embedding
+    from Tantra.tokenizer import expand_embedding
     base=TantraTokenizer.train(['hello hello hi there'],vocab_size=280,min_frequency=1)
     learned=TantraTokenizer.train([' '.join('word'+str(i) for i in range(1000))]*2,vocab_size=500,min_frequency=1)
     expanded=extend_vocabulary(base,learned,base.vocab_size+40)

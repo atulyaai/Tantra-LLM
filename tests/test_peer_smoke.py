@@ -1,6 +1,6 @@
 """Small smoke test for ProductKeyExperts (run with: PYTHONPATH=. python tests/test_peer_smoke.py)."""
 import torch
-from Tantra.model.peer import ProductKeyExperts
+from Tantra.train import ProductKeyExperts
 
 
 def test_peer_forward_backward():

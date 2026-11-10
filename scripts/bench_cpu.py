@@ -17,7 +17,7 @@ import torch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from Tantra.model.tantra_model import TantraModel, quantize_for_cpu, save_expert
+from Tantra.train import TantraModel, quantize_for_cpu, save_expert
 from Tantra.tokenizer import TantraTokenizer
 
 PROMPTS = ['Hi! How are you today?', 'It is raining here.', 'Tell me a fun fact.']
@@ -71,7 +71,7 @@ def main():
         quantize_for_cpu(model, layers=not a.int8_head_only)
     cache = None
     if lazy and a.experts:
-        from Tantra.inference.expert_cache import ExpertCache
+        from Tantra.main import ExpertCache
         cache = ExpertCache(model, model_dir / 'experts', a.cache)
     load_s = time.perf_counter() - t0; rss_loaded = rss_mb()
     runs = []

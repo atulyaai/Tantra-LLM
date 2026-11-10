@@ -1,7 +1,7 @@
 import torch
-from Tantra.config import ModelConfig
-from Tantra.data.expert_dataset import collate
-from Tantra.model.tantra_model import TantraModel
+from Tantra import ModelConfig
+from Tantra.train import collate
+from Tantra.train import TantraModel
 
 
 def test_one_padded_batch_equals_token_weighted_per_row_passes():

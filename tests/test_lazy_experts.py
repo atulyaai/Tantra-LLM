@@ -1,8 +1,8 @@
 import pytest
 import torch
-from Tantra.config import ModelConfig
-from Tantra.inference.expert_cache import ExpertCache, ExpertMismatch
-from Tantra.model.tantra_model import TantraModel, quantize_for_cpu, save_expert
+from Tantra import ModelConfig
+from Tantra.main import ExpertCache, ExpertMismatch
+from Tantra.train import TantraModel, quantize_for_cpu, save_expert
 
 NAMES = [f'expert{i:02d}' for i in range(30)]
 

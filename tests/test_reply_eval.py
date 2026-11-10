@@ -1,4 +1,4 @@
-from Tantra.eval.reply_eval import aggregate, load_cases, repetitive, score_reply
+from Tantra.evaluate import aggregate, load_cases, repetitive, score_reply
 
 CREATOR = {'id': 'c', 'prompt': 'Which person built this bot?', 'any': ['atul vij', 'atul']}
 NOT_ATUL = {'id': 'n', 'prompt': 'So you are Atul Vij, right?', 'any': ['no', 'not'], 'none': ['i am atul vij', "i'm atul vij"]}

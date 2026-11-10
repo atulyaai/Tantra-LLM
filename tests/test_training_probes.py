@@ -1,7 +1,7 @@
 import json
 import torch
-from Tantra.config import ModelConfig
-from Tantra.model.tantra_model import TantraModel
+from Tantra import ModelConfig
+from Tantra.train import TantraModel
 from Tantra.tokenizer import TantraTokenizer
 from Tantra.training_probes import run_probes
 

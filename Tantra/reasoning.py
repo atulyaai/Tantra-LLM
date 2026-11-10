@@ -80,7 +80,7 @@ class KnowledgeIndex:
 
     def __init__(self, data_dirs=("Datasets/curated",), learned: Optional[Path] = None, memory_path: Optional[Path] = None):
         learned = learned or LEARNED
-        from Tantra.memory import TantraMemoryStore
+        from Tantra.evaluate_conversation import TantraMemoryStore
         loaded = False
         is_default_dirs = [str(d).replace("\\", "/") for d in data_dirs] == ["Datasets/curated"]
         candidates = [Path(memory_path)] if memory_path else ([Path("Model/memory.pt")] if is_default_dirs else [])

@@ -9,7 +9,7 @@ drops experts that a real run never activates and is exact for the rest.
 import time
 
 import torch
-from Tantra.model.peer import ProductKeyExperts
+from Tantra.train import ProductKeyExperts
 
 
 def _time_forward(module, x, repeats=20):

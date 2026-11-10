@@ -3,9 +3,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import pytest
-from Tantra.memory.memory_store import TantraMemoryStore
-from Tantra.memory.inverted_index import InvertedBM25Index, tokenize_query
-from Tantra.memory.dense_index import DenseVectorIndex
+from Tantra.evaluate_conversation import TantraMemoryStore
+from Tantra.evaluate_conversation import InvertedBM25Index, tokenize_query
+from Tantra.evaluate_conversation import DenseVectorIndex
 import torch
 
 
@@ -82,7 +82,7 @@ def test_memory_store_dataset_ingest(tmp_path):
 
 
 def test_triple_store_dna_and_indic(tmp_path):
-    from Tantra.memory import TripleStore
+    from Tantra.evaluate_conversation import TripleStore
 
     store = TripleStore()
     store.add_triple("India", "capital", "New Delhi")
@@ -108,4 +108,3 @@ def test_triple_store_dna_and_indic(tmp_path):
     loaded = TripleStore.load(p)
     assert len(loaded) == 4
     assert loaded.query("India", "currency")[0][2] == "Rupee"
-

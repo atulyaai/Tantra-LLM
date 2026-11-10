@@ -1,5 +1,5 @@
-from Tantra.eval.router_eval import NONE, evaluate, labelled
-from Tantra.model.ngram_router import train_ngram_router
+from Tantra.evaluate import NONE, evaluate, labelled
+from Tantra.main import train_ngram_router
 
 
 def rows(expert, texts, family):
@@ -25,7 +25,7 @@ def test_grouped_holdout_never_splits_a_family():
     texts = IDENTITY + WEATHER
     groups = [f'g{i // 2}' for i in range(len(texts))]
     labels = [0] * 6 + [1] * 6
-    import Tantra.model.ngram_router as module
+    import Tantra.main as module
     seen = {}
     original = module.NgramRouter.forward
     def spy(self, batch):

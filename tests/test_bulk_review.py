@@ -2,8 +2,8 @@ import csv
 import hashlib
 import json
 import pytest
-from Tantra.data.bulk_review import approve, draw_sample, run_filters
-from Tantra.data.persona_rules import violations
+from Tantra.dashboard import approve, draw_sample, run_filters
+from Tantra.train import violations
 
 
 def record(i, user, reply, expert='smalltalk', family=None):

@@ -16,9 +16,9 @@ import torch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from Tantra.data.public_sources import sha256
-from Tantra.eval.router_eval import run as router_run
-from Tantra.model.tantra_model import TantraModel
+from Tantra import sha256
+from Tantra.evaluate import run as router_run
+from Tantra.train import TantraModel
 
 
 def main():

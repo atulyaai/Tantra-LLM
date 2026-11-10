@@ -1,7 +1,7 @@
 import json
 import pyarrow as pa
 import pyarrow.parquet as pq
-from Tantra.data import instruction_candidates as module
+import Tantra.dashboard as module
 
 
 def test_candidate_acquisition_does_not_auto_approve_or_train_on_source_test(tmp_path,monkeypatch):

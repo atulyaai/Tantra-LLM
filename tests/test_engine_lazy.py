@@ -1,7 +1,7 @@
 import torch
-from Tantra.config import ModelConfig
-from Tantra.inference.inference_engine import TantraEngine
-from Tantra.model.tantra_model import TantraModel
+from Tantra import ModelConfig
+from Tantra.main import TantraEngine
+from Tantra.train import TantraModel
 from Tantra.tokenizer import TantraTokenizer
 
 

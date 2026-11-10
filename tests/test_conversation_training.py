@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 import pytest
 from Tantra.conversation_train import balanced_order,inspect,train
-from Tantra.config import ROOT
+from Tantra import ROOT
 
 
 def test_balanced_order_does_not_duplicate_to_fill_language_shortages():
@@ -25,11 +25,11 @@ def test_actual_seed_blocks_unreviewed_multilingual_chat_training(tmp_path):
 
 def test_real_supervised_training_masks_user_and_preserves_source(tmp_path,monkeypatch):
     import torch
-    from Tantra.config import ModelConfig
-    from Tantra.model.tantra_model import TantraModel
+    from Tantra import ModelConfig
+    from Tantra.train import TantraModel
     from Tantra.tokenizer import TantraTokenizer
-    from Tantra.data.expert_dataset import encode_row
-    from Tantra.data.public_sources import sha256
+    from Tantra.train import encode_row
+    from Tantra import sha256
     import Tantra.conversation_train as module
     tok=TantraTokenizer.train(['Hello hi welcome thanks I am Tantra.']*3,vocab_size=280,min_frequency=1)
     source=tmp_path/'source';source.mkdir();tok.save(source/'tokenizer.json')
@@ -41,7 +41,7 @@ def test_real_supervised_training_masks_user_and_preserves_source(tmp_path,monke
     records={split:[{**row,'language':lang} for lang in ('hi','en','hinglish')] for split in ('train','val','test')}
     # Fixture-only synthetic readiness bypass tests the numerical loop, not real data approval.
     monkeypatch.setattr(module,'inspect',lambda bundle:(records,{'state':'data_ready','bundle_manifest_sha256':'test-fixture'}))
-    import Tantra.data.train_base_pilot as resources
+    import Tantra.pretrain as resources
     monkeypatch.setattr(resources,'memory_ok',lambda:True)
     result=train(tmp_path/'fixture',source,tmp_path/'candidate')
     assert result['state']=='sft_pass_complete_unvalidated' and result['updates']==1
@@ -54,12 +54,12 @@ def test_real_supervised_training_masks_user_and_preserves_source(tmp_path,monke
 
 def test_english_pilot_is_labelled_and_never_data_ready(tmp_path,monkeypatch):
     import torch
-    from Tantra.config import ModelConfig
-    from Tantra.model.tantra_model import TantraModel
+    from Tantra import ModelConfig
+    from Tantra.train import TantraModel
     from Tantra.tokenizer import TantraTokenizer
     from Tantra.conversation_train import pilot_order
     import Tantra.conversation_train as module
-    import Tantra.data.train_base_pilot as resources
+    import Tantra.pretrain as resources
     tok=TantraTokenizer.train(['Hello hi welcome thanks I am Tantra.']*3,vocab_size=280,min_frequency=1)
     source=tmp_path/'source';source.mkdir();tok.save(source/'tokenizer.json')
     model=TantraModel(ModelConfig(vocab_size=tok.vocab_size,d_model=16,n_layers=1,n_heads=2,n_kv_heads=1,mlp_mult=4,max_seq_len=256))
@@ -100,12 +100,12 @@ def test_validation_patience_persists_and_resets_only_on_improvement():
 
 def test_select_by_replies_keeps_reply_scored_checkpoint(tmp_path,monkeypatch):
     import torch
-    from Tantra.config import ModelConfig
-    from Tantra.model.tantra_model import TantraModel
+    from Tantra import ModelConfig
+    from Tantra.train import TantraModel
     from Tantra.tokenizer import TantraTokenizer
     import Tantra.conversation_train as module
-    import Tantra.data.train_base_pilot as resources
-    import Tantra.eval.reply_eval as reply_eval
+    import Tantra.pretrain as resources
+    import Tantra.evaluate as reply_eval
     tok=TantraTokenizer.train(['Hello hi welcome thanks I am Tantra.']*3,vocab_size=280,min_frequency=1)
     source=tmp_path/'source';source.mkdir();tok.save(source/'tokenizer.json')
     model=TantraModel(ModelConfig(vocab_size=tok.vocab_size,d_model=16,n_layers=1,n_heads=2,n_kv_heads=1,mlp_mult=4,max_seq_len=256))

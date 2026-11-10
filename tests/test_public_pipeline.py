@@ -1,13 +1,13 @@
-import json
+﻿import json
 from pathlib import Path
 import numpy as np
 import pytest
 import torch
-from Tantra.config import ModelConfig
-from Tantra.model.tantra_model import TantraModel
-from Tantra.data import conversation_sources as conversation
-from Tantra.data import train_base_pilot as training
-from Tantra.data.public_sources import sha256
+from Tantra import ModelConfig
+from Tantra.train import TantraModel
+import Tantra.conversation_train as conversation
+import Tantra.pretrain as training
+from Tantra import sha256
 
 
 def node(text='Hello', role='prompter', **changes):
@@ -36,13 +36,13 @@ def test_review_export_checks_queue_integrity_and_explicit_decisions(tmp_path):
     decisions=tmp_path/'decisions.jsonl'
     decisions.write_text(json.dumps({'record_id':'a','expert':'greeting','status':'approved'}))
     with pytest.raises(ValueError, match='reviewer'):
-        conversation.approve(queue,decisions,tmp_path/'bad')
+        conversation.cs_approve(queue,decisions,tmp_path/'bad')
     decisions.write_text(json.dumps({'record_id':'a','expert':'greeting','status':'approved',
                                      'reviewer':'test fixture reviewer','rationale':'test fixture approval'}))
-    assert conversation.approve(queue,decisions,tmp_path/'good')['approved']==1
+    assert conversation.cs_approve(queue,decisions,tmp_path/'good')['approved']==1
     path.write_text('{}')
     with pytest.raises(ValueError, match='checksum'):
-        conversation.approve(queue,decisions,tmp_path/'tampered')
+        conversation.cs_approve(queue,decisions,tmp_path/'tampered')
 
 
 def test_windows_do_not_repeat_and_follow_bilingual_ratio():
@@ -79,7 +79,7 @@ def test_interrupted_base_pilot_resumes_exactly(tmp_path,monkeypatch):
 def test_source_download_requires_pinned_checksum(tmp_path,monkeypatch):
     import hashlib
     import io
-    from Tantra.data import public_sources as public
+    import Tantra.pretrain as public
     payload=b'known pinned dataset'
     source={'id':'fixture','repo':'test/fixture','revision':'immutable','path':'file.bin',
             'size':len(payload),'sha256':hashlib.sha256(payload).hexdigest()}
@@ -97,7 +97,7 @@ def test_source_download_requires_pinned_checksum(tmp_path,monkeypatch):
 def test_corpus_freezes_disjoint_documents_and_real_tokens(tmp_path,monkeypatch):
     import pyarrow as pa
     import pyarrow.parquet as pq
-    from Tantra.data import prepare_corpus as corpus
+    import Tantra.pretrain as corpus
     # Use actual tokenizer with many distinct article IDs in each split.
     raw=tmp_path/'source.parquet'
     rows=[{'id':str(i),'url':f'https://example.test/wiki/{i}','title':str(i),

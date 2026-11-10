@@ -3,8 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from Tantra.data.expert_workbench import (catalog, generated_rows, initialize, messages_of,
-    prepare, seed, training_plan, validate_record, verify_auto)
+from Tantra.train import catalog, generated_rows, initialize, messages_of, prepare, seed, training_plan, validate_record, verify_auto
 
 
 def test_all_164_scopes_and_real_parameter_budgets(tmp_path):
@@ -66,7 +65,7 @@ def test_prepare_is_deduplicated_grouped_and_immutable(tmp_path):
 
 
 def test_prepared_training_rejects_source_overwrite(tmp_path):
-    from Tantra.data.train_prepared import train_one
+    from Tantra.train import train_one
     with pytest.raises(ValueError,match='separate'):
         train_one(tmp_path,'math',tmp_path/'Model',tmp_path/'Model')
 
@@ -98,14 +97,14 @@ def test_dedup_preserves_case_sensitive_json_values(tmp_path):
 
 
 def test_schema_matches_all_catalog_ids():
-    from Tantra.data.expert_workbench import dataset_schema
+    from Tantra.train import dataset_schema
     schema=dataset_schema()
     assert set(schema['properties']['expert']['enum'])==set(catalog())
     assert 'template_id' in schema['required']
 
 
 def test_undersized_pilot_is_explicit_and_cannot_validate_release(tmp_path):
-    from Tantra.data.train_prepared import train_one
+    from Tantra.train import train_one
     prepared=tmp_path/'prepared'; prepared.mkdir()
     (prepared/'manifest.json').write_text(json.dumps({'experts':{'greeting':{'state':'needs_data'}}}))
     with pytest.raises(ValueError,match='not ready'):
@@ -116,7 +115,7 @@ def test_undersized_pilot_is_explicit_and_cannot_validate_release(tmp_path):
 
 def test_load_split_accepts_windows_manifest_paths(tmp_path):
     import hashlib
-    from Tantra.data.train_prepared import load_split
+    from Tantra.train import load_split
     row={'schema_version':1,'expert':'greeting','language':'en','family_id':'greeting:t','template_id':'t',
          'messages':[{'role':'user','content':'Hi'},{'role':'assistant','content':'Hello!'}],
          'source':{'id':'t','revision':'1','license':'MIT','kind':'original_ai_authored'},
@@ -128,7 +127,7 @@ def test_load_split_accepts_windows_manifest_paths(tmp_path):
 
 
 def test_sheet_translation_family_shares_split_without_changing_provenance(tmp_path):
-    from Tantra.data.expert_workbench import family_key
+    from Tantra.train import family_key
     rows=[]
     for language, source, question, answer in (
         ('en', 'tantra-conversation-drafts-v1', 'Hello there', 'Hi!'),

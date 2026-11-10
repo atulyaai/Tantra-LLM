@@ -1,7 +1,7 @@
 import json
 import pytest
-from Tantra.data.conversation_quality import flags, export_seed, SEED
-from Tantra.data.expert_workbench import validate_record
+from Tantra.conversation_train import flags, export_seed, SEED
+from Tantra.train import validate_record
 
 
 def test_natural_greeting_flags_only_unsolicited_questions():

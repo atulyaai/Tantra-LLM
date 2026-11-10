@@ -1,5 +1,5 @@
 import torch
-from Tantra.model.peer import ProductKeyExperts
+from Tantra.train import ProductKeyExperts
 
 
 def test_shapes_noop_start_and_routing_range():

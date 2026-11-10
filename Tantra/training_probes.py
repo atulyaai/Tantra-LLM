@@ -1,6 +1,6 @@
 """Question/answer probes for monitoring, not automatic release certification."""
 from collections import defaultdict
-import json,math,time
+import json, math, time
 from pathlib import Path
 import torch
 import sys
@@ -9,7 +9,7 @@ import sys
 def console_print(text):
     encoding=getattr(sys.stdout,'encoding',None) or 'utf-8'
     print(text.encode(encoding,errors='backslashreplace').decode(encoding),flush=True)
-from Tantra.data.public_sources import sha256
+from Tantra import sha256
 
 
 def run_probes(model,tokenizer,suite,step,generate=True,output=None):
@@ -57,8 +57,8 @@ def run_probes(model,tokenizer,suite,step,generate=True,output=None):
 
 def main():
     import argparse
-    from Tantra.config import ModelConfig
-    from Tantra.model.tantra_model import TantraModel
+    from Tantra import ModelConfig
+    from Tantra.train import TantraModel
     from Tantra.tokenizer import TantraTokenizer
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('--checkpoint',type=Path,required=True)
     p.add_argument('--tokenizer',type=Path,required=True);p.add_argument('--suite',type=Path,required=True);p.add_argument('--output',type=Path,required=True)

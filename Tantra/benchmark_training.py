@@ -1,12 +1,12 @@
 """Benchmark microbatches on identical 4096-target backward passes; preserve weights."""
-import argparse,json,time
+import argparse, json, time
 from pathlib import Path
 import numpy as np
-import psutil,torch
-from Tantra.config import ModelConfig
-from Tantra.model.tantra_model import TantraModel
-from Tantra.data.public_sources import sha256
-from Tantra.data.train_base_pilot import tensor_batch,window_order,memory_ok
+import psutil, torch
+from Tantra import ModelConfig
+from Tantra.train import TantraModel
+from Tantra import sha256
+from Tantra.pretrain import tensor_batch, window_order, memory_ok
 
 
 def choose(results):

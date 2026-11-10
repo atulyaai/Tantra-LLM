@@ -1,4 +1,4 @@
-from Tantra.data.continue_pretraining import pilot_passed
+from Tantra.pretrain import pilot_passed
 
 
 def test_continuation_requires_finished_pilot_and_both_languages_improving():

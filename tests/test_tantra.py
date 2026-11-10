@@ -6,13 +6,13 @@ import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from Tantra.config import ModelConfig, estimate_params, get_preset, load_taxonomy, validate_taxonomy
-from Tantra.data.expert_dataset import EncodedDataset, read_jsonl
-from Tantra.data.seed_conversation import generate, generate_mixed, write_all
-from Tantra.data.seed_knowledge import write_all as write_knowledge
-from Tantra.model.tantra_model import TantraModel, quantize_for_cpu
+from Tantra import ModelConfig, estimate_params, get_preset, load_taxonomy, validate_taxonomy
+from Tantra.train import EncodedDataset, read_jsonl
+from Tantra.conversation_train import sc_generate as generate, generate_mixed, write_seed_conversation as write_all
+from Tantra.conversation_train import write_seed_knowledge as write_knowledge
+from Tantra.train import TantraModel, quantize_for_cpu
 from Tantra.tokenizer import TantraTokenizer
-from Tantra.training.tantra_trainer import TantraTrainer, TrainArgs
+from Tantra.train import TantraTrainer, TrainArgs
 
 TINY = ModelConfig(vocab_size=300, d_model=64, n_layers=2, n_heads=4, n_kv_heads=2, max_seq_len=64)
 
@@ -174,7 +174,7 @@ def test_end_to_end_tiny_pipeline(tmp_path):
     t.train_expert("greeting", model, TrainArgs(steps=10, batch_size=8, log_every=1000))
     acc = t.train_router(model, steps=300)
     assert acc > 0.6
-    from Tantra.inference.inference_engine import TantraEngine
+    from Tantra.main import TantraEngine
     eng = TantraEngine(tmp_path / "model")
     assert eng.route("who are you?")[0][0] == "identity_self"
     assert isinstance(eng.chat([{"role": "user", "content": "hi"}], max_new_tokens=8), str)

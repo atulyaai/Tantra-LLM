@@ -1,5 +1,5 @@
-from Tantra.data.auto_growth import select_expert
-from Tantra.data.expert_workbench import catalog
+from Tantra.train import select_expert
+from Tantra.train import catalog
 
 
 def test_growth_requires_ready_data_and_skips_attempts():

@@ -27,7 +27,7 @@ def test_stale_locks_preserved_but_live_owner_refused(tmp_path,monkeypatch):
 
 
 def test_explicit_microbatch_option_info_and_invalid_choice(monkeypatch,capsys):
-    import sys,pytest
+    import sys, pytest
     from Tantra import pretrain
     monkeypatch.setattr(pretrain,'snapshot',lambda stage:{'worker_pids':[]})
     monkeypatch.setattr(sys,'argv',['pretrain','--info','--microbatch','16'])
