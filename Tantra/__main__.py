@@ -14,6 +14,7 @@ import sys
 
 ENTRIES = {
     'workbench_cli': ('train', 'workbench_cli'),
+    'bench_peer_cpu': ('bench_cpu', 'bench_peer_cpu'),
     'auto_growth_cli': ('train', 'auto_growth_cli'),
     'sources_cli': ('pretrain', 'sources_cli'),
     'prepare_corpus_cli': ('pretrain', 'prepare_corpus_cli'),

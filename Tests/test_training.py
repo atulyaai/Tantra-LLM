@@ -4,7 +4,7 @@ Trainer commands, checkpoints, probes, benchmarks, vocabulary and dashboard.
 Merged: test_training_command.py, test_training_probes.py, test_training_benchmark.py, test_checkpoint_recovery.py, test_continued_pretraining.py, test_tokenizer_expansion.py, test_dashboard.py.
 """
 
-# ──────────────────────────────────────────────────────────────────────  test_training_command.py  ──────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€  test_training_command.py  â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 import json
 from Tantra.train import snapshot
@@ -44,14 +44,14 @@ def test_explicit_microbatch_option_info_and_invalid_choice(monkeypatch,capsys):
     monkeypatch.setattr(sys,'argv',['pretrain','--info','--microbatch','32'])
     with pytest.raises(SystemExit):pretrain.main()
 
-# ──────────────────────────────────────────────────────────────────────  test_training_probes.py  ──────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€  test_training_probes.py  â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 import json
 import torch
 from Tantra import ModelConfig
 from Tantra.train import TantraModel
 from Tantra.tokenizer import TantraTokenizer
-from Tantra.training_probes import run_probes
+from Tantra.diagnostics import run_probes
 
 
 def test_probes_preserve_weights_rng_and_training_mode(tmp_path):
@@ -69,17 +69,17 @@ def test_probes_preserve_weights_rng_and_training_mode(tmp_path):
 
 def test_probe_console_handles_non_unicode_windows_output(monkeypatch):
     import io
-    import Tantra.training_probes as probes
+    import Tantra.diagnostics as probes
     data=io.BytesIO();stream=io.TextIOWrapper(data,encoding='ascii')
     monkeypatch.setattr(probes.sys,'stdout',stream)
-    probes.console_print('नमस्ते')
+    probes.console_print('à¤¨à¤®à¤¸à¥à¤¤à¥‡')
     stream.flush()
     assert b'\\u' in data.getvalue()
 
-# ──────────────────────────────────────────────────────────────────────  test_training_benchmark.py  ──────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€  test_training_benchmark.py  â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 import pytest
-from Tantra.benchmark_training import choose
+from Tantra.diagnostics import choose
 
 
 def test_choose_fastest_safe_microbatch():
@@ -88,7 +88,7 @@ def test_choose_fastest_safe_microbatch():
                    {'microbatch':16,'safe':False,'tokens_per_second':900}])==2
     with pytest.raises(MemoryError):choose([{'microbatch':16,'safe':False}])
 
-# ──────────────────────────────────────────────────────────────────────  test_checkpoint_recovery.py  ──────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€  test_checkpoint_recovery.py  â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 import json
 from pathlib import Path
@@ -200,7 +200,7 @@ def test_source_gate_rejects_nan_and_bound_artifact_mismatch_before_model_load(t
         module.train(tmp_path/'bundle',source,tmp_path/'bad-hash')
     assert not (tmp_path/'bad-hash').exists()
 
-# ──────────────────────────────────────────────────────────────────────  test_continued_pretraining.py  ──────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€  test_continued_pretraining.py  â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 from Tantra.pretrain import pilot_passed
 
@@ -216,7 +216,7 @@ def test_continuation_requires_finished_pilot_and_both_languages_improving():
     report['latest_validation']['hi']['loss']=float('nan')
     assert not pilot_passed(report)
 
-# ──────────────────────────────────────────────────────────────────────  test_tokenizer_expansion.py  ──────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€  test_tokenizer_expansion.py  â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 import pytest
 from Tantra.tokenizer import TantraTokenizer
@@ -231,7 +231,7 @@ def test_vocabulary_extension_preserves_ids_and_old_merge_priority():
     assert base.vocab_size<expanded.vocab_size<=base.vocab_size+40
     for token,identity in base.tok.get_vocab().items():
         assert expanded.tok.token_to_id(token)==identity
-    for text in ['hello hi there','exampleword123 exampleword99','नमस्ते!','Namaste, kaise ho?']:
+    for text in ['hello hi there','exampleword123 exampleword99','à¤¨à¤®à¤¸à¥à¤¤à¥‡!','Namaste, kaise ho?']:
         assert expanded.decode(expanded.encode(text))==text
         assert len(expanded.encode(text))<=len(base.encode(text))
     with pytest.raises(ValueError,match='exceed'):
@@ -252,7 +252,7 @@ def test_embedding_migration_preserves_old_rows_and_rejects_renumbering():
     with pytest.raises(ValueError,match='IDs'):
         expand_embedding(weight,base,learned)
 
-# ──────────────────────────────────────────────────────────────────────  test_dashboard.py  ──────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€  test_dashboard.py  â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 from Tantra.dashboard import speed,spark,render
 from rich.console import Console

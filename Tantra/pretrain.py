@@ -500,7 +500,7 @@ def _train(output,model_dir,identities,maps,train,order,sequence,max_updates,res
                         'router_names':[],'identities':identities,'validation':validation,'updates':updates})
                 else:bad_evals+=1
                 if probe_suite:
-                    from Tantra.training_probes import run_probes
+                    from Tantra.diagnostics import run_probes
                     from Tantra.tokenizer import TantraTokenizer
                     run_probes(model,TantraTokenizer.load(model_dir/'tokenizer.json'),probe_suite,updates,generate=(updates%200==0 or cursor==len(order)),output=output)
             with history.open('a',encoding='utf-8') as f: f.write(json.dumps(event)+'\n')

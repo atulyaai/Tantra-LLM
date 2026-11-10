@@ -1,13 +1,19 @@
-"""CPU benchmark for the serving path (roadmap M0/M1): load time, RSS, time to first
-token and tokens/s, optionally with N synthetic adapters to measure expert overhead.
+"""CPU benchmarks.
 
-Synthetic adapters are random rank-r LoRA weights: they measure memory and switching
-cost only, never answer quality. Results go to runs/bench/<tag>.json.
+Serving path: load time, RSS, time to first token and tokens/s, optionally with
+N synthetic adapters to measure expert overhead (roadmap M0/M1).
 
   python -m Tantra.bench_cpu --tag base64k-fp32
   python -m Tantra.bench_cpu --tag base64k-int8 --int8
   python -m Tantra.bench_cpu --tag lazy-60 --experts 60 --mode lazy
   python -m Tantra.bench_cpu --tag eager-60 --experts 60 --mode eager
+
+PEER table size and speed: float vs INT8 vs low-rank vs compaction:
+
+  python -m Tantra bench_peer_cpu
+
+Synthetic adapters are random rank-r LoRA weights: they measure memory and
+switching cost only, never answer quality. Results go to runs/bench/<tag>.json.
 """
 import argparse, gc, json, shutil, sys, time
 from pathlib import Path
@@ -17,7 +23,7 @@ import torch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from Tantra.train import TantraModel, quantize_for_cpu, save_expert
+from Tantra.train import TantraModel, quantize_for_cpu, save_expert, ProductKeyExperts
 from Tantra.tokenizer import TantraTokenizer
 
 PROMPTS = ['Hi! How are you today?', 'It is raining here.', 'Tell me a fun fact.']
@@ -103,6 +109,76 @@ def main():
     out = ROOT / 'runs' / 'bench' / f'{a.tag}.json'; out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(result, indent=2), encoding='utf-8')
     print(json.dumps({k: v for k, v in result.items() if k != 'runs'}, indent=2))
+
+
+# ───────────  PEER table size and speed (float / INT8 / low-rank / compaction)  ───────────
+
+def _time_forward(module, x, repeats=20):
+    module.eval()
+    with torch.no_grad():
+        for _ in range(3):
+            module(x)
+        t0 = time.perf_counter()
+        for _ in range(repeats):
+            module(x)
+        dt = time.perf_counter() - t0
+    return (x.shape[0] * repeats) / dt
+
+
+def bench_peer_cpu():
+    """CPU size and speed check for float vs INT8 vs low-rank PEER tables."""
+    torch.manual_seed(0)
+    d, n_keys = 128, 32
+    x = torch.randn(64, d)
+
+    base = ProductKeyExperts(d_model=d, n_keys=n_keys, heads=2, top_k=4, track_activations=True)
+    with torch.no_grad():
+        base.up.weight.normal_(std=0.02)
+    float_bytes = base.stored_bytes()
+    float_tok_s = _time_forward(base, x)
+    with torch.no_grad():
+        ref = base(x).clone()
+
+    int8 = ProductKeyExperts(d_model=d, n_keys=n_keys, heads=2, top_k=4)
+    with torch.no_grad():
+        int8.down.weight.copy_(base.down.weight)
+        int8.up.weight.copy_(base.up.weight)
+        int8.query.weight.copy_(base.query.weight)
+        int8.keys.copy_(base.keys)
+        q = int8.quantize_int8_()
+        q_err = (int8(x) - ref).abs().max().item()
+    q_tok_s = _time_forward(int8, x)
+
+    low = ProductKeyExperts(d_model=d, n_keys=n_keys, heads=2, top_k=4)
+    with torch.no_grad():
+        low.down.weight.copy_(base.down.weight)
+        low.up.weight.copy_(base.up.weight)
+        low.query.weight.copy_(base.query.weight)
+        low.keys.copy_(base.keys)
+        lr = low.factor_low_rank_(rank=max(1, d // 16))
+        lr_err = (low(x) - ref).abs().max().item()
+    lr_tok_s = _time_forward(low, x)
+
+    base.train()
+    base(x)
+    compact = base.compact_used_(min_activations=1)
+    with torch.no_grad():
+        compact_err = (base(x) - ref).abs().max().item()
+
+    print({
+        "experts": n_keys * n_keys,
+        "float_bytes": float_bytes,
+        "float_tok_s": round(float_tok_s, 1),
+        "int8_bytes": q["stored_bytes"],
+        "int8_ratio": round(q["ratio"], 2),
+        "int8_max_abs_err": q_err,
+        "int8_tok_s": round(q_tok_s, 1),
+        "low_rank": lr,
+        "low_rank_max_abs_err_on_random": lr_err,
+        "low_rank_tok_s": round(lr_tok_s, 1),
+        "compact": compact,
+        "compact_max_abs_err": compact_err,
+    })
 
 
 if __name__ == '__main__':

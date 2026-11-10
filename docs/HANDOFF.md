@@ -21,7 +21,7 @@ paths. Use `clean_workspace.ps1` to remove them safely or reset to
 
 ## Training rules
 
-- Read `DATASET_SPEC.md`, `CONVERSATION_UPDATES.md`, and the relevant card in
+- Read `DATASET_SPEC.md`, `TRAINING_NOTES.md`, and the relevant card in
   `docs/experts/` before authoring data.
 - Use an immutable, provenance-backed dataset with frozen train/validation/test
   splits; never train on test data.
