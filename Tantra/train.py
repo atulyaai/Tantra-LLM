@@ -2133,7 +2133,7 @@ def report(out=DEFAULT_OUT, docs=ROOT/'docs'):
               '| --- | --- | ---: | ---: | ---: | --- | --- |']
     for name,spec in specs.items():
         item=a['experts'][name]; state=m['experts'][name]['state']
-        lines.append(f"| [{name}](experts/{spec['domain']}/{name}.md) | {spec['domain']} | {item['raw_rows']} | {item['usable_chat_rows']} | {item['reviewed_rows']} | {state} | {'present, unvalidated' if item['weights_present'] else 'absent'} |")
+        lines.append(f"| [{name}](experts/{spec['domain']}.md#{name}) | {spec['domain']} | {item['raw_rows']} | {item['usable_chat_rows']} | {item['reviewed_rows']} | {state} | {'present, unvalidated' if item['weights_present'] else 'absent'} |")
     lines += ['', '## Continue','',
               'Prioritize reviewed Hindi/Hinglish/English conversation and identity examples, expand task diversity, then train isolated candidates. Read HANDOFF.md and DATASET_SPEC.md before adding data. Use new immutable bundle directories for new versions. Evaluate answer quality, router behavior and regressions before deployment.','']
     docs.mkdir(parents=True,exist_ok=True)
