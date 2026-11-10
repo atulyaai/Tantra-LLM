@@ -5,12 +5,12 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "tantra-llm"
 version = "0.3.0"
-description = "Hindi-first language model built from scratch"
+description = "CPU-first sparse Mixture-of-Adapters language model built from scratch"
 readme = "README.md"
 license = { file = "LICENSE" }
 requires-python = ">=3.10"
 authors = [{ name = "Atulya AI", email = "contact@atulvij.com" }]
-keywords = ["llm", "hindi", "nlp", "transformer", "india", "local-ai"]
+keywords = ["llm", "transformer", "mixture-of-adapters", "nlp", "cpu", "india", "local-ai"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Science/Research",
