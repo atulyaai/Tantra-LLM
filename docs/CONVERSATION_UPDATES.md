@@ -1,4 +1,4 @@
-# Conversation, identity and vocabulary update
+﻿# Conversation, identity and vocabulary update
 
 Checked all 18,300 legacy curated conversation rows across eleven experts. The heuristic audit found 371 flag occurrences: 141 unsolicited greeting questions, 63 long simple greetings and 167 deployment-dependent identity claims. Flags can overlap and require contextual review; they are not 371 confirmed incorrect replies. Legacy records lack the strict provenance/review contract and remain excluded from prepared training.
 
@@ -53,12 +53,12 @@ At width 512, the tied embedding/output table grows from 5,261,824 to 33,554,432
 ## Reproduce
 
 ```powershell
-python -m Tantra.data.conversation_quality audit --output runs/new-conversation-audit
-python -m Tantra.data.conversation_quality probe --output runs/new-conversation-probes
-python -m Tantra.data.conversation_quality export --output Datasets/workbench-conversation-new
-python -m Tantra.data.expert_workbench --out Datasets/workbench-conversation-new prepare
-python -m Tantra.data.tokenizer_candidates --output runs/new-balanced-tokenizers --chars-per-language 20000000
-python -m Tantra.data.tokenizer_candidates --output runs/new-extended-64k --extend-from runs/new-balanced-tokenizers/tokenizer-65536.json --texts runs/new-balanced-tokenizers/texts.jsonl --target-vocab 65536
+python -m Tantra quality_cli audit --output runs/new-conversation-audit
+python -m Tantra quality_cli probe --output runs/new-conversation-probes
+python -m Tantra quality_cli export --output Datasets/workbench-conversation-new
+python -m Tantra workbench_cli --out Datasets/workbench-conversation-new prepare
+python -m Tantra candidates_cli --output runs/new-balanced-tokenizers --chars-per-language 20000000
+python -m Tantra candidates_cli --output runs/new-extended-64k --extend-from runs/new-balanced-tokenizers/tokenizer-65536.json --texts runs/new-balanced-tokenizers/texts.jsonl --target-vocab 65536
 ```
 
 Use new immutable directories. The background base pilot keeps its existing frozen tokenizer; the 64K model migration is a separate stage. Its durable worker was restarted with resumable source acquisition and the 50/50 scope. Check runs/public-campaign-v1/status.json for actual progress.

@@ -1,4 +1,4 @@
-# 64K model migration and CPU pilot
+﻿# 64K model migration and CPU pilot
 
 The isolated model now has 65,536 vocabulary entries and 57,156,096 base parameters. Initialized model: runs/model-64k-initial-v1/. Trained candidate/checkpoint directory: runs/vocabulary-64k-v1/base-pilot/. The original Model/ assets are preserved and remain the deployed configuration.
 
@@ -26,9 +26,9 @@ The frozen corpus has 500,000 Hindi and 500,000 English training tokens, includi
 The hidden vocabulary_training_job worker resumes from the two-update optimizer/RNG/cursor checkpoint and runs one pass over the remaining corpus. Checkpoints are now saved every ten optimizer updates or ten minutes, whichever comes first. Status is runs/vocabulary-64k-v1/status.json; metrics are base-pilot/metrics.jsonl; stdout/stderr are worker.stdout.log and worker.stderr.log. Check process liveness as well as saved status: an earlier 10K worker stopped and left stale status, and its checkpoint was retained.
 
 ```powershell
-python -m Tantra.data.migrate_vocabulary --tokenizer runs/tokenizer-extended-64k-v1/tokenizer.json --output runs/new-model-64k-initial
-python -m Tantra.data.prepare_corpus --output runs/new-64k/corpus-1m --model-dir runs/new-model-64k-initial --train-tokens 1000000
-python -m Tantra.data.train_base_pilot --corpus runs/new-64k/corpus-1m --output runs/new-64k/base-pilot --model-dir runs/new-model-64k-initial --checkpoint-updates 10
+python -m Tantra migrate_cli --tokenizer runs/tokenizer-extended-64k-v1/tokenizer.json --output runs/new-model-64k-initial
+python -m Tantra prepare_corpus_cli --output runs/new-64k/corpus-1m --model-dir runs/new-model-64k-initial --train-tokens 1000000
+python -m Tantra pilot_cli --corpus runs/new-64k/corpus-1m --output runs/new-64k/base-pilot --model-dir runs/new-model-64k-initial --checkpoint-updates 10
 # For an interrupted existing candidate, repeat its exact paths with --resume.
 ```
 

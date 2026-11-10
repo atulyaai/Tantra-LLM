@@ -1631,7 +1631,7 @@ def cs_approve(queue, decisions, output):
     return {'approved':len(selected),'rejected_or_skipped':len(reviews)-len(selected)}
 
 
-def sources_cli():
+def conversation_sources_cli():
     p=argparse.ArgumentParser(description=__doc__); sub=p.add_subparsers(dest='command',required=True)
     make=sub.add_parser('cs_prepare'); make.add_argument('--output',type=Path,required=True)
     review=sub.add_parser('cs_approve'); review.add_argument('--queue',type=Path,required=True)

@@ -1,4 +1,4 @@
-"""Colored animated read-only dashboard: python -m Tantra.dashboard."""
+"""Colored animated read-only dashboard: python -m Tantra dashboard."""
 
 from __future__ import annotations
 
@@ -137,9 +137,9 @@ A batch of generated drafts counts as reviewed only when:
 Rows the owner rejects in the sample are dropped. Every approved row records exactly how it
 was reviewed (review_method, sample size/rate, filters), so it is never mistaken for row-by-row review.
 
-  Tantra.review_cli filter  --queue Q
-  Tantra.review_cli sample  --queue Q --n 50
-  Tantra.review_cli approve --queue Q --sample Q/spot-check.csv --reviewer NAME --rationale TEXT --output DIR
+  python -m Tantra review_cli filter  --queue Q
+  python -m Tantra review_cli sample  --queue Q --n 50
+  python -m Tantra review_cli approve --queue Q --sample Q/spot-check.csv --reviewer NAME --rationale TEXT --output DIR
 """
 import argparse
 import csv

@@ -7,9 +7,17 @@ candidate adapters, historical evaluation output, Kaggle helpers, and generated
 conversation drafts were intentionally removed on 10 November 2026. `Model/`
 contains tokenizer artifacts only; there is no runnable trained model.
 
-Use `python -m Tantra --help` as the sole command interface. Local generated
-artifacts belong in ignored `runs/`, `Datasets/`, and `Model/` paths. Use
-`clean_workspace.ps1` to remove them safely or reset to `origin/main`.
+The only command interface is `python -m Tantra`: the routing CLI
+(`--help` lists `seed, tokenizer, base, expert, router, stage1, stage2,
+checkpoint, chat, ask, bench, grow, info, eval, feedback, chats`), plus named
+CLI entries from the flattened host modules (`python -m Tantra workbench_cli`,
+`pilot_cli`, `candidates_cli`, `review_cli`, `router_eval_cli`, `reply_eval_cli`,
+`quality_cli`, `conversation_sources_cli`, `dashboard`, and the other names
+listed in `Tantra/__main__.py`). The four benchmark/build utilities run as
+`python -m Tantra.bench_cpu|bench_peer_cpu|build_serving|subsample_bulk`.
+Local generated artifacts belong in ignored `runs/`, `Datasets/`, and `Model/`
+paths. Use `clean_workspace.ps1` to remove them safely or reset to
+`origin/main`.
 
 ## Training rules
 

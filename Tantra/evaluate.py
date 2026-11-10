@@ -197,7 +197,7 @@ Routing quality is reported separately from answer quality: top-1 accuracy, top-
 the share of requests sent to base only, and a confusion matrix. Experts listed in
 --none are merged into a `none` class: requests routed there use the base model alone.
 
-  Tantra.router_eval_cli --bundle Datasets/workbench-chat-en-pilot-v3 \\
+  python -m Tantra router_eval_cli --bundle Datasets/workbench-chat-en-pilot-v3 \\
       --experts identity_self identity_capabilities identity_limitations \\
       --none greeting smalltalk farewell --split test --out runs/router/v3.json
 """
@@ -317,7 +317,7 @@ The set score multiplies the mean by a diversity factor, so a model that gives o
 every prompt (the v5 collapse) cannot score well. Generation is greedy with 3-gram blocking,
 matching the served decoder minus sampling, so scores are reproducible.
 
-  Tantra.reply_eval_cli runs/serve-64k-v0 [checkpoint=base.pt] [--bundle B]
+  python -m Tantra reply_eval_cli runs/serve-64k-v0 [checkpoint=base.pt] [--bundle B]
 """
 
 import argparse

@@ -1606,7 +1606,7 @@ def validate_expert_datasets(data_dirs: Sequence[str | Path], experts: Sequence[
 # ──  data/expert_workbench.py  ──
 """Dataset contracts, inventory and preparation for all taxonomy experts.
 
-Tantra.workbench_cli --help
+python -m Tantra workbench_cli --help
 This module never trains or changes Model/. Generated examples are verifiable
 bootstrap tasks; registered experts are not automatically trained experts.
 """
@@ -2114,7 +2114,7 @@ def report(out=DEFAULT_OUT, docs=ROOT/'docs'):
     m=json.loads((out/'prepared'/'manifest.json').read_text(encoding='utf-8'))
     specs=catalog()
     lines=['# Expert coverage snapshot','',
-           'Regenerate with `Tantra.workbench_cli report`. This is a local-data snapshot, not live telemetry.','',
+           'Regenerate with `python -m Tantra workbench_cli report`. This is a local-data snapshot, not live telemetry.','',
            '## Summary','',
            f"- Registered capabilities: {len(specs)}; taxonomy weight files: {a['summary']['taxonomy_weights_present']}; supplementary: {', '.join(a['supplementary_weights']) or 'none'}.",
            f"- Audited rows: {a['summary']['raw_rows']:,}; rejected filler: {a['summary']['placeholder_rows']:,}.",
