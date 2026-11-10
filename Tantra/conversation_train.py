@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import argparse
 from collections import Counter
-import json, math, os, random, shutil, time
+import json, math, os, random, shutil
 from pathlib import Path
 from Tantra import ROOT
 from Tantra import sha256

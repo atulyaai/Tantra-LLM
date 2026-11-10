@@ -1,5 +1,4 @@
 """Question/answer probes for monitoring, not automatic release certification."""
-from collections import defaultdict
 import json, math, time
 from pathlib import Path
 import torch

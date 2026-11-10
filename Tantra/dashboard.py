@@ -492,7 +492,7 @@ from collections import Counter
 import hashlib, json
 from pathlib import Path
 from Tantra import ROOT
-from Tantra.pretrain import fetch, location
+from Tantra.pretrain import fetch
 from Tantra import sha256
 
 RAW=ROOT/'Datasets/raw/conversation-sources-v1'
@@ -555,7 +555,7 @@ Monitor per-expert training health:
 
 
 import numpy as np
-from collections import deque, defaultdict
+from collections import deque
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Any
 from enum import Enum

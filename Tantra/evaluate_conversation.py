@@ -48,7 +48,7 @@ of thousands of facts. Supports full Unicode (English, Hindi, Sanskrit).
 import math
 import re
 from collections import Counter, defaultdict
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Tuple
 
 STOP_WORDS = set(
     "a an the is are was were of in on at to for and or what whats what's which who whom how many much "
@@ -463,7 +463,7 @@ Enables O(1) instant memory lookup without hallucinations.
 import json
 import re
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple, Union
+from typing import Dict, List, Optional, Tuple, Union
 
 
 class TripleStore:

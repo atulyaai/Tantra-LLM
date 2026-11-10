@@ -25,7 +25,6 @@ import math
 import re
 import urllib.parse
 import urllib.request
-from collections import Counter
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple

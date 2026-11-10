@@ -30,6 +30,49 @@ paths. Use `clean_workspace.ps1` to remove them safely or reset to
 - Do not claim language, conversation, or knowledge quality without recorded
   evaluation. Hindi, English, and Hinglish must be evaluated separately.
 
+## Goal ladder (written 2026-11-10 after the `b00559a` reset)
+
+The offline CPU pipeline is intact and can rebuild a small, narrow pilot —
+scripted workbench curricula, then rank-8 expert adapters on a ~29M base
+(`python -m Tantra base` -> `expert` -> `chat`). Such a model can greet and
+answer a small fixed set of identity/farewell facts under the shared strict
+checks, and nothing beyond that. It is not, and cannot become, a frontier
+competitor at 29M parameters on a CPU with synthetic seed data.
+
+The honest gap to competing with frontier models:
+
+1. **Scale.** Frontier systems train on trillions of tokens with GPUs. The
+   planned Kaggle 1B-token GPU pipeline helpers were removed in the reset and
+   must be re-established before any scale step exists.
+2. **Data.** Real ability needs large, reviewed, provenance-backed corpora.
+   Pinned public checksum-verified sources (`Tantra/pretrain.py`) are the
+   sanctioned path; fabricated paraphrase dumps are prohibited and do not
+   produce true capability anyway.
+3. **Correctness.** Any answer-correctness claim must pass the recorded
+   strict checks (required facts present, wrong echoes absent) on held-out
+   test rows never trained on. Met for narrow scripted domains; not yet
+   claimable for open conversation.
+
+Each rung requires independent held-out evidence before the next:
+
+0. Clean verified core, tests green — done.
+1. Rebuild the CPU pilot: regenerate workbench bundles, one rank-8 candidate
+   at a time into `runs/`, measured only by the shared checks on val/test.
+2. Real-data base pilot: pinned public bilingual corpus through
+   `prepare_corpus`/`pilot_cli`; per-language (hi/en, Hinglish separate) loss
+   improvement on frozen validation.
+3. Chat stage: conversation training on reviewed, validator-audited data,
+   again only after held-out wins.
+4. Scale: the GPU 1B+ token pretraining ladder with the expanded tokenizer.
+   First rung where "frontier knowledge" becomes decidable; needs GPU compute.
+5. Frontier comparison: only after rung 4, by benchmarking against published
+   results, never by claim.
+
+Rules at every rung: never modify `Model/` without independent held-out
+gains; no filler data or unreviewed provenance; no correctness claim without
+the recorded strict checks; offline by default for tests; no paid compute or
+generation.
+
 ## Validation
 
 After dependencies are installed, run:
@@ -65,5 +108,6 @@ are imported lazily inside functions. Collision renames are permanent API names:
 `reply_eval_cli`/`router_eval_cli`, `write_seed_conversation` and siblings.
 
 Verification after the flatten: `pytest Tests -m "not slow" -q` = 125 passed,
-1 skipped (equal to the pre-flatten baseline). No model, tokenizer, or dataset
-content changed; `Model/` artifacts are untouched.
+1 skipped; full suite including the end-to-end slow test = 126 passed, 1
+skipped. After the redundancy cleanup the suite is unchanged. No model,
+tokenizer, or dataset content changed; `Model/` artifacts are untouched.

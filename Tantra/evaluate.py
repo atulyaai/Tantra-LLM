@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import json
 import random
-import time
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -41,7 +40,7 @@ PROBES = [
 ]
 
 
-# ── eval ──────────────────────────────────────────────────────────────────────
+# â”€â”€ eval â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def run_eval(model_dir="Model", data_dirs=("Datasets/curated",), temperature: float = 0.0) -> Dict:
     from Tantra.train import EncodedDataset, first_user_text, read_jsonl
@@ -109,7 +108,7 @@ def print_eval(r: Dict) -> None:
     prev_probes = {p["prompt"]: p["reply"] for p in prev.get("probes", [])}
     print("\nPROBES" + ("  (* = reply changed since last eval)" if prev_probes else ""))
     for p in r["probes"]:
-        mark = "✓" if p["route_ok"] else "✗"
+        mark = "âœ“" if p["route_ok"] else "âœ—"
         changed = "*" if p["prompt"] in prev_probes and prev_probes[p["prompt"]] != p["reply"] else " "
         route = ", ".join(f"{n}:{w}" for n, w in p["route"])
         print(f"{changed}{mark} {p['prompt']!r:45s} [{route}]\n      -> {p['reply']}")
@@ -118,7 +117,7 @@ def print_eval(r: Dict) -> None:
     print(f"\nsaved {r['_file']}")
 
 
-# ── chat logs ─────────────────────────────────────────────────────────────────
+# â”€â”€ chat logs â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class ChatLog:
     """Appends every turn to logs/chats/<date>.jsonl; ratings rewrite the last turn."""
@@ -190,7 +189,7 @@ def chat_stats() -> Dict:
     return s
 
 
-# ──  eval/router_eval.py  ──
+# â”€â”€  eval/router_eval.py  â”€â”€
 """Train the n-gram router on TRAIN-split prompts and measure it on held-out splits (roadmap M5).
 
 Routing quality is reported separately from answer quality: top-1 accuracy, top-2 recall,
@@ -305,7 +304,7 @@ def router_eval_cli():
 
 
 
-# ──  eval/reply_eval.py  ──
+# â”€â”€  eval/reply_eval.py  â”€â”€
 """Score a chat checkpoint by its replies, not its loss (held-out prompts, deterministic rules).
 
 Each case in docs/data/reply_eval.v1.json says what a good reply must contain (`any`), what it

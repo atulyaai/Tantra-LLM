@@ -7,10 +7,9 @@ adapter, or generated run is kept in Git.
 ## Lean layout
 
 ```text
-Assets/       static project images
 Datasets/     local source data (created or downloaded locally; ignored by Git)
 Model/        local tokenizer and model artifacts (weights ignored by Git)
-Tantra/       application, model, training, inference, memory, and validation code
+Tantra/       flat package: model, training, data, review, inference, memory
 Tests/        automated checks
 docs/         model, dataset, and training specifications
 ```
