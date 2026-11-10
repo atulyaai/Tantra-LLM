@@ -11,4 +11,4 @@
 - Work offline by default for tests; no paid compute or paid generation is authorized.
 - Run `python -m pytest tests -m "not slow" -q` and relevant new tests. Do not run training scripts that overwrite `Model/` as a test.
 - Update README/status/handoff when behavior or measured capability changes. Do not label bootstrap examples production-ready.
-- Read Tantra/config/training_scope.json and docs/CONVERSATION_UPDATES.md before language/tokenizer changes. Preserve balanced Hindi/English budgets; report Hinglish independently. The isolated 64K model has been expanded and started training; read docs/VOCABULARY_MIGRATION.md. Deployment and adapter compatibility still require evaluation.
+- Read Tantra/training_scope.json and docs/CONVERSATION_UPDATES.md before language/tokenizer changes. Preserve balanced Hindi/English budgets; report Hinglish independently. The isolated 64K model has been expanded and started training; read docs/VOCABULARY_MIGRATION.md. Deployment and adapter compatibility still require evaluation.

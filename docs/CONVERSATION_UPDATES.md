@@ -32,7 +32,7 @@ The bundle has 98 accepted records and remains needs_data. Pending drafts are ou
 
 ## Balance and tokenizer expansion
 
-Tantra/config/training_scope.json now sets Hindi/English base token shares to 50/50, replacing 60/40. Base windows alternate languages. Hinglish remains a separate conversation/evaluation track. Reviewed conversation coverage is not balanced yet.
+Tantra/training_scope.json now sets Hindi/English base token shares to 50/50, replacing 60/40. Base windows alternate languages. Hinglish remains a separate conversation/evaluation track. Reviewed conversation coverage is not balanced yet.
 
 The tokenizer experiment used exactly 17,417,313 training Unicode characters per language. Equal tokenizer characters and equal base-training tokens are different explicit budgets. Document/tree families were split before tokenizer fitting.
 

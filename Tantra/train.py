@@ -1096,7 +1096,7 @@ class TantraModel(nn.Module):
     @classmethod
     def load(cls, path: str | Path, experts_dir: Optional[str | Path] = None,
              map_location: str = "cpu", lazy: bool = False) -> "TantraModel":
-        """lazy=True registers experts with the router only; Tantra.inference.expert_cache
+        """lazy=True registers experts with the router only; Tantra.main.expert_cache
         attaches each adapter's weights when a request is routed to it."""
         # weights_only: model files hold tensors and plain metadata; never unpickle arbitrary objects.
         ck = torch.load(path, map_location=map_location, weights_only=True)

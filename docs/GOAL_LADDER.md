@@ -26,7 +26,7 @@ what competing with frontier models requires.
 2. **Data.** Real conversational and knowledge ability comes from large,
    reviewed, provenance-backed corpora. Reusing public, checksum-verified,
    license-cleared sources (`docs/DATASET_SPEC.md`,
-   `Tantra/data/public_sources.py`) is the sanctioned path. Fabricated
+   `Tantra/pretrain.py`) is the sanctioned path. Fabricated
    paraphrase dumps and unverified imported data are prohibited and do not
    produce true capability anyway.
 3. **Correctness.** Every answer correctness claim must pass the recorded
