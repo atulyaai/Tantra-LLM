@@ -489,7 +489,7 @@ def test_natural_greeting_flags_only_unsolicited_questions():
 
 def test_conversation_seed_keeps_pending_languages_out_of_training(tmp_path):
     counts=export_seed(tmp_path/'bundle')
-    assert counts=={'reviewed_english':139,'pending_multilingual':19}
+    assert counts=={'reviewed_english':405,'pending_multilingual':19}
     for path in (tmp_path/'bundle'/'incoming').rglob('*.jsonl'):
         for line in path.read_text(encoding='utf-8').splitlines():
             row=json.loads(line)
