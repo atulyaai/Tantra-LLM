@@ -190,6 +190,48 @@ checks recorded in `runs/rung2-v1*/<expert>.verification.jsonl`):
 Leak gate on prepared bundles: clean. Fast suite: 125 passed + 1 skipped
 (test pin updated to the 405-row seed).
 
+## Rung 3 - chat stage: multi-turn context holding (2026-11-11, all in ignored `runs/`)
+
+Goal: keep a conversation — remember names, chain identity facts across turns,
+shift topic mid-stream — verified per response on a new held-out suite.
+
+- **New eval:** `docs/data/chat_eval.v1.json` — 16 multi-turn cases
+  (history + final user turn, `any` cues, several with `none`).
+  Scored with the same strict `score_reply`; commit contains only the eval,
+  never training flows.
+- **Baseline (rung-1 champion): 7/16, mean 0.6.** Failures concentrated
+  exactly where context matters: name recall, mid-stream topic shifts.
+- **Training volume:** 20 multi-turn flows appended ×2 to the champion's
+  bundles (greeting/identity_self/farewell/smalltalk/empathy), manifest at
+  196 entries, rebalanced. Retrained those 5 experts + router (router
+  acc ~0.74, all expert losses improved).
+- **New leak gate:** `chat_leak_check.py` (temp drivers dir) — no chat-eval
+  final prompt verbatim as any training user turn, no full chat-eval
+  conversation verbatim, plus the standing reply-eval gate. Final state:
+  clean.
+- **Leak catch (second time, same class):** the first volume script copied
+  eval conversations verbatim as training flows; the gate refused and the
+  partial appends were cleaned before any training. Lesson re-recorded:
+  **eval turns must be paraphrase-distinct from every training turn** —
+  teach the pattern, never the eval string. That iteration is void.
+- **Champion frozen (`runs/rung3-champion/`): single-turn 22/32 (holds),
+  chat 10/16, mean 0.7375.** Freeze criterion: chat strictly better than
+  7/16 AND single-turn ≥22/32. Verification copies in
+  `runs/rung3-champion/verification*/`.
+
+Remaining 6 chat failures (all one root cause — weak in-context extraction
+from history; replies answered from identity templates instead of the
+conversation): `chat-name-recall-1/2`, `chat-return-memory` (user name in
+history not recalled — one reply honestly said "I don't remember past
+conversations", wrong scope), `chat-provider-challenge`,
+`chat-farewell-after-help`, `chat-mood-flow`.
+
+Next options (recorded, not committed): one bounded round targeting
+name-recall/memory volume (same gates, same freeze criterion), else 10/16
+stands as the recorded ceiling at this data scale. Then: Hindi fluent
+review (user gate) or scale seed toward the 1000/100/100 spec minimums
+(honest gap from rung 2).
+
 ## Validation
 
 After dependencies are installed, run:
