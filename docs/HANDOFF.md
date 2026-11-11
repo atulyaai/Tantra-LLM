@@ -73,6 +73,48 @@ gains; no filler data or unreviewed provenance; no correctness claim without
 the recorded strict checks; offline by default for tests; no paid compute or
 generation.
 
+## Rung 1 — scripted conversation smoke (2026-11-11, all in ignored `runs/`)
+
+The offline CPU pipeline was exercised end-to-end and verified per response:
+
+seed → tokenizer (vocab ≈ 2.9K) → tiny base (~6.5M, 1500 steps, loss 0.28) →
+seven rank-8 conversation experts (~114K params each) → n-gram + learned
+router → `TantraEngine` → every reply of the 32-case held-out suite
+(`docs/data/reply_eval.v1.json`) scored with `Tantra.evaluate.score_reply`,
+recorded in `runs/rung1-v2/verification/responses.jsonl` + `report.json`.
+
+**Champion (frozen in `runs/rung1-v2-champion/`): 22/32 cases ≥ 0.8,
+mean case score 0.756, diversity 1.0, leak gate clean.**
+
+Process lessons recorded for the next rung:
+
+1. **Leak gate is mandatory.** One iteration trained on 24 verbatim held-out
+   prompts (caught by `Tantra.evaluate.leaked_prompts`); that result was voided
+   and quarantined. Rebuilt from a clean seed with paraphrase-only coverage;
+   `leaked_prompts` must run before every verification claim.
+2. **Retrain-to-retrain variance is ±3 cases** on this suite at tiny scale:
+   per-case winners reshuffle between runs (17–22/32 observed for the same
+   recipe). Single-case whack-a-mole does not converge; the recorded ceiling
+   for the smoke model is the frozen champion above, and 32/32 is only
+   reachable through verbatim leakage, which is prohibited.
+3. **Router training reads only the first rows** (`expert_rows(limit=600)`,
+   n-gram 1500): appended focused rows are invisible to it. Bundles must be
+   rewritten focused-first (the runs/rung1-v2 data was).
+4. **30M "small" preset underfit this CPU budget** (2400 base steps, 800-step
+   experts): 18/32 vs tiny's 22/32, and n-gram router accuracy collapsed to
+   53% when duplicate-heavy bundles biased its counts. Revisit with a proper
+   LR/warmup schedule before scaling.
+5. Greedy decoding produces garbled template medleys on near-ties; short,
+   consistent reply templates and focused-first bundles reduce (not remove)
+   this.
+
+This rung is **scripted bootstrap capability only** (`sc_generate` seed data,
+own-authored templates): the checks prove the pipeline, persona facts
+(Tantra / Atul Vij / Atulya AI), and per-response verification; they do not
+prove natural-language conversation. Rung 2 (real reviewed workbench data
+with family-grouped train/val/test splits) is required before any further
+claim.
+
 ## Validation
 
 After dependencies are installed, run:
