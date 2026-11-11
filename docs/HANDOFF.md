@@ -152,12 +152,43 @@ Process lessons for the next rung:
    at this scale; `train_one` correctly refuses them (`Every pilot split must
    contain reviewed examples`). Only experts with ≥1 val AND ≥1 test family
    can train. Growing reviewed data is the only sanctioned unblock — no
-   split manipulation.
+   split manipulation. All 10 conversation experts were unblocked by growing
+   the reviewed seed 139 → 405 rows (greeting 50, identity_self 57,
+   farewell 61, clarification 58, ...); `clarification` was the last (its
+   first test family landed at family #30 of the batch plan).
 7. **Small-pilot adapters are candidates only** (`undersized_pilot_unvalidated`):
    they pair with exact base/tokenizer hashes, are not deployed, and the
    release check (≥100 verified answers per split) is unreachable until the
    1000/100/100 thresholds are met. Router integration and regression checks
    remain outstanding by design.
+8. **Candidate integration loses to the bootstrap volume at this scale.**
+   Swapping all ten rung-2 candidates into a champion copy scores 16/32 vs
+   the rung-1 champion's 22/32 (each candidate saw only 12–57 train rows,
+   vs the rung-1 bundles' paraphrase-volume ×8 rewriting). The champion is
+   retained; the reviewed-seed path needs closer to the spec's 1000-row
+   target before its candidates can compete. Per-response verification also
+   caught one adapter emitting an empty reply on a val row ("Howdy") —
+   small-data brittleness that loss curves alone hid (val loss improved
+   10/10 experts).
+
+Final pilot state (all rank-8, all val loss improved, all per-response
+checks recorded in `runs/rung2-v1*/<expert>.verification.jsonl`):
+
+| expert | val loss | splits t/v/t | checks |
+|---|---|---|---|
+| greeting | 5.73 → 4.18 | 41/5/4 | 8/9 (1 empty val reply) |
+| identity_self | 6.32 → 4.48 | 48/2/7 | 9/9 |
+| identity_limitations | 10.35 → 8.36 | 12/1/1 | 2/2 |
+| smalltalk | 6.18 → 3.76 | 20/2/4 | 6/6 |
+| empathy | 8.14 → 6.63 | 17/2/2 | 4/4 |
+| farewell | 5.22 → 2.36 | 57/2/2 | 4/4 |
+| apology | 8.55 → 6.76 | 34/2/2 | 4/4 |
+| humor | 10.30 → 8.53 | 29/2/6 | 8/8 |
+| identity_capabilities | 8.99 → 7.53 | 40/2/1 | 3/3 |
+| clarification | 9.44 → 8.83 | 54/2/2 | 4/4 |
+
+Leak gate on prepared bundles: clean. Fast suite: 125 passed + 1 skipped
+(test pin updated to the 405-row seed).
 
 ## Validation
 
