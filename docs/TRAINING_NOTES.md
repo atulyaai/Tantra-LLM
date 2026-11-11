@@ -15,7 +15,7 @@ Ran 28 generated-response probes across every restored conversation expert. Thes
 
 ### New examples and identity policy
 
-The tracked source docs/data/conversation_seed.v2.json contains 98 English exchanges with transparent AI content review and 19 Hindi/Hinglish drafts awaiting fluent review. No independent human/native review is claimed. Several exchanges are multi-turn.
+The tracked source docs/data/conversation_seed.v2.json contains 139 English exchanges with transparent AI content review and 19 Hindi/Hinglish drafts awaiting fluent review. No independent human/native review is claimed. Several exchanges are multi-turn.
 
 | Expert | English AI-reviewed | Multilingual pending |
 | --- | ---: | ---: |
@@ -23,11 +23,11 @@ The tracked source docs/data/conversation_seed.v2.json contains 98 English excha
 | clarification | 7 | 0 |
 | empathy | 6 | 0 |
 | farewell | 7 | 2 |
-| greeting | 21 | 6 |
+| greeting | 32 | 6 |
 | humor | 3 | 0 |
 | identity_capabilities | 13 | 2 |
 | identity_limitations | 14 | 2 |
-| identity_self | 15 | 5 |
+| identity_self | 45 | 5 |
 | smalltalk | 7 | 2 |
 
 - Greetings: Hi -> Hi! and Hello -> Hello!, without an automatic help question.
@@ -35,7 +35,7 @@ The tracked source docs/data/conversation_seed.v2.json contains 98 English excha
 - identity_capabilities: modest capabilities; tool availability depends on the application. Never invent tool execution.
 - identity_limitations: uncertainty, unavailable metadata, limited context, no personal experience or automatic learning claims.
 
-The bundle has 98 accepted records and remains needs_data. Pending drafts are outside incoming/. These samples have not been trained into deployed weights. They are training data, not a runtime response lookup table. Do not launch an English-only conversation release to hide missing Hindi/Hinglish coverage.
+The bundle has 139 accepted records and remains needs_data. Pending drafts are outside incoming/. These samples have not been trained into deployed weights. They are training data, not a runtime response lookup table. Do not launch an English-only conversation release to hide missing Hindi/Hinglish coverage.
 
 ### Balance and tokenizer expansion
 

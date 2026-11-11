@@ -115,6 +115,50 @@ prove natural-language conversation. Rung 2 (real reviewed workbench data
 with family-grouped train/val/test splits) is required before any further
 claim.
 
+## Rung 2 — real reviewed data pilot (2026-11-11, all in ignored `runs/` + new
+`Datasets/workbench-rung2*` bundles)
+
+The DATASET_SPEC workbench pipeline was exercised end-to-end on the reviewed
+conversation seed, English-first (pending Hindi/Hinglish drafts stay excluded
+from training until fluent review; a test enforces this):
+
+1. Seed extended with reviewed authored English exchanges: identity_self
+   15 → 45 rows (company, creator-person/team, name/nature/provider variants,
+   about/purpose, origin, multi-turn) and greeting 21 → 32 rows (how-are-you,
+   first-time, weather, return, casual, multi-turn). Every new row passed
+   `flags()` (no unsolicited questions in greeting replies, persona-clean),
+   uniqueness, and the verbatim held-out prompt gate. Reviewer string is
+   honest: "AI content review (agent-assisted), 2026-11-11; not independent
+   human review". Counts: 139 reviewed English / 19 pending (recorded in
+   docs/TRAINING_NOTES.md; test pin updated).
+2. `quality_cli export` → `workbench_cli init/prepare` produced immutable
+   prepared splits with sha256 checksums and family-grouped 90/5/5 hashing
+   (`Datasets/workbench-rung2b`). 139 accepted rows, all experts still
+   `needs_data` (spec minimum 1000/100/100).
+3. Three rank-8 candidate adapters trained with `workbench_cli train
+   --small-pilot` on the rung-1 tiny champion base (source model unchanged,
+   `source_model_changed: false`): greeting val loss 5.73 → 4.18,
+   identity_self 6.32 → 4.48, identity_limitations 10.35 → 8.36. Candidates in
+   `runs/rung2-v1b/` (+ `runs/rung2-v1/` for identity_limitations).
+4. Per-response verification of every val/test prompt at temperature 0:
+   greeting 8/8, identity_self 7/7, identity_limitations 2/2 checks pass
+   (flags clean, no service wording, name/creator facts correct, replies
+   non-empty). Leak gate on the prepared train bundle: clean. Fast suite:
+   125 passed + 1 skipped (baseline unchanged).
+
+Process lessons for the next rung:
+
+6. **The 90/5/5 family-hash split leaves most experts with empty val/test**
+   at this scale; `train_one` correctly refuses them (`Every pilot split must
+   contain reviewed examples`). Only experts with ≥1 val AND ≥1 test family
+   can train. Growing reviewed data is the only sanctioned unblock — no
+   split manipulation.
+7. **Small-pilot adapters are candidates only** (`undersized_pilot_unvalidated`):
+   they pair with exact base/tokenizer hashes, are not deployed, and the
+   release check (≥100 verified answers per split) is unreachable until the
+   1000/100/100 thresholds are met. Router integration and regression checks
+   remain outstanding by design.
+
 ## Validation
 
 After dependencies are installed, run:
