@@ -15,29 +15,56 @@ Ran 28 generated-response probes across every restored conversation expert. Thes
 
 ### New examples and identity policy
 
-The tracked source docs/data/conversation_seed.v2.json contains 1002 English exchanges with transparent AI content review and 19 Hindi/Hinglish drafts awaiting fluent review. No independent human/native review is claimed. Several exchanges are multi-turn.
+The tracked source docs/data/conversation_seed.v2.json contains 1129 English exchanges with transparent AI content review and 19 Hindi/Hinglish drafts awaiting fluent review. No independent human/native review is claimed. Several exchanges are multi-turn. Batch 3 (127 rows, 58 multi-turn) was authored on 2026-11-12 to cover multi-turn name recall, provider challenge, farewell-after-thanks and topical small talk.
 
 | Expert | English AI-reviewed | Multilingual pending |
 | --- | ---: | ---: |
 | apology | 92 | 0 |
 | clarification | 112 | 0 |
-| empathy | 78 | 0 |
-| farewell | 118 | 2 |
+| empathy | 87 | 0 |
+| farewell | 122 | 2 |
 | greeting | 134 | 6 |
 | humor | 79 | 0 |
-| identity_capabilities | 97 | 2 |
-| identity_limitations | 71 | 2 |
-| identity_self | 138 | 5 |
-| smalltalk | 83 | 2 |
+| identity_capabilities | 103 | 2 |
+| identity_limitations | 75 | 2 |
+| identity_self | 192 | 5 |
+| smalltalk | 133 | 2 |
 
 - Greetings: Hi -> Hi! and Hello -> Hello!, without an automatic help question.
 - identity_self: Tantra, developed by Atulya AI, a language model. No impersonation or unprompted provider comparisons.
 - identity_capabilities: modest capabilities; tool availability depends on the application. Never invent tool execution.
 - identity_limitations: uncertainty, unavailable metadata, limited context, no personal experience or automatic learning claims.
 
-The reviewed seed now has 1002 accepted records, meeting the 1000-row pilot minimum while remaining needs_data until 100/100 validation and test checks exist per expert. Pending drafts are outside incoming/. These samples have not been trained into deployed weights. They are training data, not a runtime response lookup table. Do not launch an English-only conversation release to hide missing Hindi/Hinglish coverage.
+The reviewed seed now has 1129 accepted records, meeting the 1000-row pilot minimum while remaining needs_data until 100/100 validation and test checks exist per expert. Pending drafts are outside incoming/. These samples have not been trained into deployed weights. They are training data, not a runtime response lookup table. Do not launch an English-only conversation release to hide missing Hindi/Hinglish coverage.
 
 The 1002-row bundle was trained end-to-end on 2026-11-12 (all 10 conversation experts, rank 8, 800 steps, champion base). Every candidate improved validation loss, but only 4/10 were structurally clean on held-out replies and both integrations regressed the frozen suites (strict 19/32 single + 8/16 chat; all-improved 15/32 + 5/16; champion control 22/32 + 10/16). A second bounded round with 300 steps on the 7 deployed experts saturated validation loss without fixing the drift (strict 20/32 + 10/16, chat mean 0.75). The rung-3 champion was retained both times. Record: validation loss is not a selection signal at this scale; behavior-level gates decide. Training on this bundle is stopped. No deployable weights changed.
+
+### Batch 3, rank and the 30M base (2026-11-12)
+
+Batch 3 adds 127 reviewed English rows (78 families, 58 multi-turn) to the 1129-row bundle: multi-turn name recall, name-after-farewell, provider challenge, identity chain, address-me, farewell-after-thanks, mood flow, thanks-then-close, plus topical small talk (weather, food, music, sport, weekend, pets, tiredness) and capability/limit detail. The authoring pass rejects any user turn or conversation that matches a held-out eval case, and any duplicate exchange. Disclose plainly: the batch targets the behaviors the chat suite measures, so it is not independent evidence by itself; the bundle's own held-out test rows are the cross-check.
+
+Measured results on the frozen suites (champion control 22/32 at 0.7812 and 10/16 at 0.7375, reproduced in the same run):
+
+| candidate | single-turn | chat |
+| --- | ---: | ---: |
+| all seven retrained, integrated | 13/32 (0.6188) | 9/16 (0.7) |
+| identity_self swap, 600 steps | 17/32 (0.6875) | 9/16 (0.7) |
+| identity_self swap, 250 steps | 18/32 (0.6813) | 7/16 (0.6) |
+| smalltalk swap | 22/32 (0.7875) | 10/16 (0.7375) |
+| empathy swap | 21/32 (0.7625) | 10/16 (0.7375) |
+| greeting swap | 21/32 (0.7688) | 10/16 (0.7375) |
+| farewell swap | 21/32 (0.7562) | 9/16 (0.7) |
+| identity_capabilities swap | 22/32 (0.7812) | 10/16 (0.75) |
+| identity_limitations swap | 22/32 (0.7812) | 10/16 (0.7375) |
+
+Nothing adds a passed case over the champion. The identity_capabilities swap ties at 10/16 with a slightly higher mean (0.75 vs 0.7375) and no case-level gain; it is recorded as a tie, not frozen, because equal pass counts are not a capability gain.
+
+Two further capacity checks, both null:
+
+- Adapter rank 16 (smalltalk, 600 steps) cut validation loss from 5.44 to 3.55 and still scored 21/32 + 10/16, losing `good-news`. Higher rank fits the same data better without transferring.
+- The 30M preset with all seven experts retrained on this bundle scored 17/32 single + 5/16 chat; the untouched same base scores 18/32 + 4/16. It remains underfit at this CPU budget, so scale alone does not buy the missing behavior.
+
+Root cause finally measured directly: name recall is a copy-from-context task this base cannot do. On the bundle's own held-out name-recall rows (never trained on), the retrained identity_self adapter answers "What did I say my name was?" with "Atul Vij." and "Your name is fact or call me Tantra."; the champion answers "eyes? Atulya AI built me — I'm Tantra." Both fail in-distribution, not on the eval suite. Until the base can copy a token from earlier context, no adapter, rank, router or prompt change fixes chat memory.
 
 ### Balance and tokenizer expansion
 

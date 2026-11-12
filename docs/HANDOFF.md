@@ -359,6 +359,63 @@ previously underfit at 2400 steps and needs a real training budget) or
 materially different data, not more rounds on this bundle. Router telemetry
 shows the remaining failures are generation quality, not misrouting.
 
+**Rung 5: rank, new data and the 30M base (2026-11-12, all null).** This round
+tested the two paths that conclusion named, plus the one capacity lever never
+tried. Nothing beat the champion; every number below was produced by the same
+held-out drivers in the same run as a champion control (22/32 at 0.7812 and
+10/16 at 0.7375).
+
+- **Adapter rank.** Every previous round used rank 8. Smalltalk retrained at
+  rank 16 for 600 steps cut validation loss from 5.44 to 3.55 and still scored
+  21/32 + 10/16, losing `good-news`. Rank fits the same data better without
+  transferring.
+- **Materially different data.** Batch 3 adds 127 reviewed English rows
+  (78 families, 58 of them multi-turn) to 1129 rows: multi-turn name recall,
+  name-after-farewell, provider challenge, identity chain, address-me,
+  farewell-after-thanks, mood flow, thanks-then-close, topical small talk
+  (weather, food, music, sport, weekend, pets, tiredness) and capability/limit
+  detail. The authoring pass refuses any user turn or full conversation that
+  matches an eval case and any duplicate exchange. Retraining all seven
+  deployed experts and integrating them scored 13/32 + 9/16, so the rule held:
+  one adapter at a time.
+
+  | single-expert swap | single-turn | chat |
+  | --- | ---: | ---: |
+  | identity_self (600 steps) | 17/32 (0.6875) | 9/16 (0.7) |
+  | identity_self (250 steps) | 18/32 (0.6813) | 7/16 (0.6) |
+  | smalltalk | 22/32 (0.7875) | 10/16 (0.7375) |
+  | empathy | 21/32 (0.7625) | 10/16 (0.7375) |
+  | greeting | 21/32 (0.7688) | 10/16 (0.7375) |
+  | farewell | 21/32 (0.7562) | 9/16 (0.7) |
+  | identity_capabilities | 22/32 (0.7812) | 10/16 (0.75) |
+  | identity_limitations | 22/32 (0.7812) | 10/16 (0.7375) |
+
+  No swap adds a passed case. The identity_capabilities swap ties at 10/16 with
+  a slightly higher mean (0.75 vs 0.7375) and no case-level gain; it is recorded
+  as a tie rather than frozen, because equal pass counts are not a new
+  capability. The identity_self swap does fix `name-2` and
+  `chat-provider-challenge`, but loses six single-turn identity cases, so the
+  adapter overwrites narrow facts instead of extending them.
+- **Larger base.** The 30M preset with all seven experts retrained on this
+  bundle scored 17/32 + 5/16; the untouched same base scores 18/32 + 4/16. It
+  stays underfit at this CPU budget, so scale alone does not buy the behavior.
+
+**Root cause, measured directly.** Name recall is a copy-from-context task that
+this base cannot perform. On the bundle's own held-out name-recall rows (never
+trained on, same template family), the retrained identity_self adapter answers
+"What did I say my name was?" with "Atul Vij." and "Your name is fact or call me
+Tantra."; the champion answers "eyes? Atulya AI built me — I'm Tantra." Both
+fail in-distribution, so the chat ceiling is not an artifact of the 16-case
+suite. Disclose the dependency honestly: batch 3 targets behaviors the chat
+suite measures, so it is not independent evidence on its own; the held-out
+bundle rows above are the cross-check, and they still fail.
+
+Champion retained unchanged. The durable artifacts from this round are the 127
+reviewed rows, the rung-4 bundle (`Datasets/workbench-rung4`, ignored by git),
+and `runs/rung5-multiturn/` / `runs/rung5-30m/` with training summaries and
+per-swap gate verdicts. Next real lever: a base that can copy context, which
+needs a genuine pretraining budget on CPU (or GPU), not another adapter round.
+
 ## Validation
 
 After dependencies are installed, run:
