@@ -260,6 +260,40 @@ threshold, not release readiness: per-expert validation/test checks remain
 far below the 100/100 quality gate, and Hindi/Hinglish still awaits fluent
 review.
 
+**Rung-3 scale round (2026-11-12): null result, champion retained.**
+All 10 conversation experts retrained from the rung-3 champion base on the
+1002-row bundle (rank 8, 800 steps, `--small-pilot`, `runs/rung3-scale/`).
+Every candidate improved held-out validation loss (largest: clarification
+9.55 -> 6.57, empathy 8.14 -> 5.32, identity_self 7.37 -> 4.27). Per-response
+verification (expert forced, so adapter quality is judged separately from the
+router) passed cleanly for only 4 of 10: farewell (10/10), smalltalk (9/9),
+apology (10/10), identity_capabilities (9/9). The other six produced genuine
+failures: greeting 2/27 (one unrequested greeting question, one creator
+mention), identity_self 5/12 (identity template repeated instead of the asked
+fact), empathy 1/7, clarification 3/10, humor 4/17 and identity_limitations
+3/11 (repetitive/garbled output).
+
+Two integrations were evaluated against the same held-out gate:
+
+| integration | adapters swapped | single-turn | chat |
+| --- | ---: | ---: | ---: |
+| strict (improved + zero structural fails) | 4 | 19/32 | 8/16 (0.675) |
+| all improved | 10 | 15/32 | 5/16 (0.5875) |
+| champion control (same drivers today) | - | **22/32 (0.7812)** | **10/16 (0.7375)** |
+
+Both integrations regressed both suites, so no freeze occurred; the champion
+and `runs/rung1-v2/model` are unchanged (verified by file hashes). The
+champion control reproduces its recorded failure lists exactly, which rules
+out driver drift. Lesson recorded: **lower validation loss is not a selection
+signal at this scale** — these adapters memorize the enlarged bundles and
+drift into identity-template answers. Also recorded from route telemetry:
+`apology`, `clarification` and `humor` are not routed at all in the deployed
+champion (0 held-out route hits and no adapter files in the champion), so
+their candidates were inert; `greeting` (25/27) and `identity_self` (11/12)
+route on nearly every prompt and dominate behavior change. Next bounded
+attempt, if any, should therefore train fewer steps for the routing-heavy
+experts, not more volume.
+
 ## Validation
 
 After dependencies are installed, run:

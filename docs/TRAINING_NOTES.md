@@ -37,6 +37,8 @@ The tracked source docs/data/conversation_seed.v2.json contains 1002 English exc
 
 The reviewed seed now has 1002 accepted records, meeting the 1000-row pilot minimum while remaining needs_data until 100/100 validation and test checks exist per expert. Pending drafts are outside incoming/. These samples have not been trained into deployed weights. They are training data, not a runtime response lookup table. Do not launch an English-only conversation release to hide missing Hindi/Hinglish coverage.
 
+The 1002-row bundle was trained end-to-end on 2026-11-12 (all 10 conversation experts, rank 8, 800 steps, champion base). Every candidate improved validation loss, but only 4/10 were structurally clean on held-out replies and both integrations regressed the frozen suites (strict 19/32 single + 8/16 chat; all-improved 15/32 + 5/16; champion control 22/32 + 10/16). The champion was retained. Record: validation loss is not a selection signal at this scale; behavior-level gates decide. No deployable weights changed.
+
 ### Balance and tokenizer expansion
 
 Tantra/training_scope.json now sets Hindi/English base token shares to 50/50, replacing 60/40. Base windows alternate languages. Hinglish remains a separate conversation/evaluation track. Reviewed conversation coverage is not balanced yet.
