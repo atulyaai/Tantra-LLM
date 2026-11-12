@@ -290,9 +290,28 @@ drift into identity-template answers. Also recorded from route telemetry:
 `apology`, `clarification` and `humor` are not routed at all in the deployed
 champion (0 held-out route hits and no adapter files in the champion), so
 their candidates were inert; `greeting` (25/27) and `identity_self` (11/12)
-route on nearly every prompt and dominate behavior change. Next bounded
-attempt, if any, should therefore train fewer steps for the routing-heavy
-experts, not more volume.
+route on nearly every prompt and dominate behavior change.
+
+**Rung-4 bounded short-step round (2026-11-12): null result, champion
+retained, training on this bundle stopped.** The 7 experts the champion
+actually deploys (greeting, identity_self, farewell, smalltalk, empathy,
+identity_capabilities, identity_limitations) were retrained at 300 steps on
+the same 1002-row bundle. Validation loss saturated (greeting 5.19 vs 5.84 at
+800 steps; empathy 4.63 vs 5.32), so the drift is data-driven, not
+step-count-driven. Forced verification: farewell, empathy,
+identity_capabilities and identity_limitations clean; smalltalk 1/9;
+greeting 2/27; identity_self 6/12. Gate results:
+
+| integration | adapters swapped | single-turn | chat |
+| --- | ---: | ---: | ---: |
+| strict (clean experts) | 4 | 20/32 (0.7375) | 10/16 (0.75) |
+| all improved | 7 | 15/32 (0.6375) | 7/16 (0.625) |
+
+Chat mean edged up but single-turn fell below the 22/32 hold, so no freeze.
+With two bounded rounds (800 and 300 steps) both failing, further retraining
+on this bundle would only fit the held-out suite, so it is stopped. The
+rung-3 champion stands as the measured best: single-turn 22/32 (0.7812),
+chat 10/16 (0.7375).
 
 ## Validation
 
