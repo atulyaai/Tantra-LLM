@@ -327,6 +327,38 @@ Atul Vij and his team at Atulya AI to be a helpful assistant." Known gap
 still visible: "How should I address you?" answers the well-being question
 instead of giving the name (same `name-2` suite failure).
 
+**Selection, single-swap and engine checks (2026-11-12, all null).** Three
+further attempts to beat the champion without a new base:
+
+- Per-expert selection by held-out validation loss (channel: champion vs
+  800-step vs 300-step; champion won only for empathy, candidates won every
+  other expert): integration scored 17/32 single and 6/16 chat. Fitting the
+  enlarged data better does not transfer to the suites.
+- Single-expert swaps, one candidate at a time. Greeting (300-step) raised
+  greeting quality on the bundle's unseen test split from 5/16 to 1/16
+  structural failures, but single-turn fell to 21/32 because the router sends
+  "Make me laugh with a joke" to greeting and the new adapter answers
+  "I feel sad?"; chat stayed 10/16 (0.7375). Identity_self swap fell to 19/32
+  and 7/16. Neither meets the hold, so neither is deployed.
+- Engine-side context handling, tested without code changes: injecting an
+  extracted user name as a system note changed nothing (10/16, name cases
+  still 0.4/0.2), and routing on the last two user turns dropped chat to 8/16.
+  The model ignores the context hints; this is capacity, not plumbing.
+
+**Independent generalization check.** The champion was scored on the bundle's
+test splits (54 rows, families never used for adapter selection):
+12/54 forced structural failures (78% clean), concentrated in greeting
+(5/16: identity-template intrusion and rule-breaking questions), identity_self
+(3/7), and one each in farewell, empathy, identity_capabilities and
+identity_limitations. The same class as the suite failures, so the result is
+not an artifact of the 32+16 eval sets.
+
+Conclusion: the 6.5M champion is the measured ceiling for this base, data and
+CPU budget. Further suite gains now require a larger base (the 30M preset
+previously underfit at 2400 steps and needs a real training budget) or
+materially different data, not more rounds on this bundle. Router telemetry
+shows the remaining failures are generation quality, not misrouting.
+
 ## Validation
 
 After dependencies are installed, run:
