@@ -226,11 +226,21 @@ history not recalled — one reply honestly said "I don't remember past
 conversations", wrong scope), `chat-provider-challenge`,
 `chat-farewell-after-help`, `chat-mood-flow`.
 
-Next options (recorded, not committed): one bounded round targeting
-name-recall/memory volume (same gates, same freeze criterion), else 10/16
-stands as the recorded ceiling at this data scale. Then: Hindi fluent
-review (user gate) or scale seed toward the 1000/100/100 spec minimums
-(honest gap from rung 2).
+**Rung-3b bounded round (same gates): null result, champion retained.**
+11 name-recall/memory flows appended (user gives name → recalled later;
+thanks → goodbye; venting → accepted without pushing) and the same five
+experts retrained. Verification: single-turn **20/32** (down from 22) and
+chat **9/16 mean 0.6875** (down from 10/0.7375) — the extra volume regressed
+both suites, so the freeze criterion failed and the rung-3 champion was
+kept. Reinforces the ±variance lesson: at 405 reviewed rows and this data
+budget, one targeted volume pass does not buy context recall; the extra
+gated rows stay in the working data (`runs/rung1-v2/data`) as valid future
+volume, and `runs/rung1-v2/model` was restored from the frozen champion.
+No leak-gate failures this round.
+
+Recorded ceiling: 10/16 chat, 22/32 single-turn. Next honest steps: scale
+the reviewed seed toward the 1000/100/100 spec minimums (the gap rung 2
+identified), then Hindi fluent review (user gate) before any Hindi claim.
 
 ## Validation
 
