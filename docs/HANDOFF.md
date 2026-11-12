@@ -242,6 +242,16 @@ Recorded ceiling: 10/16 chat, 22/32 single-turn. Next honest steps: scale
 the reviewed seed toward the 1000/100/100 spec minimums (the gap rung 2
 identified), then Hindi fluent review (user gate) before any Hindi claim.
 
+**Seed scale-up batch 1 (2026-11-12): 405 -> 705 reviewed English rows.**
+100 new families x 3 paraphrase variants (300 rows) authored with validator,
+persona and leak gates clean (`docs/data/seed_v3_review_sheet.md`), approved
+through the recorded user review gate, and merged with honest reviewer
+attribution (AI content review, agent-assisted; not independent human
+review). All 10 experts keep non-empty family-hash splits after the merge;
+identity_limitations keeps only 33/1/4 train/val/test, the thinnest split.
+Test pin updated to 705 reviewed / 19 pending. Still 295 rows short of the
+1000-row spec minimum before `data_ready`; batch 2 is the next step.
+
 ## Validation
 
 After dependencies are installed, run:

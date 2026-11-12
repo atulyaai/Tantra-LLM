@@ -15,27 +15,27 @@ Ran 28 generated-response probes across every restored conversation expert. Thes
 
 ### New examples and identity policy
 
-The tracked source docs/data/conversation_seed.v2.json contains 405 English exchanges with transparent AI content review and 19 Hindi/Hinglish drafts awaiting fluent review. No independent human/native review is claimed. Several exchanges are multi-turn.
+The tracked source docs/data/conversation_seed.v2.json contains 705 English exchanges with transparent AI content review and 19 Hindi/Hinglish drafts awaiting fluent review. No independent human/native review is claimed. Several exchanges are multi-turn.
 
 | Expert | English AI-reviewed | Multilingual pending |
 | --- | ---: | ---: |
-| apology | 38 | 0 |
-| clarification | 58 | 0 |
-| empathy | 21 | 0 |
-| farewell | 61 | 2 |
-| greeting | 50 | 6 |
-| humor | 37 | 0 |
-| identity_capabilities | 43 | 2 |
-| identity_limitations | 14 | 2 |
-| identity_self | 57 | 5 |
-| smalltalk | 26 | 2 |
+| apology | 68 | 0 |
+| clarification | 88 | 0 |
+| empathy | 51 | 0 |
+| farewell | 91 | 2 |
+| greeting | 86 | 6 |
+| humor | 67 | 0 |
+| identity_capabilities | 67 | 2 |
+| identity_limitations | 38 | 2 |
+| identity_self | 93 | 5 |
+| smalltalk | 56 | 2 |
 
 - Greetings: Hi -> Hi! and Hello -> Hello!, without an automatic help question.
 - identity_self: Tantra, developed by Atulya AI, a language model. No impersonation or unprompted provider comparisons.
 - identity_capabilities: modest capabilities; tool availability depends on the application. Never invent tool execution.
 - identity_limitations: uncertainty, unavailable metadata, limited context, no personal experience or automatic learning claims.
 
-The bundle has 405 accepted records and remains needs_data. Pending drafts are outside incoming/. These samples have not been trained into deployed weights. They are training data, not a runtime response lookup table. Do not launch an English-only conversation release to hide missing Hindi/Hinglish coverage.
+The reviewed seed now has 705 accepted records and remains needs_data. Pending drafts are outside incoming/. These samples have not been trained into deployed weights. They are training data, not a runtime response lookup table. Do not launch an English-only conversation release to hide missing Hindi/Hinglish coverage.
 
 ### Balance and tokenizer expansion
 
