@@ -313,6 +313,20 @@ on this bundle would only fit the held-out suite, so it is stopped. The
 rung-3 champion stands as the measured best: single-turn 22/32 (0.7812),
 chat 10/16 (0.7375).
 
+**Champion deployed locally: `runs/deploy-champion/` (2026-11-12, ignored by
+git).** A clean copy of the champion with a `SHA256SUMS` pin and a README;
+re-running the held-out drivers against the copy reproduces 22/32 (0.7812)
+and 10/16 (0.7375) with identical failure lists. It is intentionally
+manifest-less: the champion adapters predate embedded base/tokenizer identity
+hashes, so the strict version-2 serving path would refuse to assert provenance
+that was never recorded. Run it with
+`python -m Tantra --model-dir runs/deploy-champion chat --offline`.
+Smoke check: "Hi!" -> "Hi! Nice to hear from you."; "What is your name?" ->
+"My name is Tantra. What's yours?"; "Who made you?" -> "I was developed by
+Atul Vij and his team at Atulya AI to be a helpful assistant." Known gap
+still visible: "How should I address you?" answers the well-being question
+instead of giving the name (same `name-2` suite failure).
+
 ## Validation
 
 After dependencies are installed, run:
