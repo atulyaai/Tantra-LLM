@@ -249,8 +249,16 @@ through the recorded user review gate, and merged with honest reviewer
 attribution (AI content review, agent-assisted; not independent human
 review). All 10 experts keep non-empty family-hash splits after the merge;
 identity_limitations keeps only 33/1/4 train/val/test, the thinnest split.
-Test pin updated to 705 reviewed / 19 pending. Still 295 rows short of the
-1000-row spec minimum before `data_ready`; batch 2 is the next step.
+Test pin updated to 705 reviewed / 19 pending.
+
+**Seed scale-up batch 2 (2026-11-12): 705 -> 1002 reviewed English rows.**
+99 more families x 3 variants (297 rows), weighted to the thin experts
+(identity_limitations +33, empathy +27, smalltalk +27); same gates, same
+approval route (`docs/data/seed_v3b_review_sheet.md`). The 1000-row pilot
+minimum is met. Test pin 1002 reviewed / 19 pending. This is still a pilot
+threshold, not release readiness: per-expert validation/test checks remain
+far below the 100/100 quality gate, and Hindi/Hinglish still awaits fluent
+review.
 
 ## Validation
 
