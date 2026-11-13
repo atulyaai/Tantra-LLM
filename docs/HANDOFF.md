@@ -416,6 +416,140 @@ and `runs/rung5-multiturn/` / `runs/rung5-30m/` with training summaries and
 per-swap gate verdicts. Next real lever: a base that can copy context, which
 needs a genuine pretraining budget on CPU (or GPU), not another adapter round.
 
+## Rung 6 — continued pretraining then chat SFT (2026-11-13, all in ignored `runs/`)
+
+This round used the repo's documented pinned-corpus path instead of another
+adapter change, because rung 5 showed the defect is the base's English, not the
+adapters' rank.
+
+**Corpus and throughput.** Fetched the pinned `wikipedia-en` (420 MB) and
+`wikipedia-hi` (135 MB) shards with checksum verification, then built
+`runs/rung6-corpus-6m` and `runs/rung6-corpus-16m` through
+`prepare_corpus_cli --exclude-corpus`, keeping the mandated 50/50 hi/en token
+budget (8M + 8M train tokens in the larger corpus, 444k val / 444k test each).
+Measured steady-state CPU throughput: **~3,275 tokens/s** at microbatch 4.
+
+**14.3M-token continued pretraining.** 3,500 updates (`runs/rung6-pilot-16m`,
+exported base sha `47ad31ab...`). Held-out validation, spread-v1, 32 windows:
+
+| language | loss before | loss after | perplexity before -> after |
+| --- | ---: | ---: | --- |
+| English | 11.51 | **4.10** | 99,505 -> 60.1 |
+| Hindi | 15.33 | **0.90** | 4,543,741 -> 2.46 |
+
+Hindi converges far faster because the 2,897-token vocabulary was built with a
+Hindi-heavy budget; English remains the weak language. A 1.2M-token pilot
+(`runs/rung6-pilot`) had already taken the base from word salad to readable chat
+lines, so more tokens was the right axis.
+
+**Adapters cannot recover a drifted base (measured).** Retraining all seven
+deployed experts on the wiki base (`runs/rung6-adapted`) collapsed both suites
+to **0/32 + 0/16**, with Wikipedia-style fragments in every slot. This is
+recorded as a fact about LoRA on a shifted base, not as a tuning problem.
+
+**Full-parameter chat SFT recovers conversation.** `runs/rung6-sft` (600 steps,
+LR 1e-4 on the champion base) reached val 8.90 -> 4.26 but scored base-only
+14/32 + 6/16 and 13/32 + 9/16 with champion adapters — null.
+
+The pretrained base was then chat-SFT'd (`runs/rung6-base-fromwiki`, i.e. the
+wiki base with the champion router registry spliced back in, since the
+pretraining export writes an empty router). Best-checkpoint tracking was added
+after the first attempt overfit: 3,000 steps drove train loss to 0.02 while val
+rose 3.62 -> 5.13. With early stopping, the best epoch was **step 500, val
+3.6173** (`runs/rung6-sft2`).
+
+| candidate | single-turn | chat | note |
+| --- | ---: | ---: | --- |
+| champion (frozen) | **22/32 (0.7812)** | **10/16 (0.7375)** | reference |
+| rung6-sft2, base only | 11/32 (0.5563) | 9/16 (0.7125) | most fluent base so far |
+| rung6-sft2 + 7 retrained experts | 14/32 (0.65) | 4/16 (0.5375) | adapters hurt again |
+
+Despite the lower suite scores, `rung6-sft2` is the first base whose free-form
+English is grammatical on arbitrary prompts: "Hi! How are you?", "I am Tantra.",
+"Atulya AI built Tantra.", "I can chat, explain simple things, and help draft
+short text.", "Good night! Sleep well." Relevance is still weak — "What is the
+capital of France?" answers "I am Tantra, a language model."
+
+Six of seven experts validated *worse than the base they were trained on*
+(e.g. identity_limitations 4.01 -> 5.85), so the adapter is now the thing that
+degrades a good base. Champion stays; nothing new is deployed.
+
+**What this rules out.** Not adapters, not rank, not routing, not full-parameter
+SFT, not base size on its own, not 14M tokens of encyclopedia text. The measured
+binding constraints are (1) token budget — 14.3M is still under-trained for even
+5.2M parameters — and (2) the 2,897-token vocabulary, which forces rare words
+into long byte-ish fragments. Rung 7 targets (1) first because it needs no new
+vocabulary and no adapter work.
+
+## Rung 7 — the copy circuit (2026-11-13, all in ignored `runs/`)
+
+Rung 6 established that no adapter, rank, or routing change can make this base use
+context. Rung 7 asked the narrower question the suites actually fail on: can a
+5.2M-parameter model learn to copy a name from the conversation at all?
+
+**Baseline measured first.** A 24-case probe (8 names x 3 ask shapes, names never
+trained on) scored the frozen champion at **0/24**. It answers the user's name
+question with its creator ("Atul Vij and his team at Atulya AI") or with a
+no-memory disclaimer. Two of those names (Riya, Arjun) are the held-out chat-suite
+names, so the suite's failure was reproduced independently of the suite.
+
+**Rank-8 adapters still cannot do it.** Training a fresh identity_self adapter on
+the bundle plus 768 curriculum rows (val 7.83 -> 3.66) still scored **0/24**. Its
+errors were training names ("Anya" for Kavya), not the name in context. LoRA on a
+base without the circuit memorises and cannot copy.
+
+**Full-parameter training on the same rows also failed (0/24)** while reaching
+curriculum val 8.73 -> 0.51. Replies then had the right shape — "Your name is
+X." — but X was drawn from the 64 training names. With only 64 names,
+memorisation and copying are indistinguishable and the optimiser picks the
+cheaper solution.
+
+**Forcing the circuit.** The decisive test trained on 4,000 generated syllable
+names with 200 held out entirely, so memory cannot help. Copy accuracy on unseen
+names climbed steadily, measured every 500 steps:
+
+| step | 0 | 500 | 1000 | 1500 | 2000 | 2500 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| copy accuracy (held-out names) | 0.00 | 0.00 | 0.025 | 0.15 | 0.40 | 0.625 |
+
+Final 0.660 over 100 held-out names (`runs/rung7-induction`). The architecture can
+implement context copying; earlier failures were a **data-volume and objective
+problem**, not a capacity limit. Names here are generated strings used only as a
+diagnostic task.
+
+**Transfer to real names.** Chat tuning on the reviewed bundle plus the real-name
+curriculum, from the circuit-carrying base, produced the first base that recalls
+unseen real names: **11/24 then 13/24 (54%)** after a low-LR recovery pass
+(`runs/rung7-combined` -> `runs/rung7-recover`). Correct answers now include
+"Meera.", "Arjun.", "Yes, Nandita." and "Yes, Kavya." for names never trained on,
+and the suite case `chat-name-recall-1` passes for the first time in any base-only
+candidate.
+
+**But chat regressed, so nothing is deployed.**
+
+| candidate | single-turn | chat | unseen-name recall |
+| --- | ---: | ---: | ---: |
+| champion (frozen reference) | **22/32 (0.7812)** | **10/16 (0.7375)** | 0/24 |
+| rung7-combined | 8/32 (0.4375) | 4/16 (0.5375) | 11/24 |
+| rung7-recover | 8/32 (0.4813) | 6/16 (0.5875) | **13/24 (0.5417)** |
+
+The trade is explicit: buying the copy circuit cost 6 single-turn cases and 4 chat
+cases. A polish pass weighted to the hard ask shape moved dev recall only
+0.46 -> 0.50 with no suite gain, so the mixture is saturated at this size.
+
+**What rung 7 establishes.** Copy-from-context is learnable here, which removes
+"the architecture cannot do it" from the list of explanations. The deployment
+blocker is now capacity: one 5.2M model at this token budget cannot hold fluent
+chat, memorised persona lines, and a copy circuit at once. The honest next step is
+more capacity or a much larger token budget, then repeat the same copy-then-chat
+recipe; the recipe itself is now validated and recorded.
+
+**Provenance note.** The name curricula are template-generated and marked
+`not_reviewed` (`runs/rung7-name-curriculum/curriculum.json`,
+`runs/rung7-induction/`). They are experiment data only: never merged into
+`docs/data`, never counted as reviewed rows, and the 0.66 copy figure is a
+synthetic-task diagnostic, not a conversation capability claim.
+
 ## Validation
 
 After dependencies are installed, run:

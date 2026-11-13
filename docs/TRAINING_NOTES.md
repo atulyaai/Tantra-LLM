@@ -138,3 +138,91 @@ python -m Tantra pilot_cli --corpus runs/new-64k/corpus-1m --output runs/new-64k
 Use new output directories for initialization and data preparation. A stale lock must be inspected against its recorded PID before removal. Resume has no automatic corrupted-checkpoint fallback. This is a one-million-token adaptation pilot, not full pretraining or a 1B model. No candidate is automatically deployed.
 
 Validation: full suite 51 passed; after adding the configurable checkpoint interval, eight relevant source/resume/migration tests passed. Native DLL hashes matched installed package metadata after a temporarily slow PyTorch import. No dependency reinstall or OS/security changes were made.
+
+## Part 3 - Rung 6: bilingual corpus builder and chat SFT (2026-11-13)
+
+The 64K migration record in Part 2 refers to local directories that were later
+removed from 
+uns/; only the 2,897-token champion lineage survives in this
+workspace. Do not treat Part 2 model paths as present artifacts.
+
+### Pinned corpus preparation
+
+prepare_corpus_cli was used unchanged, on the pinned wikipedia-en and
+wikipedia-hi sources, for two corpora:
+
+- 
+uns/rung6-corpus-6m - 6M train tokens (later excluded from its successor)
+- 
+uns/rung6-corpus-16m - 8M English + 8M Hindi train tokens, 444,444 val and
+  444,444 test tokens per language, built with
+  --exclude-corpus runs/rung6-corpus-6m so no text repeats.
+
+Split assignment is sha256(family) mod 100 (90/5/5) and family exclusion is
+checked before acceptance, so excluding a prior corpus removes whole article
+families rather than individual rows. That is why a later corpus cannot leak
+held-out families from an earlier one.
+
+### Continued pretraining
+
+3,500 updates = 14,336,000 target tokens at microbatch 4 (~3,275 tokens/s on
+this CPU), exported to 
+uns/rung6-pilot-16m. Held-out spread-v1 validation
+over 32 windows:
+
+| language | loss before | loss after | top-1 before -> after |
+| --- | ---: | ---: | --- |
+| en | 11.508 | 4.096 | 0.42% -> 22.35% |
+| hi | 15.329 | 0.901 | 0.00% -> 72.25% |
+
+Three bad evals were recorded by the trainer during the run (the resumable
+trainer's own counter); the exported best base is checksummed in 
+eport.json.
+The persistent gap between Hindi and English is a property of the 2,897-token
+vocabulary, which was built with a Hindi-heavy budget, not of the training loop.
+
+### Supervised chat tuning after pretraining
+
+Regressing a pretrained base back to conversation requires full-parameter SFT;
+rank-8 LoRA on the drifted base collapsed to 0/32 + 0/16
+(
+uns/rung6-adapted). The pretraining export writes an empty router registry,
+so the chat stage used a staged directory (
+uns/rung6-base-fromwiki) that
+restores the champion's 7-name router and 
+outer_ngram.pt before SFT.
+
+Early stopping matters at this data size: 3,000 steps at LR 1e-4 reached train
+loss 0.02 while validation climbed 3.62 -> 5.13. With evaluation every 100 steps
+and patience 3, the best epoch was step 500 at validation 3.6173
+(
+uns/rung6-sft2, recorded in sft-report.json).
+
+Result: base-only 11/32 + 9/16; with seven retrained experts 14/32 + 4/16 versus
+the frozen champion 22/32 + 10/16. Six of seven experts validated worse than the
+base they were trained on. The base is more fluent in free conversation but
+scores lower on the suite, and no candidate was deployed.
+
+### Copy-from-context: what actually trains it (rung 7)
+
+Three negative results and one positive, all on the champion 2,897-token base:
+
+1. rank-8 adapter on 768 extra name rows -> 0/24 unseen names, despite val 7.83 -> 3.66
+2. full-parameter training on the same 768 rows -> 0/24, despite val 8.73 -> 0.51
+3. chat SFT with only the reviewed bundle -> 0/24
+4. 4,000 generated syllable names with 200 held out, full-parameter, lr 3e-4,
+   2,500 steps, 8,000 rows -> copy accuracy 0.00, 0.00, 0.025, 0.15, 0.40, 0.625 at
+   steps 0/500/1000/1500/2000/2500, final 0.660 on 100 held-out names
+
+The model is not incapable of copying; it only learns the circuit when the corpus
+makes memorisation impossible. With 64 names the optimiser memorises the name list
+because that is enough to drive loss down.
+
+Transfer: continuing supervised tuning on the reviewed bundle plus the real-name
+curriculum keeps the circuit and yields 11/24 then 13/24 unseen-name recall, at the
+cost of chat-suite parity (6/16 vs the champion's 10/16). Both curriculum sets are
+template-generated, marked not_reviewed, and are not seed data.
+
+Selection note: bundle validation loss cannot select for a capability the bundle
+does not contain. The runs above select on a composite of held-out dev-name recall
+and validation loss, keeping the eval names untouched until the final measurement.
