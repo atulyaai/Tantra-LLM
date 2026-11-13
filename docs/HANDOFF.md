@@ -567,6 +567,75 @@ before any recall-capable model is deployed.
 `docs/data`, never counted as reviewed rows, and the 0.66 copy figure is a
 synthetic-task diagnostic, not a conversation capability claim.
 
+## Rung 8-9 and CPU throughput (2026-11-13, late)
+
+**Rung 8 on the 49M-token base (`runs/rung8-*`).** Applying the validated
+copy-then-chat recipe to the larger Wikipedia base reproduced the copy circuit
+completely: dev-name recall 0.92 and the 24-case unseen-name probe at **24/24
+(100%)**, against 0/24 for the champion. Base-only suites were 7/32 and 6/16.
+Retraining all seven experts gave **15/32 single, 11/16 chat (0.8125)** — the
+first candidate with a strictly higher chat count than the champion (10) and a
+higher mean (0.8125 vs 0.7375). It still fails the freeze gate on single-turn
+(15 < 22), so the champion remains deployed and rung 8 is a trade, not a win.
+
+**Falsified: per-expert validation-loss selection (`runs/rung8-best`).** Keeping
+only the four experts whose held-out validation loss improved scored **9/32 and
+9/16**, worse than deploying all seven. Cause: per-expert validation splits are
+tiny (smalltalk has 5 val rows), so val loss is noise, and the adapters that
+"looked worse" carried suite behaviour. The router was retrained for the four
+surviving experts with the other three as `--none` classes (test top-1 0.8136,
+base-only share 0.5085) so scoring could run at all; the capability loss is real,
+not a routing artefact.
+
+**Dev suite for checkpoint selection (`runs/dev-suite.json`).** Built from the
+bundle's val split: 48 cases, family-disjoint from the frozen suites, cues taken
+from the reviewed reference replies, scored by generation. It ranks candidates in
+the same order as the frozen suite (champion 13/48, rung8-adapt 9/48,
+rung8-recover 6/48) and is used only for selection. It is not a capability claim
+and is never reported as one.
+
+**Falsified: longer chat SFT (`runs/rung9-*`).** A 4,000-step cosine schedule from
+`rung8-combined` improved val loss (3.7852 -> 3.7059 at step 800) but the
+downstream composite got worse (11/32, 9/16), and a recovery stage selected its
+own starting point. Optimising teacher-forced loss on this mixture no longer
+tracks capability, which is why selection moved to the dev suite.
+
+**Conversational corpus (`runs/aya-corpus`).** The pinned Aya source
+(`docs/data/conversation_sources.lock.json`, Apache-2.0) was fetched with the
+repo downloader and checksum-verified. 4,993 en/hi rows were rendered through the
+project tokenizer's chat template, exact duplicates removed, split by family hash
+90/5/5, and capped to a balanced budget: **913,096 train tokens per language**.
+It is language-modelling text, not expert supervision, and the pinned Aya test
+shard is never read. Continued pretraining from `runs/rung7-base-fromwiki`
+resumed at update 150/600 after a killed shell (checkpoint protocol retained 47
+updates of lost work; resume itself worked). Its report is **pending**: no claim
+exists until `report.json` and the qualitative probe both exist.
+
+**CPU throughput measured, not assumed.** The model itself sustains ~3,465
+tokens/s on 4 cores (i3-9100F, no SMT); end-to-end training was ~1,100 tokens/s
+only while benchmarks competed for the same cores. The trainer's automatic
+microbatch search covered only 1,2,4 for a 4,096-target update, so it accumulated
+in unnecessarily small chunks; the search now covers 1,2,4,8,16 and
+`pilot_cli --microbatch` allows an explicit override (one update still sees 4,096
+targets). Measured with microbatch 8: ~2,932 tokens/s end-to-end, i.e. roughly
+250M tokens/day. The interleaved RoPE rewrite was verified bit-identical in value
+**and** gradient (0.0 difference) but is not faster on this CPU, so it was not
+applied; there is no unmeasured optimisation in the tree.
+
+**Capacity growth is exact and available.** `grow_depth(3)` on `rung8-recover`
+changed 5.17M -> 7.38M parameters with a **0.0 maximum logit difference** on a
+fixed batch, i.e. the grown model computes exactly the same function before
+training. Width growth is not implemented; depth growth is the supported step,
+and scaling by retraining a wider base from scratch remains the simpler option
+now that the compute budget is measured in days.
+
+**Corpus composition (`mix_corpora.py`).** Growing the mix by adding sources,
+never by repeating examples (per `Tantra/training_scope.json`). It verifies each
+source manifest and shard, draws fixed per-language token budgets in source
+proportion, interleaves whole windows round-robin so every update sees the mix,
+and writes a manifest recording every source and hash. Smoke-tested at 1M tokens
+per language at 90/10 Wikipedia/chat: 3,516 + 391 windows per language.
+
 ## Validation
 
 After dependencies are installed, run:

@@ -399,7 +399,7 @@ def _train(output,model_dir,identities,maps,train,order,sequence,max_updates,res
     else:
         # Backward-only benchmarks leave weights unchanged; clear all gradients.
         model.train()
-        for batch_size in (1,2,4):
+        for batch_size in (1,2,4,8,16):
             if not memory_ok(): break
             x=tensor_batch(train,order[:batch_size],sequence).to(device)
             start=time.perf_counter()
@@ -552,7 +552,9 @@ def pilot_cli():
     p.add_argument('--resume',action='store_true'); p.add_argument('--threads',type=int,default=4)
     p.add_argument('--val-windows',type=int,default=16)
     p.add_argument('--checkpoint-updates',type=int,default=100)
-    a=p.parse_args(); print(json.dumps(pilot_run(a.corpus,a.output,a.model_dir,a.max_updates,a.resume,a.threads,a.val_windows,a.checkpoint_updates),indent=2),flush=True)
+    p.add_argument('--microbatch',type=int,choices=(1,2,4,8,16),default=None,
+                   help='Explicit accumulation microbatch; one update still sees 4096 targets')
+    a=p.parse_args(); print(json.dumps(pilot_run(a.corpus,a.output,a.model_dir,a.max_updates,a.resume,a.threads,a.val_windows,a.checkpoint_updates,microbatch_override=a.microbatch),indent=2),flush=True)
 
 
 
