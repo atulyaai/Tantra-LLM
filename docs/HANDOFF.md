@@ -532,6 +532,15 @@ candidate.
 | champion (frozen reference) | **22/32 (0.7812)** | **10/16 (0.7375)** | 0/24 |
 | rung7-combined | 8/32 (0.4375) | 4/16 (0.5375) | 11/24 |
 | rung7-recover | 8/32 (0.4813) | 6/16 (0.5875) | **13/24 (0.5417)** |
+| rung7-adapt (seven experts on rung7-recover) | 14/32 (0.6188) | **10/16 (0.7750)** | 12/24 (0.50) |
+
+The last row is the best composite so far: it matches the champion's chat count and
+exceeds its chat mean, while recalling unseen names the champion cannot. It still
+fails the freeze gate on single-turn (14 < 22), so the champion remains deployed.
+Two attempts to raise single-turn on this base failed in a recorded way: a
+bundle-weighted replay pass with a recall floor either raised validation loss from
+the first evaluation or dropped recall below the floor, and no checkpoint beat the
+starting point, so `rung7-recover` is a local optimum for that mixture.
 
 The trade is explicit: buying the copy circuit cost 6 single-turn cases and 4 chat
 cases. A polish pass weighted to the hard ask shape moved dev recall only
