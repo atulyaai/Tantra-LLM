@@ -553,6 +553,14 @@ chat, memorised persona lines, and a copy circuit at once. The honest next step 
 more capacity or a much larger token budget, then repeat the same copy-then-chat
 recipe; the recipe itself is now validated and recorded.
 
+**Observed defect, recorded not hidden.** On `rung7-adapt`, the prompt
+"Do you remember my name? My name is Meera." returned an empty string because
+generation emitted a stop token immediately; `chat()` returns `""` in that case.
+No empty reply appears in any 32-case or 16-case suite run across all candidates,
+so this is a defect of that candidate rather than of the engine. It is listed
+here because an empty reply is unacceptable in real use and must be checked
+before any recall-capable model is deployed.
+
 **Provenance note.** The name curricula are template-generated and marked
 `not_reviewed` (`runs/rung7-name-curriculum/curriculum.json`,
 `runs/rung7-induction/`). They are experiment data only: never merged into
