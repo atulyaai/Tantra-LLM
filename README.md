@@ -219,8 +219,12 @@ pip install -e ".[pretrained,finetune,test]"
 python -m Tantra.pretrained_cli info
 python -m Tantra.pretrained_cli smoke --model-id HuggingFaceTB/SmolLM2-360M-Instruct --checkpoint ./checkpoints/SmolLM2-360M-Instruct
 
-# Fine-tune a LoRA child from reviewed JSONL examples
-python -m Tantra.pretrained_cli train-lora --model-id HuggingFaceTB/SmolLM2-360M-Instruct --checkpoint ./checkpoints/SmolLM2-360M-Instruct --candidate-id tantra-smollm-lora-001 --data Datasets/pretrained/train.jsonl --output runs/tantra-smollm-lora-001
+# Generate teacher demonstrations; inspect them before approval
+python -m Tantra.pretrained_cli distill --model-id HuggingFaceTB/SmolLM2-360M-Instruct --checkpoint ./checkpoints/SmolLM2-360M-Instruct --prompts Datasets/pretrained/prompts.txt --output Datasets/pretrained/teacher.jsonl
+python -m Tantra.pretrained_cli approve-dataset --dataset Datasets/pretrained/teacher.jsonl --reviewed-by "Atul" --review-note "Reviewed against prompts and corrected inaccurate outputs"
+
+# Fine-tune a LoRA child with 25% old-capability replay
+python -m Tantra.pretrained_cli train-lora --model-id HuggingFaceTB/SmolLM2-360M-Instruct --checkpoint ./checkpoints/SmolLM2-360M-Instruct --candidate-id tantra-smollm-lora-001 --data Datasets/pretrained/teacher.jsonl --replay-data Datasets/pretrained/replay.jsonl --replay-ratio 0.25 --output runs/tantra-smollm-lora-001
 
 # Generate teacher demonstrations, review them, then use them in student LoRA training
 python -m Tantra.pretrained_cli distill --model-id HuggingFaceTB/SmolLM2-360M-Instruct --checkpoint ./checkpoints/SmolLM2-360M-Instruct --prompts Datasets/pretrained/prompts.txt --output Datasets/pretrained/teacher-review.jsonl
