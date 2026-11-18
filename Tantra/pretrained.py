@@ -49,7 +49,7 @@ class PretrainedSource:
             raise ValueError("tokenizer_sha256 must be a SHA-256 hex digest")
         if self.license_status not in LICENSE_STATUSES:
             raise ValueError("unknown license_status")
-        if self.license_status in {"restricted", "unknown"}:
+        if self.license_status != "approved":
             raise ValueError("source license must be reviewed before integration")
         if self.integration_mode not in INTEGRATION_MODES:
             raise ValueError("unsupported integration_mode")
