@@ -139,6 +139,7 @@ def test_interrupted_and_uninterrupted_optimizer_runs_match(tmp_path):
     import random
     import numpy as np
     from Tantra.pretrain import capture_rng_state, restore_rng_state
+    from Tantra.train import save_resumable, load_resumable
 
     def make_model():
         return nn.Sequential(nn.Linear(8, 16), nn.Dropout(0.35), nn.Linear(16, 2))
@@ -163,16 +164,38 @@ def test_interrupted_and_uninterrupted_optimizer_runs_match(tmp_path):
     resumed_opt = torch.optim.AdamW(resumed.parameters(), lr=0.002)
     run_steps(resumed, resumed_opt, 0, 3)
     checkpoint = {
+        "config": {"test_model": True},
+        "identities": {"corpus": "fixed-test-corpus"},
+        "device": "cpu",
         "state": resumed.state_dict(),
         "optimizer": resumed_opt.state_dict(),
+        "cursor": 3,
+        "updates": 3,
+        "tokens": 96,
+        "microbatch": 1,
+        "threads": 1,
+        "benchmarks": [],
+        "baseline_validation": {},
+        "best_validation": 1.0,
         **capture_rng_state("cpu"),
     }
-    path = tmp_path / "resume.pt"
-    torch.save(checkpoint, path)
+    path = tmp_path / "latest.pt"
+    save_resumable(path, checkpoint)
 
     # Simulate unrelated work between process exit and restart.
     torch.manual_seed(999); random.seed(999); np.random.seed(999)
-    loaded = torch.load(path, map_location="cpu", weights_only=False)
+    loaded, evidence = load_resumable(
+        path,
+        identity_key="identities",
+        expected_identity={"corpus": "fixed-test-corpus"},
+        expected_config={"test_model": True},
+        expected_fields={"device": "cpu"},
+        required=("state", "optimizer", "torch_rng", "python_rng", "numpy_rng", "cuda_rng",
+                  "device", "cursor", "updates", "tokens", "microbatch", "benchmarks",
+                  "baseline_validation", "best_validation"),
+        state_shapes=resumed.state_dict(),
+    )
+    assert evidence["integrity_verified"] is True
     resumed.load_state_dict(loaded["state"])
     resumed_opt.load_state_dict(loaded["optimizer"])
     restore_rng_state(loaded, "cpu")
