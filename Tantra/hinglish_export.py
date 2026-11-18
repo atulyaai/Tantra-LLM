@@ -8,6 +8,8 @@ from pathlib import Path
 
 DEFAULT_REPOSITORY = "DSMJ910/hinglish-instruct-10k"
 DEFAULT_REVISION = "39686808306eb6d898c8f7e86dfa93549e4ef23b"
+EXPERT_BY_CATEGORY = {"casual": "smalltalk", "customer_support": "qa", "question": "qa", "sentiment": "classification"}
+DOMAIN_BY_EXPERT = {"smalltalk": "conversation", "qa": "tasks", "classification": "tasks"}
 HINDI_ROMAN_MARKERS = re.compile(r"\b(yaar|bhai|hai|hain|kya|ka|ki|ke|ko|mera|mujhe|aap|nahi|nahin|kar|chahiye|raha|rahi|ho|tha|the|na|matlab|arre|haan)\b", re.I)
 
 
@@ -35,10 +37,15 @@ def export_hinglish_rows(dataset, output_jsonl, *, split="train", repository=DEF
                 continue
             # Rows sharing a scenario/persona are variants; keep them in one split family.
             family=f"hinglish-scenario:{scenario.strip().casefold()}:{persona.strip().casefold()}"
+            expert = EXPERT_BY_CATEGORY.get(str(category).strip().lower())
+            if expert is None:
+                continue
             record={
                 "id":f"hinglish-synthetic-{index:08d}",
                 "family_id":family,
                 "language":"hinglish",
+                "expert":expert,
+                "domain":DOMAIN_BY_EXPERT[expert],
                 "template_id":f"synthetic-hinglish:{category}",
                 "user":user.strip(),
                 "assistant":assistant.strip(),
