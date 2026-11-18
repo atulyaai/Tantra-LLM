@@ -507,7 +507,7 @@ def _train(output,model_dir,identities,maps,train,order,sequence,max_updates,res
             if updates%10==0:
                 elapsed_now=time.perf_counter()-started;rate=(tokens-run_start_tokens)/max(elapsed_now,1e-9)
                 eta=(len(order)-cursor)*sequence/max(rate,1e-9)/3600
-                print(f'Update {updates}/{math.ceil(len(order)/16)} | loss {weighted:.4f} | lr {optimizer.param_groups[0]['lr']:.2e} | grad {float(norm):.2f} | tokens {tokens:,} | {rate:.1f} tok/s | ETA {eta:.2f}h | RSS {peak/GIB:.2f} GiB',flush=True)
+                print(f"Update {updates}/{math.ceil(len(order)/16)} | loss {weighted:.4f} | lr {optimizer.param_groups[0]['lr']:.2e} | grad {float(norm):.2f} | tokens {tokens:,} | {rate:.1f} tok/s | ETA {eta:.2f}h | RSS {peak/GIB:.2f} GiB",flush=True)
             if updates%checkpoint_updates==0 or time.perf_counter()-last_save>=600:
                 checkpoint(); last_save=time.perf_counter()
             if early_stopping_patience and bad_evals>=early_stopping_patience:
