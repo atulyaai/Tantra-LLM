@@ -349,7 +349,7 @@ def test_windows_do_not_repeat_and_follow_bilingual_ratio():
 
 def test_interrupted_base_pilot_resumes_exactly(tmp_path,monkeypatch):
     # Small real transformer, fixed benchmark clock to select the same microbatch.
-    monkeypatch.setattr(training,'memory_ok',lambda:True)
+    monkeypatch.setattr(training,'memory_ok',lambda device=None:True)
     tick=iter(range(10000)); monkeypatch.setattr(training.time,'perf_counter',lambda:next(tick))
     torch.manual_seed(1)
     model=TantraModel(ModelConfig(vocab_size=32,d_model=16,n_layers=1,n_heads=2,n_kv_heads=1,mlp_mult=4,max_seq_len=512))
