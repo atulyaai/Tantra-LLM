@@ -136,3 +136,29 @@ def test_teacher_distillation_writes_reviewable_manifest(tmp_path):
     assert "teacher answer" in output.read_text()
     manifest=json.loads((tmp_path/"teacher.jsonl.manifest.json").read_text())
     assert manifest["dataset_sha256"]==report["dataset_sha256"]
+
+
+def test_compatible_weight_inheritance_copies_only_matching_tensors():
+    from Tantra.pretrained_expansion import transfer_compatible_weights
+    parent=Tiny(); child=Tiny()
+    with torch.no_grad():
+        for parameter in parent.parameters(): parameter.fill_(0.25)
+        for parameter in child.parameters(): parameter.zero_()
+    parent_before={k:v.clone() for k,v in parent.state_dict().items()}
+    result=transfer_compatible_weights(parent,child)
+    assert result["copied_tensors"]>0
+    for key,value in child.state_dict().items():
+        assert torch.equal(value,parent_before[key])
+    for key,value in parent.state_dict().items():
+        assert torch.equal(value,parent_before[key])
+
+
+def test_feature_alignment_loss_backpropagates_to_student_and_projection():
+    from Tantra.pretrained_expansion import feature_alignment_loss
+    teacher=torch.randn(2,5,8)
+    student=torch.randn(2,5,6,requires_grad=True)
+    projection=nn.Linear(8,6)
+    loss=feature_alignment_loss(teacher,student,projection)
+    loss.backward()
+    assert student.grad is not None and projection.weight.grad is not None
+    assert torch.isfinite(loss)
