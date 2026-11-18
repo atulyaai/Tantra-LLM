@@ -22,8 +22,8 @@ class ModelSpec:
         for name in ("model_id", "provider", "revision", "architecture", "license_id", "tokenizer_id"):
             if not getattr(self, name).strip():
                 raise ValueError(f"{name} is required")
-        if len(self.revision) < 7:
-            raise ValueError("revision must be an immutable commit, not a moving branch")
+        if len(self.revision) != 40 or any(c not in "0123456789abcdef" for c in self.revision.lower()):
+            raise ValueError("revision must be a full immutable 40-character commit SHA")
         if self.parameter_count <= 0:
             raise ValueError("parameter_count must be positive")
         if self.license_status != "approved":
