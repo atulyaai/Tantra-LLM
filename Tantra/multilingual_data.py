@@ -60,7 +60,7 @@ def build_review_queue(input_jsonl, output_dir, *, expert, source):
             "family_id": raw["family_id"].strip(), "template_id": raw.get("template_id", f"source:{source['id']}"),
             "messages": [{"role": "user", "content": user}, {"role": "assistant", "content": answer}],
             "source": {"id": source["id"], "revision": source["revision"], "license": source["license"],
-                       "kind": "public_dataset_candidate", "url": source["url"], "original_record_id": raw["id"]},
+                       "kind": source.get("kind", "public_dataset_candidate"), "url": source["url"], "original_record_id": raw["id"]},
             "review": {"status": "pending", "reviewer": None, "reason": "Verify answer, language, safety, attribution and rights", "fluent_language_review": False},
         })
         counts[lang] += 1
@@ -110,10 +110,12 @@ def main(argv=None):
     p=argparse.ArgumentParser(description=__doc__); sub=p.add_subparsers(dest="command", required=True)
     intake=sub.add_parser("intake"); intake.add_argument("--input",required=True); intake.add_argument("--out",required=True); intake.add_argument("--expert",required=True)
     for key in SOURCE_FIELDS: intake.add_argument("--source-"+key,required=True)
+    intake.add_argument("--source-kind",default="public_dataset_candidate")
     approve=sub.add_parser("approve"); approve.add_argument("--queue",required=True); approve.add_argument("--decisions",required=True); approve.add_argument("--incoming",default="Datasets/workbench/incoming")
     a=p.parse_args(argv)
     if a.command=="intake":
         src={k:getattr(a,"source_"+k) for k in SOURCE_FIELDS}
+        src["kind"]=a.source_kind
         result=build_review_queue(a.input,a.out,expert=a.expert,source=src)
     else: result=approve_review_queue(a.queue,a.decisions,a.incoming)
     print(json.dumps(result,ensure_ascii=False,indent=2)); return 0
