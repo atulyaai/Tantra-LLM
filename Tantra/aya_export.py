@@ -34,6 +34,8 @@ def export_aya_training_rows(dataset, output_jsonl, *, split="train", language_c
                 "id": f"aya-train-{index:08d}",
                 "family_id": f"aya-train-family-{index:08d}",
                 "language": mapping[code],
+                "expert": "lang_en" if mapping[code] == "en" else "lang_hi",
+                "domain": "multilingual",
                 "template_id": f"aya:{code}:{row.get('annotation_type', 'human_annotation')}",
                 "user": user.strip(),
                 "assistant": assistant.strip(),
