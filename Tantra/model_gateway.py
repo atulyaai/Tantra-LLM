@@ -5,9 +5,10 @@ from Tantra.model_registry import ModelSpec
 from Tantra.identity import IDENTITY_SYSTEM_MESSAGE, identity_response, prepare_messages
 
 class ModelGateway:
-    def __init__(self, spec: ModelSpec, checkpoint_path: str, *, device: str = "cpu", dtype: str = "auto"):
+    def __init__(self, spec: ModelSpec, checkpoint_path: str, *, device: str = "cpu", dtype: str = "auto", adapter_path: str | None = None):
         spec.validate()
         self.spec, self.checkpoint_path, self.device, self.dtype = spec, checkpoint_path, device, dtype
+        self.adapter_path = adapter_path
         self._model = self._tokenizer = None
 
     def load(self) -> "ModelGateway":
@@ -28,6 +29,12 @@ class ModelGateway:
         else:
             raise ValueError("dtype must be auto, float32, or bfloat16")
         self._model = AutoModelForCausalLM.from_pretrained(self.checkpoint_path, **kwargs).to(self.device)
+        if self.adapter_path:
+            try:
+                from peft import PeftModel
+            except ImportError as exc:
+                raise RuntimeError("Install the optional finetune dependencies to load a LoRA adapter") from exc
+            self._model = PeftModel.from_pretrained(self._model, self.adapter_path)
         self._model.eval()
         return self
 
