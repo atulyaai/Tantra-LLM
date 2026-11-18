@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="920" viewBox="0 0 1200 920" role="img" aria-labelledby="title desc">
-<title id="title">Tantra native-first expandable intelligence architecture</title>
-<desc id="desc">Native Tantra foundation with compatible experts, residual growth, optional external teachers, hybrid knowledge, and evaluation.</desc>
+<title id="title">Tantra Qwen3.5 foundation and multilingual fine-tuning pipeline</title>
+<desc id="desc">Qwen3.5-0.8B-Base with its original tokenizer, reviewed multilingual data, LoRA supervised fine-tuning, held-out evaluation, and immutable adapter versions.</desc>
 <defs>
   <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#101827"/><stop offset="1" stop-color="#1d2940"/></linearGradient>
   <style>
@@ -10,40 +10,40 @@
   </style>
 </defs>
 <rect width="1200" height="920" rx="24" fill="url(#bg)"/>
-<text x="600" y="58" text-anchor="middle" class="h">TANTRA · NATIVE-FIRST EXPANDABLE INTELLIGENCE</text>
-<text x="600" y="88" text-anchor="middle" class="sub">Independent native weights · compatible experts · controlled growth</text>
+<text x="600" y="58" text-anchor="middle" class="h">TANTRA · QWEN3.5 FOUNDATION</text>
+<text x="600" y="88" text-anchor="middle" class="sub">Reviewed multilingual data · LoRA SFT · measured promotion</text>
 <rect x="250" y="120" width="700" height="100" class="box" fill="#253a5c" stroke="#60a5fa"/>
-<text x="600" y="160" text-anchor="middle" class="t">Tantra identity &amp; native orchestration core</text>
-<text x="600" y="190" text-anchor="middle" class="s">Native model family · stable interfaces · routing · evaluation · rollback</text>
+<text x="600" y="160" text-anchor="middle" class="t">Tantra training and product orchestration</text>
+<text x="600" y="190" text-anchor="middle" class="s">Dataset lineage · run configuration · adapter registry · release controls</text>
 <path d="M600 220 V260 M180 260 H1020 M180 260 V295 M440 260 V295 M760 260 V295 M1020 260 V295" class="line"/>
 <rect x="55" y="295" width="250" height="145" class="box" fill="#17456a" stroke="#38bdf8"/>
-<text x="180" y="335" text-anchor="middle" class="t">Native foundation</text>
-<text x="180" y="368" text-anchor="middle" class="s">Tantra-owned architecture + weights</text>
-<text x="180" y="394" text-anchor="middle" class="s">Tokenizer + training lineage</text>
-<text x="180" y="420" text-anchor="middle" class="s">Reproducible native training</text>
+<text x="180" y="335" text-anchor="middle" class="t">Qwen3.5-0.8B-Base</text>
+<text x="180" y="368" text-anchor="middle" class="s">Pinned upstream weights</text>
+<text x="180" y="394" text-anchor="middle" class="s">Immutable base checkpoint</text>
+<text x="180" y="420" text-anchor="middle" class="s">Text-only causal LM path</text>
 <rect x="315" y="295" width="250" height="145" class="box" fill="#145044" stroke="#34d399"/>
-<text x="440" y="335" text-anchor="middle" class="t">Native expert A + B</text>
-<text x="440" y="368" text-anchor="middle" class="s">Shared hidden-state contract</text>
-<text x="440" y="394" text-anchor="middle" class="s">Reasoning + coding specialists</text>
-<text x="440" y="420" text-anchor="middle" class="s">Versioned expert interfaces</text>
+<text x="440" y="335" text-anchor="middle" class="t">Qwen tokenizer</text>
+<text x="440" y="368" text-anchor="middle" class="s">Official vocabulary + special tokens</text>
+<text x="440" y="394" text-anchor="middle" class="s">Official chat template</text>
+<text x="440" y="420" text-anchor="middle" class="s">No tokenizer replacement</text>
 <rect x="635" y="295" width="250" height="145" class="box" fill="#49366b" stroke="#c4b5fd"/>
-<text x="760" y="335" text-anchor="middle" class="t">Expandable residual expert</text>
-<text x="760" y="368" text-anchor="middle" class="s">Preserved original expert</text>
-<text x="760" y="394" text-anchor="middle" class="s">New gated residual branch</text>
-<text x="760" y="420" text-anchor="middle" class="s">Distillation + replay + new training</text>
+<text x="760" y="335" text-anchor="middle" class="t">Reviewed SFT data</text>
+<text x="760" y="368" text-anchor="middle" class="s">Hindi · English · Hinglish</text>
+<text x="760" y="394" text-anchor="middle" class="s">Provenance + fluent review</text>
+<text x="760" y="420" text-anchor="middle" class="s">Family-disjoint frozen splits</text>
 <rect x="895" y="295" width="250" height="145" class="box" fill="#62401f" stroke="#fbbf24"/>
-<text x="1020" y="335" text-anchor="middle" class="t">Optional external models</text>
-<text x="1020" y="368" text-anchor="middle" class="s">Teacher / benchmark only</text>
-<text x="1020" y="394" text-anchor="middle" class="s">Separate weights + provenance</text>
-<text x="1020" y="420" text-anchor="middle" class="s">Never the native foundation</text>
+<text x="1020" y="335" text-anchor="middle" class="t">LoRA fine-tuning</text>
+<text x="1020" y="368" text-anchor="middle" class="s">Assistant-token loss only</text>
+<text x="1020" y="394" text-anchor="middle" class="s">Validation checkpoint selection</text>
+<text x="1020" y="420" text-anchor="middle" class="s">Separate adapter artifacts</text>
 <path d="M180 440 V490 H600 V520 M440 440 V490 M760 440 V490 M1020 440 V490 H600" class="line"/>
 <rect x="170" y="520" width="860" height="110" class="box" fill="#3b3650" stroke="#a78bfa"/>
-<text x="600" y="560" text-anchor="middle" class="t">Hybrid knowledge and action layer</text>
-<text x="600" y="592" text-anchor="middle" class="s">Parametric weights · retrieval / long-term memory · tools / APIs</text>
+<text x="600" y="560" text-anchor="middle" class="t">Frozen multilingual benchmark</text>
+<text x="600" y="592" text-anchor="middle" class="s">Hindi / English / Hinglish · correctness · fluency · safety · English regression</text>
 <path d="M600 630 V680" class="line"/>
 <rect x="170" y="680" width="860" height="115" class="box" fill="#164e3d" stroke="#34d399"/>
-<text x="600" y="720" text-anchor="middle" class="t">Native learning, evaluation and promotion controller</text>
-<text x="600" y="752" text-anchor="middle" class="s">Distillation + replay · regression gates · shadow routing · rollback</text>
-<text x="600" y="778" text-anchor="middle" class="s">Residual branches first · width/depth later</text>
-<text x="600" y="860" text-anchor="middle" class="sub">Native Tantra weights are independently trained; external teacher provenance remains separate and traceable.</text>
+<text x="600" y="720" text-anchor="middle" class="t">Versioned adapter promotion</text>
+<text x="600" y="752" text-anchor="middle" class="s">Immutable base + adapter hashes · data lineage · evaluation report · rollback</text>
+<text x="600" y="778" text-anchor="middle" class="s">Replay / distillation / further growth only after SFT baseline passes</text>
+<text x="600" y="860" text-anchor="middle" class="sub">Qwen upstream weights remain identifiable; Tantra adapters and evaluation evidence are versioned separately.</text>
 </svg>
