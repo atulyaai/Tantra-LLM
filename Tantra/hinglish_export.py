@@ -79,7 +79,7 @@ def export_hinglish_rows(dataset, output_jsonl, *, split="train", repository=DEF
     selected.sort(key=lambda row: row["id"])
     with output.open("w",encoding="utf-8") as handle:
         for record in selected:
-            handle.write(json.dumps(record,ensure_ascii=False)+"\\n")
+            handle.write(json.dumps(record,ensure_ascii=False)+"\n")
     counts={}
     for record in selected:
         category=record["template_id"].split(":",1)[-1]
