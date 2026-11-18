@@ -72,15 +72,17 @@ Generate raw outputs from the untouched base first:
 
 ```bash
 python -m Tantra qwen35_eval \
-  --test-jsonl Datasets/prepared/qwen35-v1/test.jsonl \
+  --manifest Datasets/workbench/prepared/manifest.json \
+  --experts greeting,smalltalk,identity_self \
   --output-jsonl runs/qwen35-base-test.jsonl
 ```
 
-Then use the exact same test file, revision and decoding settings for the adapter:
+Then use the exact same manifest, expert list, revision and decoding settings for the adapter:
 
 ```bash
 python -m Tantra qwen35_eval \
-  --test-jsonl Datasets/prepared/qwen35-v1/test.jsonl \
+  --manifest Datasets/workbench/prepared/manifest.json \
+  --experts greeting,smalltalk,identity_self \
   --adapter-dir runs/qwen35-08b-sft-v1/best_adapter \
   --output-jsonl runs/qwen35-sft-v1-test.jsonl
 ```
