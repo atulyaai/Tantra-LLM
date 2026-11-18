@@ -162,3 +162,28 @@ def test_feature_alignment_loss_backpropagates_to_student_and_projection():
     loss.backward()
     assert student.grad is not None and projection.weight.grad is not None
     assert torch.isfinite(loss)
+
+
+def test_teacher_dataset_requires_human_approval_and_hash_stays_bound(tmp_path):
+    from Tantra.pretrained_expansion import approve_teacher_dataset,read_text_records
+    dataset=tmp_path/"teacher.jsonl"
+    dataset.write_text('{"text":"teacher generated answer"}\n')
+    manifest={"dataset_sha256":__import__("hashlib").sha256(dataset.read_bytes()).hexdigest(),"review_required":True}
+    dataset.with_suffix(".jsonl.manifest.json").write_text(json.dumps(manifest))
+    with pytest.raises(ValueError,match="reviewed and approved"):
+        read_text_records(dataset)
+    approve_teacher_dataset(dataset,"reviewer","Checked against the source prompt and corrected errors.")
+    assert read_text_records(dataset)==["teacher generated answer"]
+    dataset.write_text('{"text":"changed after review"}\n')
+    with pytest.raises(ValueError,match="changed after its review"):
+        read_text_records(dataset)
+
+
+def test_teacher_dataset_approval_requires_reviewer_and_note(tmp_path):
+    from Tantra.pretrained_expansion import approve_teacher_dataset
+    dataset=tmp_path/"teacher.jsonl"; dataset.write_text('{"text":"answer"}\n')
+    dataset.with_suffix(".jsonl.manifest.json").write_text(json.dumps({
+        "dataset_sha256":__import__("hashlib").sha256(dataset.read_bytes()).hexdigest(),"review_required":True
+    }))
+    with pytest.raises(ValueError,match="reviewer identity"):
+        approve_teacher_dataset(dataset,"","")
