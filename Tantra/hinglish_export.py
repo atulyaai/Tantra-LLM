@@ -8,7 +8,7 @@ from pathlib import Path
 
 DEFAULT_REPOSITORY = "DSMJ910/hinglish-instruct-10k"
 DEFAULT_REVISION = "39686808306eb6d898c8f7e86dfa93549e4ef23b"
-HINDI_ROMAN_MARKERS = re.compile(r"\b(yaar|bhai|hai|hain|kya|ka|ki|ke|ko|mera|mujhe|aap|nahi|nahin|kar|chahiye|raha|rahi|ho|tha|the|na|matlab|arre|haan)\b", re.I)
+HINDI_ROMAN_MARKERS = re.compile(r"\b(yaar|bhai|hai|hain|kya|ka|ki|ke|ko|mera|mujhe|aap|nahi|nahin|kar|chahiye|raha|rahi|ho|tha|na|matlab|arre|haan)\b", re.I)
 
 
 def export_hinglish_rows(dataset, output_jsonl, *, split="train", repository=DEFAULT_REPOSITORY, revision=DEFAULT_REVISION):
