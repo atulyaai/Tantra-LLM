@@ -1,245 +1,199 @@
-﻿<!-- Full-width hero banner -->
 <div align="center">
-  <img src="Assets/tantra_hero_banner_animated.gif" alt="Tantra LLM - Weaving Intelligence" width="100%"/>
-</div>
-
-<div align="center">
-  <h1>
-    <img src="https://readme-typing-svg.herokuapp.com?font=Cinzel&weight=700&size=45&duration=4000&pause=1000&color=F7931A&center=true&vCenter=true&width=600&height=80&lines=TANTRA+LLM;WEAVING+INTELLIGENCE;αññαñ¿αÑìαññαÑìαñ░" alt="TANTRA LLM — Weaving Intelligence αññαñ¿αÑìαññαÑìαñ░" />
-  </h1>
+  <img src="Assets/tantra_hero_banner_animated.gif" alt="Tantra — Weaving Intelligence" width="100%"/>
+  <h1>Tantra LLM</h1>
+  <p><strong>A Hindi-first, multilingual AI research platform — built around measurable capability, not marketing claims.</strong></p>
+  <img src="Assets/tantra_logo.jpg" alt="Tantra logo" width="180"/>
 </div>
 
 <p align="center">
-  <em><strong>αññαñ¿αÑìαññαÑìαñ░</strong> (Sanskrit) — An instrument that weaves threads of knowledge
-  <strong>αññαñéαññαÑìαñ░</strong> (Hindi) — System, mechanism, governance</em>
+  <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/Python-3.10%2B-blue.svg" alt="Python 3.10+"/></a>
+  <a href="https://pytorch.org/"><img src="https://img.shields.io/badge/PyTorch-2.2%2B-ee4c2c.svg" alt="PyTorch 2.2+"/></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-orange.svg" alt="MIT License"/></a>
 </p>
 
-<p align="center">
-  <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.10%2B-blue.svg" alt="Python 3.10+"/></a>
-  <a href="https://pytorch.org/"><img src="https://img.shields.io/badge/pytorch-2.2%2B-ee4c2c.svg" alt="PyTorch 2.2+"/></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-F7931A.svg?style=flat-square" alt="MIT License"/></a>
-  <a href="#"><img src="https://img.shields.io/badge/Architecture-Expandable--Hybrid-purple.svg" alt="Architecture: Expandable Hybrid AI"/></a>
-  <a href="#"><img src="https://img.shields.io/badge/Tokenizer-10k_Bilingual_BPE-brightgreen.svg" alt="10k Bilingual BPE"/></a>
-  <a href="#"><img src="https://img.shields.io/badge/Made_in-India_≡ƒç«≡ƒç│-FF9933.svg" alt="Made in India"/></a>
-</p>
+Tantra is an experimental AI platform. The repository contains two related tracks:
+
+1. **Native research backend** — a small Transformer, tokenizer, training/evaluation code, routing and expert/adaptation experiments.
+2. **Pretrained-model engineering** — a local model gateway, model registry, LoRA adaptation, replay, residual-branch experiments, benchmark reports and candidate lifecycle controls.
+
+The platform direction is pretrained-first: use a capable foundation model, adapt it with reviewed data, evaluate it against a frozen benchmark, and promote a candidate only when measured gains justify it. Tantra is the orchestration and product layer; it does not make every upstream model its own foundation model.
+
+## Honest project status
+
+<details open>
+<summary><strong>What exists and has been verified</strong></summary>
+
+- Python package, CLI entry points, native training/evaluation code and automated tests.
+- A tokenizer artifact in `Model/`; the repository does not contain a ready-to-use trained native model checkpoint.
+- Pretrained gateway and registry with pinned model revisions.
+- A pinned **SmolLM2-360M-Instruct** checkpoint integration path used for CPU LoRA/replay and residual-branch smoke tests. This is an engineering test, not evidence of Hindi capability.
+- **Qwen3-1.7B** is registered as a multilingual evaluation candidate. Its manual workflow runs a small engineering fixture; it has not been selected or promoted as Tantra's foundation model.
+- The latest main-branch CPU and expansion test workflows passed on 18 November 2026: the expansion suite reported 230 passed and 1 skipped. Passing software tests do not establish language quality.
+
+</details>
+
+<details open>
+<summary><strong>What is not established yet</strong></summary>
+
+- No frontier-scale model has been trained from scratch by this repository.
+- No production-ready Hindi-English-Hinglish foundation model has been demonstrated.
+- No controlled LoRA result has yet established a Hindi/Hinglish gain while preserving English quality.
+- The 64K tokenizer is a candidate plan, not the active tokenizer. The current model vocabulary is 10,277; migration requires embedding expansion, training and held-out validation.
+- The current multilingual intake documentation records a shortage of approved Hindi and Hinglish conversation rows. The automated 10M bilingual experiment currently fails its honest data-readiness gate because it cannot form the required Hindi train/validation/test splits.
+- Architecture growth, expert inheritance, distillation and large model-family tiers are research directions unless a specific test or report proves the implementation.
+
+</details>
+
+**Current priority:** build a provenance-backed Hindi-English-Hinglish data pipeline, secure fluent review, freeze family-disjoint splits, compare stronger multilingual foundation models, run controlled LoRA experiments, and report per-language quality plus English regression. Do not promote a model based on training loss, parameter count, latency or a successful smoke test alone.
+
+## Architecture
 
 <div align="center">
-  <img src="Assets/tantra_logo.jpg" alt="Tantra LLM Official Emblem" width="240"/>
+  <img src="Assets/tantra_pretrained_architecture.svg" alt="Tantra pretrained-first architecture" width="100%"/>
 </div>
 
----
+At a high level:
 
-**Tantra** is an **expandable AI platform with a pretrained-first strategy**. Tantra
-owns the orchestration, identity, model registry, routing, expert interfaces,
-adaptation and evaluation pipeline. It can adapt third-party pretrained models,
-connect independent specialists, and build compatible neural experts through
-fine-tuning, expert inheritance and controlled capacity growth. Tantra's identity
-stays Tantra across every backend; underlying model provenance remains traceable
-and is disclosed truthfully when asked.
+- **Model gateway and registry** keep model identity, source revision, architecture and license metadata explicit.
+- **Adaptation** supports LoRA training with replay and experimental residual-branch growth for compatible architectures.
+- **Data intake** preserves source provenance, revision, license, record IDs and review decisions. Intake checks are triage, not proof of fluency or correctness.
+- **Evaluation** runs the same frozen prompts against base and candidate models and records outputs, latency and provenance.
+- **Lifecycle controls** keep candidate promotion separate from training and require evaluation evidence.
 
-The first implementation target is an architecture and expansion prototype—not
-a trillion-parameter training run. We will prove model intake, licensing checks,
-LoRA adaptation, behavioural distillation, replay, residual-branch growth and
-versioned promotion on small models before scaling.
-
-- **Pretrained-first model intake**: reviewed source checkpoints, explicit licence
-  gates, model gateway or compatible neural-adapter integration.
-- **Expert inheritance and growth**: selective adapter/weight/behaviour/feature
-  transfer; width, depth and residual-branch expansion are planned and tested
-  through explicit contracts before real checkpoint expansion.
-- **Native backend retained**: the repository's existing tokenizer, transformer,
-  sparse adapters, router and knowledge/reasoning engine remain available as a
-  backend and research baseline.
-- **Tantra identity**: inference enforces the Tantra product identity while
-  preserving truthful disclosure of the configured underlying model.
-
-> **State**: pretrained gateway and expansion prototype. CI passed 211 tests
-> (1 skipped), and the pinned 360M checkpoint completed real CPU LoRA/replay
-> and residual-branch smoke training. These validate mechanics, not language
-> quality or production capability gains. Developers: read
-> [AGENTS.md](AGENTS.md) and [docs/HANDOFF.md](docs/HANDOFF.md) first.
-
----
-
-## Current Architecture Direction: Pretrained-First and Expandable
+The native implementation remains available as a research baseline:
 
 <div align="center">
-  <img src="Assets/tantra_pretrained_architecture.svg" alt="Tantra pretrained-first expandable intelligence architecture" width="100%"/>
+  <img src="Assets/tantra_architecture.png" alt="Native Tantra architecture diagram" width="100%"/>
 </div>
 
-- **Pretrained-first:** start from reviewed pretrained checkpoints; adapt with LoRA/adapters or fine-tuning where justified.
-- **Hybrid integration:** use a model gateway for independent models and neural adapters only for architecture-compatible blocks.
-- **Expert inheritance:** transfer selected capabilities through adapter transfer, compatible weight transfer, behavioural distillation or feature alignment.
-- **Three growth methods:** width, depth and residual-branch expansion. Preserve immutable source checkpoints.
-- **Learning strategy:** distillation + replay + new training, with held-out evaluation before promotion.
-- **Hybrid knowledge:** learned weights + retrieval/memory + tools.
-- **Stable identity:** every backend presents as Tantra; direct questions about underlying models receive truthful provenance.
+The native backend is a small research model. It should not be described as equivalent to a modern pretrained foundation model.
 
-**Detailed plan:** [Pretrained-First Architecture & Expansion Roadmap](docs/TANTRA_PRETRAINED_EXPANSION_ROADMAP.md).
+## Quick start
 
-> The existing banner, logo and original architecture image below are intentionally retained. The new SVG is an additional platform-level architecture view, not a replacement.
-
----
-
-## Existing Native Implementation (Compatibility Baseline)
-
-The following diagram documents the repository's existing native transformer path. The pretrained-first platform direction above is the forward roadmap; this implementation remains available as a backend and research baseline.
-
-## Architecture Overview
-
-<div align="center">
-  <img src="Assets/tantra_architecture.png" alt="Tantra LLM Neural Architecture Pipeline" width="100%"/>
-</div>
-
-```
-   User Query (any language)
-                    │
-                    ▼
-       ┌──────────────────────┐
-       │   Fast N-Gram Router │  Unicode-aware word & char n-grams
-       └──────────────┬───────┘
-                     │  active = [("gk_indic", 0.8), ("greeting", 0.2)]
-                     ▼
-┌────────────────────────────────────────────────────────────────────────┐
-│                    Shared Base Transformer                             │
-│      28.8M-class presets ┬ RoPE ┬ GQA ┬ SwiGLU ┬ RMSNorm ┬ Tied Head │
-│                                                                          │
-│      Dynamic LoRA Modules on Q, V, O, and Down-projections:             │
-│             y = base(x) + Σ (x @ Aₙ @ Bₙ) · scale · wₙ                   │
-│                      └ only ACTIVE experts run ─┘                        │
-└───────────────────────────────┬────────────────────────────────────────┘
-                                │
-                                ▼
-┌────────────────────────────────────────────────────────────────────────┐
-│               Tantra Decoupled Knowledge Engine                        │
-│      1. DNA Integer TripleStore (O(1) relational graph)               │
-│      2. Hybrid Inverted BM25 + Dense Vector Index                     │
-│      3. Self-Learning Verifier (auto-curates offline facts)           │
-└────────────────────────────────────────────────────────────────────────┘
-```
-
----
-
-## Key Design Principles
-
-1. **The platform is the product**: pretrained models are starting points; Tantra owns
-   orchestration, expert contracts, inheritance, routing, evaluation and lifecycle.
-   Do not assume every model can be inserted into a neural layer.
-2. **Decoupled High-Density Memory**: the transformer is not expected to memorize
-   static facts. Encyclopedic facts live in an integer-indexed relational triple
-   store with BM25 + dense retrieval, freeing the base for language structure.
-3. **Bilingual, Devanagari-true tokenization**: ByteLevel BPE (10,277 entries,
-   64K extension designed in `docs/`) preserves Indic script integrity; presets
-   scale from a ~6.5M smoke model (`--preset tiny`) through ~1B.
-4. **Verified answers, not vibes**: the reasoning loop drafts N candidates, runs
-   exact arithmetic checks and knowledge-index comparisons, then searches before
-   answering; probes and benchmarks are recorded, never assumed.
-
----
-
-## Directory Structure
-
-```
-Tantra-LLM/
-├─ Assets/                 # Official banners, logos, and architecture diagrams
-├─ Datasets/               # Local (gitignored) data: public corpus, review bundles
-├─ Model/                  # Canonical model directory (currently tokenizer artifacts)
-├─ Tantra/                 # Flat package: model, training, data, review, inference
-│   ├─ train.py            # Trainer, checkpoints, TantraModel, PEER, workbench
-│   ├─ pretrain.py         # Public sources, corpus prep, base pilot
-│   ├─ tokenizer.py        # Tokenizer candidates and vocabulary migration
-│   ├─ main.py             # python -m Tantra CLI (seed..chat)
-│   ├─ evaluate.py         # Reply/router evaluation
-│   ├─ evaluate_conversation.py  # Memory store and indexes
-│   ├─ dashboard.py        # Bulk review, review sheets, live dashboard
-│   ├─ conversation_train.py     # Seed writers, conversation training
-│   └─ reasoning.py        # Think -> Check -> Verify -> Learn reasoning loop
-├─ Tests/                  # regression, identity, pretrained and growth tests
-├─ docs/                   # Specifications, expert cards, data locks and expansion roadmap
-│  ├─ TANTRA_PRETRAINED_EXPANSION_ROADMAP.md
-├─ clean_workspace.ps1     # Safe local-artifact cleanup
-└─ pyproject.toml          # Project configuration and metadata
-```
-
----
-
-## Quickstart & CLI
-
-### 1. Existing native backend (CPU research baseline)
-The commands below train the repository's existing native backend. They are
-not the pretrained-first adaptation workflow described above.
+Python 3.10+ is required. Install the package and test dependencies:
 
 ```bash
-python -m Tantra seed
-python -m Tantra stage1 --preset tiny
-python -m Tantra chat
+python -m pip install --upgrade pip
+python -m pip install -e ".[test]"
+python -m pytest Tests -q
 ```
 
-The pretrained runtime now includes a local-only model gateway, LoRA training,
-adapter inheritance, teacher-demonstration generation, residual-branch training,
-and candidate promotion/rollback. See the pretrained engineering section below.
-Actual checkpoint download and training remain explicit operator actions.
-`stage1`/`base`/`expert` write into `Model/`; use `--model-dir runs/pilot` to keep
-your shipped weights untouched.
-
-### 2. Interactive Chat & Questions
-```bash
-python -m Tantra ask "What is the capital of India?"
-python -m Tantra chat
-python -m Tantra chat --int8        # fast CPU inference (INT8 dynamic quantization)
-```
-
-### 3. Bigger bases & experts
-```bash
-python -m Tantra base --preset small --steps 1500
-python -m Tantra expert greeting --steps 300
-python -m Tantra router
-python -m Tantra grow --layers 2                    # deepen the base, output unchanged
-```
-
-### 4. Benchmarks, review and tests
-```bash
-pytest -m "not slow"                          # full suite (slow end-to-end: pytest -m slow)
-python -m Tantra.bench_cpu --tag my-base      # serving-path latency/RSS benchmark
-python -m Tantra workbench_cli status         # dataset/expert inventory
-python -m Tantra review_cli sample --queue Q --n 50   # human review workflow
-```
-
----
-
-
-### Pretrained model engineering (first executable phase)
-
-The first checkpoint is pinned to **HuggingFaceTB/SmolLM2-360M-Instruct**
-(Apache-2.0; English-first). It is an integration and LoRA-mechanics pilot,
-not the final Hindi-first production foundation.
+For pretrained-model integration:
 
 ```bash
-pip install -e ".[pretrained,finetune,test]"
+python -m pip install -e ".[pretrained]"
 python -m Tantra.pretrained_cli info
-hf download HuggingFaceTB/SmolLM2-360M-Instruct --revision c38281e01d0c0b0c36eac2f5bcb5b51fa2e803fc --local-dir ./checkpoints/SmolLM2-360M-Instruct
-python -m Tantra.pretrained_cli smoke --model-id HuggingFaceTB/SmolLM2-360M-Instruct --checkpoint ./checkpoints/SmolLM2-360M-Instruct
-
-# Generate teacher demonstrations; inspect them before approval
-python -m Tantra.pretrained_cli distill --model-id HuggingFaceTB/SmolLM2-360M-Instruct --checkpoint ./checkpoints/SmolLM2-360M-Instruct --prompts Datasets/pretrained/prompts.txt --output Datasets/pretrained/teacher.jsonl
-python -m Tantra.pretrained_cli approve-dataset --dataset Datasets/pretrained/teacher.jsonl --reviewed-by "Atul" --review-note "Reviewed against prompts and corrected inaccurate outputs"
-
-# Fine-tune a LoRA child with 25% old-capability replay
-python -m Tantra.pretrained_cli train-lora --model-id HuggingFaceTB/SmolLM2-360M-Instruct --checkpoint ./checkpoints/SmolLM2-360M-Instruct --candidate-id tantra-smollm-lora-001 --data Datasets/pretrained/teacher.jsonl --replay-data Datasets/pretrained/replay.jsonl --replay-ratio 0.25 --output runs/tantra-smollm-lora-001
-
-# Grow a zero-initialized residual branch and train only the new branch
-python -m Tantra.pretrained_cli grow-residual --model-id HuggingFaceTB/SmolLM2-360M-Instruct --checkpoint ./checkpoints/SmolLM2-360M-Instruct --candidate-id tantra-smollm-residual-001 --data Datasets/pretrained/train.jsonl --replay-data Datasets/pretrained/replay.jsonl --replay-ratio 0.25 --output runs/tantra-smollm-residual-001
-
-# Transfer exact compatible tensors into a child checkpoint without changing the parent
-python -m Tantra.pretrained_cli transfer-weights --parent-model-id HuggingFaceTB/SmolLM2-360M-Instruct --parent-checkpoint ./checkpoints/SmolLM2-360M-Instruct --child-checkpoint ./checkpoints/child-foundation --candidate-id tantra-inherited-child-001 --output runs/tantra-inherited-child-001
-
-# Promote only after a complete report; rollback restores the previous active candidate
-python -m Tantra.pretrained_cli promote --candidate-id tantra-smollm-lora-001 --report runs/tantra-smollm-lora-001-report.json
-python -m Tantra.pretrained_cli rollback
 ```
 
-Full instructions: [Pretrained gateway and expansion phase](docs/PRETRAINED_GATEWAY_PHASE1.md).
+For LoRA training, install the fine-tuning extra:
+
+```bash
+python -m pip install -e ".[finetune,test]"
+```
+
+The fine-tuning extra requires Transformers 4.51 or newer (below 5), matching the Qwen3 architecture support floor.
+
+## Useful commands
+
+```bash
+# Main native CLI
+python -m Tantra --help
+python -m Tantra chat
+python -m Tantra ask "What is the capital of India?"
+
+# CPU benchmark utility
+python -m Tantra.bench_cpu --help
+
+# Pretrained gateway
+python -m Tantra.pretrained_cli info
+python -m Tantra.pretrained_cli --help
+
+# Multilingual data intake and review
+python -m Tantra.multilingual_data --help
+
+# Full test suite
+python -m pytest Tests -q
+```
+
+Named CLI entry points are dispatched by `Tantra/__main__.py`; see that file and `docs/HANDOFF.md` for the current command list. Do not assume commands from older README revisions still exist.
+
+## Multilingual data: review before training
+
+The intake pipeline is deliberately review-first:
+
+1. Normalize source records to UTF-8 JSONL with stable record and conversation-family IDs.
+2. Preserve source URL, revision, license and original record identity.
+3. Run structural checks and quarantine malformed or suspicious rows.
+4. Review correctness, naturalness, safety, privacy and license compatibility.
+5. Require fluent-language review for Hindi and Hinglish approvals.
+6. Split by conversation family, not individual messages or paraphrases.
+7. Keep train, validation and test families disjoint and immutable.
+8. Report Hindi, English and Hinglish separately. Never fill a language shortage by duplicating examples.
+
+Start here:
+
+- [Multilingual data pipeline](docs/MULTILINGUAL_DATA_PIPELINE.md)
+- [Dataset specification](docs/DATASET_SPEC.md)
+- [Hinglish dataset export](docs/HINGLISH_DATASET_EXPORT.md)
+- [Aya dataset export](docs/AYA_DATASET_EXPORT.md)
+
+## Foundation-model evaluation
+
+The current shortlist is an evaluation queue, not a winner announcement:
+
+| Model | Role in this repository | Status |
+|---|---|---|
+| HuggingFaceTB/SmolLM2-360M-Instruct | Small integration and adaptation smoke baseline | Pinned; English-first; not the target foundation |
+| Qwen/Qwen3-1.7B | Primary multilingual baseline candidate | Pinned; not promoted |
+
+The Qwen3 workflow is manually dispatched because downloading and evaluating a 1.7B checkpoint on CPU is a deliberate experiment, not a per-commit test.
+
+Evaluation protocol:
+
+- Run the untouched base and each LoRA candidate on identical held-out prompts.
+- Use the same prompt formatting, decoding settings, hardware and output budget.
+- Report per-language correctness, instruction adherence, naturalness, factuality and safety with human review.
+- Measure latency and throughput separately from quality.
+- Report English regression explicitly.
+- Keep test families sealed; never train on evaluation fixtures.
+
+Read [the foundation-model shortlist](docs/FOUNDATION_MODEL_EVALUATION_SHORTLIST.md) and [the benchmark protocol](docs/PRETRAINED_BENCHMARK_PROTOCOL.md).
+
+## CI and experiments
+
+- **Expansion and regression tests:** run for pull requests; one active run per PR is retained.
+- **CPU validation:** runs on pushes to `main` and can be dispatched manually.
+- **Pretrained checkpoint smoke:** runs only when relevant gateway, registry, fixture or dependency files change.
+- **Bilingual 10M experiment:** manual only until approved Hindi data can satisfy the split-readiness gate.
+- **Qwen3 baseline:** manual only; downloads and evaluates the pinned 1.7B checkpoint.
+
+CI validates software and experiment mechanics. It does not certify language quality or production readiness.
+
+## Repository layout
+
+```text
+Tantra-LLM/
+├── Assets/       # Banners, logo and architecture diagrams
+├── Model/        # Tokenizer artifacts; no trained native checkpoint in the clean baseline
+├── Tantra/       # Model, training, data, gateway, adaptation and evaluation code
+├── Tests/        # Unit, integration and regression tests
+├── configs/      # Model registry, experiment manifests and research configuration
+├── docs/         # Dataset policy, evaluation protocols, handoff and research plans
+├── examples/     # Small, reproducible training experiments
+└── pyproject.toml
+```
+
+Generated datasets, checkpoints, adapters and run outputs belong in local ignored paths such as `Datasets/`, `checkpoints/` and `runs/`. Check the relevant data and model licenses before using or redistributing any artifact.
+
+## Developer handoff
+
+Before changing training, data or model lifecycle code, read:
+
+- [AGENTS.md](AGENTS.md)
+- [Developer handoff](docs/HANDOFF.md)
+- [Dataset specification](docs/DATASET_SPEC.md)
+- [Pretrained expansion roadmap](docs/TANTRA_PRETRAINED_EXPANSION_ROADMAP.md)
 
 ## License
 
-This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
+Tantra-LLM source code is licensed under the MIT License. Third-party model weights and datasets retain their own licenses and terms. See [LICENSE](LICENSE).
