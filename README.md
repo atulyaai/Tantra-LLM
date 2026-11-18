@@ -32,7 +32,7 @@ The repository retains a native Tantra Transformer as historical research code, 
 - The official Qwen3.5 tokenizer/chat-template path is preserved by the pipeline; the legacy 10,277-token native tokenizer is not used for Qwen.
 - Historical native-model, SmolLM2 and Qwen3-1.7B experiments remain in the repository for provenance, but they are not the active foundation path.
 - The Qwen3.5 model has not yet been downloaded or trained in the user's runtime; no Tantra adapter has been promoted.
-- The latest main-branch CPU and expansion test workflows passed on 18 November 2026: the expansion suite reported 230 passed and 1 skipped. Passing software tests do not establish language quality.
+- Latest main-branch CPU validation for the Qwen3.5 SFT scaffold passed: 235 tests passed, 1 skipped and 63 warnings; the existing small CPU training sample also completed. These tests do not download or train Qwen3.5 and do not establish language quality.
 
 </details>
 
