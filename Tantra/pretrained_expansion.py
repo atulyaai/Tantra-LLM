@@ -155,6 +155,10 @@ def train_residual_branch(model,tokenizer,dataset_jsonl,*,steps=100,learning_rat
     trainable=[p for p in model.parameters() if p.requires_grad]
     if not trainable: raise ValueError("no trainable residual branch parameters")
     texts=read_text_records(dataset_jsonl)
+    new_count=len(texts); replay_count=0
+    if replay_jsonl:
+        replay_texts=read_text_records(replay_jsonl)
+        texts,replay_count=mix_replay_examples(texts,replay_texts,replay_ratio,seed)
     if hasattr(model, "config"):
         model.config.use_cache = False
     device=torch.device("cuda" if torch.cuda.is_available() else "cpu"); model.to(device)
