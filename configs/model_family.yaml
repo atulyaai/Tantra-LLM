@@ -1,0 +1,97 @@
+schema_version: 1
+decision_date: "2026-11-18"
+strategy:
+  growth: family
+  dna_compression:
+    - storage_codec
+    - architecture_parameter_sharing
+  tokenizer:
+    target_vocab_size: 65536
+    status: candidate_only
+    preserve_existing_token_ids: true
+  runtime: balanced
+  default_backend: native_cpu_reference
+
+compatibility:
+  preserve_native_tantra: true
+  preserve_existing_tokenizer: true
+  preserve_existing_checkpoints: true
+  preserve_existing_experts: true
+  candidate_artifacts_directory: runs/
+  require_sha256_manifests: true
+  deploy_automatically: false
+
+model_family:
+  - id: edge-0_8b
+    target_parameters: 800000000
+    role: edge_inference
+    status: planned
+  - id: compact-2b
+    target_parameters: 2000000000
+    role: compact_generalist_and_specialist_host
+    status: planned
+  - id: standard-4b
+    target_parameters: 4000000000
+    role: primary_local_generalist_candidate
+    status: planned
+  - id: quality-7b-9b
+    target_parameters:
+      min: 7000000000
+      max: 9000000000
+    role: quality_latency_control
+    status: planned
+  - id: large-14b-plus
+    target_parameters:
+      min: 14000000000
+    role: distributed_research
+    status: later
+  - id: sparse-100b-1t
+    target_parameters:
+      min: 100000000000
+      max: 1000000000000
+    role: sparse_moe_research
+    status: research_horizon
+    report_total_and_active_parameters_separately: true
+
+growth_tracks:
+  - function_preserving_structure
+  - distilled_family_siblings
+  - progressive_sparse_experts
+
+tokenizer_candidates:
+  baseline: existing_model_tokenizer
+  compare_vocab_sizes: [16384, 32768, 65536]
+  languages: [hi, en, hinglish]
+  additional_domains: [code, identifiers, numbers, mixed_script]
+  deployment_gate: heldout_token_efficiency_and_model_recovery
+
+compression_tracks:
+  storage:
+    lossless_first: true
+    candidates: [block_dictionary, deduplication, delta_coding, entropy_coding]
+    lossy_candidates: [int8, int4, groupwise_quantization, vector_codebook, low_rank_residual]
+  architecture:
+    candidates:
+      - shared_blocks
+      - expert_low_rank_deltas
+      - parameter_tying
+      - factorized_embeddings
+      - adaptive_output_projection
+      - structured_sparsity
+      - conditional_expert_activation
+  vocabulary:
+    preserve_token_ids: true
+    candidates: [embedding_factorization, tied_embeddings, clustered_output_projection, quantized_embeddings]
+
+runtime:
+  policy: capability_and_benchmark_driven
+  reference: cpu
+  optional_backends: [cuda, rocm, openvino, directml, gguf]
+  required_metrics:
+    - device_and_driver
+    - precision
+    - tokens_per_second
+    - time_to_first_token
+    - peak_ram
+    - peak_vram
+    - output_agreement
