@@ -24,7 +24,7 @@ Then create a pending review queue:
 python -m Tantra.multilingual_data intake \
   --input exports/aya-en-hi.jsonl \
   --out Datasets/review/aya-en-hi-v1 \
-  --expert smalltalk \
+  --expert lang_en --domain multilingual \
   --source-id aya-instructions \
   --source-revision f9ea04583f02a8f86404ff6c58bf75fe637df8a2 \
   --source-license Apache-2.0 \
@@ -36,7 +36,7 @@ Important limitations:
 - Aya's source test split is not used. Do not repurpose it as training data.
 - The exporter does not fabricate Hinglish. Hinglish needs its own sourced or
   human-authored examples and fluent review.
-- The exported rows are pending candidates, not approved training examples.
+- The exporter routes English rows to `lang_en` and Hindi rows to `lang_hi` under the `multilingual` workbench domain. The global `--expert` is only a fallback. The exported rows are pending candidates, not approved training examples.
 - The source's human annotation status does not substitute for Tantra review of
   correctness, language naturalness, safety, provenance and license compatibility.
 - Each source row gets its own family ID. If a source contains translations or
