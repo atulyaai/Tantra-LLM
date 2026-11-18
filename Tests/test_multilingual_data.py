@@ -43,7 +43,7 @@ def test_approval_requires_full_review_and_native_language_check(tmp_path):
     write_jsonl(decisions,[{"record_id":r["record_id"],"decision":"approve","reviewer":"reviewer","note":"checked","fluent_language_review":r["language"]=="hi"} for r in records])
     result=approve_review_queue(q,decisions,tmp_path/"incoming")
     assert result["approved"]==2
-    final=[json.loads(x) for x in (tmp_path/"incoming"/"smalltalk"/"multilingual-reviewed.jsonl").read_text().splitlines()]
+    final=[json.loads(x) for x in (tmp_path/"incoming"/"conversation"/"smalltalk.jsonl").read_text().splitlines()]
     assert {r["review"]["status"] for r in final}=={"reviewed"}
 
 def test_approval_rejects_missing_duplicate_decisions(tmp_path):
