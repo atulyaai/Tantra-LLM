@@ -88,3 +88,21 @@ def test_adapter_inheritance_rejects_incompatible_peft_config(tmp_path):
     (child/"adapter_config.json").write_text(json.dumps({"base_model_name_or_path":"base-b","target_modules":["q_proj"],"r":8,"lora_alpha":16,"peft_type":"LORA"}))
     with pytest.raises(ValueError,match="incompatible"):
         transfer_adapter(parent,child,expected_base_sha256="a"*64)
+
+
+def test_replay_mix_is_deterministic_and_preserves_new_examples():
+    from Tantra.pretrained_expansion import mix_replay_examples
+    new=["new-a","new-b","new-c","new-d"]
+    replay=["old-a","old-b"]
+    first,count=mix_replay_examples(new,replay,replay_ratio=.25,seed=7)
+    second,count2=mix_replay_examples(new,replay,replay_ratio=.25,seed=7)
+    assert first==second
+    assert count==count2==1
+    assert set(new).issubset(set(first))
+    assert any(item in replay for item in first)
+
+
+def test_replay_mix_rejects_invalid_ratio():
+    from Tantra.pretrained_expansion import mix_replay_examples
+    with pytest.raises(ValueError,match="replay_ratio"):
+        mix_replay_examples(["new"],["old"],replay_ratio=1.0)
