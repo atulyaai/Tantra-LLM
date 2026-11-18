@@ -35,6 +35,7 @@ ENTRIES = {
     'qwen35_finetune': ('qwen35_finetune', 'main'),
     'qwen35_eval': ('qwen35_eval', 'main'),
     'qwen35_preflight': ('qwen35_preflight', 'main'),
+    'qwen35_chat': ('qwen35_chat', 'main'),
 }
 
 

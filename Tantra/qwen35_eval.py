@@ -10,6 +10,7 @@ import argparse
 import json
 import time
 from collections import Counter
+from collections.abc import Mapping
 from pathlib import Path
 
 from Tantra.qwen35_finetune import (
@@ -73,8 +74,10 @@ def evaluate(args):
             inputs = tokenizer.apply_chat_template(
                 context, tokenize=True, add_generation_prompt=True, return_tensors="pt"
             )
-            if isinstance(inputs, dict):
+            if isinstance(inputs, Mapping):
                 input_ids = inputs["input_ids"].to(device)
+            elif hasattr(inputs, "input_ids"):
+                input_ids = inputs.input_ids.to(device)
             else:
                 input_ids = inputs.to(device)
             if device.type == "cuda":

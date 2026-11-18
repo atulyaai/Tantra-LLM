@@ -1,20 +1,17 @@
-﻿# Tantra handoff
+# Tantra handoff
 
 ## Current locked architecture direction — updated 18 November 2026
 
-The user has superseded the native-first decision. **Qwen/Qwen3.5-0.8B-Base is now Tantra's foundation checkpoint.** Read [the Qwen3.5 foundation and fine-tuning roadmap](TANTRA_NATIVE_ARCHITECTURE_ROADMAP.md) before changing foundation, tokenizer, SFT, adapter or evaluation code.
+**Architecture Thesis:** Tantra is designed to be **upgradeable, not restartable**. We avoid rebuilding every model from zero whenever expanding from 0.8B to 1.5B or 3B parameters. See [the upgradeable architecture roadmap](TANTRA_UPGRADEABLE_ARCHITECTURE_ROADMAP.md) and [the Qwen3.5 foundation roadmap](TANTRA_NATIVE_ARCHITECTURE_ROADMAP.md).
 
 Locked decisions:
-- Use the Qwen3.5-0.8B-Base checkpoint at an immutable Hub revision.
-- Preserve Qwen's tokenizer, vocabulary, special tokens and chat template.
-- First training stage is supervised fine-tuning with LoRA, not pretraining from random initialization.
-- Keep the upstream base immutable; store each adapter candidate and manifest separately.
-- Evaluate Hindi, English and Hinglish independently on frozen family-disjoint held-out data; explicitly measure English regression.
-- Native Tantra Transformer and native residual-growth research remain historical/optional experiments, not the active foundation.
-
-**Pipeline scaffold committed:** `Tantra/qwen35_finetune.py`, `Tantra/qwen35_eval.py` and `Tantra/qwen35_preflight.py`, exposed as `python -m Tantra qwen35_finetune`, `qwen35_eval` and `qwen35_preflight`. Preflight reports runtime/GPU and verifies the prepared manifest and split hashes; optional `--check-model` loads the pinned base and generates a short Hindi smoke response. SFT validates reviewed/provenance-backed JSONL, checks train/validation family separation, masks prompt tokens, trains LoRA, selects by validation loss and writes an adapter manifest. See the roadmap for exact commands.
-
-**Immediate work:** run `python -m Tantra qwen35_preflight` on the target machine; inspect GPU/VRAM and Transformers/PEFT versions; run preflight against the prepared manifest; resolve the still-known Hindi/Hinglish reviewed-data shortage; then run `python -m Tantra qwen35_preflight --check-model` and a tiny adapter train/save/reload smoke test. Only after these gates pass should the controlled SFT benchmark begin. No model has been downloaded or trained by the source changes. Never overwrite `Model/` or a validated base checkpoint.
+- **Tantra Identity:** Tantra maintains its own model identity, expert interface, routing system, memory, and adapter lineage — not a renamed third-party model.
+- **Foundation Substrate:** Use `Qwen/Qwen3.5-0.8B-Base` at an immutable Hub revision (`5c8a1b97ddef11f79b47ab9d07bf82b9117413f6`) as the initial base and distillation teacher.
+- **Progressive Evolution:** Keep smaller experts as stable teachers; expand capacity via **Expandable Residual Experts** ($y = E_{\text{base}}(x) + g(x) E_{\text{new}}(x)$) and Modular MoE with a 1/10 sparse activation horizon.
+- **First Training Stage:** Supervised fine-tuning with LoRA ($r=8$), prompt loss masking, and frozen family-disjoint splits.
+- **Interactive Terminal:** `python -m Tantra qwen35_chat` provides interactive and one-shot interaction with the base model or trained adapters.
+- **Verified Hardware & Preflight:** Verified on local machine (GeForce GT 710 Kepler 2GB, CPU execution mode, PyTorch 2.15 CPU, Transformers 5.23, PEFT 0.21.3). Checkpoint downloaded, Hindi smoke generation passed, and LoRA adapter trained and reloaded in `runs/smoke_adapter/best_adapter`.
+- **Current Blocker:** Reviewed Hindi and Hinglish splits must be populated into `Datasets/workbench/` to pass the `data_ready` gate before initiating full controlled fine-tuning.
 
 **Historical record:** the earlier native-first roadmap and code audit document the architecture decisions and source state at the time. They are superseded as the active product direction; do not use them to infer current training priorities.
 

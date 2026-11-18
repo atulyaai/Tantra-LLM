@@ -1,7 +1,7 @@
 <div align="center">
   <img src="Assets/tantra_hero_banner_animated.gif" alt="Tantra — Weaving Intelligence" width="100%"/>
-  <h1>Tantra LLM</h1>
-  <p><strong>A multilingual language-model project — built around measurable capability, not marketing claims.</strong></p>
+  <h1>Tantra — तंत्रा</h1>
+  <p><strong>An independent multilingual AI assistant — Hindi · English · Hinglish</strong></p>
   <img src="Assets/tantra_logo.jpg" alt="Tantra logo" width="180"/>
 </div>
 
@@ -11,9 +11,9 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-orange.svg" alt="MIT License"/></a>
 </p>
 
-Tantra is an experimental language-model project using **Qwen3.5-0.8B-Base as its foundation checkpoint**. The base weights remain the upstream Qwen model; Tantra's work is the reviewed multilingual training data, fine-tuning recipe, adapters, evaluation and product integration. We do not claim that Qwen's pretrained weights were created by Tantra.
+Tantra is an **independent multilingual AI assistant** — built to speak Hindi, English and Hinglish with equal fluency. It runs on **Qwen3.5-0.8B-Base** as its foundation checkpoint, trained with reviewed multilingual SFT data via LoRA adapters. The base weights remain the upstream Qwen model; Tantra's work is the multilingual training data, fine-tuning pipeline, identity layer, adapters, and evaluation harness. Tantra never claims that Qwen's pretrained weights were created by Tantra.
 
-The repository retains a native Tantra Transformer as historical research code, but it is no longer the active foundation target. The active path is Qwen3.5 text-only supervised fine-tuning with LoRA, followed by controlled Hindi, English and Hinglish evaluation.
+Tantra's character, values, and multilingual voice are defined by the `Tantra/identity.py` module and the SFT curriculum — not by the base model. Regardless of the underlying checkpoint, every session begins with Tantra's identity system prompt, and direct identity questions (`Who are you?`, `तुम कौन हो?`, `aap kaun hain?`) are intercepted and answered deterministically before any model call.
 
 **Locked architecture decision (18 November 2026):**
 - **Foundation:** `Qwen/Qwen3.5-0.8B-Base`, pinned to an immutable model revision.
@@ -31,8 +31,11 @@ The repository retains a native Tantra Transformer as historical research code, 
 - The Qwen3.5-0.8B-Base LoRA SFT pipeline, dataset checksum preflight and base-versus-adapter evaluation harness, with unit tests for JSONL provenance checks, family leakage and assistant-only label masking.
 - The official Qwen3.5 tokenizer/chat-template path is preserved by the pipeline; the legacy 10,277-token native tokenizer is not used for Qwen.
 - Historical native-model, SmolLM2 and Qwen3-1.7B experiments remain in the repository for provenance, but they are not the active foundation path.
-- The Qwen3.5 model has not yet been downloaded or trained in the user's runtime; no Tantra adapter has been promoted.
-- Latest main-branch CPU validation for the Qwen3.5 SFT scaffold passed: 235 tests passed, 1 skipped and 63 warnings; the existing small CPU training sample also completed. These tests do not download or train Qwen3.5 and do not establish language quality.
+- The Qwen3.5-0.8B-Base foundation checkpoint is downloaded and verified on CPU in the local runtime; smoke generation verified.
+- The interactive terminal `python -m Tantra qwen35_chat` provides interactive and one-shot chat with the base model or loaded LoRA adapters.
+- A rank-8 LoRA adapter smoke test has been trained, serialized, and reloaded successfully in `runs/smoke_adapter/best_adapter`.
+- The full test suite passes completely (236 passed).
+- Evolutionary upgrade architecture defined in `docs/TANTRA_UPGRADEABLE_ARCHITECTURE_ROADMAP.md` (Expandable Residual Experts, modular MoE, 1/10 sparse activation).
 
 </details>
 
@@ -100,7 +103,10 @@ python -m Tantra ask "What is the capital of India?"
 # CPU benchmark utility
 python -m Tantra.bench_cpu --help
 
-# Qwen3.5-0.8B LoRA SFT pipeline
+# Qwen3.5-0.8B LoRA SFT pipeline & Interactive Chat
+python -m Tantra qwen35_chat                                           # Interactive terminal
+python -m Tantra qwen35_chat --prompt "Hello Tantra, who are you?"     # One-shot query
+python -m Tantra qwen35_chat --adapter-dir runs/smoke_adapter/best_adapter # Chat with trained adapter
 python -m Tantra qwen35_preflight
 python -m Tantra qwen35_finetune --help
 python -m Tantra qwen35_eval --help

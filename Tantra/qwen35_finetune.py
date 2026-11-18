@@ -10,6 +10,7 @@ import hashlib
 import json
 import math
 import random
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -181,6 +182,10 @@ def load_manifest_test_rows(manifest_path: str | Path, experts: list[str]):
 
 
 def _ids(value: Any) -> list[int]:
+    if isinstance(value, Mapping) and "input_ids" in value:
+        value = value["input_ids"]
+    elif hasattr(value, "input_ids"):
+        value = value.input_ids
     if hasattr(value, "tolist"):
         value = value.tolist()
     if value and isinstance(value[0], list):
@@ -320,11 +325,14 @@ def train(args) -> dict:
         tokenizer.pad_token = tokenizer.eos_token
     tokenizer.padding_side = "right"
     model = AutoModelForCausalLM.from_pretrained(
-        args.model_id, revision=args.revision, torch_dtype=dtype,
+        args.model_id, revision=args.revision, dtype=dtype,
         low_cpu_mem_usage=True,
     )
     model.config.use_cache = False
-    if hasattr(model, "gradient_checkpointing_enable"):
+    # Use new API names with fallback for older transformers versions
+    if hasattr(model, "enable_activation_checkpointing"):
+        model.enable_activation_checkpointing()
+    elif hasattr(model, "gradient_checkpointing_enable"):
         model.gradient_checkpointing_enable()
     if hasattr(model, "enable_input_require_grads"):
         model.enable_input_require_grads()
@@ -346,7 +354,8 @@ def train(args) -> dict:
     scheduler = torch.optim.lr_scheduler.LambdaLR(
         optimizer, lambda step: min((step + 1) / warmup, max(0.0, (args.max_steps - step) / max(1, args.max_steps - warmup)))
     )
-    scaler = torch.cuda.amp.GradScaler(enabled=(device.type == "cuda" and dtype == torch.float16))
+    # torch.cuda.amp.GradScaler is deprecated in PyTorch 2.x — use torch.amp
+    scaler = torch.amp.GradScaler("cuda", enabled=(device.type == "cuda" and dtype == torch.float16))
     output.mkdir(parents=True, exist_ok=True)
     best_dir = output / "best_adapter"
     best_val = math.inf

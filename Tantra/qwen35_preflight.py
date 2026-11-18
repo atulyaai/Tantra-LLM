@@ -11,6 +11,7 @@ import json
 import platform
 import sys
 from collections import Counter
+from collections.abc import Mapping
 from pathlib import Path
 
 from Tantra.qwen35_finetune import (
@@ -118,8 +119,10 @@ def model_smoke(revision: str, allow_cpu: bool) -> dict:
         [{"role": "user", "content": "नमस्ते। Reply briefly."}],
         tokenize=True, add_generation_prompt=True, return_tensors="pt",
     )
-    if isinstance(prompt, dict):
+    if isinstance(prompt, Mapping):
         input_ids = prompt["input_ids"].to(device)
+    elif hasattr(prompt, "input_ids"):
+        input_ids = prompt.input_ids.to(device)
     else:
         input_ids = prompt.to(device)
     with torch.inference_mode():
