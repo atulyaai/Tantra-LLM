@@ -26,6 +26,8 @@ def main(argv=None)->int:
     smoke=sub.add_parser("smoke"); registry_arg(smoke)
     smoke.add_argument("--model-id",required=True); smoke.add_argument("--checkpoint",required=True)
     smoke.add_argument("--device",default="cpu"); smoke.add_argument("--max-new-tokens",type=int,default=48)
+    smoke.add_argument("--adapter",help="optional PEFT LoRA adapter directory")
+    smoke.add_argument("--residual-candidate",help="optional saved residual-branch candidate directory")
     lora=sub.add_parser("train-lora"); registry_arg(lora)
     lora.add_argument("--model-id",required=True); lora.add_argument("--checkpoint",required=True)
     lora.add_argument("--candidate-id",required=True); lora.add_argument("--data",required=True)
@@ -50,8 +52,12 @@ def main(argv=None)->int:
     if args.command=="smoke":
         spec=ModelRegistry.from_file(args.registry).get(args.model_id)
         if not Path(args.checkpoint).is_dir(): parser.error("local checkpoint directory missing; acquire the pinned snapshot explicitly")
-        gateway=ModelGateway(spec,args.checkpoint,device=args.device)
-        start=time.perf_counter(); gateway.load(); load_s=time.perf_counter()-start
+        gateway=ModelGateway(spec,args.checkpoint,device=args.device,adapter_path=args.adapter)
+        start=time.perf_counter(); gateway.load()
+        if args.residual_candidate:
+            from Tantra.pretrained_expansion import load_residual_candidate
+            load_residual_candidate(gateway._model,args.residual_candidate)
+        load_s=time.perf_counter()-start
         start=time.perf_counter(); answer=gateway.generate([{"role":"user","content":"Who are you?"}],max_new_tokens=args.max_new_tokens)
         gen_s=time.perf_counter()-start
         print(json.dumps({"model_id":spec.model_id,"revision":spec.revision,"license":spec.license_id,
