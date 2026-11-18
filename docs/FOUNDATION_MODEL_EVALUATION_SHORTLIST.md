@@ -39,3 +39,15 @@ Other candidates to consider only after the first controlled comparison:
 
 Never substitute upstream model-card scores for Tantra held-out evaluation.
 Never train on unreviewed, synthetic-unreviewed, or held-out examples.
+
+
+## Reproducible baseline run
+
+After this PR is merged, run the GitHub Actions workflow
+`Tantra Qwen3-1.7B multilingual baseline` manually. It downloads the pinned
+checkpoint, runs the current 12-case engineering fixture on CPU, and uploads a
+JSON artifact containing model revision, candidate provenance, outputs and
+latency. This is a smoke baseline only; the 12 prompts are not a statistically
+adequate quality benchmark and must not be used as the final model-selection
+score. Expand the held-out suite with reviewed, family-separated Hindi,
+Hinglish and English cases before making quality claims.
