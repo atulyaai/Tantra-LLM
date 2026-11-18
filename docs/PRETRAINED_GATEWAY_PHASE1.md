@@ -85,3 +85,19 @@ The official model card reports the following zero-shot instruction-model result
 | GSM8K (5-shot) | 7.43 |
 
 The model card lists Apache-2.0 and a 0.4B parameter size. It explicitly warns that SmolLM2 primarily understands and generates English. This supports selecting it as a low-cost integration pilot, but rules it out as the sole Hindi-English foundation without separate multilingual evaluation. Source: https://huggingface.co/HuggingFaceTB/SmolLM2-360M-Instruct
+
+
+## Growth methods — implementation status
+
+The architecture contract accepts width, depth and residual-branch expansion. This prototype has an executable, tested residual-branch operator for Llama-style decoder blocks. Width and depth are still architecture-specific expansion work; they are not falsely represented as implemented by the current CLI. The measured first branch adds 15,360 trainable parameters to the 361,821,120-parameter SmolLM2 checkpoint. It proves a safe insertion/training/reload path, not a meaningful jump to 0.8B or 2–3B. To reach that scale, we must add multiple compatible branches or carefully expand width/depth, then distil and replay-evaluate each child against the parent.
+
+## Verified smoke evidence
+
+On GitHub Actions CPU runner, the pinned 360M checkpoint:
+- loaded and generated a Tantra identity response through the base gateway;
+- completed a one-step LoRA update with 25% replay examples;
+- loaded the saved LoRA adapter and generated a Tantra identity response;
+- trained a residual branch with 25% replay examples, saved/reloaded it, and generated a Tantra identity response;
+- kept the original checkpoint as a separate, unchanged source artifact.
+
+These are integration/mechanics smokes only. The reported training losses are not quality scores, and no production capability gain is claimed.
