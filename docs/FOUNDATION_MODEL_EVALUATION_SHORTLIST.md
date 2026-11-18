@@ -1,41 +1,39 @@
-# Optional external teacher and benchmark shortlist
+# Tantra foundation checkpoint and reference models
 
-**Role:** optional research references only. This shortlist does not select Tantra's foundation model. Tantra's foundation is to be built and trained as an independent native architecture with native weights.
+**Active foundation decision — 18 November 2026:** `Qwen/Qwen3.5-0.8B-Base` is the selected foundation checkpoint for the current Tantra training programme. This supersedes the earlier native-first decision.
 
-External checkpoints may be used for:
-- Optional teacher demonstrations or distillation targets, after provenance capture and human review.
-- Independent quality comparisons against native Tantra checkpoints.
-- Testing the optional model gateway and integration boundaries.
+| Model | Role | Status |
+|---|---|---|
+| `Qwen/Qwen3.5-0.8B-Base` | Active foundation for Tantra SFT | Selected; immutable revision pinned in `Tantra/qwen35_finetune.py` |
+| `Qwen/Qwen3.5-0.8B` | Post-trained reference/control | Optional evaluation reference; not interchangeable with Base |
+| `Qwen/Qwen3-1.7B` | Historical multilingual comparison | Retain prior experiment provenance; not current foundation |
+| `HuggingFaceTB/SmolLM2-360M-Instruct` | Historical integration smoke fixture | Optional tooling only |
 
-They must not replace native Tantra weights or be described as Tantra-created weights. Keep each external checkpoint immutable and separately identified.
+## Selected foundation
 
-| Candidate | Size | Declared licence | Optional role |
-|---|---:|---|---|
-| HuggingFaceTB/SmolLM2-360M-Instruct | 360M | Apache-2.0 | Small gateway/integration fixture and optional teacher |
-| Qwen/Qwen3-1.7B | 1.7B | Apache-2.0 | Optional multilingual teacher and independent comparison |
-
-Qwen3-1.7B is pinned in the registry at immutable revision
-`44c895567ee7eca2993a98be9664adf7245aa1ee`. Its model card describes a causal
-chat model, Apache-2.0 licensing and 100+ languages/dialects. These are upstream
-claims, not evidence of Tantra Hindi/Hinglish quality:
-https://huggingface.co/Qwen/Qwen3-1.7B
-
-Other candidates may be considered only when a specific experiment justifies them:
-- Qwen3-0.6B: smaller optional comparison.
-- Qwen3-4B: larger optional comparison with higher memory requirements.
-- Gemma 3-4B IT: requires separate licence review and acceptance.
-- Sarvam-1 2B: Indic-focused candidate, but its model card states non-commercial licensing and completion-model behaviour; do not treat it as a default product dependency.
+- Model: https://huggingface.co/Qwen/Qwen3.5-0.8B-Base
+- Pinned revision in the initial SFT pipeline: `5c8a1b97ddef11f79b47ab9d07bf82b9117413f6`.
+- Model card declares Apache-2.0. Recheck upstream terms at the exact revision before redistribution.
+- The Base variant is pretrained-only and intended for fine-tuning, not direct chat.
+- The separate post-trained `Qwen/Qwen3.5-0.8B` is a useful reference/control but must not be substituted into the Base training run.
+- Use the text-only `Qwen3_5ForCausalLM` path for this SFT experiment. Preserve the official tokenizer and chat template.
+- Qwen3.5 is a hybrid Gated DeltaNet/full-attention architecture. Do not map its weights into the legacy native Tantra Transformer.
 
 ## Experiment rules
 
-1. Define the experiment's purpose before downloading a checkpoint: teacher, benchmark or gateway fixture.
-2. Record exact model ID, immutable revision, architecture, tokenizer identity/hash, declared licence, source URL and weight hashes.
-3. Keep third-party weights separate from native Tantra checkpoints and never overwrite a native parent.
-4. If using teacher outputs for training, preserve teacher provenance, review/correct the demonstrations and bind approval to the dataset hash.
-5. Compare native and external models on the same family-disjoint held-out prompts, decoding settings and hardware where meaningful.
-6. Report language-specific human scores for correctness, instruction adherence, naturalness, factuality and safety; report latency and memory separately.
-7. Never infer native capability from an upstream model card, a smoke test, a 12-case fixture or teacher-generated data.
+1. Pin an immutable full Hub revision; never train from a floating `main` reference.
+2. Record exact model ID/revision, tokenizer identity, licence, dataset hashes, training code commit and adapter artifact hash.
+3. Keep the base checkpoint immutable and store LoRA candidates separately.
+4. Use reviewed, provenance-backed, family-disjoint train/validation/test splits. Never use test data for training or candidate selection.
+5. Evaluate Hindi, English and Hinglish separately with the same prompts, chat template, decoding settings, token budget and hardware.
+6. Report correctness, instruction adherence, naturalness, factuality and safety with human review. Report English regression explicitly.
+7. Never infer Tantra capability from the upstream model card, a smoke test, validation loss or a short fixture.
 
-## Existing optional Qwen3 smoke workflow
+## Active pipeline
 
-The manually dispatched Qwen3 workflow downloads the pinned checkpoint and runs a small engineering fixture. It is a gateway/evaluation mechanics test only. It is not a statistically adequate quality benchmark, does not select Tantra's foundation and does not change the native-first roadmap.
+```bash
+python -m pip install -e ".[finetune,test]"
+python -m Tantra qwen35_finetune --help
+```
+
+See [the Qwen3.5 foundation and fine-tuning roadmap](TANTRA_NATIVE_ARCHITECTURE_ROADMAP.md) for the pipeline contract, initial hyperparameters, readiness gates and honest implementation status.
