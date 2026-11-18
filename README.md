@@ -102,6 +102,7 @@ python -m Tantra.bench_cpu --help
 
 # Qwen3.5-0.8B LoRA SFT pipeline
 python -m Tantra qwen35_finetune --help
+python -m Tantra qwen35_eval --help
 
 # Multilingual data intake and review
 python -m Tantra.multilingual_data --help
