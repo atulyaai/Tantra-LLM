@@ -228,7 +228,7 @@ def train(args) -> dict:
     scheduler = torch.optim.lr_scheduler.LambdaLR(
         optimizer, lambda step: min((step + 1) / warmup, max(0.0, (args.max_steps - step) / max(1, args.max_steps - warmup)))
     )
-    scaler = torch.amp.GradScaler("cuda", enabled=(device.type == "cuda" and dtype == torch.float16))
+    scaler = torch.cuda.amp.GradScaler(enabled=(device.type == "cuda" and dtype == torch.float16))
     output.mkdir(parents=True, exist_ok=True)
     best_dir = output / "best_adapter"
     best_val = math.inf
