@@ -6,7 +6,7 @@ from Tantra.model_registry import ModelRegistry
 from Tantra.model_gateway import ModelGateway
 from Tantra.model_lifecycle import ModelLifecycle
 from Tantra.pretrained_expansion import (
-    add_residual_branch,count_parameters,generate_teacher_dataset,save_residual_candidate,
+    add_residual_branch,count_parameters,generate_teacher_dataset,save_residual_candidate,transfer_compatible_weights,
     train_lora,train_residual_branch,transfer_adapter,
 )
 
@@ -45,6 +45,10 @@ def main(argv=None)->int:
     transfer=sub.add_parser("transfer-adapter")
     transfer.add_argument("--parent-adapter",required=True); transfer.add_argument("--child-adapter",required=True)
     transfer.add_argument("--expected-base-sha256",required=True)
+    weights=sub.add_parser("transfer-weights"); registry_arg(weights)
+    weights.add_argument("--parent-model-id",required=True); weights.add_argument("--parent-checkpoint",required=True)
+    weights.add_argument("--child-checkpoint",required=True); weights.add_argument("--candidate-id",required=True)
+    weights.add_argument("--output",required=True); weights.add_argument("--prefixes",nargs="*")
     promote=sub.add_parser("promote"); promote.add_argument("--candidate-id",required=True)
     promote.add_argument("--report",required=True); promote.add_argument("--lifecycle",default="runs/model-lifecycle.json")
     rollback=sub.add_parser("rollback"); rollback.add_argument("--lifecycle",default="runs/model-lifecycle.json")
@@ -98,6 +102,15 @@ def main(argv=None)->int:
         print(json.dumps({"candidate":record},indent=2)); return 0
     if args.command=="transfer-adapter":
         print(transfer_adapter(args.parent_adapter,args.child_adapter,expected_base_sha256=args.expected_base_sha256)); return 0
+    if args.command=="transfer-weights":
+        spec=ModelRegistry.from_file(args.registry).get(args.parent_model_id)
+        parent,_=_load_model(args.parent_checkpoint); child,tokenizer=_load_model(args.child_checkpoint)
+        report=transfer_compatible_weights(parent,child,prefixes=args.prefixes)
+        output=Path(args.output); output.mkdir(parents=True,exist_ok=False)
+        child.save_pretrained(output); tokenizer.save_pretrained(output)
+        record=ModelLifecycle().register(args.candidate_id,output,args.parent_model_id,
+            {"method":"compatible_weight_transfer","parent_revision":spec.revision,**report})
+        print(json.dumps({"candidate":record,"transfer":report},indent=2)); return 0
     if args.command=="promote":
         ModelLifecycle(args.lifecycle).promote(args.candidate_id,json.loads(Path(args.report).read_text(encoding="utf-8")))
         print(json.dumps({"active_candidate":args.candidate_id,"status":"promoted"},indent=2)); return 0
