@@ -300,8 +300,19 @@ from Tantra import sha256
 GIB=1024**3
 
 
-def memory_ok():
-    return psutil.Process().memory_info().rss < 8*GIB and psutil.virtual_memory().available >= 2*GIB
+def memory_ok(device=None, reserve_gpu_bytes=512*1024**2):
+    if psutil.Process().memory_info().rss >= 8*GIB or psutil.virtual_memory().available < 2*GIB:
+        return False
+    if device is not None and torch.device(device).type == 'cuda':
+        if not torch.cuda.is_available():
+            return False
+        try:
+            free_bytes, _ = torch.cuda.mem_get_info(torch.device(device))
+        except (AttributeError, RuntimeError, TypeError):
+            return False
+        if free_bytes < reserve_gpu_bytes:
+            return False
+    return True
 
 
 def window_order(files, sequence=256):
@@ -400,7 +411,7 @@ def _train(output,model_dir,identities,maps,train,order,sequence,max_updates,res
         # Backward-only benchmarks leave weights unchanged; clear all gradients.
         model.train()
         for batch_size in (1,2,4,8,16):
-            if not memory_ok(): break
+            if not memory_ok(device): break
             x=tensor_batch(train,order[:batch_size],sequence).to(device)
             start=time.perf_counter()
             try:
@@ -409,7 +420,7 @@ def _train(output,model_dir,identities,maps,train,order,sequence,max_updates,res
                 seconds=time.perf_counter()-start
                 rss=psutil.Process().memory_info().rss; peak=max(peak,rss)
                 benchmarks.append({'microbatch':batch_size,'tokens_per_second':2*len(x)*sequence/seconds,
-                                   'rss_bytes':rss,'within_memory':memory_ok()})
+                                   'rss_bytes':rss,'within_memory':memory_ok(device)})
             except (MemoryError,RuntimeError) as exc:
                 if isinstance(exc,RuntimeError) and 'memory' not in str(exc).lower(): raise
                 benchmarks.append({'microbatch':batch_size,'error':str(exc),'within_memory':False})
@@ -430,7 +441,7 @@ def _train(output,model_dir,identities,maps,train,order,sequence,max_updates,res
                 if n<1: raise ValueError('Not enough validation windows')
                 total=0.;correct1=correct5=0
                 for i in range(n):
-                    if not memory_ok(): raise MemoryError('Validation memory gate failed')
+                    if not memory_ok(device): raise MemoryError('Validation memory gate failed')
                     offset=(i*(available-1)//max(1,n-1))*sequence
                     x=tensor_batch({lang:data},[(lang,offset)],sequence).to(device)
                     logits=model(x)[:,:-1].float();targets=x[:,1:]
@@ -474,13 +485,13 @@ def _train(output,model_dir,identities,maps,train,order,sequence,max_updates,res
         while cursor<len(order) and (not max_updates or updates<max_updates):
             if (output/'stop.request').exists():
                 (output/'stop.request').unlink();state='stopped_requested';break
-            if not memory_ok(): state='paused_memory'; break
+            if not memory_ok(device): state='paused_memory'; break
             if shutil.disk_usage(output).free<2*GIB: state='paused_disk'; break
             # One update sees up to 4096 real next-token targets. No padding or duplicate epochs.
             positions=order[cursor:cursor+16]; model.train(); optimizer.zero_grad(set_to_none=True)
             weighted=0.
             for start in range(0,len(positions),chosen):
-                if not memory_ok():raise MemoryError('Microbatch memory gate failed; latest healthy checkpoint preserved')
+                if not memory_ok(device):raise MemoryError('Microbatch memory gate failed; latest healthy checkpoint preserved')
                 chunk=positions[start:start+chosen]; x=tensor_batch(train,chunk,sequence).to(device)
                 loss=model.loss(x,x)
                 if not bool(torch.isfinite(loss)): raise FloatingPointError('Non-finite training loss')
