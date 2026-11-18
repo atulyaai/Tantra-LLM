@@ -203,7 +203,7 @@ def lexical_simhash(text):
     return sum((1<<bit) for bit,vote in enumerate(votes) if vote>=0)
 
 
-def near_duplicate(candidate, existing, max_distance=6):
+def near_duplicate(candidate, existing, max_distance=12):
     return (int(candidate)^int(existing)).bit_count() <= max_distance
 
 
