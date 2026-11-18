@@ -3,6 +3,7 @@
 These tests validate decisions and safety boundaries only. They do not run
 training, compression, tokenizer migration, model growth or accelerator work.
 """
+import json
 from pathlib import Path
 
 import yaml
@@ -67,3 +68,23 @@ def test_balanced_runtime_has_cpu_reference_and_optional_accelerators():
     assert runtime["policy"] == "capability_and_benchmark_driven"
     assert {"cuda", "rocm"}.issubset(set(runtime["optional_backends"]))
     assert "output_agreement" in runtime["required_metrics"]
+
+
+
+def test_experiment_manifest_schema_and_example_are_explicitly_not_run():
+    schema_path = ROOT / "configs" / "experiment_manifest.schema.json"
+    example_path = ROOT / "configs" / "experiment_manifest.example.json"
+    schema = json.loads(schema_path.read_text(encoding="utf-8"))
+    example = json.loads(example_path.read_text(encoding="utf-8"))
+
+    assert schema["$schema"].endswith("2020-12/schema")
+    assert set(schema["required"]) >= {
+        "source", "model", "tokenizer", "data", "training", "environment", "evaluation"
+    }
+    assert schema["properties"]["status"]["enum"] == [
+        "planned", "running", "pending", "measured", "failed", "not_run",
+        "rejected", "promoted"
+    ]
+    assert example["status"] == "planned"
+    assert example["evaluation"]["status"] == "not_run"
+    assert example["evaluation"]["results"] == {}
