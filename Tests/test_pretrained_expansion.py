@@ -2,7 +2,7 @@ import json
 import pytest
 import torch
 from torch import nn
-from Tantra.pretrained_expansion import add_residual_branch,count_parameters,load_residual_candidate,save_residual_candidate,transfer_adapter
+from Tantra.pretrained_expansion import add_residual_branch,count_parameters,generate_teacher_dataset,load_residual_candidate,save_residual_candidate,transfer_adapter
 from Tantra.model_lifecycle import ModelLifecycle
 
 class Config: hidden_size=12
@@ -116,3 +116,23 @@ def test_residual_branch_supports_bfloat16_foundation_weights():
     output=model(value)
     assert output.dtype==torch.bfloat16
     assert torch.isfinite(output).all()
+
+
+def test_teacher_distillation_writes_reviewable_manifest(tmp_path):
+    class Teacher(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.anchor=nn.Parameter(torch.zeros(1))
+        def generate(self, input_ids, **kwargs):
+            return torch.cat([input_ids,torch.tensor([[9]],device=input_ids.device)],dim=1)
+    class Tokenizer:
+        def apply_chat_template(self,messages,**kwargs):
+            return torch.tensor([[1,2]])
+        def decode(self,ids,skip_special_tokens=True):
+            return "teacher answer"
+    output=tmp_path/"teacher.jsonl"
+    report=generate_teacher_dataset(Teacher(),Tokenizer(),["prompt one"],output)
+    assert report["examples"]==1 and report["review_required"] is True
+    assert "teacher answer" in output.read_text()
+    manifest=json.loads((tmp_path/"teacher.jsonl.manifest.json").read_text())
+    assert manifest["dataset_sha256"]==report["dataset_sha256"]
