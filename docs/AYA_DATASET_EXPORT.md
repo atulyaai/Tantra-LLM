@@ -28,7 +28,8 @@ python -m Tantra.multilingual_data intake \
   --source-id aya-instructions \
   --source-revision f9ea04583f02a8f86404ff6c58bf75fe637df8a2 \
   --source-license Apache-2.0 \
-  --source-url https://huggingface.co/datasets/CohereLabs/aya_dataset
+  --source-url https://huggingface.co/datasets/CohereLabs/aya_dataset \
+  --source-kind human_annotated_instruction_candidates
 ```
 
 Important limitations:
