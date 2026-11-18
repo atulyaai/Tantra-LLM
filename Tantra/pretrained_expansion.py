@@ -80,7 +80,9 @@ def transfer_adapter(parent_adapter,child_adapter,*,expected_base_sha256=None):
 
 def generate_teacher_dataset(teacher,tokenizer,prompts:Iterable[str],output_jsonl):
     """Create teacher demonstrations; caller must review them before student training."""
-    out=Path(output_jsonl); out.parent.mkdir(parents=True,exist_ok=True); n=0
+    out=Path(output_jsonl); out.parent.mkdir(parents=True,exist_ok=True)
+    if out.exists(): raise ValueError("distillation output must be a new file")
+    n=0
     with out.open("w",encoding="utf-8") as f:
         for prompt in prompts:
             messages=[{"role":"user","content":prompt}]
@@ -92,7 +94,7 @@ def generate_teacher_dataset(teacher,tokenizer,prompts:Iterable[str],output_json
     if not n: raise ValueError("at least one distillation prompt is required")
     manifest={"examples":n,"path":str(out.resolve()),"dataset_sha256":hashlib.sha256(out.read_bytes()).hexdigest(),
               "teacher_model_id":getattr(teacher,"name_or_path",None),"review_required":True}
-    out.with_suffix(out.suffix+".manifest.json").write_text(json.dumps(manifest,indent=2)+"\\n",encoding="utf-8")
+    out.with_suffix(out.suffix+".manifest.json").write_text(json.dumps(manifest,indent=2)+"\n",encoding="utf-8")
     return manifest
 
 def add_residual_branch(model,layer_index=-1,bottleneck=64):
