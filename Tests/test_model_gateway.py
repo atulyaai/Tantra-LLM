@@ -85,3 +85,47 @@ def test_gateway_does_not_call_itself_the_backend_model():
     answer = gateway.generate([{"role": "user", "content": "Are you Qwen?"}])
     assert answer.startswith("I am Tantra.")
     assert "underlying pretrained model" in answer
+
+
+def test_registry_includes_pinned_qwen_multilingual_candidate():
+    from pathlib import Path
+    registry = ModelRegistry.from_file(Path(__file__).resolve().parents[1] / "configs" / "models" / "registry.json")
+    qwen = registry.get("Qwen/Qwen3-1.7B")
+    assert qwen.revision == "44c895567ee7eca2993a98be9664adf7245aa1ee"
+    assert qwen.license_id == "Apache-2.0"
+    assert qwen.intended_use == "multilingual_evaluation_candidate_not_promoted"
+    assert qwen.trust_remote_code is False
+
+
+def test_qwen3_gateway_disables_thinking_mode_for_controlled_chat():
+    import torch
+    from Tantra.model_gateway import ModelGateway
+
+    from Tantra.model_registry import ModelSpec
+    qwen_spec = ModelSpec(
+        model_id="Qwen/Qwen3-1.7B", provider="huggingface", revision="a" * 40,
+        architecture="Qwen3ForCausalLM", parameter_count=1_700_000_000,
+        license_id="Apache-2.0", license_status="approved",
+        tokenizer_id="Qwen/Qwen3-1.7B",
+    )
+
+    class FakeModel:
+        device = torch.device("cpu")
+        def parameters(self):
+            yield torch.nn.Parameter(torch.zeros(1))
+        def generate(self, encoded, **kwargs):
+            return torch.cat([encoded, torch.tensor([[9]])], dim=1)
+
+    class FakeTokenizer:
+        eos_token_id = 0
+        def apply_chat_template(self, messages, **kwargs):
+            self.kwargs = kwargs
+            return torch.tensor([[1, 2]])
+        def decode(self, output, skip_special_tokens=True):
+            return "नमस्ते"
+
+    gateway = ModelGateway(qwen_spec, "./fake")
+    gateway._model = FakeModel()
+    gateway._tokenizer = FakeTokenizer()
+    assert gateway.generate([{"role": "user", "content": "नमस्ते"}]) == "नमस्ते"
+    assert gateway._tokenizer.kwargs["enable_thinking"] is False

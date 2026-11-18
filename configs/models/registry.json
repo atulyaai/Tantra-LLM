@@ -1,15 +1,29 @@
 {
   "schema_version": 1,
-  "models": [{
-    "model_id": "HuggingFaceTB/SmolLM2-360M-Instruct",
-    "provider": "huggingface",
-    "revision": "c38281e01d0c0b0c36eac2f5bcb5b51fa2e803fc",
-    "architecture": "LlamaForCausalLM",
-    "parameter_count": 360000000,
-    "license_id": "Apache-2.0",
-    "license_status": "approved",
-    "tokenizer_id": "HuggingFaceTB/SmolLM2-360M-Instruct",
-    "intended_use": "gateway_smoke_test",
-    "trust_remote_code": false
-  }]
+  "models": [
+    {
+      "model_id": "HuggingFaceTB/SmolLM2-360M-Instruct",
+      "provider": "huggingface",
+      "revision": "c38281e01d0c0b0c36eac2f5bcb5b51fa2e803fc",
+      "architecture": "LlamaForCausalLM",
+      "parameter_count": 360000000,
+      "license_id": "Apache-2.0",
+      "license_status": "approved",
+      "tokenizer_id": "HuggingFaceTB/SmolLM2-360M-Instruct",
+      "intended_use": "gateway_smoke_test",
+      "trust_remote_code": false
+    },
+    {
+      "model_id": "Qwen/Qwen3-1.7B",
+      "provider": "huggingface",
+      "revision": "44c895567ee7eca2993a98be9664adf7245aa1ee",
+      "architecture": "Qwen3ForCausalLM",
+      "parameter_count": 1700000000,
+      "license_id": "Apache-2.0",
+      "license_status": "approved",
+      "tokenizer_id": "Qwen/Qwen3-1.7B",
+      "intended_use": "multilingual_evaluation_candidate_not_promoted",
+      "trust_remote_code": false
+    }
+  ]
 }

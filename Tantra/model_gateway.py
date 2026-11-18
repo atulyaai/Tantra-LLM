@@ -61,8 +61,14 @@ class ModelGateway:
                         f"provider={self.spec.provider}; revision={self.spec.revision}. "
                         "Disclose this metadata truthfully if asked which model powers the deployment.")
         prepared[0]["content"] += "\n\n" + backend_note
+        template_kwargs: dict[str, Any] = {}
+        # Qwen3 defaults to reasoning mode; benchmark general dialogue in the
+        # non-thinking path so latency and answer quality are comparable.
+        if self.spec.model_id.startswith("Qwen/Qwen3-"):
+            template_kwargs["enable_thinking"] = False
         encoded = self._tokenizer.apply_chat_template(
-            prepared, add_generation_prompt=True, tokenize=True, return_tensors="pt").to(self.device)
+            prepared, add_generation_prompt=True, tokenize=True, return_tensors="pt",
+            **template_kwargs).to(self.device)
         kwargs: dict[str, Any] = {"max_new_tokens": max_new_tokens, "pad_token_id": self._tokenizer.eos_token_id}
         if temperature > 0:
             kwargs.update(do_sample=True, temperature=temperature)
