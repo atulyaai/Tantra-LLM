@@ -97,8 +97,8 @@ def test_tiny_model_config_keeps_nonzero_feed_forward_width():
 
 def test_model_config_rejects_invalid_rope_head_dimension():
     with pytest.raises(ValueError, match="head dimension must be even"):
-        ModelConfig(vocab_size=64, d_model=12, n_layers=1, n_heads=3,
-                    n_kv_heads=1, mlp_mult=2, max_seq_len=32)
+        ModelConfig(vocab_size=64, d_model=12, n_layers=1, n_heads=4,
+                    n_kv_heads=2, mlp_mult=2, max_seq_len=32)
 
 
 def test_tokenizer_rejects_missing_control_tokens():
