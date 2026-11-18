@@ -111,6 +111,7 @@ def generate_teacher_dataset(teacher,tokenizer,prompts:Iterable[str],output_json
     """Create teacher demonstrations; caller must review them before student training."""
     out=Path(output_jsonl); out.parent.mkdir(parents=True,exist_ok=True)
     if out.exists(): raise ValueError("distillation output must be a new file")
+    teacher.eval()
     n=0
     with out.open("w",encoding="utf-8") as f:
         for prompt in prompts:
