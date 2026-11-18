@@ -1,0 +1,70 @@
+{
+  "schema_version": 1,
+  "decisions": {
+    "growth": "family",
+    "dna_compression": [
+      "parameter_storage",
+      "architecture_computation"
+    ],
+    "tokenizer_vocab_target": 65536,
+    "runtime": "balanced"
+  },
+  "tokenizer": {
+    "candidate_vocab_sizes": [
+      16384,
+      32768,
+      65536
+    ],
+    "baseline_is_immutable": true,
+    "required_languages": [
+      "hi",
+      "en",
+      "hinglish"
+    ],
+    "promotion_requires_quality_and_cost_gates": true
+  },
+  "family_targets": [
+    {
+      "id": "edge",
+      "parameters_target": 800000000
+    },
+    {
+      "id": "local",
+      "parameters_target": 4000000000
+    },
+    {
+      "id": "strong_local",
+      "parameters_target": 14000000000
+    },
+    {
+      "id": "research_distributed",
+      "parameters_target": 70000000000
+    },
+    {
+      "id": "sparse_research_horizon",
+      "parameters_total_target": 1000000000000,
+      "deployable_locally": false
+    }
+  ],
+  "runtime": {
+    "preference": "balanced",
+    "backends": [
+      "cpu",
+      "cuda",
+      "rocm",
+      "xpu"
+    ],
+    "fallback_order": [
+      "explicit_user_choice",
+      "compatible_accelerator_with_memory",
+      "cpu"
+    ],
+    "never_assume_backend_support": true
+  },
+  "governance": {
+    "candidate_output_root": "runs/",
+    "source_checkpoints_immutable": true,
+    "model_promotion_requires_held_out_evaluation": true,
+    "random_only_growth_forbidden": true
+  }
+}\n
