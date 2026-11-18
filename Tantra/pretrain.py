@@ -507,7 +507,7 @@ def _train(output,model_dir,identities,maps,train,order,sequence,max_updates,res
             if updates%10==0:
                 elapsed_now=time.perf_counter()-started;rate=(tokens-run_start_tokens)/max(elapsed_now,1e-9)
                 eta=(len(order)-cursor)*sequence/max(rate,1e-9)/3600
-                print(f'Update {updates}/{math.ceil(len(order)/16)} | loss {weighted:.4f} | lr {optimizer.param_groups[0]['lr']:.2e} | grad {float(norm):.2f} | tokens {tokens:,} | {rate:.1f} tok/s | ETA {eta:.2f}h | RSS {peak/GIB:.2f} GiB',flush=True)
+                print(f"Update {updates}/{math.ceil(len(order)/16)} | loss {weighted:.4f} | lr {optimizer.param_groups[0]['lr']:.2e} | grad {float(norm):.2f} | tokens {tokens:,} | {rate:.1f} tok/s | ETA {eta:.2f}h | RSS {peak/GIB:.2f} GiB",flush=True)
             if updates%checkpoint_updates==0 or time.perf_counter()-last_save>=600:
                 checkpoint(); last_save=time.perf_counter()
             if early_stopping_patience and bad_evals>=early_stopping_patience:
@@ -581,7 +581,7 @@ def pilot_passed(report):
 
 
 def continue_run(output,pilot,initial_model,new_tokens=19_000_000):
-    train = continue_run
+    train = pilot_run
     output,pilot,initial_model=Path(output),Path(pilot),Path(initial_model)
     corpus=output/'corpus-19m'
     write_status(output,'preparing_new_balanced_data',new_training_tokens=new_tokens,exclude=str(pilot/'corpus-1m'))
@@ -654,7 +654,7 @@ def write_status(output, stage, **details):
 def job_run(output, wait_minutes=90, fetch_sources=False):
     prepare_corpus = prepare
     from Tantra.conversation_train import cs_prepare as prepare_conversations
-    train_base = job_run
+    train_base = pilot_run
     output=Path(output); output.mkdir(parents=True,exist_ok=True)
     lock=output/'job.lock'
     with lock.open('x') as f: f.write(str(os.getpid()))
