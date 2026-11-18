@@ -1,169 +1,194 @@
-# Tantra pretrained-first architecture and expansion roadmap
+# Tantra native-first expandable architecture and roadmap
 
-**Decision status:** agreed architecture direction, 18 November 2026.  
-**Implementation status:** specification and validation contracts are prototypes; no pretrained model has been downloaded, fine-tuned, merged, or promoted by this document.
+**Architecture decision: LOCKED — 18 November 2026**  
+**Product identity:** independent native Tantra architecture and weights.  
+**First milestone:** native foundation + two compatible experts + residual-expansion proof.  
+**Implementation status:** the repository contains a small native research model and related training/evaluation code. The complete two-expert residual-expansion lifecycle described here is a target, not a completed capability.
 
-## 1. Product direction
+This document is the authoritative architecture and implementation roadmap. It supersedes the earlier pretrained-first product direction. Historical pretrained integration work remains available as optional tooling, teacher/benchmark infrastructure and independent model-gateway experiments.
 
-Tantra is the platform, identity, orchestration architecture, model registry, expert system, adaptation pipeline and evaluation/governance layer. It may use third-party pretrained checkpoints as starting weights. Tantra must not imply that it created those original weights.
+## 1. Locked decisions
 
-The platform supports:
-- Pretrained foundation models adapted with LoRA/adapters or full fine-tuning when justified.
-- Independent specialist models connected through a model gateway.
-- Compatible neural experts integrated into Tantra's sparse neural layers.
-- Expert inheritance from one or more parent models.
-- Three capacity-growth operators: width, depth and residual-branch growth.
-- Dynamic compute routing and hybrid knowledge (weights + retrieval/memory + tools).
-- Versioned checkpoints and reversible promotion.
+| Area | Decision | Engineering rule |
+|---|---|---|
+| Model identity | Independent native Tantra architecture and weights | Tantra owns its architecture, tokenizer, vocabulary, training pipeline, expert format, router and native checkpoints. |
+| Expert growth | Residual branches first | Add parallel compatible capacity while preserving the original expert path; width and depth expansion follow later. |
+| Learning strategy | Distillation + replay + new training | New capacity learns new capabilities while teacher targets and replay examples help preserve validated behaviour. |
+| Version retention | Keep all validated versions; allow rollback | Promoted artifacts are immutable, addressable and recoverable. Never overwrite a validated parent. |
+| First milestone | Native foundation + two experts + residual-expansion proof | Prove the architecture on a small reproducible model before pursuing 0.8B, 3B or larger targets. |
 
-## 2. Architecture
+These are architecture decisions, not claims that the mechanisms are already implemented or that larger models will automatically be better.
 
-1. **Identity and API boundary:** stable Tantra identity, API schemas, policy enforcement and truthful provenance.
-2. **Orchestration core:** task decomposition, context, budget controller, hierarchical routing and result verification.
-3. **Model registry:** immutable model revisions, tokenizer hashes, architecture metadata, licence/provenance, hardware requirements and benchmark evidence.
-4. **Integration adapters:** model-gateway path for arbitrary supported models; neural-adapter path only when hidden-state/tensor contracts are compatible.
-5. **Expert system:** pretrained-derived specialists, Tantra-native expert blocks, inherited children and optional independent specialist services.
-6. **Knowledge/action layer:** parametric weights, retrieval/structured memory, tools and APIs.
-7. **Learning pipeline:** curated data, LoRA/adapters, continued pretraining, supervised fine-tuning, distillation, replay and optional preference optimisation.
-8. **Promotion controller:** shadow evaluation, regression gates, staged rollout and rollback.
+## 2. Product identity and external-model boundary
 
-Do not force every model into one architecture. Model-level integration is the compatibility default. Neural-level integration requires explicit compatibility and integration training.
+Tantra is not a renamed third-party model. Its long-term foundation is trained native Tantra weights under a documented native architecture and tokenizer.
 
-## 3. Model intake and licensing
+External models may be used in explicitly separated roles:
+- Optional teachers that generate candidate demonstrations or soft targets, subject to review and provenance.
+- Independent benchmark references for quality and capability comparisons.
+- Optional model-gateway services for experiments or tools.
+- Research references for architecture and training techniques.
 
-For every source checkpoint record:
-- Provider, exact model name, immutable revision/commit and download source.
-- Architecture/config, parameter count, tokenizer identity and tokenizer hash.
-- Weight and dataset provenance where available.
-- Exact licence identifier and a legal review status.
-- Intended use, redistribution/hosting constraints and attribution requirements.
-- Security scan, file hashes, known limitations and baseline evaluation.
+External weights must remain separate from native Tantra checkpoints. Record provider, exact model ID, immutable revision, tokenizer, licence, source hashes and intended use. Never claim third-party weights were created by Tantra. A teacher's output is not automatically trusted training truth; review and validate it before use.
 
-Unknown or restricted licence status blocks integration until reviewed. Publicly downloadable does not automatically mean commercially usable or redistributable. Do not bundle third-party weights into the repository unless their licence permits it.
+The pretrained gateway, LoRA and third-party residual-branch experiments already in the repository are optional engineering tracks. They do not define Tantra's foundation and must not displace the native-first milestone.
 
-## 4. Integration paths
+## 3. Target architecture
 
-### A. Model gateway (default)
+1. **Native foundation:** decoder-only Transformer, Tantra-owned tokenizer/vocabulary, configuration, training and inference contracts.
+2. **Shared representation contract:** explicit hidden-state dimensions, tensor shapes, dtypes, device behaviour, context semantics and failure handling.
+3. **Native expert family:** independently versioned expert modules that consume and return compatible representations.
+4. **Expandable residual experts:** preserve the validated expert path and attach new trainable branches behind zero/small gates.
+5. **Expert registry:** immutable versions, parent lineage, tokenizer/config hashes, capability labels, resource requirements and evaluation evidence.
+6. **Router:** selects shared-only, one expert or multiple experts using task, confidence and compute budgets; later versions may learn routing from measured outcomes.
+7. **Learning system:** new capability data, teacher distillation, replay, controlled joint tuning and reproducible checkpointing.
+8. **Evaluation and promotion:** frozen held-out tests, regression gates, shadow routing, staged promotion and rollback.
+9. **Knowledge/action layer (later):** retrieval, structured memory, tools and APIs complement parametric model knowledge.
 
-Run the pretrained model independently. Tantra passes a typed request and receives a typed response. This supports different tokenizers, hidden sizes and architectures. The cost is separate inference and orchestration latency.
+Keep external model gateway integration at the boundary. Do not force incompatible tokenizers or hidden-state dimensions into native expert slots.
 
-### B. Neural adapter
+## 4. Residual-branch growth: first expansion operator
 
-Only use when model internals are accessible and compatible. Validate hidden dimensions, attention/FFN conventions, normalization, positional encoding, tokenizer/embedding semantics, dtype, layer placement and output contract. Add learned projections/adapters and train the integration. Never plug a full independent transformer into an FFN slot by assumption.
+The first growth method is a parallel residual branch. Conceptually:
 
-## 5. Adaptation and inheritance
+`expanded(x) = original_expert(x) + gate(x) * new_branch(x)`
 
-Adaptation sequence:
-1. Baseline benchmark and source checkpoint hash.
-2. Data curation, provenance and train/validation/test split.
-3. Start with LoRA or adapters; use continued pretraining/SFT as task requires.
-4. Keep general replay examples to reduce forgetting.
-5. Evaluate capability gain, old-skill regression, safety, latency and memory.
-6. Version candidate and adapter separately; promote only after gates.
+- `original_expert` is the validated existing expert and remains immutable during branch training.
+- `new_branch` is additional trainable capacity with compatible input/output representation.
+- `gate` starts at zero or a carefully justified small value so the initial expanded path matches the original path as closely as the implementation promises.
+- The original expert remains available as a standalone version and fallback.
 
-Inheritance methods:
-- **Adapter transfer:** copy compatible adapter weights, then validate.
-- **Compatible weight transfer:** reuse compatible layers/blocks with explicit tensor and architecture checks.
-- **Behavioural distillation:** teacher outputs teach a student, including across different model families. This is the universal fallback.
-- **Feature alignment:** align selected hidden representations through learned projections and alignment loss.
+### Required sequence
 
-Inheritance is capability-selective. Each child records parents, exact revisions, capability labels, transfer method, data manifest, transformations and benchmark evidence. Preserve parent checkpoints; child training never mutates parents.
+1. Freeze and hash the original expert, shared foundation, tokenizer, config, data manifests and evaluation suite.
+2. Create a new candidate artifact; never write into the source checkpoint.
+3. Add a residual branch with matching input/output dimensions and explicit dtype/device behaviour.
+4. Initialise the branch and gate; run fixed-input equivalence tests before training.
+5. Train the new branch on approved new-capability data.
+6. Use teacher distillation and replay examples from old capabilities to reduce forgetting.
+7. Jointly tune the branch, gate and (only if justified) router in a separately recorded stage.
+8. Evaluate original, expanded and control candidates on identical held-out prompts.
+9. Promote only if the new capability improves and old capabilities remain within pre-registered regression limits.
+10. Retain the parent and every validated child version; rollback must restore the prior active version.
 
-## 6. Capacity growth
+This reduces discarded work; it does not eliminate training. New parameters and their interaction with the original expert must learn useful behaviour.
 
-Support all three growth methods:
-- **Width growth:** expand selected projections/FFN dimensions. Architecture-specific tensor mapping and function-preservation checks required.
-- **Depth growth:** insert or append blocks. Use proven function-preserving initialisation where available; otherwise use a no-op/control baseline and distillation.
-- **Residual-branch growth:** add a parallel compatible branch with a zero/small gate, preserving the original path initially.
+### Growth methods after the first proof
 
-Example: 0.8B → 2B/3B is a candidate family upgrade, not a guaranteed direct resize. Preserve the 0.8B checkpoint, add capacity, initialise structurally, distil from the teacher, replay old capabilities, train new capabilities and jointly tune the router. Do not promise zero retraining: the new parameters and integration require training.
+- **Depth expansion:** add Transformer blocks with architecture-specific initialisation and function-preservation tests.
+- **Width expansion:** expand selected projections/FFN dimensions with explicit tensor mapping and numerical validation.
 
-Growth plan requires source immutability, target parameter count, method, initialization, tokenizer compatibility, data manifests, teacher/replay configuration and promotion gates.
+The repository has historical native depth-growth work. That does not replace the residual-branch-first decision. Width growth remains later work. Never assume generic tensor copying preserves a Transformer function.
 
-## 7. Dynamic compute and hybrid knowledge
+## 5. Expert versioning and compatibility
 
-Dynamic controller selects compute based on task difficulty, uncertainty, confidence, latency budget and memory budget. Start with conservative routing policies, then learn routing from measured task outcomes. Separate active parameters, resident parameters and total parameters.
+Each expert version must have a manifest containing:
+- Stable expert family ID and immutable version ID.
+- Native architecture/config version and shared-interface version.
+- Parent checkpoint hashes and lineage.
+- Tokenizer and vocabulary hashes.
+- Parameter count, dtype, supported devices and resource requirements.
+- Capability labels and intended task coverage.
+- Training code/source commit, seed, optimizer and scheduler.
+- Dataset source manifests, licence/provenance and train/validation/test split hashes.
+- Distillation teacher identity/revision (if any), replay manifest and ratios.
+- Evaluation suite version, metrics, human-review record and promotion decision.
 
-Knowledge has three stores:
-- Parametric: learned skills and generalisations.
-- External memory/retrieval: changing, long-tail and source-grounded facts.
-- Tools: calculations, code execution, APIs and external actions.
+The registry must allow multiple validated versions of the same family. The router may choose among versions only after compatibility and evaluation checks. A failed candidate is archived with its report; it does not replace the active version.
 
-Do not fine-tune weights for every new fact.
+## 6. Learning without forgetting
 
-## 8. Identity and provenance
+Use three complementary inputs:
+- **New training data:** teaches the added branch or expert the intended new capability.
+- **Distillation:** transfers selected behaviour from the frozen parent/teacher to the expanded candidate.
+- **Replay:** revisits approved examples representing previously validated capabilities.
 
-Tantra is the product identity regardless of backend. The orchestration layer must answer ordinary identity questions as Tantra, and identity regression tests must cover every backend and expert route. If directly asked which underlying model is used, disclose the actual provider/model and revision accurately. Never claim Tantra authored third-party pretrained weights.
+Keep training, validation and test families disjoint. Teacher-generated data must carry teacher provenance and human-review status. Do not use held-out evaluation examples as replay or training data.
 
-## 9. Test strategy
+Measure old and new capabilities separately. Training loss is diagnostic only; it is not a promotion score.
 
-- Schema and licence validation; missing/unknown licence blocks.
-- Registry uniqueness, immutable revision/hash and lineage-cycle checks.
-- Model gateway contract, timeout, malformed output and fallback tests.
-- Neural adapter shape, dtype, tokenizer and hidden-state compatibility tests.
-- Inheritance tests for all four methods, parent immutability and selective capability manifests.
-- Growth tests for width/depth/residual branches, source hash preservation, finite tensors/gradients and pre-training equivalence where mathematically promised.
-- Training tests for checkpoint resume, data split isolation, distillation, replay and deterministic configuration.
-- Router tests for dynamic budget, expert overload, no-expert fallback and failure handling.
-- Identity tests across all routes, plus truthful direct provenance disclosure.
-- Regression suite for general language, code, maths, Hindi, English, Hinglish, safety and tool use.
-- Performance suite records hardware, precision, median/p95 latency, throughput, peak RAM/VRAM and active/resident/total parameter counts.
+## 7. First milestone — Tantra Expandability Prototype v0.1
 
-A passing unit test proves only the tested contract. It does not prove model quality or a training improvement.
+### Prototype scope
 
-## 10. Implementation roadmap
+- One small native Tantra decoder-only foundation and its tokenizer.
+- Two native experts (initially general reasoning and coding) that share the same explicit representation contract.
+- A simple router able to select shared-only, Expert A, Expert B or both. Initially deterministic policies are acceptable; learned routing is not a prerequisite.
+- A residual branch attached to Expert A.
+- Frozen parent, distillation + replay training, immutable candidate checkpoints and rollback.
+- A machine-readable experiment report.
 
-| Phase | Work | Deliverable | Exit gate |
-|---|---|---|---|
-| 0 | Baseline audit | Existing tests, CLI, files and assets inventoried | Existing baseline recorded; banner untouched |
-| 1 | Contracts | Registry, source manifest, lineage, identity policy | Unit tests pass |
-| 2 | Model gateway | First pretrained backend adapter | Typed requests, timeout/fallback and provenance work |
-| 3 | Adaptation pipeline | LoRA/SFT config, data manifests, checkpoint lineage | Small reproducible fine-tune and baseline comparison |
-| 4 | Expert inheritance | Adapter transfer + behavioural distillation first | Child gains target skill; parent unchanged; replay limits regression |
-| 5 | Neural expert integration | Compatible hidden-state adapter and MoE interface | Shape/semantics checks and integration benchmark pass |
-| 6 | Expansion operators | Residual branch first, then depth and width | Function-preservation/control tests and source hash unchanged |
-| 7 | Dynamic routing | Hierarchical router and compute controller | Better quality/compute frontier than fixed routing |
-| 8 | Knowledge/tool integration | Retrieval, memory and tools | Grounding, tool correctness and safety tests |
-| 9 | Scale-up | 0.8B → 2–3B family experiment, then larger families | Quality, cost, memory and latency justify promotion |
+### Milestones and exit gates
 
-## 11. First prototype scope
+| Step | Deliverable | Pass condition |
+|---|---|---|
+| 1 | Native foundation + tokenizer | Reproducible training/inference; checkpoint reload matches recorded outputs |
+| 2 | Shared expert interface | Both experts pass shape, dtype, device and failure-contract tests |
+| 3 | Two native experts | Both run against the same foundation representation |
+| 4 | Basic router | Selects shared-only, A, B or both; fallback behaviour is tested |
+| 5 | Residual branch | New branch attaches without deleting or mutating original weights |
+| 6 | Distillation + replay | Expanded candidate learns a new target while retaining old capability within gate |
+| 7 | Versioning + rollback | Parent and validated child coexist; active pointer can be safely rolled back |
+| 8 | Evaluation report | Reproducible comparison includes quality, regression, latency, memory and training cost |
 
-Do not begin with a 0.8B or 3B training run. First prove the platform mechanics using tiny public pretrained checkpoints with permissive, verified licences and a small controlled dataset.
+### Required measurements
 
-Prototype deliverables:
-1. Source manifest and licence gate.
-2. One model-gateway adapter.
-3. One LoRA adaptation recipe and reproducible evaluation.
-4. One child expert trained by behavioural distillation from a parent.
-5. Replay-based regression check.
-6. Residual-branch growth on a tiny compatible model.
-7. Identity tests proving all routes identify as Tantra.
-8. Machine-readable report with hashes, quality, latency and memory.
+- Old-task accuracy/quality and new-task accuracy/quality.
+- General language, reasoning and coding performance.
+- Router selection quality and fallback rate.
+- Human-reviewed correctness, instruction adherence, naturalness, factuality and safety.
+- Median/p95 latency, throughput, peak RAM/VRAM and active/resident/total parameters.
+- Training time, compute cost, data volume and checkpoint size.
+- Exact parent/child hashes and pre/post-training equivalence results.
 
-Only after this passes should the team select a production 0.8B source checkpoint. Model selection must be based on actual licence, quality, hardware and data fit—not popularity alone.
+A prototype passes only when the intended new capability improves without unacceptable regression. A parameter-count increase alone is not success.
 
+## 8. Data and evaluation requirements
 
-## 12. Prototype implementation status (2026-11-18)
+Keep the repository's review-first data pipeline. Preserve source IDs, URLs, revisions, licences, hashes and review decisions. Hindi and Hinglish require fluent-language review. Split by conversation family, keep train/validation/test disjoint and immutable, and report each language separately. Never duplicate examples to fill a language shortage.
 
-### Implemented in this branch
-- Pretrained source metadata contract with immutable revision, tokenizer hash, weight hash and explicit licence approval gate.
-- Expansion-plan contract for width, depth and residual-branch capacity growth.
-- Expert-inheritance metadata validation for adapter transfer, compatible weight transfer, behavioural distillation and feature alignment.
-- Distillation + replay are mandatory in the default expansion plan; source checkpoints are declared immutable.
-- Platform-owned identity system message and deterministic direct identity responses are integrated into the native inference and reasoning paths.
-- README architecture overview, a separate SVG architecture diagram, and GitHub Actions compile/asset/full-test workflow.
+Current data-readiness gaps remain real blockers for multilingual capability claims. Continue improving the reviewed corpus in parallel with architecture work, but do not let the absence of a large corpus prevent a small synthetic/mechanics-only expansion prototype. Clearly label mechanics fixtures as synthetic diagnostics, not language-quality evidence.
 
-### Not implemented yet
-- Production pretrained checkpoint downloader/model gateway.
-- Real LoRA/SFT/continued-pretraining pipeline for arbitrary third-party architectures.
-- Executable weight/adapter transfer and behavioural/feature distillation trainers.
-- General width-growth operator and residual-branch training implementation for arbitrary pretrained model families.
-- Model registry persistence, router learning, shadow deployment, automated promotion and rollback.
-- A measured 0.8B-to-2–3B expansion experiment.
+Use the same frozen suite, prompt format, decoding settings and hardware for parent/child comparisons. Human review is required for dimensions that automated checks cannot establish.
 
-### Validation status
-- Isolated local contract/identity harness: 28 tests passed (the full CI suite additionally exercises the inference and reasoning integration paths).
-- GitHub Actions expansion workflow: full repository suite passed (173 passed, 1 skipped); compile and JSON/SVG checks passed.
-- Existing CPU validation workflow: full repository suite passed (173 passed, 1 skipped); 35-step CPU smoke training passed, and checkpoint reload produced 0.0 maximum absolute logit error.
-- The separate real bilingual 10M experiment workflow failed before training because there are insufficient reviewed Hindi conversation rows for its requested split. This is a reviewed-data availability blocker, not an architecture test failure.
-- No pretrained weights were downloaded or fine-tuned by this prototype branch.
+## 9. Longer-term capacity direction
+
+The 0.8B → 1.5B → 2–3B path is an illustrative family target, not a committed training schedule or guaranteed quality curve. Keep smaller validated experts as teachers, fallbacks and lower-resource deployment options. Larger versions must demonstrate a measurable benefit.
+
+A long-horizon sparse expert system may eventually contain hundreds of billions or a trillion total parameters, but that is research ambition—not a current engineering milestone. Sparse activation reduces per-token computation; it does not eliminate the need to store and serve the expert pool.
+
+## 10. Implementation status — 18 November 2026
+
+### Exists in the repository
+- A small native Transformer, tokenizer artifacts, training/inference code, routing and expert/adaptation experiments.
+- Native CPU training and checkpoint validation experiments.
+- Historical narrow capability pilots and regression reports; they do not establish broad language capability.
+- Native depth-growth work with a recorded function-preservation test in a prior experiment.
+- Optional pretrained gateway, registry, LoRA/replay and residual-branch engineering experiments.
+- Dataset intake, provenance, review and multilingual evaluation documentation.
+- Automated tests and CI for the implemented software contracts.
+
+### Not yet demonstrated as the locked native milestone
+- Two native neural experts proven to share the final stable hidden-state contract.
+- A native residual branch integrated into that shared expert contract and trained with distillation + replay.
+- A complete native expert registry retaining multiple validated versions with tested rollback.
+- A router proven to select the native experts usefully under measured quality/compute trade-offs.
+- A measured native 0.8B-to-2–3B expansion.
+
+### Known blockers and constraints
+- The native pilot is small and narrow; it is not a general-purpose or frontier model.
+- Reviewed Hindi/Hinglish data remains insufficient for the previously requested bilingual split; the 10M bilingual workflow failed its data-readiness gate before training.
+- Larger-scale training requires substantially more reviewed data, compute, and measured infrastructure.
+- Optional external-model smoke tests and passing software tests do not prove native Tantra capability.
+
+## 11. Immediate next engineering work
+
+1. Audit the current native model, expert, router, tokenizer and checkpoint code; identify reusable components and gaps.
+2. Write the native shared-expert interface contract and version it.
+3. Implement or adapt two tiny native experts against that contract.
+4. Implement the residual branch for the native expert representation, with zero-gate equivalence tests and immutable parent checkpoints.
+5. Add distillation + replay training configuration and a family-disjoint evaluation fixture.
+6. Add version manifests, registry entries and rollback tests.
+7. Run the complete prototype and publish the measured report before choosing a larger model size.
+
+Do not begin a large 0.8B/3B run, expand the expert taxonomy, or prioritise optional third-party fine-tuning until the small native expandability proof passes.
