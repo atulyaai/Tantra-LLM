@@ -73,13 +73,61 @@ def build_review_queue(input_jsonl, output_dir, *, expert, source, domain="conve
     (out / "manifest.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2)+"\n", encoding="utf-8")
     return summary
 
+
+def create_review_sheet(queue_dir, output_csv):
+    """Create an editable spreadsheet for row-level human review."""
+    queue = Path(queue_dir)
+    candidates = [row for _, row in rows(queue / "candidates.jsonl")]
+    output = Path(output_csv)
+    if output.exists():
+        raise ValueError(f"refusing to overwrite existing review sheet: {output}")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    fields = [
+        "record_id", "language", "expert", "domain", "source_id",
+        "user", "assistant", "decision", "reviewer", "note",
+        "fluent_language_review",
+    ]
+    with output.open("w", encoding="utf-8-sig", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fields)
+        writer.writeheader()
+        for row in candidates:
+            messages = row["messages"]
+            user = next((m["content"] for m in messages if m["role"] == "user"), "")
+            assistant = next((m["content"] for m in reversed(messages) if m["role"] == "assistant"), "")
+            writer.writerow({
+                "record_id": row["record_id"], "language": row["language"],
+                "expert": row["expert"], "domain": row.get("domain", ""),
+                "source_id": row["source"]["id"], "user": user, "assistant": assistant,
+                "decision": "", "reviewer": "", "note": "", "fluent_language_review": "",
+            })
+    return {"rows": len(candidates), "review_sheet": str(output), "approved": 0}
+
+
+
 def approve_review_queue(queue_dir, decisions_jsonl, incoming_dir, *, domain="conversation"):
     """Publish explicitly approved rows to incoming/<domain>/<expert>.jsonl."""
     queue = Path(queue_dir)
     candidates = [v for _, v in rows(queue / "candidates.jsonl")]
     by_id = {v["record_id"]: v for v in candidates}
     decisions = {}
-    for line_no, decision in rows(decisions_jsonl):
+    decision_path = Path(decisions_jsonl)
+    if decision_path.suffix.lower() == ".csv":
+        with decision_path.open(encoding="utf-8-sig", newline="") as handle:
+            decision_rows = enumerate(csv.DictReader(handle), 2)
+            normalized_decisions = (
+                (line_no, {
+                    "record_id": row.get("record_id"),
+                    "decision": (row.get("decision") or "").strip().lower(),
+                    "reviewer": row.get("reviewer"),
+                    "note": row.get("note"),
+                    "fluent_language_review": (row.get("fluent_language_review") or "").strip().lower() in {"true", "yes", "1"},
+                })
+                for line_no, row in decision_rows
+            )
+            decision_iter = normalized_decisions
+    else:
+        decision_iter = rows(decision_path)
+    for line_no, decision in decision_iter:
         if not isinstance(decision, dict) or decision.get("record_id") not in by_id:
             raise ValueError(f"unknown review record at line {line_no}")
         rid = decision["record_id"]
@@ -144,12 +192,15 @@ def main(argv=None):
     intake=sub.add_parser("intake"); intake.add_argument("--input",required=True); intake.add_argument("--out",required=True); intake.add_argument("--expert",required=True); intake.add_argument("--domain",default="conversation")
     for key in SOURCE_FIELDS: intake.add_argument("--source-"+key,required=True)
     intake.add_argument("--source-kind",default="public_dataset_candidate")
+    sheet=sub.add_parser("sheet"); sheet.add_argument("--queue",required=True); sheet.add_argument("--out",required=True)
     approve=sub.add_parser("approve"); approve.add_argument("--queue",required=True); approve.add_argument("--decisions",required=True); approve.add_argument("--incoming",default="Datasets/workbench/incoming"); approve.add_argument("--domain",default="conversation")
     a=p.parse_args(argv)
     if a.command=="intake":
         src={k:getattr(a,"source_"+k) for k in SOURCE_FIELDS}
         src["kind"]=a.source_kind
         result=build_review_queue(a.input,a.out,expert=a.expert,source=src,domain=a.domain)
+    elif a.command=="sheet":
+        result=create_review_sheet(a.queue,a.out)
     else: result=approve_review_queue(a.queue,a.decisions,a.incoming,domain=a.domain)
     print(json.dumps(result,ensure_ascii=False,indent=2)); return 0
 
