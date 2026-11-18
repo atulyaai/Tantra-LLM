@@ -42,21 +42,22 @@ a trillion-parameter training run. We will prove model intake, licensing checks,
 LoRA adaptation, behavioural distillation, replay, residual-branch growth and
 versioned promotion on small models before scaling.
 
-- **Canonical Model Directory**: `Model/` (holds tokenizer artifacts; base weights,
-  experts, and router land here when trained — nothing is deployed in this tree yet).
-- **10k Bilingual Tokenizer**: ByteLevel BPE with 10,277 vocabulary entries that
-  keeps Devanagari conjuncts and matras intact without Unicode codepoint shattering.
-- **Sparse Mixture-of-Adapters**: only the router-selected experts run;
-  `TantraEngine` loads adapters on demand (LRU, capped), so extra experts cost
-  disk, not RAM.
-- **Knowledge Engine + Reasoning**: integer triple store plus BM25/dense vector
-  indexes for retrieval, and the `reasoning.py` draft/check/search/fix loop for
-  verified answers.
+- **Pretrained-first model intake**: reviewed source checkpoints, explicit licence
+  gates, model gateway or compatible neural-adapter integration.
+- **Expert inheritance and growth**: selective adapter/weight/behaviour/feature
+  transfer; width, depth and residual-branch expansion are planned and tested
+  through explicit contracts before real checkpoint expansion.
+- **Native backend retained**: the repository's existing tokenizer, transformer,
+  sparse adapters, router and knowledge/reasoning engine remain available as a
+  backend and research baseline.
+- **Tantra identity**: inference enforces the Tantra product identity while
+  preserving truthful disclosure of the configured underlying model.
 
-> **State**: after the 2026-11 repository reset this tree is a verified clean
-> source baseline — full test suite green (126 passed including an end-to-end
-> tiny-model build) with no trained weights. Train your own with the Quickstart
-> below. Developers: read [AGENTS.md](AGENTS.md) and [docs/HANDOFF.md](docs/HANDOFF.md) first.
+> **State**: this branch adds the pretrained-first platform roadmap and an
+> identity-policy prototype. The full repository regression suite must pass in
+> CI before this work is considered ready to merge. No pretrained model has
+> been selected, downloaded or fine-tuned by this change. Developers: read
+> [AGENTS.md](AGENTS.md) and [docs/HANDOFF.md](docs/HANDOFF.md) first.
 
 ---
 
