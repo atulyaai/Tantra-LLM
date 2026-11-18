@@ -72,3 +72,49 @@ def test_reviewed_jsonl_requires_provenance_and_review(tmp_path):
     path.write_text(json.dumps(bad) + "\n", encoding="utf-8")
     with pytest.raises(ValueError, match="review status"):
         read_reviewed_jsonl(path)
+
+
+def test_prepared_manifest_hashes_are_verified_without_training_on_test(tmp_path):
+    prepared = tmp_path / "prepared"
+    prepared.mkdir()
+    experts_dir = prepared / "train" / "conversation"
+    experts_dir.mkdir(parents=True)
+    val_dir = prepared / "val" / "conversation"
+    val_dir.mkdir(parents=True)
+    test_dir = prepared / "test" / "conversation"
+    test_dir.mkdir(parents=True)
+
+    split_rows = {
+        "train": row("train-family"),
+        "val": row("validation-family"),
+        "test": row("test-family"),
+    }
+    files = {}
+    for split, item in split_rows.items():
+        item["split"] = split
+        item["split_group"] = item["family_id"]
+        path = {"train": experts_dir, "val": val_dir, "test": test_dir}[split] / "general.jsonl"
+        path.write_text(json.dumps(item, ensure_ascii=False) + "\\n", encoding="utf-8")
+        files[split] = {
+            "path": path.relative_to(prepared).as_posix(),
+            "sha256": sha256_file(path),
+        }
+
+    manifest = {"version": 1, "experts": {"general": {"files": files}}}
+    manifest_path = prepared / "manifest.json"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    train_rows, val_rows, manifest_hash, hashes = load_prepared_manifest(manifest_path, ["general"])
+    assert len(train_rows) == len(val_rows) == 1
+    assert len(manifest_hash) == 64
+    assert set(hashes) == {"train", "val", "test"}
+
+    test_rows, test_manifest_hash, test_hashes = load_manifest_test_rows(manifest_path, ["general"])
+    assert len(test_rows) == 1
+    assert test_manifest_hash == manifest_hash
+    assert set(test_hashes) == {"general"}
+
+    files["train"]["path"]
+    (prepared / files["train"]["path"]).write_text("tampered\\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="checksum mismatch"):
+        load_prepared_manifest(manifest_path, ["general"])
