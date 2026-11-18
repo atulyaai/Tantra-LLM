@@ -40,22 +40,11 @@ def train_lora(checkpoint_path,dataset_jsonl,output_dir,*,steps=100,learning_rat
     base=Path(checkpoint_path); before=hash_tree(base)
     out=Path(output_dir)
     if out.exists() and any(out.iterdir()): raise ValueError("adapter output directory must be new or empty")
-    texts=[]
-    for line in Path(dataset_jsonl).read_text(encoding="utf-8").splitlines():
-        if line.strip():
-            text=json.loads(line).get("text")
-            if not isinstance(text,str) or not text.strip(): raise ValueError("each JSONL record requires non-empty text")
-            texts.append(text)
-    if not texts: raise ValueError("training dataset is empty")
+    texts=read_text_records(dataset_jsonl)
     new_count=len(texts); replay_count=0; replay_hash=None
     if replay_jsonl:
         replay_path=Path(replay_jsonl)
-        replay_texts=[]
-        for line in replay_path.read_text(encoding="utf-8").splitlines():
-            if line.strip():
-                value=json.loads(line).get("text")
-                if not isinstance(value,str) or not value.strip(): raise ValueError("each replay row requires non-empty text")
-                replay_texts.append(value)
+        replay_texts=read_text_records(replay_path)
         texts,replay_count=mix_replay_examples(texts,replay_texts,replay_ratio,seed)
         replay_hash=hashlib.sha256(replay_path.read_bytes()).hexdigest()
     tokenizer=AutoTokenizer.from_pretrained(str(base),local_files_only=True)
@@ -165,8 +154,7 @@ def train_residual_branch(model,tokenizer,dataset_jsonl,*,steps=100,learning_rat
     if steps<1 or max_length<1 or learning_rate<=0: raise ValueError("steps, max_length and learning_rate must be positive")
     trainable=[p for p in model.parameters() if p.requires_grad]
     if not trainable: raise ValueError("no trainable residual branch parameters")
-    texts=[json.loads(line)["text"] for line in Path(dataset_jsonl).read_text(encoding="utf-8").splitlines() if line.strip()]
-    if not texts: raise ValueError("training dataset is empty")
+    texts=read_text_records(dataset_jsonl)
     if hasattr(model, "config"):
         model.config.use_cache = False
     device=torch.device("cuda" if torch.cuda.is_available() else "cpu"); model.to(device)
@@ -234,3 +222,47 @@ def feature_alignment_loss(teacher_features, student_features, projection):
     if projected.shape != student_features.shape:
         raise ValueError("projected teacher and student feature shapes must match")
     return F.mse_loss(student_features,projected)
+
+
+def read_text_records(dataset_jsonl):
+    """Read JSONL and enforce review approval/hash integrity for generated datasets."""
+    path=Path(dataset_jsonl)
+    manifest_path=path.with_suffix(path.suffix+".manifest.json")
+    if manifest_path.exists():
+        manifest=json.loads(manifest_path.read_text(encoding="utf-8"))
+        if manifest.get("review_required") and manifest.get("review_status")!="approved":
+            raise ValueError("teacher-generated dataset must be reviewed and approved before training")
+        expected=manifest.get("dataset_sha256")
+        if expected and hashlib.sha256(path.read_bytes()).hexdigest()!=expected:
+            raise ValueError("dataset changed after its review manifest was created")
+    records=[]
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if line.strip():
+            value=json.loads(line).get("text")
+            if not isinstance(value,str) or not value.strip():
+                raise ValueError("each JSONL record requires non-empty text")
+            records.append(value)
+    if not records:
+        raise ValueError("training dataset is empty")
+    return records
+
+
+def approve_teacher_dataset(dataset_jsonl, reviewed_by, review_note):
+    """Record an explicit human review decision for a teacher-generated dataset."""
+    path=Path(dataset_jsonl)
+    manifest_path=path.with_suffix(path.suffix+".manifest.json")
+    if not manifest_path.is_file():
+        raise ValueError("dataset has no teacher provenance manifest to approve")
+    manifest=json.loads(manifest_path.read_text(encoding="utf-8"))
+    if not manifest.get("review_required"):
+        raise ValueError("dataset is not marked as requiring teacher-output review")
+    if not isinstance(reviewed_by,str) or not reviewed_by.strip() or not isinstance(review_note,str) or not review_note.strip():
+        raise ValueError("reviewer identity and review note are required")
+    digest=hashlib.sha256(path.read_bytes()).hexdigest()
+    if manifest.get("dataset_sha256")!=digest:
+        raise ValueError("dataset changed before approval")
+    manifest["review_status"]="approved"
+    manifest["reviewed_by"]=reviewed_by.strip()
+    manifest["review_note"]=review_note.strip()
+    manifest_path.write_text(json.dumps(manifest,indent=2)+"\n",encoding="utf-8")
+    return manifest
