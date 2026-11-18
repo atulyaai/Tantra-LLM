@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "experiment_id": "example-family-growth-candidate-001",
+  "status": "planned",
+  "source": {
+    "git_commit": "1de6287d9934f337fe62e4b33c138697a3e8716c",
+    "parent_experiment": null
+  },
+  "model": {
+    "family_id": "standard-4b",
+    "architecture": "pending-selection",
+    "config_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "source_checkpoint_sha256": null,
+    "candidate_checkpoint_sha256": null,
+    "parameters_total": null,
+    "parameters_active_per_token": null
+  },
+  "tokenizer": {
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "vocab_size": 65536,
+    "parent_sha256": null
+  },
+  "data": {
+    "manifest_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "train_split_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "validation_split_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "test_split_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "sources": []
+  },
+  "training": {
+    "seed": 0,
+    "optimizer": "not-selected",
+    "schedule": "not-selected",
+    "steps": null,
+    "tokens_seen": null
+  },
+  "environment": {
+    "python": "not-recorded",
+    "framework": "not-recorded",
+    "device": "not-recorded",
+    "driver": null,
+    "runtime": null,
+    "precision": null
+  },
+  "evaluation": {
+    "status": "not_run",
+    "suite_ids": [],
+    "results": {},
+    "generated_answers_path": null,
+    "notes": [
+      "Template only; replace placeholder hashes before an experiment."
+    ]
+  }
+}
