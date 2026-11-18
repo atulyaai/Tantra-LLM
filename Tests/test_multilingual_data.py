@@ -1,6 +1,7 @@
+import csv
 import json
 import pytest
-from Tantra.multilingual_data import approve_review_queue, build_review_queue
+from Tantra.multilingual_data import approve_review_queue, build_review_queue, create_review_sheet
 
 SOURCE={"id":"sample-open-corpus","revision":"commit-123","license":"CC-BY-4.0","url":"https://example.org/dataset"}
 
@@ -76,3 +77,27 @@ def test_approval_routes_each_record_to_taxonomy_domain_and_expert(tmp_path):
     assert result["approved"]==2
     assert (tmp_path/"incoming"/"multilingual"/"lang_en.jsonl").exists()
     assert (tmp_path/"incoming"/"multilingual"/"lang_hi.jsonl").exists()
+
+
+def test_csv_review_sheet_roundtrip_to_workbench(tmp_path):
+    source_file=tmp_path/"source.jsonl"
+    write_jsonl(source_file,[
+        {"id":"one","family_id":"family-one","language":"en","user":"How are you?","assistant":"I am fine."}
+    ])
+    queue=tmp_path/"queue"
+    build_review_queue(source_file,queue,expert="smalltalk",source=SOURCE)
+    sheet=tmp_path/"review.csv"
+    result=create_review_sheet(queue,sheet)
+    assert result["rows"]==1
+    with sheet.open(encoding="utf-8-sig",newline="") as handle:
+        reader=csv.DictReader(handle)
+        rows=list(reader)
+        fields=reader.fieldnames
+    rows[0].update({"decision":"approve","reviewer":"reviewer-id","note":"Checked correctness and language","fluent_language_review":"false"})
+    with sheet.open("w",encoding="utf-8-sig",newline="") as handle:
+        writer=csv.DictWriter(handle,fieldnames=fields)
+        writer.writeheader()
+        writer.writerows(rows)
+    published=approve_review_queue(queue,sheet,tmp_path/"incoming")
+    assert published["approved"]==1
+    assert (tmp_path/"incoming"/"conversation"/"smalltalk.jsonl").exists()
