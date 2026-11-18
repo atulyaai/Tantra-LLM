@@ -12,7 +12,7 @@ def spec(**overrides):
 def test_registry_roundtrip(tmp_path):
     path = tmp_path / "registry.json"
     path.write_text(json.dumps(ModelRegistry([spec()]).to_dict()))
-    assert ModelRegistry.from_file(path).get("org/model").revision == "abcdef1234567"
+    assert ModelRegistry.from_file(path).get("org/model").revision == "a" * 40
 
 @pytest.mark.parametrize("changes", [
     {"license_status": "unknown"}, {"revision": "main"}, {"trust_remote_code": True}, {"parameter_count": 0}
@@ -67,7 +67,8 @@ def test_gateway_injects_tantra_system_identity_for_normal_prompts():
     gateway._model = FakeModel()
     gateway._tokenizer = FakeTokenizer()
     assert gateway.generate([{"role": "user", "content": "Introduce yourself."}]) == "I am Tantra."
-    assert gateway._tokenizer.messages[0]["content"] == IDENTITY_SYSTEM_MESSAGE
+    assert gateway._tokenizer.messages[0]["content"].startswith(IDENTITY_SYSTEM_MESSAGE)
+    assert "Verified underlying model metadata: model_id=org/model" in gateway._tokenizer.messages[0]["content"]
 
 
 def test_gateway_discloses_real_backend_only_when_directly_asked():
@@ -75,7 +76,7 @@ def test_gateway_discloses_real_backend_only_when_directly_asked():
     gateway = ModelGateway(spec(), "./not-loaded")
     answer = gateway.generate([{"role": "user", "content": "Which model powers you?"}])
     assert answer.startswith("I am Tantra.")
-    assert "HuggingFaceTB/SmolLM2-360M-Instruct" in answer
+    assert "org/model" in answer
 
 
 def test_gateway_does_not_call_itself_the_backend_model():
