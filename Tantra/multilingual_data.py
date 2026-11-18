@@ -117,8 +117,7 @@ def approve_review_queue(queue_dir, decisions_jsonl, incoming_dir, *, domain="co
     decision_path = Path(decisions_jsonl)
     if decision_path.suffix.lower() == ".csv":
         with decision_path.open(encoding="utf-8-sig", newline="") as handle:
-            decision_rows = enumerate(csv.DictReader(handle), 2)
-            normalized_decisions = (
+            decision_iter = [
                 (line_no, {
                     "record_id": row.get("record_id"),
                     "decision": (row.get("decision") or "").strip().lower(),
@@ -126,9 +125,8 @@ def approve_review_queue(queue_dir, decisions_jsonl, incoming_dir, *, domain="co
                     "note": row.get("note"),
                     "fluent_language_review": (row.get("fluent_language_review") or "").strip().lower() in {"true", "yes", "1"},
                 })
-                for line_no, row in decision_rows
-            )
-            decision_iter = normalized_decisions
+                for line_no, row in enumerate(csv.DictReader(handle), 2)
+            ]
     else:
         decision_iter = rows(decision_path)
     for line_no, decision in decision_iter:
