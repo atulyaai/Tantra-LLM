@@ -1,7 +1,7 @@
 # Tantra-LLM: model-family growth, DNA compression and balanced runtime
 
-**Decision record:** model growth = family; DNA compression = both representation/storage and architecture; tokenizer = 64K target; runtime = balanced.  
-**Status:** architecture and first metadata guardrails only. No growth, compression, tokenizer training, or hardware benchmark is claimed by this document.
+**Decision record:** model growth = versioned family; first growth operator = residual branches; width/depth growth later; DNA compression = both representation/storage and architecture; tokenizer = 64K research target; runtime = balanced.  
+**Status:** research architecture and metadata guardrails only. No growth, compression, tokenizer training, or hardware benchmark is claimed by this document. The residual-branch-first decision is governed by [the native-first roadmap](TANTRA_NATIVE_ARCHITECTURE_ROADMAP.md).
 
 ## 1. Preserve the current system
 
@@ -31,8 +31,8 @@ A 1T MoE has a large total parameter pool but activates only a subset per token;
 ### Controlled expansion protocol
 
 1. Freeze and hash the parent checkpoint, tokenizer, config, training data manifest and evaluation suite.
-2. Select one explicit transformation: function-preserving depth growth, function-preserving width growth, expert addition, or sibling distillation.
-3. Initialize added capacity from copied/structured weights or teacher targets. New residual branches start behind a zero/small gate where mathematically appropriate. Random-only expansion is not an accepted growth method.
+2. For the first native expandability milestone, select residual-branch growth only: attach a parallel compatible branch behind a zero/small gate and keep the original expert immutable.
+3. Use distillation + replay + new training to teach the added branch. Width and depth growth are later operators and require their own architecture-specific equivalence/control tests. Random-only expansion is not an accepted growth method.
 4. Before training, run equivalence tests on fixed inputs: logits, hidden-state shapes, finite values and output drift. For a truly function-preserving transform, measure numerical tolerance; for non-equivalent transforms, record the expected change and compare to a no-op control.
 5. Continue training on provenance-locked data with frozen train/validation/test family splits. Save optimizer, scheduler, RNG and data cursors for resumability.
 6. Evaluate parent, child and no-op control on identical held-out tasks, languages, prompts and decoding settings. Record regressions, not just average gains.
