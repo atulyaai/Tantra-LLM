@@ -60,7 +60,7 @@ class ModelGateway:
         backend_note = (f"Verified underlying model metadata: model_id={self.spec.model_id}; "
                         f"provider={self.spec.provider}; revision={self.spec.revision}. "
                         "Disclose this metadata truthfully if asked which model powers the deployment.")
-        prepared[0]["content"] += "\\n\\n" + backend_note
+        prepared[0]["content"] += "\n\n" + backend_note
         encoded = self._tokenizer.apply_chat_template(
             prepared, add_generation_prompt=True, tokenize=True, return_tensors="pt").to(self.device)
         kwargs: dict[str, Any] = {"max_new_tokens": max_new_tokens, "pad_token_id": self._tokenizer.eos_token_id}
