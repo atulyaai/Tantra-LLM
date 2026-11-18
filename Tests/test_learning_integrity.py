@@ -106,3 +106,20 @@ def test_tokenizer_rejects_missing_control_tokens():
     from Tantra.tokenizer import TantraTokenizer
     with pytest.raises(ValueError, match="missing required special tokens"):
         TantraTokenizer(Tokenizer(models.BPE()))
+
+
+
+def test_kv_cached_logits_match_full_causal_forward():
+    torch.manual_seed(7)
+    cfg = ModelConfig(vocab_size=64, d_model=32, n_layers=2, n_heads=2,
+                      n_kv_heads=1, mlp_mult=2, max_seq_len=32)
+    model = TantraModel(cfg).eval()
+    tokens = torch.randint(0, cfg.vocab_size, (1, 9))
+    with torch.no_grad():
+        full = model(tokens)
+        caches = [{} for _ in model.layers]
+        pieces = []
+        for pos in range(tokens.shape[1]):
+            pieces.append(model(tokens[:, pos:pos + 1], caches=caches, pos=pos))
+        cached = torch.cat(pieces, dim=1)
+    assert torch.allclose(full, cached, atol=1e-5, rtol=1e-5)
