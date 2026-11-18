@@ -68,7 +68,7 @@ def export_aya_training_rows(dataset, output_jsonl, *, split="train", language_c
                 "user": user,
                 "assistant": assistant,
             }
-            handle.write(json.dumps(record, ensure_ascii=False) + "\\n")
+            handle.write(json.dumps(record, ensure_ascii=False) + "\n")
             counts[language] = counts.get(language, 0) + 1
     manifest = {
         "schema_version": 1, "repository": repository, "revision": revision,
