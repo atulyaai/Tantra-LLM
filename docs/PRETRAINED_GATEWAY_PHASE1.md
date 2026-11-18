@@ -68,3 +68,20 @@ Approval is bound to the dataset hash. Editing the dataset after approval invali
 - Compatible weight transfer copies only exact tensor-name and tensor-shape matches into a child model; source weights remain untouched.
 - Feature-alignment loss provides a differentiable projection/MSE primitive for cross-hidden-size teacher/student alignment.
 - Adapter transfer requires the parent base-checkpoint hash and matching PEFT configuration.
+
+## Checkpoint selection evidence
+
+The official model card reports the following zero-shot instruction-model results (reported by the publisher, not independently reproduced by Tantra):
+
+| Benchmark | SmolLM2-360M-Instruct |
+|---|---:|
+| IFEval (average prompt/instruction) | 41.0 |
+| MT-Bench | 3.66 |
+| HellaSwag | 52.1 |
+| ARC (average) | 43.7 |
+| PIQA | 70.8 |
+| MMLU (cloze) | 32.8 |
+| BBH (3-shot) | 27.3 |
+| GSM8K (5-shot) | 7.43 |
+
+The model card lists Apache-2.0 and a 0.4B parameter size. It explicitly warns that SmolLM2 primarily understands and generates English. This supports selecting it as a low-cost integration pilot, but rules it out as the sole Hindi-English foundation without separate multilingual evaluation. Source: https://huggingface.co/HuggingFaceTB/SmolLM2-360M-Instruct
