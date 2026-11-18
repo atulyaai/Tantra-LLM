@@ -66,7 +66,7 @@ def build_review_queue(input_jsonl, output_dir, *, expert, source):
         counts[lang] += 1
     for name, values in (("candidates.jsonl", accepted), ("quarantine.jsonl", quarantine)):
         (out / name).write_text("".join(json.dumps(v, ensure_ascii=False) + "\n" for v in values), encoding="utf-8")
-    summary = {"schema_version": 1, "source": {k: source[k] for k in SOURCE_FIELDS}, "expert": expert,
+    summary = {"schema_version": 1, "source": {**{k: source[k] for k in SOURCE_FIELDS}, "kind": source.get("kind", "public_dataset_candidate")}, "expert": expert,
                "input_rows": len(accepted)+len(quarantine), "pending_review_rows": len(accepted),
                "quarantined_rows": len(quarantine), "by_language": dict(sorted(counts.items())),
                "training_ready": False, "policy": "No imported row is training-eligible until explicit human approval."}
