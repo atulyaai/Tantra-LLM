@@ -1,21 +1,22 @@
 ﻿# Tantra handoff
 
-## Current locked architecture direction — 18 November 2026
+## Current locked architecture direction — updated 18 November 2026
 
-The authoritative product direction is **native-first, independently trained Tantra with expandable experts**. Read [the native-first architecture and roadmap](TANTRA_NATIVE_ARCHITECTURE_ROADMAP.md) before changing model, expert, routing, training or lifecycle code.
+The user has superseded the native-first decision. **Qwen/Qwen3.5-0.8B-Base is now Tantra's foundation checkpoint.** Read [the Qwen3.5 foundation and fine-tuning roadmap](TANTRA_NATIVE_ARCHITECTURE_ROADMAP.md) before changing foundation, tokenizer, SFT, adapter or evaluation code.
 
 Locked decisions:
-- Tantra owns its native architecture, tokenizer, vocabulary, training pipeline, expert format, router and checkpoints. External models are optional teachers, benchmarks or separately served tools—not Tantra's foundation.
-- Residual branches are the first expert-growth operator. Width and depth growth are later operators.
-- New capability learning uses distillation + replay + new training.
-- Keep all validated versions immutable and available; support rollback.
-- First milestone: native foundation + two compatible native experts + a measured residual-expansion proof.
+- Use the Qwen3.5-0.8B-Base checkpoint at an immutable Hub revision.
+- Preserve Qwen's tokenizer, vocabulary, special tokens and chat template.
+- First training stage is supervised fine-tuning with LoRA, not pretraining from random initialization.
+- Keep the upstream base immutable; store each adapter candidate and manifest separately.
+- Evaluate Hindi, English and Hinglish independently on frozen family-disjoint held-out data; explicitly measure English regression.
+- Native Tantra Transformer and native residual-growth research remain historical/optional experiments, not the active foundation.
 
-**Code audit completed:** see [the native code audit and exact implementation plan](TANTRA_NATIVE_CODE_AUDIT.md). The audit confirms that the native Transformer, tokenizer, base trainer, LoRA adapter system, router, checkpoint utilities and lifecycle manager are reusable. The main missing seam is a native `hidden_states -> hidden_states` expert interface; the existing residual-growth helper targets Hugging Face/Llama-style models, not native `TantraModel`.
+**Pipeline scaffold committed:** `Tantra/qwen35_finetune.py`, exposed as `python -m Tantra qwen35_finetune`. It validates reviewed/provenance-backed JSONL, checks train/validation family separation, masks prompt tokens, trains LoRA, selects by validation loss and writes an adapter manifest. See the roadmap for the exact command and defaults.
 
-**Immediate implementation order:** add `TantraModel.forward_hidden` while preserving existing logits/generation; introduce two tiny native residual experts behind that interface; prove zero-initialized no-op equivalence and parent immutability; add branch-only training with replay/distillation; add immutable artifact manifests and rollback tests. Use synthetic fixtures for mechanics only, then reviewed held-out data for language claims. Never write prototype artifacts into `Model/`.
+**Immediate work:** prepare the Qwen-formatted multilingual train/validation/test splits; verify the pinned checkpoint revision and installed Transformers/PEFT compatibility; inspect GPU/VRAM; run a tiny load/train/save/reload smoke test; then run the controlled SFT benchmark. No model has been downloaded or trained by the source changes. Never overwrite `Model/` or a validated base checkpoint.
 
-**Do not mistake historical or optional work for completion:** the native small-model pilots are narrow; pretrained gateway/LoRA/residual experiments are optional engineering tracks; neither proves the native expandability milestone. The earlier pretrained-first plan is superseded. Keep historical experiment records below as historical evidence, not as the current product direction.
+**Historical record:** the earlier native-first roadmap and code audit document the architecture decisions and source state at the time. They are superseded as the active product direction; do not use them to infer current training priorities.
 
 ## Current baseline
 
