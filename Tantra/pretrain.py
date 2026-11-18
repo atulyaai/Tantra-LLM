@@ -315,6 +315,30 @@ def memory_ok(device=None, reserve_gpu_bytes=512*1024**2):
     return True
 
 
+def capture_rng_state(device):
+    """Capture every RNG stream used by a same-device pilot continuation."""
+    state = {
+        'torch_rng': torch.get_rng_state(),
+        'python_rng': random.getstate(),
+        'numpy_rng': np.random.get_state(),
+        'cuda_rng': torch.cuda.get_rng_state_all() if torch.device(device).type == 'cuda' else [],
+    }
+    return state
+
+
+def restore_rng_state(state, device):
+    """Restore RNG streams; CUDA resumes are deliberately device-family local."""
+    torch.set_rng_state(state['torch_rng'])
+    random.setstate(state['python_rng'])
+    np.random.set_state(state['numpy_rng'])
+    if torch.device(device).type == 'cuda':
+        if not torch.cuda.is_available() or not state.get('cuda_rng'):
+            raise ValueError('Checkpoint lacks CUDA RNG state; exact CUDA resume is not possible')
+        if len(state['cuda_rng']) != torch.cuda.device_count():
+            raise ValueError('CUDA device count changed; exact resume is not possible')
+        torch.cuda.set_rng_state_all(state['cuda_rng'])
+
+
 def window_order(files, sequence=256):
     queues={lang:deque((lang,i*sequence) for i in range((len(files[lang])-1)//sequence)) for lang in ('hi','en')}
     result=[]
@@ -394,17 +418,20 @@ def _train(output,model_dir,identities,maps,train,order,sequence,max_updates,res
     if resume:
         from Tantra.train import load_resumable
         saved,recovery=load_resumable(last,identity_key='identities',expected_identity=identities,
-            expected_config=cfg.to_dict(),expected_fields={'threads':threads,'sequence':sequence},
-            required=('state','optimizer','torch_rng','python_rng','numpy_rng','cursor','updates','tokens','microbatch',
+            expected_config=cfg.to_dict(),expected_fields={'threads':threads,'sequence':sequence,'device':str(device)},
+            required=('state','optimizer','torch_rng','python_rng','numpy_rng','cuda_rng','device','cursor','updates','tokens','microbatch',
                       'benchmarks','baseline_validation','best_validation'),state_shapes=model.state_dict())
         if recovery['fallback_used'] or recovery['legacy_without_checksum']:
             print('Checkpoint resume evidence: '+json.dumps(recovery),flush=True)
         with (output/'recovery_history.jsonl').open('a',encoding='utf-8') as history:
             history.write(json.dumps(recovery)+'\n')
         model.load_state_dict(saved['state']); optimizer.load_state_dict(saved['optimizer'])
-        torch.set_rng_state(saved['torch_rng']); random.setstate(saved['python_rng']); np.random.set_state(saved['numpy_rng'])
+        restore_rng_state(saved, device)
         cursor,updates,tokens=saved['cursor'],saved['updates'],saved['tokens']
-        chosen=saved['microbatch']; benchmarks=saved['benchmarks']; base_eval=saved['baseline_validation']; best=saved['best_validation']
+        chosen=saved['microbatch']
+        if microbatch_override is not None and microbatch_override != chosen:
+            raise ValueError('Exact resume cannot change microbatch; use the saved value or start a new run')
+        benchmarks=saved['benchmarks']; base_eval=saved['baseline_validation']; best=saved['best_validation']
         bad_evals=saved.get('bad_evals',0);saved_protocol=saved.get('evaluation_protocol')
         del saved
     else:
@@ -471,11 +498,12 @@ def _train(output,model_dir,identities,maps,train,order,sequence,max_updates,res
     started=time.perf_counter(); last_save=started; run_start_tokens=tokens
     def checkpoint():
         if shutil.disk_usage(output).free<1024**3: raise OSError('Checkpoint disk gate failed')
+        rng_state=capture_rng_state(device)
         payload={'config':cfg.to_dict(),'state':model.state_dict(),'optimizer':optimizer.state_dict(),
-                 'identities':identities,'cursor':cursor,'updates':updates,'tokens':tokens,'sequence':sequence,
+                 'identities':identities,'device':str(device),'cursor':cursor,'updates':updates,'tokens':tokens,'sequence':sequence,
                  'microbatch':chosen,'threads':threads,'benchmarks':benchmarks,'baseline_validation':base_eval,
-                 'best_validation':best,'bad_evals':bad_evals,'evaluation_protocol':protocol,'torch_rng':torch.get_rng_state(),'python_rng':random.getstate(),
-                 'numpy_rng':np.random.get_state(),'scheduler':{'kind':'constant','lr':1e-4},'router_names':[]}
+                 'best_validation':best,'bad_evals':bad_evals,'evaluation_protocol':protocol,**rng_state,
+                 'scheduler':{'kind':'constant','lr':1e-4},'router_names':[]}
         atomic_checkpoint(last,payload)
         print(f'Checkpoint saved: {last} | update={updates} | tokens={tokens:,}',flush=True)
     history=output/'metrics.jsonl'
