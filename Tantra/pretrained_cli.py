@@ -81,7 +81,7 @@ def main(argv=None)->int:
         manifest["teacher_model_id"]=spec.model_id
         manifest["teacher_revision"]=spec.revision
         manifest["license_id"]=spec.license_id
-        manifest_path.write_text(json.dumps(manifest,indent=2)+"\\n",encoding="utf-8")
+        manifest_path.write_text(json.dumps(manifest,indent=2)+"\n",encoding="utf-8")
         print(json.dumps(result,indent=2)); return 0
     if args.command=="grow-residual":
         spec=ModelRegistry.from_file(args.registry).get(args.model_id)
