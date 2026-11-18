@@ -54,7 +54,7 @@ versioned promotion on small models before scaling.
   preserving truthful disclosure of the configured underlying model.
 
 > **State**: pretrained-first architecture and identity prototype. CI validation
-> passed: 171 tests passed, 1 skipped; CPU smoke training and checkpoint reload
+> passed: 173 tests passed, 1 skipped; CPU smoke training and checkpoint reload
 > passed. No pretrained model has been selected, downloaded or fine-tuned by
 > this change. Developers: read
 > [AGENTS.md](AGENTS.md) and [docs/HANDOFF.md](docs/HANDOFF.md) first.
