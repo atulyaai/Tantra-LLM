@@ -15,6 +15,8 @@ def test_export_hinglish_preserves_scenario_persona_families_and_provenance(tmp_
     assert result["rows"]==2
     assert result["synthetic"] is True and result["training_eligible"] is False
     assert records[0]["family_id"]==records[1]["family_id"]
+    assert {row["expert"] for row in records}=={"smalltalk"}
+    assert {row["domain"] for row in records}=={"conversation"}
     manifest=json.loads((tmp_path/"hinglish.jsonl.manifest.json").read_text())
     assert manifest["revision"] and manifest["output_sha256"]
 
