@@ -1019,6 +1019,8 @@ class TantraModel(nn.Module):
             raise ValueError(f"Invalid adapter rank for expert {name!r}")
         if not isinstance(state, dict) or any(not isinstance(value, torch.Tensor) for value in state.values()):
             raise ValueError(f"Expert '{name}' checkpoint must contain only tensors")
+        if any(not bool(torch.isfinite(value).all()) for value in state.values()):
+            raise ValueError(f"Expert '{name}' checkpoint contains non-finite tensors")
         expected = self.lora_shapes(name, rank)
         given = {key: tuple(value.shape) for key, value in state.items()}
         if given != expected:
@@ -1030,8 +1032,6 @@ class TantraModel(nn.Module):
         params = dict(self.named_parameters())
         with torch.no_grad():
             for key, value in state.items():
-                if not isinstance(value, torch.Tensor) or not torch.isfinite(value).all():
-                    raise ValueError(f"Expert '{name}' contains an invalid tensor: {key}")
                 params[key].copy_(value)
 
     # ── routing ──
