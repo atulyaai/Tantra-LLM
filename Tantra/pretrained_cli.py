@@ -32,6 +32,8 @@ def main(argv=None)->int:
     lora.add_argument("--model-id",required=True); lora.add_argument("--checkpoint",required=True)
     lora.add_argument("--candidate-id",required=True); lora.add_argument("--data",required=True)
     lora.add_argument("--output",required=True); lora.add_argument("--steps",type=int,default=100); lora.add_argument("--rank",type=int,default=8)
+    lora.add_argument("--replay-data",help="optional old-capability JSONL replay dataset")
+    lora.add_argument("--replay-ratio",type=float,default=0.25)
     distil=sub.add_parser("distill"); registry_arg(distil)
     distil.add_argument("--model-id",required=True); distil.add_argument("--checkpoint",required=True)
     distil.add_argument("--prompts",required=True); distil.add_argument("--output",required=True)
@@ -65,7 +67,7 @@ def main(argv=None)->int:
             "status":"runtime_smoke_only_not_quality_evaluation"},indent=2)); gateway.unload(); return 0
     if args.command=="train-lora":
         spec=ModelRegistry.from_file(args.registry).get(args.model_id)
-        result=train_lora(args.checkpoint,args.data,args.output,steps=args.steps,rank=args.rank)
+        result=train_lora(args.checkpoint,args.data,args.output,steps=args.steps,rank=args.rank,replay_jsonl=args.replay_data,replay_ratio=args.replay_ratio)
         life=ModelLifecycle(); record=life.register(args.candidate_id,args.output,args.model_id,
             {"method":"lora","base_revision":spec.revision,**result})
         print(json.dumps({"candidate":record,"training":result},indent=2)); return 0
