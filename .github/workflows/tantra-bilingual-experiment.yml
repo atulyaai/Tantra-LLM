@@ -1,0 +1,35 @@
+name: Tantra real bilingual 10M experiment
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  train-and-probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install CPU-only PyTorch
+        run: python -m pip install --upgrade pip && python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+      - name: Install Tantra and experiment dependencies
+        run: python -m pip install -e .
+      - name: Verify source lock and compile
+        run: python -m compileall -q Tantra examples
+      - name: Train 10M model on real reviewed Hindi-English conversations
+        run: python examples/train_bilingual_conversation_experiment.py --output sample_output/bilingual_10m --steps 300
+      - name: Upload model, tokenizer and generation report
+        uses: actions/upload-artifact@v4
+        with:
+          name: tantra-bilingual-10m-experiment
+          path: sample_output/bilingual_10m/
+          if-no-files-found: error
+          retention-days: 30
