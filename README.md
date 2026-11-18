@@ -53,10 +53,10 @@ versioned promotion on small models before scaling.
 - **Tantra identity**: inference enforces the Tantra product identity while
   preserving truthful disclosure of the configured underlying model.
 
-> **State**: pretrained-first architecture and identity prototype. CI validation
-> passed: 173 tests passed, 1 skipped; CPU smoke training and checkpoint reload
-> passed. No pretrained model has been selected, downloaded or fine-tuned by
-> this change. Developers: read
+> **State**: pretrained gateway and expansion prototype. CI validates registry,
+> identity, inheritance, residual growth and lifecycle mechanics. The pinned
+> 360M checkpoint smoke and real fine-tuning must be run explicitly on target
+> hardware; no language-quality gain is claimed. Developers: read
 > [AGENTS.md](AGENTS.md) and [docs/HANDOFF.md](docs/HANDOFF.md) first.
 
 ---
@@ -175,9 +175,10 @@ python -m Tantra stage1 --preset tiny
 python -m Tantra chat
 ```
 
-The pretrained-first intake, LoRA adaptation, inheritance and expansion
-runtime are being implemented in phases; this PR currently provides the
-roadmap, metadata contracts, identity integration and CI coverage.
+The pretrained runtime now includes a local-only model gateway, LoRA training,
+adapter inheritance, teacher-demonstration generation, residual-branch training,
+and candidate promotion/rollback. See the pretrained engineering section below.
+Actual checkpoint download and training remain explicit operator actions.
 `stage1`/`base`/`expert` write into `Model/`; use `--model-dir runs/pilot` to keep
 your shipped weights untouched.
 
@@ -205,6 +206,38 @@ python -m Tantra review_cli sample --queue Q --n 50   # human review workflow
 ```
 
 ---
+
+
+### Pretrained model engineering (first executable phase)
+
+The first checkpoint is pinned to **HuggingFaceTB/SmolLM2-360M-Instruct**
+(Apache-2.0; English-first). It is an integration and LoRA-mechanics pilot,
+not the final Hindi-first production foundation.
+
+```bash
+pip install -e ".[pretrained,finetune,test]"
+python -m Tantra.pretrained_cli info
+python -m Tantra.pretrained_cli smoke --model-id HuggingFaceTB/SmolLM2-360M-Instruct --checkpoint ./checkpoints/SmolLM2-360M-Instruct
+
+# Generate teacher demonstrations; inspect them before approval
+python -m Tantra.pretrained_cli distill --model-id HuggingFaceTB/SmolLM2-360M-Instruct --checkpoint ./checkpoints/SmolLM2-360M-Instruct --prompts Datasets/pretrained/prompts.txt --output Datasets/pretrained/teacher.jsonl
+python -m Tantra.pretrained_cli approve-dataset --dataset Datasets/pretrained/teacher.jsonl --reviewed-by "Atul" --review-note "Reviewed against prompts and corrected inaccurate outputs"
+
+# Fine-tune a LoRA child with 25% old-capability replay
+python -m Tantra.pretrained_cli train-lora --model-id HuggingFaceTB/SmolLM2-360M-Instruct --checkpoint ./checkpoints/SmolLM2-360M-Instruct --candidate-id tantra-smollm-lora-001 --data Datasets/pretrained/teacher.jsonl --replay-data Datasets/pretrained/replay.jsonl --replay-ratio 0.25 --output runs/tantra-smollm-lora-001
+
+# Generate teacher demonstrations, review them, then use them in student LoRA training
+python -m Tantra.pretrained_cli distill --model-id HuggingFaceTB/SmolLM2-360M-Instruct --checkpoint ./checkpoints/SmolLM2-360M-Instruct --prompts Datasets/pretrained/prompts.txt --output Datasets/pretrained/teacher-review.jsonl
+
+# Grow a zero-initialized residual branch and train only the new branch
+python -m Tantra.pretrained_cli grow-residual --model-id HuggingFaceTB/SmolLM2-360M-Instruct --checkpoint ./checkpoints/SmolLM2-360M-Instruct --candidate-id tantra-smollm-residual-001 --data Datasets/pretrained/train.jsonl --output runs/tantra-smollm-residual-001
+
+# Promote only after a complete report; rollback restores the previous active candidate
+python -m Tantra.pretrained_cli promote --candidate-id tantra-smollm-lora-001 --report runs/tantra-smollm-lora-001-report.json
+python -m Tantra.pretrained_cli rollback
+```
+
+Full instructions: [Pretrained gateway and expansion phase](docs/PRETRAINED_GATEWAY_PHASE1.md).
 
 ## License
 

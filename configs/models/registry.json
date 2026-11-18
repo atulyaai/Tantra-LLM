@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "models": [{
+    "model_id": "HuggingFaceTB/SmolLM2-360M-Instruct",
+    "provider": "huggingface",
+    "revision": "c38281e01d0c0b0c36eac2f5bcb5b51fa2e803fc",
+    "architecture": "LlamaForCausalLM",
+    "parameter_count": 360000000,
+    "license_id": "Apache-2.0",
+    "license_status": "approved",
+    "tokenizer_id": "HuggingFaceTB/SmolLM2-360M-Instruct",
+    "intended_use": "gateway_smoke_test",
+    "trust_remote_code": false
+  }]
+}
