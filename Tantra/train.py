@@ -136,40 +136,69 @@ def _loop(model: TantraModel, params: List[torch.nn.Parameter], data: EncodedDat
           a: TrainArgs, tag: str, save_fn=None) -> float:
     if not len(data):
         raise ValueError('No trainable samples; check data and truncation')
-    if min(a.steps,a.batch_size,a.log_every,a.gradient_accumulation)<1:
+    if min(a.steps, a.batch_size, a.log_every, a.gradient_accumulation) < 1:
         raise ValueError('Training steps, batch size, logging and accumulation must be positive')
     opt = torch.optim.AdamW(params, lr=a.lr, weight_decay=a.weight_decay, betas=(0.9, 0.95))
     rng = random.Random(a.seed)
     model.train()
     step, t0, ema = 0, time.time(), None
-    grad_accum = max(1, a.gradient_accumulation)
+    grad_accum = a.gradient_accumulation
     micro_step = 0
+    pending_loss = 0.0
     opt.zero_grad(set_to_none=True)
+
+    def optimizer_update():
+        nonlocal step, ema, micro_step, pending_loss
+        if micro_step == 0:
+            return
+        # A short final accumulation is averaged over the microbatches actually seen.
+        if micro_step < grad_accum:
+            correction = grad_accum / micro_step
+            for parameter in params:
+                if parameter.grad is not None:
+                    parameter.grad.mul_(correction)
+        torch.nn.utils.clip_grad_norm_(params, 1.0)
+        opt.step()
+        opt.zero_grad(set_to_none=True)
+        batch_loss = pending_loss / micro_step
+        ema = batch_loss if ema is None else 0.95 * ema + 0.05 * batch_loss
+        step += 1
+        micro_step = 0
+        pending_loss = 0.0
+        if step % a.log_every == 0 or step == a.steps:
+            log.info(f"[{tag}] step {step}/{a.steps} loss {ema:.3f} ({time.time() - t0:.0f}s)")
+        if save_fn and step % a.log_every == 0:
+            save_fn()
+
     while step < a.steps:
+        saw_batch = False
         for ids, labels, _ in data.batches(a.batch_size, rng=rng):
-            for g in opt.param_groups:
-                g["lr"] = _lr(step, a)
-            loss = model.loss(ids, labels) / grad_accum
-            if not torch.isfinite(loss):
+            saw_batch = True
+            for group in opt.param_groups:
+                group["lr"] = _lr(step, a)
+            raw_loss = model.loss(ids, labels)
+            if not torch.isfinite(raw_loss):
                 opt.zero_grad(set_to_none=True)
                 raise FloatingPointError('Non-finite training loss')
-            loss.backward()
+            (raw_loss / grad_accum).backward()
+            pending_loss += float(raw_loss.detach())
             micro_step += 1
             if micro_step == grad_accum:
-                torch.nn.utils.clip_grad_norm_(params, 1.0)
-                opt.step()
-                opt.zero_grad(set_to_none=True)
-                micro_step = 0
-                ema = loss.item() * grad_accum if ema is None else 0.95 * ema + 0.05 * loss.item() * grad_accum
-                step += 1
-                if step % a.log_every == 0 or step == a.steps:
-                    log.info(f"[{tag}] step {step}/{a.steps} loss {ema:.3f} ({time.time() - t0:.0f}s)")
-                if save_fn and step % a.log_every == 0:
-                    save_fn()
-                if step >= a.steps or (a.max_minutes and time.time() - t0 > a.max_minutes * 60):
-                    return ema
+                optimizer_update()
+            if step >= a.steps or (a.max_minutes and time.time() - t0 > a.max_minutes * 60):
+                if micro_step:
+                    optimizer_update()
+                return ema
+        if not saw_batch:
+            raise ValueError('Dataset produced no batches')
+        # Do not carry partial gradients across epochs or silently discard them.
+        if micro_step:
+            for group in opt.param_groups:
+                group["lr"] = _lr(step, a)
+            optimizer_update()
+        if a.max_minutes and time.time() - t0 > a.max_minutes * 60:
+            return ema
     return ema
-
 
 @torch.no_grad()
 def eval_loss(model: TantraModel, data: EncodedDataset, batch_size: int = 32, max_batches: int = 10) -> float:
@@ -181,6 +210,33 @@ def eval_loss(model: TantraModel, data: EncodedDataset, batch_size: int = 32, ma
         tot += model.loss(ids, labels).item()
         n += 1
     return tot / max(1, n)
+
+
+def split_expert_rows(curated: List[Dict], feedback: List[Dict], seed: int = 0,
+                      feedback_weight: int = 3, eval_fraction: float = 0.1):
+    """Deduplicate by full row, split unique examples, then oversample train feedback only."""
+    if feedback_weight < 1 or not 0 < eval_fraction < 1:
+        raise ValueError("Invalid feedback weight or evaluation fraction")
+    unique = {}
+    for row in curated:
+        key = json.dumps(row, ensure_ascii=False, sort_keys=True)
+        unique.setdefault(key, [row, False])
+    for row in feedback:
+        key = json.dumps(row, ensure_ascii=False, sort_keys=True)
+        if key in unique:
+            unique[key][1] = True
+        else:
+            unique[key] = [row, True]
+    rows = list(unique.values())
+    if len(rows) < 2:
+        raise ValueError("At least two unique expert examples are required for a leakage-safe train/validation split")
+    random.Random(seed).shuffle(rows)
+    n_eval = max(1, min(len(rows) - 1, int(len(rows) * eval_fraction)))
+    held = [row for row, _ in rows[:n_eval]]
+    train = []
+    for row, is_feedback in rows[n_eval:]:
+        train.extend([row] * (feedback_weight if is_feedback else 1))
+    return train, held
 
 
 class TantraTrainer:
@@ -336,13 +392,17 @@ class TantraTrainer:
         rows = self.expert_rows(name)
         if not rows:
             raise FileNotFoundError(f"no data for expert {name!r} in {self.data_dirs} or {self.feedback_dir}")
-        # Train on the expert's full data (minus a held-out slice for eval).
-        # Training on a small slice makes the LoRA overfit and WORSEN held-out
-        # loss; the full set keeps it stable (matches the proven v1 behaviour).
-        random.Random(a.seed).shuffle(rows)
-        n_eval = max(1, len(rows) // 10)
-        train = EncodedDataset(tok, rows[n_eval:], a.max_len)
-        held = EncodedDataset(tok, rows[:n_eval], a.max_len)
+        # Split unique examples BEFORE applying feedback oversampling. Otherwise
+        # repeated copies of one feedback row can leak into both train and validation.
+        curated = read_jsonl(files[name]) if name in files else []
+        feedback = []
+        for fb in (self.feedback_dir / f"{name}.jsonl",
+                   self.feedback_dir / "auto" / f"{name}.jsonl"):
+            if fb.exists():
+                feedback.extend(read_jsonl(fb))
+        train_rows, held_rows = split_expert_rows(curated, feedback, seed=a.seed)
+        train = EncodedDataset(tok, train_rows, a.max_len)
+        held = EncodedDataset(tok, held_rows, a.max_len)
 
         new = name not in model.expert_ranks
         model.add_expert(name, rank)
@@ -955,12 +1015,20 @@ class TantraModel(nn.Module):
         self.expert_ranks.pop(name, None)
 
     def load_expert_state(self, name: str, state: Dict[str, Tensor], rank: int) -> None:
+        expected = self.lora_shapes(name, rank)
+        given = {key: tuple(value.shape) for key, value in state.items()}
+        if given != expected:
+            missing = sorted(set(expected) - set(given))
+            extra = sorted(set(given) - set(expected))
+            wrong = sorted(key for key in set(given) & set(expected) if given[key] != expected[key])
+            raise ValueError(f"Expert '{name}' checkpoint is incomplete or incompatible: missing={missing[:3]} extra={extra[:3]} wrong_shape={wrong[:3]}")
         self.add_expert(name, rank)
         params = dict(self.named_parameters())
         with torch.no_grad():
-            for n, t in state.items():
-                if n in params and params[n].shape == t.shape:
-                    params[n].copy_(t)
+            for key, value in state.items():
+                if not isinstance(value, torch.Tensor) or not torch.isfinite(value).all():
+                    raise ValueError(f"Expert '{name}' contains an invalid tensor: {key}")
+                params[key].copy_(value)
 
     # ── routing ──
     @torch.no_grad()
