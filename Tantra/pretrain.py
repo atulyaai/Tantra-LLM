@@ -258,7 +258,7 @@ def prepare(output, model_dir=ROOT/'Model', train_tokens=1_000_000, exclude_corp
                         if h in excluded_texts or db.execute('SELECT 1 FROM documents WHERE hash=?', (h,)).fetchone():
                             filters[f'{lang}:exact_duplicate'] += 1; continue
                         fingerprint=lexical_simhash(text)
-                        # Four independent 16-bit buckets find likely neighbours without
+                        # Sixteen independent 4-bit buckets find likely neighbours without
                         # comparing every article to every prior article. Matching remains
                         # language-local: translated duplicates require multilingual semantics.
                         candidates=set()
