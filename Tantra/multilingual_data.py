@@ -83,7 +83,8 @@ def create_review_sheet(queue_dir, output_csv):
         raise ValueError(f"refusing to overwrite existing review sheet: {output}")
     output.parent.mkdir(parents=True, exist_ok=True)
     fields = [
-        "record_id", "language", "expert", "domain", "source_id",
+        "record_id", "language", "expert", "domain", "family_id", "template_id",
+        "source_id", "source_revision", "source_license", "source_url",
         "user", "assistant", "decision", "reviewer", "note",
         "fluent_language_review",
     ]
@@ -97,7 +98,10 @@ def create_review_sheet(queue_dir, output_csv):
             writer.writerow({
                 "record_id": row["record_id"], "language": row["language"],
                 "expert": row["expert"], "domain": row.get("domain", ""),
-                "source_id": row["source"]["id"], "user": user, "assistant": assistant,
+                "family_id": row["family_id"], "template_id": row["template_id"],
+                "source_id": row["source"]["id"], "source_revision": row["source"]["revision"],
+                "source_license": row["source"]["license"], "source_url": row["source"].get("url", ""),
+                "user": user, "assistant": assistant,
                 "decision": "", "reviewer": "", "note": "", "fluent_language_review": "",
             })
     return {"rows": len(candidates), "review_sheet": str(output), "approved": 0}
