@@ -106,3 +106,13 @@ def test_replay_mix_rejects_invalid_ratio():
     from Tantra.pretrained_expansion import mix_replay_examples
     with pytest.raises(ValueError,match="replay_ratio"):
         mix_replay_examples(["new"],["old"],replay_ratio=1.0)
+
+
+def test_residual_branch_supports_bfloat16_foundation_weights():
+    torch.manual_seed(29)
+    model=Tiny().to(dtype=torch.bfloat16).eval()
+    add_residual_branch(model,-1,4)
+    value=torch.randn(1,3,12,dtype=torch.bfloat16)
+    output=model(value)
+    assert output.dtype==torch.bfloat16
+    assert torch.isfinite(output).all()
