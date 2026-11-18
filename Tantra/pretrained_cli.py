@@ -42,7 +42,7 @@ def main(argv=None)->int:
     grow.add_argument("--layer-index",type=int,default=-1); grow.add_argument("--bottleneck",type=int,default=64)
     transfer=sub.add_parser("transfer-adapter")
     transfer.add_argument("--parent-adapter",required=True); transfer.add_argument("--child-adapter",required=True)
-    transfer.add_argument("--expected-base-sha256")
+    transfer.add_argument("--expected-base-sha256",required=True)
     promote=sub.add_parser("promote"); promote.add_argument("--candidate-id",required=True)
     promote.add_argument("--report",required=True); promote.add_argument("--lifecycle",default="runs/model-lifecycle.json")
     rollback=sub.add_parser("rollback"); rollback.add_argument("--lifecycle",default="runs/model-lifecycle.json")
@@ -75,6 +75,13 @@ def main(argv=None)->int:
         prompts=[x.strip() for x in Path(args.prompts).read_text(encoding="utf-8").splitlines() if x.strip()]
         result=generate_teacher_dataset(model,tokenizer,prompts,args.output)
         result["teacher_model_id"]=spec.model_id
+        result["teacher_revision"]=spec.revision
+        manifest_path=Path(args.output).with_suffix(Path(args.output).suffix+".manifest.json")
+        manifest=json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest["teacher_model_id"]=spec.model_id
+        manifest["teacher_revision"]=spec.revision
+        manifest["license_id"]=spec.license_id
+        manifest_path.write_text(json.dumps(manifest,indent=2)+"\\n",encoding="utf-8")
         print(json.dumps(result,indent=2)); return 0
     if args.command=="grow-residual":
         spec=ModelRegistry.from_file(args.registry).get(args.model_id)
