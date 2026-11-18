@@ -5,12 +5,12 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "tantra-llm"
 version = "0.3.0"
-description = "CPU-first sparse Mixture-of-Adapters language model built from scratch"
+description = "Multilingual language model fine-tuning and evaluation built around Qwen3.5"
 readme = "README.md"
 license = { file = "LICENSE" }
 requires-python = ">=3.10"
 authors = [{ name = "Atulya AI", email = "contact@atulvij.com" }]
-keywords = ["llm", "transformer", "mixture-of-adapters", "nlp", "cpu", "india", "local-ai"]
+keywords = ["llm", "qwen3.5", "multilingual", "hindi", "hinglish", "fine-tuning", "nlp"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Science/Research",
