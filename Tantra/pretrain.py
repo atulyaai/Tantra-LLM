@@ -189,7 +189,7 @@ def lexical_simhash(text):
     import re
     import unicodedata
     normalized=unicodedata.normalize('NFKC',text).casefold()
-    normalized=' '.join(re.findall(r'\\w+',normalized,flags=re.UNICODE))
+    normalized=' '.join(re.findall(r'\w+',normalized,flags=re.UNICODE))
     if len(normalized)<4:
         features=[normalized]
     else:
