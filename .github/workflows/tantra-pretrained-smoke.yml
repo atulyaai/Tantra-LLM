@@ -10,6 +10,7 @@ on:
       - "Tantra/model_lifecycle.py"
       - "Tests/test_model_gateway.py"
       - "Tests/test_pretrained_expansion.py"
+      - "Tests/fixtures/pretrained_lora_smoke.jsonl"
       - "configs/models/registry.json"
       - "pyproject.toml"
       - ".github/workflows/tantra-pretrained-smoke.yml"
