@@ -1,0 +1,307 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://atulyaai.github.io/Tantra-LLM/schemas/experiment-manifest-v1.json",
+  "title": "Tantra experiment manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "experiment_id",
+    "status",
+    "source",
+    "model",
+    "tokenizer",
+    "data",
+    "training",
+    "environment",
+    "evaluation"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "experiment_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "status": {
+      "enum": [
+        "planned",
+        "running",
+        "pending",
+        "measured",
+        "failed",
+        "not_run",
+        "rejected",
+        "promoted"
+      ]
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "git_commit"
+      ],
+      "properties": {
+        "git_commit": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{7,40}$"
+        },
+        "parent_experiment": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "model": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "family_id",
+        "architecture",
+        "config_sha256"
+      ],
+      "properties": {
+        "family_id": {
+          "type": "string"
+        },
+        "architecture": {
+          "type": "string"
+        },
+        "config_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "source_checkpoint_sha256": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/sha256"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "candidate_checkpoint_sha256": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/sha256"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "parameters_total": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "parameters_active_per_token": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        }
+      }
+    },
+    "tokenizer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sha256",
+        "vocab_size"
+      ],
+      "properties": {
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "vocab_size": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "parent_sha256": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/sha256"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "data": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "manifest_sha256",
+        "train_split_sha256",
+        "validation_split_sha256",
+        "test_split_sha256",
+        "sources"
+      ],
+      "properties": {
+        "manifest_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "train_split_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "validation_split_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "test_split_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "sources": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "revision",
+              "license"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "revision": {
+                "type": "string"
+              },
+              "license": {
+                "type": "string"
+              },
+              "url": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "training": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "seed",
+        "optimizer",
+        "schedule"
+      ],
+      "properties": {
+        "seed": {
+          "type": "integer"
+        },
+        "optimizer": {
+          "type": "string"
+        },
+        "schedule": {
+          "type": "string"
+        },
+        "steps": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "tokens_seen": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        }
+      }
+    },
+    "environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "python",
+        "framework",
+        "device"
+      ],
+      "properties": {
+        "python": {
+          "type": "string"
+        },
+        "framework": {
+          "type": "string"
+        },
+        "device": {
+          "type": "string"
+        },
+        "driver": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "runtime": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "precision": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "evaluation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "suite_ids"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "pending",
+            "measured",
+            "failed",
+            "not_run"
+          ]
+        },
+        "suite_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "results": {
+          "type": "object"
+        },
+        "generated_answers_path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "notes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  }
+}
