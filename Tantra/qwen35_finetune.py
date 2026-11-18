@@ -138,6 +138,43 @@ def load_prepared_manifest(manifest_path: str | Path, experts: list[str]):
     return train_rows, validation_rows, sha256_file(manifest_path), split_hashes
 
 
+def load_manifest_test_rows(manifest_path: str | Path, experts: list[str]):
+    """Load frozen test rows only for final evaluation, after model selection."""
+    manifest_path = Path(manifest_path)
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if not isinstance(manifest.get("experts"), dict) or not experts:
+        raise ValueError("Manifest evaluation requires a valid experts mapping and selected experts")
+    rows, split_hashes, seen = [], {}, set()
+    for expert in experts:
+        if expert not in manifest["experts"]:
+            raise ValueError(f"Unknown expert in prepared manifest: {expert}")
+        item = (manifest["experts"][expert].get("files") or {}).get("test")
+        if not item:
+            raise ValueError(f"Expert {expert!r} has no frozen test split")
+        path = manifest_path.parent / item["path"]
+        if not path.is_file():
+            raise FileNotFoundError(path)
+        digest = sha256_file(path)
+        if digest.lower() != str(item.get("sha256", "")).lower():
+            raise ValueError(f"Prepared test checksum mismatch: {path}")
+        split_hashes[expert] = digest
+        if path.stat().st_size == 0:
+            continue
+        selected, _ = read_reviewed_jsonl(path)
+        for row in selected:
+            if row.get("split") and row["split"] != "test":
+                raise ValueError(f"Non-test row found in held-out split: {path}")
+            key = str(row.get("record_id") or hashlib.sha256(
+                json.dumps(row["messages"], ensure_ascii=False, sort_keys=True).encode("utf-8")
+            ).hexdigest())
+            if key not in seen:
+                rows.append(row)
+                seen.add(key)
+    if not rows:
+        raise ValueError("Selected experts have no held-out test rows")
+    return rows, sha256_file(manifest_path), split_hashes
+
+
 def _ids(value: Any) -> list[int]:
     if hasattr(value, "tolist"):
         value = value.tolist()
