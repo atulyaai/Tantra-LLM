@@ -1,6 +1,6 @@
 # Tantra-LLM: family growth, expert composition, DNA compression and balanced runtime
 
-**Status:** architecture decision record and implementation backlog. This document does not claim that proposed experiments have run.
+**Status:** research architecture decision record and implementation backlog. The current locked product direction is native-first, with residual-branch growth first and width/depth expansion later; see [the authoritative roadmap](TANTRA_NATIVE_ARCHITECTURE_ROADMAP.md). This document does not claim that proposed experiments have run.
 
 **Decisions — 2026-11-18**
 
@@ -36,9 +36,9 @@ These are target tiers, not claims that this repository can currently train or s
 
 ### 2.2 Three controlled growth tracks
 
-1. **Function-preserving structural growth.** Harden the existing depth-growth operation. New residual branches start as exact identity/no-op paths using zero output projections or zero residual gates. Width growth is blocked until a Net2Net-style tensor mapping has a fixed-batch output-equivalence test.
-2. **Distilled family siblings.** Train/adapt sibling checkpoints from a common teacher and data contract. Distill logits and intermediate features on a transfer set separate from the clean held-out evaluation set.
-3. **Progressive sparse experts.** Add experts incrementally, initialize router outputs safely, train new experts independently, then calibrate/distill the router. Existing experts remain frozen unless a declared joint-training experiment justifies changing them.
+1. **Residual-branch growth first (locked).** Prove the native expert can add a parallel branch behind a zero output projection or zero residual gate while preserving the original path. Train the new branch with distillation + replay + new data; keep the source expert immutable.
+2. **Depth and width growth later.** Harden the existing depth-growth operation and design width mapping only after the residual-branch proof. Each operator needs its own architecture-specific fixed-batch equivalence/control test.
+3. **Distilled family siblings and progressive sparse experts (later).** Train sibling checkpoints from a common teacher and data contract; add experts incrementally and calibrate/distill the router. Existing validated experts remain frozen unless a declared joint-training experiment justifies changing them.
 
 ### 2.3 Growth training protocol
 
