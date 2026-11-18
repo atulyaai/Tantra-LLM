@@ -32,6 +32,7 @@ Entry point:
 
 ```bash
 python -m pip install -e ".[finetune,test]"
+python -m Tantra qwen35_preflight
 python -m Tantra qwen35_finetune --help
 python -m Tantra qwen35_eval --help
 ```
@@ -54,6 +55,30 @@ python -m Tantra qwen35_finetune \
 ```
 
 The default revision is a full immutable Hub commit SHA. Override it only with another verified full SHA. The first run defaults to 200 optimizer steps, max sequence length 1024, microbatch 1, gradient accumulation 16, LoRA rank 8 and learning rate 1e-4. These are conservative starting settings, not a tuned recipe.
+
+### Environment and dataset preflight
+
+Run the non-download environment report first:
+
+```bash
+python -m Tantra qwen35_preflight
+```
+
+Verify the selected, populated workbench experts and every split checksum:
+
+```bash
+python -m Tantra qwen35_preflight \
+  --manifest Datasets/workbench/prepared/manifest.json \
+  --experts greeting,smalltalk,identity_self
+```
+
+Only after reviewing GPU/VRAM and dependency versions, explicitly run the checkpoint load and short Hindi generation smoke test:
+
+```bash
+python -m Tantra qwen35_preflight --check-model
+```
+
+The model check downloads the pinned checkpoint if it is not cached. It requires CUDA by default; `--allow-cpu-model-check` permits a slower CPU-only load. This checks loading and generation, not training readiness or language quality. The JSON report records hardware, package versions, selected data counts by language and verified hashes.
 
 ## 4. Data readiness is the current blocker
 
