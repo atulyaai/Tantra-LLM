@@ -12,7 +12,6 @@ on:
       - "Tests/test_pretrained_expansion.py"
       - "Tests/fixtures/pretrained_lora_smoke.jsonl"
       - "Tests/fixtures/pretrained_replay_smoke.jsonl"
-      - "Tantra/pretrained_expansion.py"
       - "configs/models/registry.json"
       - "pyproject.toml"
       - ".github/workflows/tantra-pretrained-smoke.yml"

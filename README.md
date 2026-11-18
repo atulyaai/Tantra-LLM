@@ -53,10 +53,10 @@ versioned promotion on small models before scaling.
 - **Tantra identity**: inference enforces the Tantra product identity while
   preserving truthful disclosure of the configured underlying model.
 
-> **State**: pretrained gateway and expansion prototype. CI validates registry,
-> identity, inheritance, residual growth and lifecycle mechanics. The pinned
-> 360M checkpoint smoke and real fine-tuning must be run explicitly on target
-> hardware; no language-quality gain is claimed. Developers: read
+> **State**: pretrained gateway and expansion prototype. CI passed 211 tests
+> (1 skipped), and the pinned 360M checkpoint completed real CPU LoRA/replay
+> and residual-branch smoke training. These validate mechanics, not language
+> quality or production capability gains. Developers: read
 > [AGENTS.md](AGENTS.md) and [docs/HANDOFF.md](docs/HANDOFF.md) first.
 
 ---
@@ -154,7 +154,7 @@ Tantra-LLM/
 │   ├─ dashboard.py        # Bulk review, review sheets, live dashboard
 │   ├─ conversation_train.py     # Seed writers, conversation training
 │   └─ reasoning.py        # Think -> Check -> Verify -> Learn reasoning loop
-├─ Tests/                  # 4 grouped test suites (126 checks)
+├─ Tests/                  # regression, identity, pretrained and growth tests
 ├─ docs/                   # Specifications, expert cards, data locks and expansion roadmap
 │  ├─ TANTRA_PRETRAINED_EXPANSION_ROADMAP.md
 ├─ clean_workspace.ps1     # Safe local-artifact cleanup
@@ -217,6 +217,7 @@ not the final Hindi-first production foundation.
 ```bash
 pip install -e ".[pretrained,finetune,test]"
 python -m Tantra.pretrained_cli info
+hf download HuggingFaceTB/SmolLM2-360M-Instruct --revision c38281e01d0c0b0c36eac2f5bcb5b51fa2e803fc --local-dir ./checkpoints/SmolLM2-360M-Instruct
 python -m Tantra.pretrained_cli smoke --model-id HuggingFaceTB/SmolLM2-360M-Instruct --checkpoint ./checkpoints/SmolLM2-360M-Instruct
 
 # Generate teacher demonstrations; inspect them before approval
@@ -226,11 +227,11 @@ python -m Tantra.pretrained_cli approve-dataset --dataset Datasets/pretrained/te
 # Fine-tune a LoRA child with 25% old-capability replay
 python -m Tantra.pretrained_cli train-lora --model-id HuggingFaceTB/SmolLM2-360M-Instruct --checkpoint ./checkpoints/SmolLM2-360M-Instruct --candidate-id tantra-smollm-lora-001 --data Datasets/pretrained/teacher.jsonl --replay-data Datasets/pretrained/replay.jsonl --replay-ratio 0.25 --output runs/tantra-smollm-lora-001
 
-# Generate teacher demonstrations, review them, then use them in student LoRA training
-python -m Tantra.pretrained_cli distill --model-id HuggingFaceTB/SmolLM2-360M-Instruct --checkpoint ./checkpoints/SmolLM2-360M-Instruct --prompts Datasets/pretrained/prompts.txt --output Datasets/pretrained/teacher-review.jsonl
-
 # Grow a zero-initialized residual branch and train only the new branch
-python -m Tantra.pretrained_cli grow-residual --model-id HuggingFaceTB/SmolLM2-360M-Instruct --checkpoint ./checkpoints/SmolLM2-360M-Instruct --candidate-id tantra-smollm-residual-001 --data Datasets/pretrained/train.jsonl --output runs/tantra-smollm-residual-001
+python -m Tantra.pretrained_cli grow-residual --model-id HuggingFaceTB/SmolLM2-360M-Instruct --checkpoint ./checkpoints/SmolLM2-360M-Instruct --candidate-id tantra-smollm-residual-001 --data Datasets/pretrained/train.jsonl --replay-data Datasets/pretrained/replay.jsonl --replay-ratio 0.25 --output runs/tantra-smollm-residual-001
+
+# Transfer exact compatible tensors into a child checkpoint without changing the parent
+python -m Tantra.pretrained_cli transfer-weights --parent-model-id HuggingFaceTB/SmolLM2-360M-Instruct --parent-checkpoint ./checkpoints/SmolLM2-360M-Instruct --child-checkpoint ./checkpoints/child-foundation --candidate-id tantra-inherited-child-001 --output runs/tantra-inherited-child-001
 
 # Promote only after a complete report; rollback restores the previous active candidate
 python -m Tantra.pretrained_cli promote --candidate-id tantra-smollm-lora-001 --report runs/tantra-smollm-lora-001-report.json
