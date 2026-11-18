@@ -53,3 +53,18 @@ The CLI exposes `train-lora`, `distill`, `grow-residual`, `transfer-adapter`, `p
 
 ### What this phase does not claim
 The CI tests use synthetic tiny modules and mocked inference. They prove mechanics, not language quality. A real LoRA run, teacher-to-student capability gain, Hindi/Hinglish evaluation and measured 0.8B-to-2–3B scaling remain explicit experiment gates.
+
+
+## Human review and replay policy
+
+Teacher-generated demonstrations are written with a sidecar manifest containing the teacher model ID/revision and a SHA-256 of the dataset. They are blocked from LoRA or residual training until explicitly approved:
+
+    python -m Tantra.pretrained_cli approve-dataset --dataset Datasets/pretrained/teacher.jsonl --reviewed-by "Reviewer" --review-note "Reviewed against the prompt and corrected errors"
+
+Approval is bound to the dataset hash. Editing the dataset after approval invalidates the approval. The trainer records both new-data and replay-data hashes and the replay ratio. Use separate held-out validation and test sets; this prototype's trainer does not automatically turn training loss into a promotion score.
+
+## Additional inheritance primitives
+
+- Compatible weight transfer copies only exact tensor-name and tensor-shape matches into a child model; source weights remain untouched.
+- Feature-alignment loss provides a differentiable projection/MSE primitive for cross-hidden-size teacher/student alignment.
+- Adapter transfer requires the parent base-checkpoint hash and matching PEFT configuration.
