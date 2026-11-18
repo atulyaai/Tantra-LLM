@@ -28,10 +28,10 @@ The repository retains a native Tantra Transformer as historical research code, 
 <summary><strong>What exists and has been verified</strong></summary>
 
 - Python package, CLI entry points, native training/evaluation code and automated tests.
-- A tokenizer artifact in `Model/`; the repository does not contain a ready-to-use trained native model checkpoint.
-- Optional external-model gateway and registry experiments with pinned model revisions; these are not Tantra's native foundation.
-- A pinned **SmolLM2-360M-Instruct** checkpoint integration path used for CPU LoRA/replay and residual-branch smoke tests. This is an engineering test, not evidence of Hindi capability.
-- **Qwen3-1.7B** is registered as a multilingual evaluation candidate. Its manual workflow runs a small engineering fixture; it has not been selected or promoted as Tantra's foundation model.
+- The Qwen3.5-0.8B-Base LoRA SFT source pipeline and unit tests for JSONL provenance checks, family leakage and assistant-only label masking.
+- The official Qwen3.5 tokenizer/chat-template path is preserved by the pipeline; the legacy 10,277-token native tokenizer is not used for Qwen.
+- Historical native-model, SmolLM2 and Qwen3-1.7B experiments remain in the repository for provenance, but they are not the active foundation path.
+- The Qwen3.5 model has not yet been downloaded or trained in the user's runtime; no Tantra adapter has been promoted.
 - The latest main-branch CPU and expansion test workflows passed on 18 November 2026: the expansion suite reported 230 passed and 1 skipped. Passing software tests do not establish language quality.
 
 </details>
@@ -39,12 +39,10 @@ The repository retains a native Tantra Transformer as historical research code, 
 <details open>
 <summary><strong>What is not established yet</strong></summary>
 
-- No frontier-scale model has been trained from scratch by this repository.
-- No production-ready Hindi-English-Hinglish foundation model has been demonstrated.
-- No controlled LoRA result has yet established a Hindi/Hinglish gain while preserving English quality.
-- The 64K tokenizer is a candidate plan, not the active tokenizer. The current model vocabulary is 10,277; migration requires embedding expansion, training and held-out validation.
-- The current multilingual intake documentation records a shortage of approved Hindi and Hinglish conversation rows. The automated 10M bilingual experiment currently fails its honest data-readiness gate because it cannot form the required Hindi train/validation/test splits.
-- Architecture growth, expert inheritance, distillation and large model-family tiers are research directions unless a specific test or report proves the implementation.
+- No controlled SFT run has yet established a Hindi/Hinglish gain while preserving English quality.
+- No approved Qwen-formatted multilingual train/validation/test corpus is currently certified ready for this pipeline.
+- The earlier bilingual workflow failed its data-readiness gate because approved Hindi rows were insufficient for the required splits.
+- No Qwen3.5 adapter has passed held-out evaluation or been promoted.
 
 </details>
 
@@ -53,7 +51,7 @@ The repository retains a native Tantra Transformer as historical research code, 
 ## Architecture
 
 <div align="center">
-  <img src="Assets/tantra_pretrained_architecture.svg" alt="Tantra native-first expandable architecture" width="100%"/>
+  <img src="Assets/tantra_pretrained_architecture.svg" alt="Tantra Qwen3.5 foundation and multilingual fine-tuning pipeline" width="100%"/>
 </div>
 
 The active pipeline is:
@@ -76,7 +74,7 @@ python -m pip install -e ".[test]"
 python -m pytest Tests -q
 ```
 
-Optional: inspect the external-model gateway (not required for native Tantra development):
+Optional: inspect the legacy external-model gateway (not part of the active Qwen3.5 SFT pipeline):
 
 ```bash
 python -m pip install -e ".[pretrained]"
@@ -94,7 +92,7 @@ The Qwen3.5 fine-tuning extra requires Transformers 5.23 or newer and a compatib
 ## Useful commands
 
 ```bash
-# Main native CLI
+# Legacy native research CLI
 python -m Tantra --help
 python -m Tantra chat
 python -m Tantra ask "What is the capital of India?"
