@@ -3,9 +3,11 @@ name: Tantra CPU validation
 on:
   push:
     branches: [main, validation/full-suite-small-model-sample]
-  pull_request:
-    branches: [main]
   workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
