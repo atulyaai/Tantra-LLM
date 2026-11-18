@@ -28,9 +28,8 @@ class ModelLifecycle:
     def register(self,candidate_id,artifact_dir,parent_id,metadata=None):
         data=self._read()
         if candidate_id in data["candidates"]: raise ValueError("candidate id already exists")
-        if parent_id not in data["candidates"] and parent_id!=data["active"]:
-            # Parent may be the initial foundation; allow explicit root marker.
-            if parent_id!="foundation": raise ValueError("unknown parent model")
+        if not isinstance(parent_id, str) or not parent_id.strip():
+            raise ValueError("parent_id must identify the immutable source checkpoint or candidate")
         record={"candidate_id":candidate_id,"artifact_dir":str(Path(artifact_dir).resolve()),
                 "artifact_sha256":_artifact_hash(artifact_dir),"parent_id":parent_id,
                 "metadata":metadata or {},"status":"candidate"}
