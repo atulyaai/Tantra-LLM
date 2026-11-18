@@ -40,8 +40,9 @@ def test_encode_rows_masks_prompt_and_supervises_assistant_only():
     assert len(examples) == 1
     labels = examples[0]["labels"]
     assert labels[0] == -100
-    assert all(token == -100 for token in labels[:-4])
-    assert all(token != -100 for token in labels[-4:])
+    prompt = TinyChatTokenizer().apply_chat_template(row()["messages"][:1], add_generation_prompt=True)
+    assert all(token == -100 for token in labels[:len(prompt)])
+    assert all(token != -100 for token in labels[len(prompt):])
 
 
 def test_encode_rows_keeps_target_when_truncating_long_context():
