@@ -80,6 +80,10 @@ versioned promotion on small models before scaling.
 
 ---
 
+## Existing Native Implementation (Compatibility Baseline)
+
+The following diagram documents the repository's existing native transformer path. The pretrained-first platform direction above is the forward roadmap; this implementation remains available as a backend and research baseline.
+
 ## Architecture Overview
 
 <div align="center">
