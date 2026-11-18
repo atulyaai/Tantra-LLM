@@ -131,3 +131,70 @@ def test_cuda_memory_gate_checks_free_vram(monkeypatch):
     monkeypatch.setattr(pretrain.torch.cuda, "is_available", lambda: True)
     monkeypatch.setattr(pretrain.torch.cuda, "mem_get_info", lambda device=None: (128 * 1024**2, 2 * 1024**3))
     assert pretrain.memory_ok("cuda") is False
+
+
+
+def test_interrupted_and_uninterrupted_optimizer_runs_match(tmp_path):
+    """Exercise the exact RNG/model/optimizer state needed by the pilot resume path."""
+    import random
+    import numpy as np
+    from Tantra.pretrain import capture_rng_state, restore_rng_state
+
+    def make_model():
+        return nn.Sequential(nn.Linear(8, 16), nn.Dropout(0.35), nn.Linear(16, 2))
+
+    def run_steps(model, optimizer, start, end):
+        model.train()
+        for step in range(start, end):
+            x = torch.arange(32, dtype=torch.float32).reshape(4, 8) / 31 + step / 100
+            target = torch.tensor([0, 1, 0, 1])
+            optimizer.zero_grad(set_to_none=True)
+            loss = nn.functional.cross_entropy(model(x), target)
+            loss.backward()
+            optimizer.step()
+
+    torch.manual_seed(1234); random.seed(1234); np.random.seed(1234)
+    whole = make_model()
+    whole_opt = torch.optim.AdamW(whole.parameters(), lr=0.002)
+    run_steps(whole, whole_opt, 0, 8)
+
+    torch.manual_seed(1234); random.seed(1234); np.random.seed(1234)
+    resumed = make_model()
+    resumed_opt = torch.optim.AdamW(resumed.parameters(), lr=0.002)
+    run_steps(resumed, resumed_opt, 0, 3)
+    checkpoint = {
+        "state": resumed.state_dict(),
+        "optimizer": resumed_opt.state_dict(),
+        **capture_rng_state("cpu"),
+    }
+    path = tmp_path / "resume.pt"
+    torch.save(checkpoint, path)
+
+    # Simulate unrelated work between process exit and restart.
+    torch.manual_seed(999); random.seed(999); np.random.seed(999)
+    loaded = torch.load(path, map_location="cpu", weights_only=False)
+    resumed.load_state_dict(loaded["state"])
+    resumed_opt.load_state_dict(loaded["optimizer"])
+    restore_rng_state(loaded, "cpu")
+    run_steps(resumed, resumed_opt, 3, 8)
+
+    for expected, actual in zip(whole.parameters(), resumed.parameters()):
+        assert torch.equal(expected, actual)
+    assert whole_opt.state_dict()["state"].keys() == resumed_opt.state_dict()["state"].keys()
+    for key, expected_state in whole_opt.state_dict()["state"].items():
+        actual_state = resumed_opt.state_dict()["state"][key]
+        for field, expected in expected_state.items():
+            if isinstance(expected, torch.Tensor):
+                assert torch.equal(expected, actual_state[field])
+            else:
+                assert expected == actual_state[field]
+
+
+def test_lexical_simhash_flags_small_edits_but_not_unrelated_text():
+    from Tantra.pretrain import lexical_simhash, near_duplicate
+
+    original = "The quick brown fox jumps over the lazy dog near the river bank."
+    edited = "The quick brown fox jumped over the lazy dog near the river bank."
+    unrelated = "Quantum chromodynamics describes interactions between quarks and gluons."
+    assert near_duplicate(lexical_simhash(original), lexical_simhash(edited))
+    assert not near_duplicate(lexical_simhash(original), lexical_simhash(unrelated))
