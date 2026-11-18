@@ -86,3 +86,23 @@ def test_base_loader_rejects_missing_registered_adapter(tmp_path):
     (tmp_path / "experts" / "greeting.pt").unlink()
     with pytest.raises(FileNotFoundError, match="Missing adapter checkpoint"):
         TantraModel.load(base, tmp_path / "experts")
+
+
+
+def test_tiny_model_config_keeps_nonzero_feed_forward_width():
+    cfg = ModelConfig(vocab_size=64, d_model=16, n_layers=1, n_heads=2,
+                      n_kv_heads=1, mlp_mult=2, max_seq_len=32)
+    assert cfg.mlp_hidden >= 64
+
+
+def test_model_config_rejects_invalid_rope_head_dimension():
+    with pytest.raises(ValueError, match="head dimension must be even"):
+        ModelConfig(vocab_size=64, d_model=12, n_layers=1, n_heads=3,
+                    n_kv_heads=1, mlp_mult=2, max_seq_len=32)
+
+
+def test_tokenizer_rejects_missing_control_tokens():
+    from tokenizers import Tokenizer, models
+    from Tantra.tokenizer import TantraTokenizer
+    with pytest.raises(ValueError, match="missing required special tokens"):
+        TantraTokenizer(Tokenizer(models.BPE()))
