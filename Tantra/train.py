@@ -1168,23 +1168,47 @@ class TantraModel(nn.Module):
         attaches each adapter's weights when a request is routed to it."""
         # weights_only: model files hold tensors and plain metadata; never unpickle arbitrary objects.
         ck = torch.load(path, map_location=map_location, weights_only=True)
+        if not isinstance(ck, dict) or not isinstance(ck.get("state"), dict):
+            raise ValueError("Invalid Tantra base checkpoint")
         model = cls(ModelConfig.from_dict(ck["config"]))
         ranks = ck.get("expert_ranks", {})
-        for name in ck.get("router_names", []):
+        names = ck.get("router_names", [])
+        if not isinstance(names, list) or len(names) != len(set(names)):
+            raise ValueError("Invalid or duplicate expert names in base checkpoint")
+        for name in names:
             if lazy:
                 model.router.add_expert(name)
             else:
-                model.add_expert(name, ranks.get(name))
+                if name not in ranks:
+                    raise ValueError(f"Missing rank metadata for expert {name!r}")
+                model.add_expert(name, ranks[name])
+        # Base checkpoints intentionally omit LoRA tensors; every other key and
+        # shape must match exactly. strict=False alone would hide damaged weights.
+        expected = {k: v for k, v in model.state_dict().items() if "lora_" not in k}
+        saved = ck["state"]
+        if set(saved) != set(expected):
+            missing, extra = sorted(set(expected) - set(saved)), sorted(set(saved) - set(expected))
+            raise ValueError(f"Base checkpoint key mismatch: missing={missing[:5]} extra={extra[:5]}")
+        wrong = [k for k in expected if not isinstance(saved[k], torch.Tensor) or saved[k].shape != expected[k].shape]
+        if wrong:
+            raise ValueError(f"Base checkpoint tensor shape/type mismatch: {wrong[:5]}")
+        incompatible = model.load_state_dict(saved, strict=False)
+        allowed_missing = {k for k in model.state_dict() if "lora_" in k}
+        if set(incompatible.missing_keys) != allowed_missing or incompatible.unexpected_keys:
+            raise ValueError("Base checkpoint did not load with the expected adapter-only omissions")
         if lazy:
-            model.load_state_dict({k: v for k, v in ck["state"].items() if "lora_" not in k}, strict=False)
             return model
-        model.load_state_dict(ck["state"], strict=False)
+        if names and experts_dir is None:
+            raise ValueError("This base registers experts; provide experts_dir or load with lazy=True")
         if experts_dir is not None:
             for name in model.expert_names:
-                f = Path(experts_dir) / f"{name}.pt"
-                if f.exists():
-                    e = torch.load(f, map_location=map_location, weights_only=True)
-                    model.load_expert_state(name, e["state"], e["rank"])
+                expert_path = Path(experts_dir) / f"{name}.pt"
+                if not expert_path.exists():
+                    raise FileNotFoundError(f"Missing adapter checkpoint for registered expert {name!r}: {expert_path}")
+                expert = torch.load(expert_path, map_location=map_location, weights_only=True)
+                if not isinstance(expert, dict) or not isinstance(expert.get("state"), dict) or "rank" not in expert:
+                    raise ValueError(f"Invalid adapter checkpoint for expert {name!r}")
+                model.load_expert_state(name, expert["state"], expert["rank"])
         return model
 
 
