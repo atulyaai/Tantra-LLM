@@ -7,7 +7,7 @@ Entry names let the flattened hosts keep their per-task command surfaces:
 workbench_cli, auto_growth_cli, sources_cli, prepare_corpus_cli, pilot_cli,
 continue_cli, job_cli, candidates_cli, migrate_cli, vjob_cli,
 router_eval_cli, reply_eval_cli, review_cli, sheets_cli, instruct_cli,
-quality_cli, conversation_sources_cli, qwen35_finetune, qwen35_eval.
+quality_cli, conversation_sources_cli, qwen35_finetune, qwen35_eval, qwen35_preflight.
 """
 import importlib
 import sys
@@ -34,6 +34,7 @@ ENTRIES = {
     'conversation_sources_cli': ('conversation_train', 'conversation_sources_cli'),
     'qwen35_finetune': ('qwen35_finetune', 'main'),
     'qwen35_eval': ('qwen35_eval', 'main'),
+    'qwen35_preflight': ('qwen35_preflight', 'main'),
 }
 
 
