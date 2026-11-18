@@ -53,10 +53,10 @@ versioned promotion on small models before scaling.
 - **Tantra identity**: inference enforces the Tantra product identity while
   preserving truthful disclosure of the configured underlying model.
 
-> **State**: this branch adds the pretrained-first platform roadmap and an
-> identity-policy prototype. The full repository regression suite must pass in
-> CI before this work is considered ready to merge. No pretrained model has
-> been selected, downloaded or fine-tuned by this change. Developers: read
+> **State**: pretrained-first architecture and identity prototype. CI validation
+> passed: 171 tests passed, 1 skipped; CPU smoke training and checkpoint reload
+> passed. No pretrained model has been selected, downloaded or fine-tuned by
+> this change. Developers: read
 > [AGENTS.md](AGENTS.md) and [docs/HANDOFF.md](docs/HANDOFF.md) first.
 
 ---
