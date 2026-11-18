@@ -26,6 +26,7 @@ class TinyChatTokenizer:
 def row(family="family-a"):
     return {
         "family_id": family,
+        "language": "hi",
         "messages": [
             {"role": "user", "content": "नमस्ते"},
             {"role": "assistant", "content": "नमस्ते!"},
