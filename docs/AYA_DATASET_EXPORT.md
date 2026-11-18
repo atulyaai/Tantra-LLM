@@ -28,7 +28,7 @@ python -m Tantra.multilingual_data intake \
   --source-id aya-instructions \
   --source-revision f9ea04583f02a8f86404ff6c58bf75fe637df8a2 \
   --source-license Apache-2.0 \
-  --source-url https://huggingface.co/datasets/CohereForAI/aya_dataset
+  --source-url https://huggingface.co/datasets/CohereLabs/aya_dataset
 ```
 
 Important limitations:
@@ -44,4 +44,4 @@ Important limitations:
   preparation so related records cannot leak across train/validation/test.
 - Keep the source revision and export manifest with every downstream dataset version.
 
-Official source card: https://huggingface.co/datasets/CohereForAI/aya_dataset
+Official source card: https://huggingface.co/datasets/CohereLabs/aya_dataset
