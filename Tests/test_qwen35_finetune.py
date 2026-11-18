@@ -5,7 +5,10 @@ import pytest
 from Tantra.qwen35_finetune import (
     check_family_disjoint,
     encode_rows,
+    load_manifest_test_rows,
+    load_prepared_manifest,
     read_reviewed_jsonl,
+    sha256_file,
 )
 
 
@@ -94,7 +97,7 @@ def test_prepared_manifest_hashes_are_verified_without_training_on_test(tmp_path
         item["split"] = split
         item["split_group"] = item["family_id"]
         path = {"train": experts_dir, "val": val_dir, "test": test_dir}[split] / "general.jsonl"
-        path.write_text(json.dumps(item, ensure_ascii=False) + "\\n", encoding="utf-8")
+        path.write_text(json.dumps(item, ensure_ascii=False) + "\n", encoding="utf-8")
         files[split] = {
             "path": path.relative_to(prepared).as_posix(),
             "sha256": sha256_file(path),
@@ -114,7 +117,6 @@ def test_prepared_manifest_hashes_are_verified_without_training_on_test(tmp_path
     assert test_manifest_hash == manifest_hash
     assert set(test_hashes) == {"general"}
 
-    files["train"]["path"]
     (prepared / files["train"]["path"]).write_text("tampered\\n", encoding="utf-8")
     with pytest.raises(ValueError, match="checksum mismatch"):
         load_prepared_manifest(manifest_path, ["general"])
