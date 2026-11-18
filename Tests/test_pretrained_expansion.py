@@ -61,3 +61,30 @@ def test_lifecycle_detects_artifact_tampering(tmp_path):
     lifecycle=ModelLifecycle(tmp_path/"lifecycle.json"); p=tmp_path/"candidate"; p.mkdir(); (p/"weights").write_bytes(b"original")
     lifecycle.register("candidate",p,"foundation"); (p/"weights").write_bytes(b"tampered")
     with pytest.raises(ValueError,match="changed"): lifecycle.promote("candidate",_report())
+
+
+def test_residual_branch_parameters_are_trainable_and_base_is_frozen():
+    torch.manual_seed(23)
+    model=Tiny()
+    add_residual_branch(model,-1,4)
+    wrapper=model.model.layers[-1]
+    assert all(not p.requires_grad for p in wrapper.base.parameters())
+    assert any(p.requires_grad for p in wrapper.branch.parameters())
+    x=torch.randn(2,4,12)
+    optimizer=torch.optim.SGD(wrapper.branch.parameters(),lr=0.1)
+    before=wrapper.branch[-1].weight.detach().clone()
+    loss=model(x).pow(2).mean()
+    loss.backward()
+    optimizer.step()
+    assert not torch.equal(before,wrapper.branch[-1].weight.detach())
+    assert all(p.grad is None for p in wrapper.base.parameters())
+
+
+def test_adapter_inheritance_rejects_incompatible_peft_config(tmp_path):
+    parent=tmp_path/"parent"; parent.mkdir()
+    (parent/"tantra_adapter.json").write_text(json.dumps({"base_sha256":"a"*64}))
+    (parent/"adapter_config.json").write_text(json.dumps({"base_model_name_or_path":"base-a","target_modules":["q_proj"],"r":8,"lora_alpha":16,"peft_type":"LORA"}))
+    child=tmp_path/"child"; child.mkdir()
+    (child/"adapter_config.json").write_text(json.dumps({"base_model_name_or_path":"base-b","target_modules":["q_proj"],"r":8,"lora_alpha":16,"peft_type":"LORA"}))
+    with pytest.raises(ValueError,match="incompatible"):
+        transfer_adapter(parent,child)
