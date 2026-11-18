@@ -123,3 +123,11 @@ def test_kv_cached_logits_match_full_causal_forward():
             pieces.append(model(tokens[:, pos:pos + 1], caches=caches, pos=pos))
         cached = torch.cat(pieces, dim=1)
     assert torch.allclose(full, cached, atol=1e-5, rtol=1e-5)
+
+
+
+def test_cuda_memory_gate_checks_free_vram(monkeypatch):
+    import Tantra.pretrain as pretrain
+    monkeypatch.setattr(pretrain.torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(pretrain.torch.cuda, "mem_get_info", lambda device=None: (128 * 1024**2, 2 * 1024**3))
+    assert pretrain.memory_ok("cuda") is False
