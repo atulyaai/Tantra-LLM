@@ -1,6 +1,6 @@
 # Optional pretrained gateway experiments — historical integration track
 
-> **Status:** optional engineering/reference path only. The current product roadmap is native-first: Tantra owns its architecture and trains its own foundation weights. This document records how external checkpoints may be used for gateway, teacher or mechanics experiments; it does not define Tantra's foundation strategy. See [the authoritative native-first roadmap](TANTRA_PRETRAINED_EXPANSION_ROADMAP.md).
+> **Status:** optional engineering/reference path only. The current product roadmap is native-first: Tantra owns its architecture and trains its own foundation weights. This document records how external checkpoints may be used for gateway, teacher or mechanics experiments; it does not define Tantra's foundation strategy. See [the authoritative native-first roadmap](TANTRA_NATIVE_ARCHITECTURE_ROADMAP.md).
 
 
 
