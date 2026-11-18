@@ -2,7 +2,7 @@
 
 ## Current locked architecture direction — 18 November 2026
 
-The authoritative product direction is **native-first, independently trained Tantra with expandable experts**. Read [the native-first architecture and roadmap](TANTRA_PRETRAINED_EXPANSION_ROADMAP.md) before changing model, expert, routing, training or lifecycle code.
+The authoritative product direction is **native-first, independently trained Tantra with expandable experts**. Read [the native-first architecture and roadmap](TANTRA_NATIVE_ARCHITECTURE_ROADMAP.md) before changing model, expert, routing, training or lifecycle code.
 
 Locked decisions:
 - Tantra owns its native architecture, tokenizer, vocabulary, training pipeline, expert format, router and checkpoints. External models are optional teachers, benchmarks or separately served tools—not Tantra's foundation.
