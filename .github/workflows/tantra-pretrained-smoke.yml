@@ -11,6 +11,7 @@ on:
       - "Tests/test_model_gateway.py"
       - "Tests/test_pretrained_expansion.py"
       - "Tests/fixtures/pretrained_lora_smoke.jsonl"
+      - "Tests/fixtures/pretrained_replay_smoke.jsonl"
       - "configs/models/registry.json"
       - "pyproject.toml"
       - ".github/workflows/tantra-pretrained-smoke.yml"
@@ -52,7 +53,8 @@ jobs:
             --checkpoint checkpoints/SmolLM2-360M-Instruct \
             --candidate-id ci-smollm-lora \
             --data Tests/fixtures/pretrained_lora_smoke.jsonl \
-            --output "$RUNNER_TEMP/ci-smollm-lora" --steps 1 --rank 2
+            --output "$RUNNER_TEMP/ci-smollm-lora" --steps 1 --rank 2 \
+            --replay-data Tests/fixtures/pretrained_replay_smoke.jsonl --replay-ratio 0.25
       - name: Run local-only model generation with the LoRA adapter
         run: |
           python -m Tantra.pretrained_cli smoke \
