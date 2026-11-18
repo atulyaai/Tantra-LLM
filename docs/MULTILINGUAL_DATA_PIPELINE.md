@@ -20,7 +20,7 @@ paraphrases and turns from one source share the same family. Do not mint a famil
 python -m Tantra.multilingual_data intake \
   --input exports/aya-normalized.jsonl \
   --out Datasets/review/aya-v1 \
-  --expert smalltalk \
+  --expert smalltalk --domain conversation \
   --source-id aya-instructions \
   --source-revision f9ea04583f02a8f86404ff6c58bf75fe637df8a2 \
   --source-license Apache-2.0 \
@@ -49,10 +49,10 @@ Then publish approved rows only:
 python -m Tantra.multilingual_data approve \
   --queue Datasets/review/aya-v1 \
   --decisions Datasets/review/aya-v1/decisions.jsonl \
-  --incoming Datasets/workbench/incoming
+  --incoming Datasets/workbench/incoming --domain conversation
 ```
 
-This writes a new file under `incoming/<expert>/` and refuses overwrite.
+This writes taxonomy-aligned files under `incoming/<domain>/<expert>.jsonl` and refuses overwrite.
 Run the existing dataset workbench `prepare` command next; it owns family-level
 splits, cross-expert deduplication, immutable hashes and readiness gates. Keep
 source validation/test partitions out of training.
