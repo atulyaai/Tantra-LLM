@@ -87,7 +87,7 @@ For LoRA training, install the fine-tuning extra:
 python -m pip install -e ".[finetune,test]"
 ```
 
-The Qwen3.5 fine-tuning extra requires Transformers 5.23 or newer and a compatible PEFT release.
+The Qwen3.5 fine-tuning extra requires PyTorch 2.7+, Transformers 5.23+ and PEFT 0.19.1+.
 
 ## Useful commands
 
