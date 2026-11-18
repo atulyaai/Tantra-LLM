@@ -1,6 +1,6 @@
-# Native Tantra and optional external-model benchmark protocol
+# Qwen3.5 base-versus-adapter benchmark protocol
 
-This protocol supports comparisons between native Tantra checkpoints/experts and optional external teacher or gateway references. External checkpoints are not Tantra's foundation and must never be merged into native lineage or relabelled as Tantra-created weights.
+This protocol governs the active Qwen3.5-0.8B-Base versus Tantra LoRA-adapter comparison. Qwen's base weights remain upstream weights; Tantra adapter artifacts must record the exact base revision and must never be presented as Tantra-pretrained weights.
 
 ## Run an optional external-model comparison
 
