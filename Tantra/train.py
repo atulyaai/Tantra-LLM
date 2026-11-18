@@ -1015,6 +1015,10 @@ class TantraModel(nn.Module):
         self.expert_ranks.pop(name, None)
 
     def load_expert_state(self, name: str, state: Dict[str, Tensor], rank: int) -> None:
+        if not isinstance(rank, int) or isinstance(rank, bool) or rank < 1:
+            raise ValueError(f"Invalid adapter rank for expert {name!r}")
+        if not isinstance(state, dict) or any(not isinstance(value, torch.Tensor) for value in state.values()):
+            raise ValueError(f"Expert '{name}' checkpoint must contain only tensors")
         expected = self.lora_shapes(name, rank)
         given = {key: tuple(value.shape) for key, value in state.items()}
         if given != expected:
