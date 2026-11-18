@@ -73,8 +73,8 @@ def read_reviewed_jsonl(path: str | Path) -> tuple[list[dict[str, Any]], str]:
 
 
 def check_family_disjoint(train_rows: list[dict], validation_rows: list[dict]) -> None:
-    train_families = {str(row["family_id"]) for row in train_rows}
-    validation_families = {str(row["family_id"]) for row in validation_rows}
+    train_families = {str(row.get("split_group", row["family_id"])) for row in train_rows}
+    validation_families = {str(row.get("split_group", row["family_id"])) for row in validation_rows}
     overlap = train_families & validation_families
     if overlap:
         examples = ", ".join(sorted(overlap)[:5])
@@ -93,7 +93,7 @@ def load_prepared_manifest(manifest_path: str | Path, experts: list[str]):
     if not experts:
         raise ValueError("Select at least one expert from the prepared manifest")
     train_rows, validation_rows = [], []
-    test_hashes = {}
+    split_hashes = {"train": {}, "val": {}, "test": {}}
     seen_train, seen_validation = set(), set()
     for expert in experts:
         if expert not in manifest["experts"]:
@@ -110,8 +110,8 @@ def load_prepared_manifest(manifest_path: str | Path, experts: list[str]):
             digest = sha256_file(path)
             if digest.lower() != str(item.get("sha256", "")).lower():
                 raise ValueError(f"Prepared {split} checksum mismatch: {path}")
+            split_hashes[split][expert] = digest
             if split == "test":
-                test_hashes[expert] = digest
                 continue
             if path.stat().st_size == 0:
                 continue
@@ -135,7 +135,7 @@ def load_prepared_manifest(manifest_path: str | Path, experts: list[str]):
     if not train_rows or not validation_rows:
         raise ValueError("Selected experts do not provide non-empty combined train and validation splits")
     check_family_disjoint(train_rows, validation_rows)
-    return train_rows, validation_rows, sha256_file(manifest_path), test_hashes
+    return train_rows, validation_rows, sha256_file(manifest_path), split_hashes
 
 
 def _ids(value: Any) -> list[int]:
@@ -248,18 +248,18 @@ def train(args) -> dict:
     if args.manifest:
         if args.train_jsonl or args.validation_jsonl or not args.experts:
             raise ValueError("With --manifest, provide --experts and omit explicit train/validation files")
-        train_rows, validation_rows, manifest_hash, test_hashes = load_prepared_manifest(
+        train_rows, validation_rows, manifest_hash, split_hashes = load_prepared_manifest(
             args.manifest, [name.strip() for name in args.experts.split(",") if name.strip()]
         )
-        train_hash = manifest_hash
-        validation_hash = manifest_hash
+        train_hash = None
+        validation_hash = None
     else:
         if not args.train_jsonl or not args.validation_jsonl:
             raise ValueError("Provide either --manifest with --experts or both explicit split files")
         train_rows, train_hash = read_reviewed_jsonl(args.train_jsonl)
         validation_rows, validation_hash = read_reviewed_jsonl(args.validation_jsonl)
         check_family_disjoint(train_rows, validation_rows)
-        manifest_hash, test_hashes = None, {}
+        manifest_hash, split_hashes = None, {}
 
     seed = args.seed
     random.seed(seed)
