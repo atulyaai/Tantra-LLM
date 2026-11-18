@@ -23,7 +23,8 @@ python -m Tantra.multilingual_data intake \
   --source-id hinglish-instruct-10k \
   --source-revision 39686808306eb6d898c8f7e86dfa93549e4ef23b \
   --source-license Apache-2.0 \
-  --source-url https://huggingface.co/datasets/DSMJ910/hinglish-instruct-10k
+  --source-url https://huggingface.co/datasets/DSMJ910/hinglish-instruct-10k \
+  --source-kind synthetic_hinglish_instruction_candidates
 ```
 
 Important constraints:
