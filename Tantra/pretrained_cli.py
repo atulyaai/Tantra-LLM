@@ -43,6 +43,7 @@ def main(argv=None)->int:
     grow.add_argument("--model-id",required=True); grow.add_argument("--checkpoint",required=True)
     grow.add_argument("--candidate-id",required=True); grow.add_argument("--data",required=True)
     grow.add_argument("--output",required=True); grow.add_argument("--steps",type=int,default=100)
+    grow.add_argument("--replay-data"); grow.add_argument("--replay-ratio",type=float,default=0.25)
     grow.add_argument("--layer-index",type=int,default=-1); grow.add_argument("--bottleneck",type=int,default=64)
     transfer=sub.add_parser("transfer-adapter")
     transfer.add_argument("--parent-adapter",required=True); transfer.add_argument("--child-adapter",required=True)
@@ -99,7 +100,7 @@ def main(argv=None)->int:
         spec=ModelRegistry.from_file(args.registry).get(args.model_id)
         model,tokenizer=_load_model(args.checkpoint); before=count_parameters(model)
         add_residual_branch(model,args.layer_index,args.bottleneck)
-        training=train_residual_branch(model,tokenizer,args.data,steps=args.steps)
+        training=train_residual_branch(model,tokenizer,args.data,steps=args.steps,replay_jsonl=args.replay_data,replay_ratio=args.replay_ratio)
         metadata=save_residual_candidate(model,args.output,args.layer_index,args.bottleneck)
         after=count_parameters(model)
         life=ModelLifecycle(); record=life.register(args.candidate_id,args.output,args.model_id,
