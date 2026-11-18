@@ -12,7 +12,9 @@ import time
 from collections import Counter
 from pathlib import Path
 
-from Tantra.qwen35_finetune import DEFAULT_REVISION, MODEL_ID, read_reviewed_jsonl
+from Tantra.qwen35_finetune import (
+    DEFAULT_REVISION, MODEL_ID, load_manifest_test_rows, read_reviewed_jsonl,
+)
 
 
 def evaluate(args):
@@ -25,7 +27,16 @@ def evaluate(args):
 
     if len(args.revision) != 40:
         raise ValueError("--revision must be a full immutable 40-character Hub commit SHA")
-    rows, dataset_hash = read_reviewed_jsonl(args.test_jsonl)
+    if args.manifest:
+        if args.test_jsonl or not args.experts:
+            raise ValueError("With --manifest, provide --experts and omit --test-jsonl")
+        selected_experts = [name.strip() for name in args.experts.split(",") if name.strip()]
+        rows, dataset_hash, split_hashes = load_manifest_test_rows(args.manifest, selected_experts)
+    else:
+        if not args.test_jsonl:
+            raise ValueError("Provide --test-jsonl or --manifest with --experts")
+        rows, dataset_hash = read_reviewed_jsonl(args.test_jsonl)
+        split_hashes = {}
     output = Path(args.output_jsonl)
     if output.exists():
         raise ValueError(f"Refusing to overwrite evaluation output: {output}")
@@ -105,8 +116,10 @@ def evaluate(args):
         "model_id": args.model_id,
         "model_revision": args.revision,
         "adapter_dir": str(Path(args.adapter_dir).resolve()) if args.adapter_dir else None,
-        "test_file": str(Path(args.test_jsonl).resolve()),
+        "test_file": str(Path(args.test_jsonl).resolve()) if args.test_jsonl else None,
         "test_sha256": dataset_hash,
+        "test_manifest": str(Path(args.manifest).resolve()) if args.manifest else None,
+        "test_split_file_sha256": split_hashes,
         "output_jsonl": str(output.resolve()),
         "cases": len(rows),
         "language_counts": dict(sorted(language_counts.items())),
@@ -128,7 +141,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--model-id", default=MODEL_ID)
     parser.add_argument("--revision", default=DEFAULT_REVISION)
-    parser.add_argument("--test-jsonl", required=True)
+    parser.add_argument("--test-jsonl", default=None)
+    parser.add_argument("--manifest", default=None, help="Prepared workbench manifest.json; loads sealed test splits")
+    parser.add_argument("--experts", default=None, help="Comma-separated expert IDs to combine from the manifest")
     parser.add_argument("--output-jsonl", required=True)
     parser.add_argument("--adapter-dir", default=None)
     parser.add_argument("--max-new-tokens", type=int, default=256)
