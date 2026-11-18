@@ -153,7 +153,7 @@ def main():
     args = parser.parse_args()
     if len(args.revision) != 40 or any(c not in "0123456789abcdef" for c in args.revision.lower()):
         parser.error("--revision must be a full immutable 40-character Hub commit SHA")
-    report = {"environment": environment_report()}
+    report = {"environment": environment_report(), "model_revision": args.revision}
     if args.manifest or args.experts:
         if not args.manifest or not args.experts:
             parser.error("--manifest and --experts must be supplied together")
