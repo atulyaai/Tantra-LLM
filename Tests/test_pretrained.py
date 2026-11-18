@@ -29,6 +29,8 @@ def test_source_requires_reviewed_license_and_valid_hash():
     source().validate()
     with pytest.raises(ValueError, match="reviewed"):
         source(license_status="unknown").validate()
+    with pytest.raises(ValueError, match="reviewed"):
+        source(license_status="review_required").validate()
     with pytest.raises(ValueError, match="SHA-256"):
         source(tokenizer_sha256="bad").validate()
 
