@@ -232,6 +232,9 @@ python -m Tantra.pretrained_cli distill --model-id HuggingFaceTB/SmolLM2-360M-In
 # Grow a zero-initialized residual branch and train only the new branch
 python -m Tantra.pretrained_cli grow-residual --model-id HuggingFaceTB/SmolLM2-360M-Instruct --checkpoint ./checkpoints/SmolLM2-360M-Instruct --candidate-id tantra-smollm-residual-001 --data Datasets/pretrained/train.jsonl --output runs/tantra-smollm-residual-001
 
+# Transfer exact compatible tensors into a child checkpoint without changing the parent
+python -m Tantra.pretrained_cli transfer-weights --parent-model-id HuggingFaceTB/SmolLM2-360M-Instruct --parent-checkpoint ./checkpoints/SmolLM2-360M-Instruct --child-checkpoint ./checkpoints/child-foundation --candidate-id tantra-inherited-child-001 --output runs/tantra-inherited-child-001
+
 # Promote only after a complete report; rollback restores the previous active candidate
 python -m Tantra.pretrained_cli promote --candidate-id tantra-smollm-lora-001 --report runs/tantra-smollm-lora-001-report.json
 python -m Tantra.pretrained_cli rollback
