@@ -1,7 +1,7 @@
 <div align="center">
   <img src="Assets/tantra_hero_banner_animated.gif" alt="Tantra — Weaving Intelligence" width="100%"/>
   <h1>Tantra LLM</h1>
-  <p><strong>A Hindi-first, multilingual AI research platform — built around measurable capability, not marketing claims.</strong></p>
+  <p><strong>An independent, expandable native AI architecture — built around measurable capability, not marketing claims.</strong></p>
   <img src="Assets/tantra_logo.jpg" alt="Tantra logo" width="180"/>
 </div>
 
@@ -81,7 +81,7 @@ python -m pip install -e ".[test]"
 python -m pytest Tests -q
 ```
 
-For pretrained-model integration:
+Optional: inspect the external-model gateway (not required for native Tantra development):
 
 ```bash
 python -m pip install -e ".[pretrained]"
@@ -107,7 +107,7 @@ python -m Tantra ask "What is the capital of India?"
 # CPU benchmark utility
 python -m Tantra.bench_cpu --help
 
-# Pretrained gateway
+# Optional external-model gateway
 python -m Tantra.pretrained_cli info
 python -m Tantra.pretrained_cli --help
 
@@ -147,13 +147,13 @@ External checkpoints are not candidate Tantra foundations. They may be used for 
 | Model | Role in this repository | Status |
 |---|---|---|
 | HuggingFaceTB/SmolLM2-360M-Instruct | Small integration and adaptation smoke baseline | Pinned; English-first; not the target foundation |
-| Qwen/Qwen3-1.7B | Primary multilingual baseline candidate | Pinned; not promoted |
+| Qwen/Qwen3-1.7B | Optional multilingual teacher / comparison | Pinned; not promoted |
 
 The Qwen3 workflow is manually dispatched because downloading and evaluating a 1.7B checkpoint on CPU is a deliberate optional comparison, not a per-commit test or a foundation-model selection process.
 
 Evaluation protocol:
 
-- Run the untouched base and each LoRA candidate on identical held-out prompts.
+- For optional external-model experiments, run the untouched reference checkpoint and each adapter candidate on identical held-out prompts; keep all artifacts separate from native Tantra lineage.
 - Use the same prompt formatting, decoding settings, hardware and output budget.
 - Report per-language correctness, instruction adherence, naturalness, factuality and safety with human review.
 - Measure latency and throughput separately from quality.
@@ -195,7 +195,7 @@ Before changing training, data or model lifecycle code, read:
 - [AGENTS.md](AGENTS.md)
 - [Developer handoff](docs/HANDOFF.md)
 - [Dataset specification](docs/DATASET_SPEC.md)
-- [Pretrained expansion roadmap](docs/TANTRA_NATIVE_ARCHITECTURE_ROADMAP.md)
+- [Native architecture roadmap](docs/TANTRA_NATIVE_ARCHITECTURE_ROADMAP.md)
 
 ## License
 
