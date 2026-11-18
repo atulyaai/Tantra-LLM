@@ -71,7 +71,8 @@ jobs:
             --candidate-id ci-smollm-residual \
             --data Tests/fixtures/pretrained_lora_smoke.jsonl \
             --output "$RUNNER_TEMP/ci-smollm-residual" \
-            --steps 1 --bottleneck 8
+            --steps 1 --bottleneck 8 \
+            --replay-data Tests/fixtures/pretrained_replay_smoke.jsonl --replay-ratio 0.25
           python -m Tantra.pretrained_cli smoke \
             --model-id HuggingFaceTB/SmolLM2-360M-Instruct \
             --checkpoint checkpoints/SmolLM2-360M-Instruct \
