@@ -1,25 +1,27 @@
-"""Pretrained model intake, adaptation and expert-inheritance contracts.
+"""Auditable pretrained-model intake, adaptation and expert-inheritance contracts.
 
-This module describes auditable plans. It does not download models, alter weights,
-or claim that an adaptation has been trained. Actual training belongs in a later
-backend-specific implementation.
+These are metadata/validation contracts, not a model downloader or trainer.
 """
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 from typing import Any, Iterable
 
-
 INTEGRATION_MODES = {"model_gateway", "neural_adapter"}
 ADAPTATION_METHODS = {"lora", "adapter", "full_finetune", "distillation"}
 INHERITANCE_METHODS = {
-    "adapter_transfer",
-    "compatible_weight_transfer",
-    "behavioural_distillation",
-    "feature_alignment",
+    "adapter_transfer", "compatible_weight_transfer",
+    "behavioural_distillation", "feature_alignment",
 }
 GROWTH_METHODS = {"width", "depth", "residual_branch"}
 LICENSE_STATUSES = {"approved", "review_required", "restricted", "unknown"}
+
+
+def _require_sha256(value: str, field_name: str) -> None:
+    if not isinstance(value, str) or len(value) != 64 or any(
+        char not in "0123456789abcdef" for char in value.lower()
+    ):
+        raise ValueError(f"{field_name} must be a SHA-256 hex digest")
 
 
 @dataclass(frozen=True)
@@ -32,21 +34,23 @@ class PretrainedSource:
     parameter_count: int
     tokenizer_id: str
     tokenizer_sha256: str
+    weights_sha256: str
     license_id: str
     license_status: str
     integration_mode: str = "model_gateway"
 
     def validate(self) -> None:
-        for field_name in ("source_id", "provider", "model_name", "revision",
-                           "architecture", "tokenizer_id", "license_id"):
-            if not getattr(self, field_name).strip():
-                raise ValueError(f"{field_name} is required")
-        if self.parameter_count < 1:
-            raise ValueError("parameter_count must be positive")
-        if len(self.tokenizer_sha256) != 64 or any(
-            c not in "0123456789abcdef" for c in self.tokenizer_sha256.lower()
+        for field_name in (
+            "source_id", "provider", "model_name", "revision",
+            "architecture", "tokenizer_id", "license_id",
         ):
-            raise ValueError("tokenizer_sha256 must be a SHA-256 hex digest")
+            value = getattr(self, field_name)
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"{field_name} is required")
+        if isinstance(self.parameter_count, bool) or not isinstance(self.parameter_count, int) or self.parameter_count < 1:
+            raise ValueError("parameter_count must be a positive integer")
+        _require_sha256(self.tokenizer_sha256, "tokenizer_sha256")
+        _require_sha256(self.weights_sha256, "weights_sha256")
         if self.license_status not in LICENSE_STATUSES:
             raise ValueError("unknown license_status")
         if self.license_status != "approved":
@@ -65,9 +69,11 @@ class ExpertInheritance:
     preserve_parent_checkpoints: bool = True
 
     def validate(self, known_source_ids: Iterable[str]) -> None:
+        if not isinstance(self.child_id, str) or not self.child_id.strip():
+            raise ValueError("child_id is required")
+        if not self.parent_ids or any(not isinstance(p, str) or not p.strip() for p in self.parent_ids):
+            raise ValueError("at least one valid parent_id is required")
         known = set(known_source_ids)
-        if not self.child_id.strip() or not self.parent_ids:
-            raise ValueError("child_id and at least one parent are required")
         if self.child_id in self.parent_ids:
             raise ValueError("child cannot inherit from itself")
         if len(set(self.parent_ids)) != len(self.parent_ids):
@@ -76,12 +82,10 @@ class ExpertInheritance:
             raise ValueError("unknown inheritance parent")
         if self.method not in INHERITANCE_METHODS:
             raise ValueError("unsupported inheritance method")
-        if not self.capabilities or any(not c.strip() for c in self.capabilities):
+        if not self.capabilities or any(not isinstance(c, str) or not c.strip() for c in self.capabilities):
             raise ValueError("at least one named capability is required")
-        digest = self.dataset_manifest_sha256
-        if len(digest) != 64 or any(c not in "0123456789abcdef" for c in digest.lower()):
-            raise ValueError("dataset_manifest_sha256 must be a SHA-256 hex digest")
-        if not self.preserve_parent_checkpoints:
+        _require_sha256(self.dataset_manifest_sha256, "dataset_manifest_sha256")
+        if self.preserve_parent_checkpoints is not True:
             raise ValueError("parent checkpoints must remain immutable")
 
 
@@ -100,17 +104,19 @@ class ExpansionPlan:
         source.validate()
         if self.source_id != source.source_id:
             raise ValueError("plan source does not match pretrained source")
-        if not self.target_id or self.target_id == self.source_id:
+        if not isinstance(self.target_id, str) or not self.target_id.strip() or self.target_id == self.source_id:
             raise ValueError("target_id must be distinct and non-empty")
+        if isinstance(self.target_parameter_count, bool) or not isinstance(self.target_parameter_count, int):
+            raise ValueError("target_parameter_count must be a positive integer")
         if self.target_parameter_count <= source.parameter_count:
             raise ValueError("target parameter count must exceed source")
         if self.method not in GROWTH_METHODS:
             raise ValueError("unsupported growth method")
         if self.adaptation not in ADAPTATION_METHODS:
             raise ValueError("unsupported adaptation method")
-        if not self.preserve_source:
+        if self.preserve_source is not True:
             raise ValueError("source checkpoint must remain immutable")
-        if not self.use_distillation or not self.use_replay:
+        if self.use_distillation is not True or self.use_replay is not True:
             raise ValueError("distillation and replay are required for the default upgrade path")
 
     def to_record(self, source: PretrainedSource) -> dict[str, Any]:
