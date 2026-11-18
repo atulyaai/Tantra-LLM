@@ -53,7 +53,7 @@ def train_lora(checkpoint_path,dataset_jsonl,output_dir,*,steps=100,learning_rat
     after=hash_tree(base)
     if before!=after: raise RuntimeError("source checkpoint changed during LoRA training")
     metadata={"base_checkpoint":str(base.resolve()),"base_sha256":before,"rank":rank,
-              "steps":steps,"examples":len(texts),"final_loss":losses[-1],"target_modules":config.target_modules}
+              "steps":steps,"examples":len(texts),"final_loss":losses[-1],"target_modules":sorted(config.target_modules) if isinstance(config.target_modules, (set, frozenset)) else config.target_modules}
     (out/"tantra_adapter.json").write_text(json.dumps(metadata,indent=2)+"\n",encoding="utf-8")
     return metadata
 
