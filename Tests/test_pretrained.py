@@ -35,11 +35,15 @@ def test_source_requires_reviewed_license_and_valid_hash():
         source(tokenizer_sha256="bad").validate()
 
 
-def test_inheritance_supports_cross_architecture_behaviour_transfer():
+@pytest.mark.parametrize(
+    "method",
+    ["adapter_transfer", "compatible_weight_transfer", "behavioural_distillation", "feature_alignment"],
+)
+def test_all_inheritance_methods_accept_known_parents(method):
     spec = ExpertInheritance(
         child_id="tantra-coding-child",
         parent_ids=("foundation-a", "foundation-b"),
-        method="behavioural_distillation",
+        method=method,
         capabilities=("reasoning", "coding"),
         dataset_manifest_sha256="c" * 64,
     )
