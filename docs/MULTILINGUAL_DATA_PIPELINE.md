@@ -9,8 +9,8 @@ eligible until an explicit reviewer decision.
 Export UTF-8 JSONL, one conversation per line:
 
 ```json
-{"id":"source-record-001","family_id":"source-conversation-001","language":"hi","user":"आप कैसे हैं?","assistant":"मैं ठीक हूँ।"}
-{"id":"source-record-002","family_id":"source-conversation-002","language":"hinglish","user":"Aaj kya plan hai?","assistant":"Abhi decide nahi kiya."}
+{"id":"source-record-001","family_id":"source-conversation-001","language":"hi","expert":"lang_hi","domain":"multilingual","user":"आप कैसे हैं?","assistant":"मैं ठीक हूँ।"}
+{"id":"source-record-002","family_id":"source-conversation-002","language":"hinglish","expert":"smalltalk","domain":"conversation","user":"Aaj kya plan hai?","assistant":"Abhi decide nahi kiya."}
 ```
 
 Family IDs must identify the original conversation/problem. All translations,
@@ -26,11 +26,12 @@ exact `incoming/<domain>/<expert>.jsonl` paths consumed by the workbench.
 python -m Tantra.multilingual_data intake \
   --input exports/aya-normalized.jsonl \
   --out Datasets/review/aya-v1 \
-  --expert smalltalk --domain conversation \
+  --expert lang_hi --domain multilingual \
   --source-id aya-instructions \
   --source-revision f9ea04583f02a8f86404ff6c58bf75fe637df8a2 \
   --source-license Apache-2.0 \
-  --source-url https://huggingface.co/datasets/CohereForAI/aya_dataset
+  --source-url https://huggingface.co/datasets/CohereLabs/aya_dataset \
+  --source-kind human_annotated_instruction_candidates
 ```
 
 Checks cover required fields, supported language labels, basic script mismatch,
