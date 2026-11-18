@@ -165,12 +165,19 @@ Tantra-LLM/
 
 ## Quickstart & CLI
 
-### 1. Train a talking model in minutes (CPU)
+### 1. Existing native backend (CPU research baseline)
+The commands below train the repository's existing native backend. They are
+not the pretrained-first adaptation workflow described above.
+
 ```bash
-python -m Tantra seed                                # curated stage-1 data
-python -m Tantra stage1 --preset tiny                # tokenizer + base + experts + router
-python -m Tantra chat                                # talk to it
+python -m Tantra seed
+python -m Tantra stage1 --preset tiny
+python -m Tantra chat
 ```
+
+The pretrained-first intake, LoRA adaptation, inheritance and expansion
+runtime are being implemented in phases; this PR currently provides the
+roadmap, metadata contracts, identity integration and CI coverage.
 `stage1`/`base`/`expert` write into `Model/`; use `--model-dir runs/pilot` to keep
 your shipped weights untouched.
 
