@@ -68,6 +68,8 @@ def main(argv=None)->int:
         load_s=time.perf_counter()-start
         start=time.perf_counter(); answer=gateway.generate([{"role":"user","content":"Introduce yourself as Tantra in one sentence."}],max_new_tokens=args.max_new_tokens)
         gen_s=time.perf_counter()-start
+        if "tantra" not in answer.casefold():
+            raise RuntimeError("pretrained gateway identity smoke failed: generated response did not identify as Tantra")
         print(json.dumps({"model_id":spec.model_id,"revision":spec.revision,"license":spec.license_id,
             "load_seconds":round(load_s,3),"generation_seconds":round(gen_s,3),"output":answer,
             "status":"runtime_smoke_only_not_quality_evaluation"},indent=2)); gateway.unload(); return 0
