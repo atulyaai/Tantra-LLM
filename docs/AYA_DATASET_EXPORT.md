@@ -4,7 +4,7 @@ The pinned Aya Dataset source is Apache-2.0 and exposes human-annotated
 prompt/completion pairs with `inputs`, `targets`, `language_code` and
 `annotation_type`. This exporter uses only the pinned `train` split and maps
 English (`eng`) and Hindi (`hin`) into Tantra's normalized intake format.
-The source test split remains reserved and is never exported.
+The source test split remains reserved and is never exported. The exporter selects a reproducible SHA-256-ranked sample, capped at 2,000 rows per language by default; use a larger cap only after planning reviewer capacity.
 
 Install the existing optional dataset dependency:
 
@@ -12,10 +12,10 @@ Install the existing optional dataset dependency:
 pip install -e ".[finetune]"
 ```
 
-Export the source training rows:
+Export a deterministic, family-safe review sample (default cap: 2,000 rows per language):
 
 ```bash
-python -m Tantra.aya_export --out exports/aya-en-hi.jsonl
+python -m Tantra.aya_export --out exports/aya-en-hi.jsonl --max-rows-per-language 2000
 ```
 
 Then create a pending review queue:
