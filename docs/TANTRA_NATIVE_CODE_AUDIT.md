@@ -1,3 +1,5 @@
+> **Historical audit — superseded 18 November 2026:** this audit describes the repository before the Qwen3.5-0.8B-Base foundation decision. Its native Transformer and native residual-growth recommendations are no longer the active implementation plan. See [the current Qwen3.5 roadmap](TANTRA_NATIVE_ARCHITECTURE_ROADMAP.md).
+
 # Native Tantra code audit — 18 November 2026
 
 **Scope:** source-level audit for the locked first milestone: native foundation + two compatible experts + residual-expansion proof.
