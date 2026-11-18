@@ -73,7 +73,7 @@ def run_benchmark(gateway, cases: Iterable[dict[str, Any]], output_path: str | P
         "semantic_quality_status":"not_scored_human_review_required",
         "results":rows}
     target=Path(output_path); target.parent.mkdir(parents=True,exist_ok=True)
-    target.write_text(json.dumps(summary,ensure_ascii=False,indent=2)+"\\n",encoding="utf-8")
+    target.write_text(json.dumps(summary,ensure_ascii=False,indent=2)+"\n",encoding="utf-8")
     return summary
 
 
