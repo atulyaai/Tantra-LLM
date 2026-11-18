@@ -29,10 +29,18 @@
 
 ---
 
-**Tantra** is a **CPU-first language model built from scratch**: a small shared base
-transformer with independent LoRA domain experts, an n-gram/embedding router, a
-decoupled relational knowledge engine, and a think-check-search reasoning loop —
-training and inference that fit on a laptop CPU.
+**Tantra** is an **expandable AI platform with a pretrained-first strategy**. Tantra
+owns the orchestration, identity, model registry, routing, expert interfaces,
+adaptation and evaluation pipeline. It can adapt third-party pretrained models,
+connect independent specialists, and build compatible neural experts through
+fine-tuning, expert inheritance and controlled capacity growth. Tantra's identity
+stays Tantra across every backend; underlying model provenance remains traceable
+and is disclosed truthfully when asked.
+
+The first implementation target is an architecture and expansion prototype—not
+a trillion-parameter training run. We will prove model intake, licensing checks,
+LoRA adaptation, behavioural distillation, replay, residual-branch growth and
+versioned promotion on small models before scaling.
 
 - **Canonical Model Directory**: `Model/` (holds tokenizer artifacts; base weights,
   experts, and router land here when trained — nothing is deployed in this tree yet).
@@ -49,6 +57,26 @@ training and inference that fit on a laptop CPU.
 > source baseline — full test suite green (126 passed including an end-to-end
 > tiny-model build) with no trained weights. Train your own with the Quickstart
 > below. Developers: read [AGENTS.md](AGENTS.md) and [docs/HANDOFF.md](docs/HANDOFF.md) first.
+
+---
+
+## Current Architecture Direction: Pretrained-First and Expandable
+
+<div align="center">
+  <img src="Assets/tantra_pretrained_architecture.svg" alt="Tantra pretrained-first expandable intelligence architecture" width="100%"/>
+</div>
+
+- **Pretrained-first:** start from reviewed pretrained checkpoints; adapt with LoRA/adapters or fine-tuning where justified.
+- **Hybrid integration:** use a model gateway for independent models and neural adapters only for architecture-compatible blocks.
+- **Expert inheritance:** transfer selected capabilities through adapter transfer, compatible weight transfer, behavioural distillation or feature alignment.
+- **Three growth methods:** width, depth and residual-branch expansion. Preserve immutable source checkpoints.
+- **Learning strategy:** distillation + replay + new training, with held-out evaluation before promotion.
+- **Hybrid knowledge:** learned weights + retrieval/memory + tools.
+- **Stable identity:** every backend presents as Tantra; direct questions about underlying models receive truthful provenance.
+
+**Detailed plan:** [Pretrained-First Architecture & Expansion Roadmap](docs/TANTRA_PRETRAINED_EXPANSION_ROADMAP.md).
+
+> The existing banner, logo and original architecture image below are intentionally retained. The new SVG is an additional platform-level architecture view, not a replacement.
 
 ---
 
@@ -89,10 +117,9 @@ training and inference that fit on a laptop CPU.
 
 ## Key Design Principles
 
-1. **The model is the product**: one shared base, many tiny experts — the router
-   picks top-k per request, so forward-pass cost does not grow with the number
-   of experts, and function-preserving `grow` deepens the base without changing
-   the output shape.
+1. **The platform is the product**: pretrained models are starting points; Tantra owns
+   orchestration, expert contracts, inheritance, routing, evaluation and lifecycle.
+   Do not assume every model can be inserted into a neural layer.
 2. **Decoupled High-Density Memory**: the transformer is not expected to memorize
    static facts. Encyclopedic facts live in an integer-indexed relational triple
    store with BM25 + dense retrieval, freeing the base for language structure.
@@ -123,7 +150,8 @@ Tantra-LLM/
 │   ├─ conversation_train.py     # Seed writers, conversation training
 │   └─ reasoning.py        # Think -> Check -> Verify -> Learn reasoning loop
 ├─ Tests/                  # 4 grouped test suites (126 checks)
-├─ docs/                   # Specifications, expert cards (docs/experts/), data locks
+├─ docs/                   # Specifications, expert cards, data locks and expansion roadmap
+│  ├─ TANTRA_PRETRAINED_EXPANSION_ROADMAP.md
 ├─ clean_workspace.ps1     # Safe local-artifact cleanup
 └─ pyproject.toml          # Project configuration and metadata
 ```
