@@ -103,7 +103,7 @@ def test_prepared_manifest_hashes_are_verified_without_training_on_test(tmp_path
             "sha256": sha256_file(path),
         }
 
-    manifest = {"version": 1, "experts": {"general": {"files": files}}}
+    manifest = {"version": 1, "experts": {"general": {"state": "data_ready", "files": files}}}
     manifest_path = prepared / "manifest.json"
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
 
