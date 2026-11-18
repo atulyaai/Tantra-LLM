@@ -16,6 +16,12 @@ Export UTF-8 JSONL, one conversation per line:
 Family IDs must identify the original conversation/problem. All translations,
 paraphrases and turns from one source share the same family. Do not mint a family per row.
 
+A normalized row may include `expert` and `domain` to route it to a specific
+taxonomy expert. These row-level values override the CLI fallback. Aya export
+routes `en` to `multilingual/lang_en` and `hi` to `multilingual/lang_hi`;
+the Hinglish exporter routes by task category. The approval command writes the
+exact `incoming/<domain>/<expert>.jsonl` paths consumed by the workbench.
+
 ```bash
 python -m Tantra.multilingual_data intake \
   --input exports/aya-normalized.jsonl \
