@@ -184,6 +184,29 @@ def split_for(family):
     return 'train' if value < 90 else 'val' if value < 95 else 'test'
 
 
+def lexical_simhash(text):
+    """Stable 64-bit character-shingle SimHash for near-copy screening."""
+    import re
+    import unicodedata
+    normalized=unicodedata.normalize('NFKC',text).casefold()
+    normalized=' '.join(re.findall(r'\\w+',normalized,flags=re.UNICODE))
+    if len(normalized)<4:
+        features=[normalized]
+    else:
+        features=[normalized[i:i+4] for i in range(len(normalized)-3)]
+    votes=[0]*64
+    for feature in features:
+        digest=hashlib.blake2b(feature.encode('utf-8'),digest_size=8).digest()
+        value=int.from_bytes(digest,'big')
+        for bit in range(64):
+            votes[bit] += 1 if value & (1<<bit) else -1
+    return sum((1<<bit) for bit,vote in enumerate(votes) if vote>=0)
+
+
+def near_duplicate(candidate, existing, max_distance=6):
+    return (int(candidate)^int(existing)).bit_count() <= max_distance
+
+
 def prepare(output, model_dir=ROOT/'Model', train_tokens=1_000_000, exclude_corpora=()):
     import pyarrow.parquet as pq
     output, model_dir = Path(output), Path(model_dir)
@@ -209,7 +232,9 @@ def prepare(output, model_dir=ROOT/'Model', train_tokens=1_000_000, exclude_corp
     counts, filters, documents = Counter(), Counter(), Counter()
     writers = {key:(output/f'{key[0]}-{key[1]}.bin').open('wb') for key in budgets}
     db = sqlite3.connect(output/'dedup.sqlite')
-    db.execute('CREATE TABLE documents (hash TEXT PRIMARY KEY, family TEXT, split TEXT)')
+    db.execute('CREATE TABLE documents (hash TEXT PRIMARY KEY, family TEXT, split TEXT, language TEXT, simhash TEXT)')
+    db.execute('CREATE TABLE fingerprint_buckets (band INTEGER, bucket INTEGER, hash TEXT, PRIMARY KEY(band,bucket,hash))')
+    db.execute('CREATE INDEX fingerprint_lookup ON fingerprint_buckets(band,bucket)')
     try:
         with (output/'attribution.jsonl').open('w', encoding='utf-8') as attribution:
             for source in sources():
@@ -231,13 +256,32 @@ def prepare(output, model_dir=ROOT/'Model', train_tokens=1_000_000, exclude_corp
                         if counts[key]>=budgets[key]: continue
                         h = hashlib.sha256(text.encode()).hexdigest()
                         if h in excluded_texts or db.execute('SELECT 1 FROM documents WHERE hash=?', (h,)).fetchone():
-                            filters[f'{lang}:duplicate'] += 1; continue
+                            filters[f'{lang}:exact_duplicate'] += 1; continue
+                        fingerprint=lexical_simhash(text)
+                        # Four independent 16-bit buckets find likely neighbours without
+                        # comparing every article to every prior article. Matching remains
+                        # language-local: translated duplicates require multilingual semantics.
+                        candidates=set()
+                        for band in range(4):
+                            bucket=(fingerprint>>(band*16))&0xffff
+                            candidates.update(row[0] for row in db.execute(
+                                'SELECT hash FROM fingerprint_buckets WHERE band=? AND bucket=?',(band,bucket)))
+                        duplicate=False
+                        for prior_hash in candidates:
+                            prior=db.execute('SELECT language,simhash FROM documents WHERE hash=?',(prior_hash,)).fetchone()
+                            if prior and prior[0]==lang and near_duplicate(fingerprint,int(prior[1])):
+                                duplicate=True;break
+                        if duplicate:
+                            filters[f'{lang}:near_duplicate'] += 1;continue
                         ids = tok.encode(text)
                         # Reserve one EOS token; count actual text tokens separately below.
                         ids = ids[:max(0, budgets[key]-counts[key]-1)]
                         # A final EOS-only boundary can consume the remaining slot.
                         if not ids and budgets[key]-counts[key]!=1: continue
-                        db.execute('INSERT INTO documents VALUES (?,?,?)', (h, family, split))
+                        db.execute('INSERT INTO documents VALUES (?,?,?,?,?)', (h, family, split, lang, str(fingerprint)))
+                        for band in range(4):
+                            bucket=(fingerprint>>(band*16))&0xffff
+                            db.execute('INSERT INTO fingerprint_buckets VALUES (?,?,?)',(band,bucket,h))
                         values = np.asarray(ids+[tok.end_id], dtype='<u4')
                         writers[key].write(values.tobytes())
                         counts[key] += len(values); documents[key] += 1
