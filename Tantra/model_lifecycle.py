@@ -1,6 +1,6 @@
 """Candidate promotion and rollback for local Tantra model artifacts."""
 from __future__ import annotations
-import hashlib,json,os,tempfile
+import hashlib,json,math,os,tempfile
 from pathlib import Path
 
 def _artifact_hash(root):
@@ -43,8 +43,11 @@ class ModelLifecycle:
         required=("tests_passed","identity_passed","safety_passed","heldout_score","baseline_score","max_regression","latency_ms","latency_budget_ms")
         if any(k not in report for k in required): raise ValueError("promotion report is incomplete")
         if not all(report[k] is True for k in ("tests_passed","identity_passed","safety_passed")): raise ValueError("promotion blocked by failed test/identity/safety gate")
+        numeric=("heldout_score","baseline_score","max_regression","latency_ms","latency_budget_ms")
+        if any(not math.isfinite(float(report[k])) for k in numeric): raise ValueError("promotion metrics must be finite")
         if float(report["heldout_score"])<float(report["baseline_score"]): raise ValueError("held-out score regressed")
-        if float(report["max_regression"])>.02: raise ValueError("old capability regression exceeds 2%")
+        if float(report["max_regression"])<0 or float(report["max_regression"])>.02: raise ValueError("old capability regression must be between 0 and 2%")
+        if float(report["latency_ms"])<0 or float(report["latency_budget_ms"])<=0: raise ValueError("latency metrics must be non-negative with a positive budget")
         if float(report["latency_ms"])>float(report["latency_budget_ms"]): raise ValueError("latency budget exceeded")
         old=data["active"]; data["previous"]=old; data["active"]=candidate_id; rec["status"]="promoted"
         data["events"].append({"event":"promoted","candidate_id":candidate_id,"previous":old,"report":report})
