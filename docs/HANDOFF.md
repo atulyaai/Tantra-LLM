@@ -48,7 +48,7 @@ paths. Use `clean_workspace.ps1` to remove them safely or reset to
 - Do not claim language, conversation, or knowledge quality without recorded
   evaluation. Hindi, English, and Hinglish must be evaluated separately.
 
-## Historical goal ladder (written 2026-11-10; superseded by the native-first roadmap)
+## Historical goal ladder (written 2026-11-10; superseded by the Qwen3.5 foundation roadmap)
 
 The following ladder records the plan at that historical point. It is retained for experiment provenance and is not the current product roadmap.
 
