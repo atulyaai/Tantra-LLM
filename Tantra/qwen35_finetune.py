@@ -43,6 +43,8 @@ def read_reviewed_jsonl(path: str | Path) -> tuple[list[dict[str, Any]], str]:
                 raise ValueError(f"{path}:{line_no}: expected a messages array")
             if not row.get("family_id"):
                 raise ValueError(f"{path}:{line_no}: family_id is required")
+            if not str(row.get("language", "")).strip():
+                raise ValueError(f"{path}:{line_no}: language is required for per-language reporting")
             review = row.get("review") or {}
             if review.get("status") not in {"reviewed", "verified_auto"}:
                 raise ValueError(f"{path}:{line_no}: review status must be reviewed or verified_auto")
@@ -284,8 +286,12 @@ def train(args) -> dict:
 
     if not best_dir.is_dir():
         raise RuntimeError("Training ended without a saved validation checkpoint")
+    from collections import Counter
+    train_language_counts = dict(sorted(Counter(str(row["language"]) for row in train_rows).items()))
+    validation_language_counts = dict(sorted(Counter(str(row["language"]) for row in validation_rows).items()))
     metadata = {
         "schema_version": 1,
+        "candidate_status": "pilot_unvalidated",
         "model_id": args.model_id,
         "model_revision": args.revision,
         "training_method": "supervised_finetuning_lora",
@@ -296,6 +302,8 @@ def train(args) -> dict:
         "validation_sha256": validation_hash,
         "train_rows": len(train_rows),
         "validation_rows": len(validation_rows),
+        "train_language_counts": train_language_counts,
+        "validation_language_counts": validation_language_counts,
         "train_supervised_turns": len(train_examples),
         "validation_supervised_turns": len(validation_examples),
         "max_steps": args.max_steps,
