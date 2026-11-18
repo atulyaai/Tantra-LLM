@@ -206,6 +206,34 @@ python -m Tantra review_cli sample --queue Q --n 50   # human review workflow
 
 ---
 
+
+### Pretrained model engineering (first executable phase)
+
+The first checkpoint is pinned to **HuggingFaceTB/SmolLM2-360M-Instruct**
+(Apache-2.0; English-first). It is an integration and LoRA-mechanics pilot,
+not the final Hindi-first production foundation.
+
+```bash
+pip install -e ".[pretrained,finetune,test]"
+python -m Tantra.pretrained_cli info
+python -m Tantra.pretrained_cli smoke --model-id HuggingFaceTB/SmolLM2-360M-Instruct --checkpoint ./checkpoints/SmolLM2-360M-Instruct
+
+# Fine-tune a LoRA child from reviewed JSONL examples
+python -m Tantra.pretrained_cli train-lora --model-id HuggingFaceTB/SmolLM2-360M-Instruct --checkpoint ./checkpoints/SmolLM2-360M-Instruct --candidate-id tantra-smollm-lora-001 --data Datasets/pretrained/train.jsonl --output runs/tantra-smollm-lora-001
+
+# Generate teacher demonstrations, review them, then use them in student LoRA training
+python -m Tantra.pretrained_cli distill --model-id HuggingFaceTB/SmolLM2-360M-Instruct --checkpoint ./checkpoints/SmolLM2-360M-Instruct --prompts Datasets/pretrained/prompts.txt --output Datasets/pretrained/teacher-review.jsonl
+
+# Grow a zero-initialized residual branch and train only the new branch
+python -m Tantra.pretrained_cli grow-residual --model-id HuggingFaceTB/SmolLM2-360M-Instruct --checkpoint ./checkpoints/SmolLM2-360M-Instruct --candidate-id tantra-smollm-residual-001 --data Datasets/pretrained/train.jsonl --output runs/tantra-smollm-residual-001
+
+# Promote only after a complete report; rollback restores the previous active candidate
+python -m Tantra.pretrained_cli promote --candidate-id tantra-smollm-lora-001 --report runs/tantra-smollm-lora-001-report.json
+python -m Tantra.pretrained_cli rollback
+```
+
+Full instructions: [Pretrained gateway and expansion phase](docs/PRETRAINED_GATEWAY_PHASE1.md).
+
 ## License
 
 This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
