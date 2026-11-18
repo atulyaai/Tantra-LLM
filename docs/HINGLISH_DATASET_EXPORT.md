@@ -19,7 +19,7 @@ Then send the export through the same pending review gate:
 python -m Tantra.multilingual_data intake \
   --input exports/hinglish-roman.jsonl \
   --out Datasets/review/hinglish-roman-v1 \
-  --expert smalltalk \
+  --expert smalltalk --domain conversation \
   --source-id hinglish-instruct-10k \
   --source-revision 39686808306eb6d898c8f7e86dfa93549e4ef23b \
   --source-license Apache-2.0 \
@@ -34,6 +34,7 @@ Important constraints:
   unnatural register before approval.
 - It is Roman-script only. It does not represent Devanagari/Latin mixed-script
   Hinglish; collect that separately.
+- Casual rows route to `conversation/smalltalk`; question and support rows route to `tasks/qa`; sentiment rows route to `tasks/classification`. The global `--expert` is only a fallback.
 - Variants sharing scenario and persona are assigned the same family ID to reduce
   train/test leakage.
 - It is a candidate source, not an endorsement. The exporter marks it
