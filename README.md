@@ -1,7 +1,7 @@
 <div align="center">
   <img src="Assets/tantra_hero_banner_animated.gif" alt="Tantra — Weaving Intelligence" width="100%"/>
   <h1>Tantra LLM</h1>
-  <p><strong>An independent, expandable native AI architecture — built around measurable capability, not marketing claims.</strong></p>
+  <p><strong>A multilingual language-model project — built around measurable capability, not marketing claims.</strong></p>
   <img src="Assets/tantra_logo.jpg" alt="Tantra logo" width="180"/>
 </div>
 
@@ -161,7 +161,7 @@ Read the [Qwen3.5 foundation and fine-tuning roadmap](docs/TANTRA_NATIVE_ARCHITE
 - **CPU validation:** runs on pushes to `main` and can be dispatched manually.
 - **Pretrained checkpoint smoke:** runs only when relevant gateway, registry, fixture or dependency files change.
 - **Bilingual 10M experiment:** manual only until approved Hindi data can satisfy the split-readiness gate.
-- **Qwen3 baseline:** manual only; downloads and evaluates the pinned 1.7B checkpoint.
+- **Historical Qwen3 baseline:** manual-only comparison for the pinned 1.7B checkpoint; separate from the active Qwen3.5-0.8B SFT pipeline.
 
 CI validates software and experiment mechanics. It does not certify language quality or production readiness.
 
