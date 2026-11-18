@@ -240,26 +240,34 @@ def train(args) -> dict:
     while global_step < args.max_steps:
         order = list(range(len(train_examples)))
         random.Random(seed + global_step).shuffle(order)
-        for start in range(0, len(order), args.batch_size):
-            selected = [train_examples[i] for i in order[start:start + args.batch_size]]
-            batch = collate(selected, tokenizer.pad_token_id, torch)
-            batch = {key: value.to(device) for key, value in batch.items()}
-            with torch.autocast(device_type=device.type, dtype=dtype, enabled=(device.type == "cuda")):
-                loss = model(**batch).loss / args.grad_accum
-            scaler.scale(loss).backward()
-            if (start // args.batch_size + 1) % args.grad_accum != 0:
-                continue
+        batches = [
+            order[start:start + args.batch_size]
+            for start in range(0, len(order), args.batch_size)
+        ]
+        # Include a short final accumulation group so small datasets still make progress.
+        for group_start in range(0, len(batches), args.grad_accum):
+            group = batches[group_start:group_start + args.grad_accum]
+            optimizer.zero_grad(set_to_none=True)
+            group_loss = 0.0
+            for indices in group:
+                selected = [train_examples[i] for i in indices]
+                batch = collate(selected, tokenizer.pad_token_id, torch)
+                batch = {key: value.to(device) for key, value in batch.items()}
+                with torch.autocast(device_type=device.type, dtype=dtype, enabled=(device.type == "cuda")):
+                    raw_loss = model(**batch).loss
+                    loss = raw_loss / len(group)
+                scaler.scale(loss).backward()
+                group_loss += float(raw_loss.detach().float().cpu())
             scaler.unscale_(optimizer)
             torch.nn.utils.clip_grad_norm_(
                 (p for p in model.parameters() if p.requires_grad), args.max_grad_norm
             )
             scaler.step(optimizer)
             scaler.update()
-            optimizer.zero_grad(set_to_none=True)
             scheduler.step()
             global_step += 1
             if global_step % args.log_steps == 0:
-                print(f"step={global_step} train_loss={float(loss.detach().cpu()) * args.grad_accum:.4f}", flush=True)
+                print(f"step={global_step} train_loss={group_loss / len(group):.4f}", flush=True)
             if global_step % args.eval_steps == 0 or global_step == args.max_steps:
                 val_loss = evaluate(model, validation_examples, tokenizer, args.batch_size, device, torch)
                 print(f"step={global_step} validation_loss={val_loss:.5f}", flush=True)
