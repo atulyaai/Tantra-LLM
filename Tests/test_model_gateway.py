@@ -39,3 +39,32 @@ def test_gateway_answers_tantra_identity_before_loading():
     from Tantra.model_gateway import ModelGateway
     gateway = ModelGateway(spec(), "./not-loaded")
     assert gateway.generate([{"role": "user", "content": "Who are you?"}]).startswith("I am Tantra")
+
+
+def test_gateway_injects_tantra_system_identity_for_normal_prompts():
+    import torch
+    from Tantra.identity import IDENTITY_SYSTEM_MESSAGE
+    from Tantra.model_gateway import ModelGateway
+
+    class FakeModel:
+        device = torch.device("cpu")
+        def parameters(self):
+            yield torch.nn.Parameter(torch.zeros(1))
+        def eval(self):
+            return self
+        def generate(self, encoded, **kwargs):
+            return torch.cat([encoded, torch.tensor([[9]])], dim=1)
+
+    class FakeTokenizer:
+        eos_token_id = 0
+        def apply_chat_template(self, messages, **kwargs):
+            self.messages = messages
+            return torch.tensor([[1, 2]])
+        def decode(self, output, skip_special_tokens=True):
+            return "I am Tantra."
+
+    gateway = ModelGateway(spec(), "./fake")
+    gateway._model = FakeModel()
+    gateway._tokenizer = FakeTokenizer()
+    assert gateway.generate([{"role": "user", "content": "Introduce yourself."}]) == "I am Tantra."
+    assert gateway._tokenizer.messages[0]["content"] == IDENTITY_SYSTEM_MESSAGE
