@@ -28,7 +28,7 @@ The repository retains a native Tantra Transformer as historical research code, 
 <summary><strong>What exists and has been verified</strong></summary>
 
 - Python package, CLI entry points, native training/evaluation code and automated tests.
-- The Qwen3.5-0.8B-Base LoRA SFT source pipeline and unit tests for JSONL provenance checks, family leakage and assistant-only label masking.
+- The Qwen3.5-0.8B-Base LoRA SFT pipeline, dataset checksum preflight and base-versus-adapter evaluation harness, with unit tests for JSONL provenance checks, family leakage and assistant-only label masking.
 - The official Qwen3.5 tokenizer/chat-template path is preserved by the pipeline; the legacy 10,277-token native tokenizer is not used for Qwen.
 - Historical native-model, SmolLM2 and Qwen3-1.7B experiments remain in the repository for provenance, but they are not the active foundation path.
 - The Qwen3.5 model has not yet been downloaded or trained in the user's runtime; no Tantra adapter has been promoted.
@@ -101,6 +101,7 @@ python -m Tantra ask "What is the capital of India?"
 python -m Tantra.bench_cpu --help
 
 # Qwen3.5-0.8B LoRA SFT pipeline
+python -m Tantra qwen35_preflight
 python -m Tantra qwen35_finetune --help
 python -m Tantra qwen35_eval --help
 
