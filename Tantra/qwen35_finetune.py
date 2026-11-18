@@ -81,7 +81,7 @@ def check_family_disjoint(train_rows: list[dict], validation_rows: list[dict]) -
         raise ValueError(f"train/validation family leakage ({len(overlap)} families): {examples}")
 
 
-def load_prepared_manifest(manifest_path: str | Path, experts: list[str]):
+def load_prepared_manifest(manifest_path: str | Path, experts: list[str], allow_undersized: bool = False):
     """Load and checksum-verify selected workbench train/val splits.
 
     Test split files are checksum-verified but never parsed or used for selection.
@@ -99,6 +99,11 @@ def load_prepared_manifest(manifest_path: str | Path, experts: list[str]):
         if expert not in manifest["experts"]:
             raise ValueError(f"Unknown expert in prepared manifest: {expert}")
         record = manifest["experts"][expert]
+        if record.get("state") != "data_ready" and not allow_undersized:
+            raise ValueError(
+                f"Expert {expert!r} is not data_ready ({record.get('state', 'unknown')}); "
+                "use --allow-undersized-pilot only for a mechanics smoke test"
+            )
         files = record.get("files") or {}
         for split in ("train", "val", "test"):
             item = files.get(split)
@@ -286,7 +291,8 @@ def train(args) -> dict:
         if args.train_jsonl or args.validation_jsonl or not args.experts:
             raise ValueError("With --manifest, provide --experts and omit explicit train/validation files")
         train_rows, validation_rows, manifest_hash, split_hashes = load_prepared_manifest(
-            args.manifest, [name.strip() for name in args.experts.split(",") if name.strip()]
+            args.manifest, [name.strip() for name in args.experts.split(",") if name.strip()],
+            allow_undersized=args.allow_undersized_pilot,
         )
         train_hash = None
         validation_hash = None
@@ -402,6 +408,7 @@ def train(args) -> dict:
     metadata = {
         "schema_version": 1,
         "candidate_status": "pilot_unvalidated",
+        "allow_undersized_pilot": args.allow_undersized_pilot,
         "model_id": args.model_id,
         "model_revision": args.revision,
         "training_method": "supervised_finetuning_lora",
@@ -444,6 +451,7 @@ def build_parser():
     parser.add_argument("--validation-jsonl", default=None)
     parser.add_argument("--manifest", default=None, help="Prepared workbench manifest.json; verifies split hashes")
     parser.add_argument("--experts", default=None, help="Comma-separated expert IDs to combine from the manifest")
+    parser.add_argument("--allow-undersized-pilot", action="store_true", help="Allow non-data_ready splits for mechanics smoke tests only")
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--max-steps", type=int, default=200)
     parser.add_argument("--max-length", type=int, default=1024)
