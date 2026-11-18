@@ -17,6 +17,7 @@ def source(**overrides):
         parameter_count=800_000_000,
         tokenizer_id="tok-a",
         tokenizer_sha256="a" * 64,
+        weights_sha256="b" * 64,
         license_id="permissive-example",
         license_status="approved",
         integration_mode="model_gateway",
@@ -94,3 +95,26 @@ def test_expansion_rejects_upgrade_without_replay():
     )
     with pytest.raises(ValueError, match="required"):
         plan.validate(src)
+
+
+
+def test_source_rejects_missing_or_invalid_weight_hash():
+    with pytest.raises(ValueError, match="weights_sha256"):
+        source(weights_sha256="bad").validate()
+
+
+def test_source_rejects_non_integer_parameter_count():
+    with pytest.raises(ValueError, match="positive integer"):
+        source(parameter_count=True).validate()
+
+
+def test_inheritance_rejects_empty_capability_and_mutable_parent():
+    empty = ExpertInheritance("child", ("foundation-a",), "adapter_transfer", (), "d" * 64)
+    with pytest.raises(ValueError, match="capability"):
+        empty.validate({"foundation-a"})
+    mutable = ExpertInheritance(
+        "child", ("foundation-a",), "adapter_transfer", ("coding",), "d" * 64,
+        preserve_parent_checkpoints=False,
+    )
+    with pytest.raises(ValueError, match="immutable"):
+        mutable.validate({"foundation-a"})
