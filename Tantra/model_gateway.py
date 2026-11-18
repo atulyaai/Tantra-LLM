@@ -44,13 +44,23 @@ class ModelGateway:
         last_user = next((m.get("content", "") for m in reversed(messages) if m.get("role") == "user"), "")
         direct = identity_response(last_user)
         if direct:
+            normalized = " ".join(last_user.lower().strip(" ?.!").split())
+            if normalized in {"are you qwen", "are you llama", "are you mistral"}:
+                return f"I am Tantra. This deployment uses {self.spec.model_id} as its underlying pretrained model."
             return direct
+        normalized = " ".join(last_user.lower().strip(" ?.!").split())
+        if normalized in {"what model powers you", "which model powers you", "what is your underlying model", "which underlying model are you using"}:
+            return f"I am Tantra. This deployment is powered by {self.spec.model_id} from {self.spec.provider}, revision {self.spec.revision}."
         if self._model is None or self._tokenizer is None:
             raise RuntimeError("call load() before generate()")
         if not hasattr(self._tokenizer, "apply_chat_template"):
             raise RuntimeError("tokenizer has no chat template; provide an explicit adapter")
         import torch
         prepared = prepare_messages(messages)
+        backend_note = (f"Verified underlying model metadata: model_id={self.spec.model_id}; "
+                        f"provider={self.spec.provider}; revision={self.spec.revision}. "
+                        "Disclose this metadata truthfully if asked which model powers the deployment.")
+        prepared[0]["content"] += "\\n\\n" + backend_note
         encoded = self._tokenizer.apply_chat_template(
             prepared, add_generation_prompt=True, tokenize=True, return_tensors="pt").to(self.device)
         kwargs: dict[str, Any] = {"max_new_tokens": max_new_tokens, "pad_token_id": self._tokenizer.eos_token_id}
