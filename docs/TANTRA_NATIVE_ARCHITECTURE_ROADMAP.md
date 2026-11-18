@@ -68,6 +68,27 @@ Required data work:
 
 The previous bilingual workflow failed because approved Hindi data was insufficient for the required splits. That remains a real blocker; the new model does not make missing reviewed data appear.
 
+### Held-out evaluation
+
+Generate raw outputs from the untouched base first:
+
+```bash
+python -m Tantra qwen35_eval \
+  --test-jsonl Datasets/prepared/qwen35-v1/test.jsonl \
+  --output-jsonl runs/qwen35-base-test.jsonl
+```
+
+Then use the exact same test file, revision and decoding settings for the adapter:
+
+```bash
+python -m Tantra qwen35_eval \
+  --test-jsonl Datasets/prepared/qwen35-v1/test.jsonl \
+  --adapter-dir runs/qwen35-08b-sft-v1/best_adapter \
+  --output-jsonl runs/qwen35-sft-v1-test.jsonl
+```
+
+The output JSONL preserves the prompt, reference answer, generated answer, language and latency for human review. It deliberately does not calculate an automatic quality score or promote the adapter.
+
 ## 5. Controlled experiment sequence
 
 | Stage | Experiment | Exit condition |
