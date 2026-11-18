@@ -11,12 +11,16 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-orange.svg" alt="MIT License"/></a>
 </p>
 
-Tantra is an experimental AI platform. The repository contains two related tracks:
+Tantra is an experimental **independent, native model architecture** with a long-term design goal: experts must be upgradeable without discarding their validated predecessors. Tantra owns its architecture, tokenizer, vocabulary, training pipeline, expert format, routing system and model checkpoints. We may study external architectures and use external models as optional teachers or benchmark references, but third-party weights are not Tantra's foundation and must never be presented as Tantra-trained weights.
 
-1. **Native research backend** — a small Transformer, tokenizer, training/evaluation code, routing and expert/adaptation experiments.
-2. **Pretrained-model engineering** — a local model gateway, model registry, LoRA adaptation, replay, residual-branch experiments, benchmark reports and candidate lifecycle controls.
+The repository contains native model, tokenizer, training, evaluation, expert, routing and controlled-growth research. It also contains optional external-model gateway and adaptation experiments. Those integrations are engineering tools and comparison paths—not the product's foundation strategy.
 
-The platform direction is pretrained-first: use a capable foundation model, adapt it with reviewed data, evaluate it against a frozen benchmark, and promote a candidate only when measured gains justify it. Tantra is the orchestration and product layer; it does not make every upstream model its own foundation model.
+**Locked architecture decisions (18 November 2026):**
+- **Model identity:** independent native Tantra architecture and weights.
+- **Expert growth:** residual branches first; width and depth expansion later.
+- **Learning:** distillation + replay + new training.
+- **Versioning:** retain every validated version and support rollback; never mutate a promoted parent.
+- **First milestone:** native foundation + two compatible experts + a measured residual-expansion proof.
 
 ## Honest project status
 
@@ -25,7 +29,7 @@ The platform direction is pretrained-first: use a capable foundation model, adap
 
 - Python package, CLI entry points, native training/evaluation code and automated tests.
 - A tokenizer artifact in `Model/`; the repository does not contain a ready-to-use trained native model checkpoint.
-- Pretrained gateway and registry with pinned model revisions.
+- Optional external-model gateway and registry experiments with pinned model revisions; these are not Tantra's native foundation.
 - A pinned **SmolLM2-360M-Instruct** checkpoint integration path used for CPU LoRA/replay and residual-branch smoke tests. This is an engineering test, not evidence of Hindi capability.
 - **Qwen3-1.7B** is registered as a multilingual evaluation candidate. Its manual workflow runs a small engineering fixture; it has not been selected or promoted as Tantra's foundation model.
 - The latest main-branch CPU and expansion test workflows passed on 18 November 2026: the expansion suite reported 230 passed and 1 skipped. Passing software tests do not establish language quality.
@@ -44,29 +48,28 @@ The platform direction is pretrained-first: use a capable foundation model, adap
 
 </details>
 
-**Current priority:** build a provenance-backed Hindi-English-Hinglish data pipeline, secure fluent review, freeze family-disjoint splits, compare stronger multilingual foundation models, run controlled LoRA experiments, and report per-language quality plus English regression. Do not promote a model based on training loss, parameter count, latency or a successful smoke test alone.
+**Current priority:** establish the native foundation and tokenizer contracts, then build two compatible native experts and prove residual-branch expansion on a small reproducible experiment. In parallel, continue provenance-backed Hindi-English-Hinglish data preparation and held-out evaluation. External models may provide optional teacher demonstrations or benchmark comparisons only; their weights must remain separate from native Tantra checkpoints. Do not promote a model based on training loss, parameter count, latency or a successful smoke test alone.
 
 ## Architecture
 
 <div align="center">
-  <img src="Assets/tantra_pretrained_architecture.svg" alt="Tantra pretrained-first architecture" width="100%"/>
+  <img src="Assets/tantra_pretrained_architecture.svg" alt="Tantra native-first expandable architecture" width="100%"/>
 </div>
 
 At a high level:
 
-- **Model gateway and registry** keep model identity, source revision, architecture and license metadata explicit.
-- **Adaptation** supports LoRA training with replay and experimental residual-branch growth for compatible architectures.
-- **Data intake** preserves source provenance, revision, license, record IDs and review decisions. Intake checks are triage, not proof of fluency or correctness.
-- **Evaluation** runs the same frozen prompts against base and candidate models and records outputs, latency and provenance.
-- **Lifecycle controls** keep candidate promotion separate from training and require evaluation evidence.
-
-The native implementation remains available as a research baseline:
+- **Native foundation** owns Tantra's model architecture, tokenizer, vocabulary, training recipe and checkpoint lineage.
+- **Native experts** share explicit hidden-state contracts and can be expanded through residual branches without mutating the original expert.
+- **Learning** combines new capability data, teacher distillation and replay examples to reduce forgetting.
+- **Expert registry and router** keep multiple immutable versions available and select among validated experts under measured quality and compute budgets.
+- **Optional external models** may act as teachers, evaluation references or independently served tools. Their provenance and weights remain separate.
+- **Data and evaluation** preserve source provenance, family-disjoint splits and per-language quality evidence.
 
 <div align="center">
   <img src="Assets/tantra_architecture.png" alt="Native Tantra architecture diagram" width="100%"/>
 </div>
 
-The native backend is a small research model. It should not be described as equivalent to a modern pretrained foundation model.
+The current native model is a small research implementation, not a demonstrated general-purpose foundation model. The independent native-first direction is a locked design decision; it is not a claim that the full architecture or expansion pipeline is already implemented.
 
 ## Quick start
 
@@ -137,16 +140,16 @@ Start here:
 - [Hinglish dataset export](docs/HINGLISH_DATASET_EXPORT.md)
 - [Aya dataset export](docs/AYA_DATASET_EXPORT.md)
 
-## Foundation-model evaluation
+## Optional external teachers and benchmark references
 
-The current shortlist is an evaluation queue, not a winner announcement:
+External checkpoints are not candidate Tantra foundations. They may be used for optional teacher demonstrations, integration tests or independent comparisons, subject to provenance and licence review. The current shortlist is an evaluation queue, not a winner announcement:
 
 | Model | Role in this repository | Status |
 |---|---|---|
 | HuggingFaceTB/SmolLM2-360M-Instruct | Small integration and adaptation smoke baseline | Pinned; English-first; not the target foundation |
 | Qwen/Qwen3-1.7B | Primary multilingual baseline candidate | Pinned; not promoted |
 
-The Qwen3 workflow is manually dispatched because downloading and evaluating a 1.7B checkpoint on CPU is a deliberate experiment, not a per-commit test.
+The Qwen3 workflow is manually dispatched because downloading and evaluating a 1.7B checkpoint on CPU is a deliberate optional comparison, not a per-commit test or a foundation-model selection process.
 
 Evaluation protocol:
 
@@ -157,7 +160,7 @@ Evaluation protocol:
 - Report English regression explicitly.
 - Keep test families sealed; never train on evaluation fixtures.
 
-Read [the foundation-model shortlist](docs/FOUNDATION_MODEL_EVALUATION_SHORTLIST.md) and [the benchmark protocol](docs/PRETRAINED_BENCHMARK_PROTOCOL.md).
+Read [the optional external-model shortlist](docs/FOUNDATION_MODEL_EVALUATION_SHORTLIST.md) and [the benchmark protocol](docs/PRETRAINED_BENCHMARK_PROTOCOL.md).
 
 ## CI and experiments
 
