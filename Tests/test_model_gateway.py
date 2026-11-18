@@ -68,3 +68,19 @@ def test_gateway_injects_tantra_system_identity_for_normal_prompts():
     gateway._tokenizer = FakeTokenizer()
     assert gateway.generate([{"role": "user", "content": "Introduce yourself."}]) == "I am Tantra."
     assert gateway._tokenizer.messages[0]["content"] == IDENTITY_SYSTEM_MESSAGE
+
+
+def test_gateway_discloses_real_backend_only_when_directly_asked():
+    from Tantra.model_gateway import ModelGateway
+    gateway = ModelGateway(spec(), "./not-loaded")
+    answer = gateway.generate([{"role": "user", "content": "Which model powers you?"}])
+    assert answer.startswith("I am Tantra.")
+    assert "HuggingFaceTB/SmolLM2-360M-Instruct" in answer
+
+
+def test_gateway_does_not_call_itself_the_backend_model():
+    from Tantra.model_gateway import ModelGateway
+    gateway = ModelGateway(spec(), "./not-loaded")
+    answer = gateway.generate([{"role": "user", "content": "Are you Qwen?"}])
+    assert answer.startswith("I am Tantra.")
+    assert "underlying pretrained model" in answer
