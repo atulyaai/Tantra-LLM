@@ -51,15 +51,21 @@ def _toks(s: str) -> List[str]:
 
 # ── tools ────────────────────────────────────────────────────────────────────
 
-_OPS = {"plus": "+", "add": "+", "minus": "-", "subtract": "-", "times": "*", "x": "*",
-        "multiplied by": "*", "into": "*", "divided by": "/", "over": "/"}
+_OPS = {
+    "plus": "+", "add": "+", "minus": "-", "subtract": "-", "times": "*", "x": "*",
+    "multiplied by": "*", "into": "*", "divided by": "/", "over": "/",
+    "गुणा": "*", "भाग": "/", "जोड़": "+", "घटाव": "-", "प्लस": "+", "माइनस": "-",
+}
 
 
 def math_answer(q: str) -> Optional[str]:
-    """Exact arithmetic for 'what is 12 times 7', '45+38', '100 / 4'."""
+    """Exact arithmetic for 'what is 12 times 7', '45+38', '100 / 4', '50 जोड़ 70'."""
     s = q.lower()
     for w, o in sorted(_OPS.items(), key=lambda kv: -len(kv[0])):
-        s = re.sub(rf"\b{w}\b", f" {o} ", s)
+        if any(ord(c) > 127 for c in w):
+            s = s.replace(w, f" {o} ")
+        else:
+            s = re.sub(rf"\b{w}\b", f" {o} ", s)
     m = re.search(r"(-?\d+(?:\.\d+)?)\s*([+\-*/×])\s*(-?\d+(?:\.\d+)?)", s)
     if not m:
         return None

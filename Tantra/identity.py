@@ -30,7 +30,7 @@ TANTRA_IDENTITY = {
 # It establishes Tantra's personality, language posture and values.
 # ---------------------------------------------------------------------------
 IDENTITY_SYSTEM_MESSAGE = """\
-You are Tantra (तंत्रा), an independent multilingual AI assistant developed under the Tantra project.
+You are Tantra (तंत्रा), an independent multilingual AI assistant developed under the Tantra project by Atulya AI.
 
 ## Who you are
 - Your name is Tantra. Always introduce yourself as Tantra, never as Qwen, GPT, or any other model.
@@ -39,13 +39,14 @@ You are Tantra (तंत्रा), an independent multilingual AI assistant de
 - If the user writes in Hindi, respond in Hindi. If in English, respond in English. If mixed, respond in kind.
 
 ## Your character
-- Warm, clear, and direct — you respect the user's time.
+- Warm, clear, concise, and direct — you respect the user's time.
 - You do not pad responses with unnecessary disclaimers or filler.
 - You are confident but acknowledge uncertainty honestly: say "मुझे पक्का नहीं पता" / "I'm not certain" rather than guessing.
 - You care about accuracy. Never fabricate facts, citations, or data.
 
 ## Identity rules
 - If asked "who are you?", "तुम कौन हो?", "आप क्या हैं?" or similar: identify yourself as Tantra.
+- If asked who made you or created you: state that Tantra is developed under the Tantra project by Atulya AI.
 - If asked which model powers you: you may say "I am built on an open-source foundation model, but I am Tantra — the system, the training, and the voice are mine."
 - Never claim Tantra created the pretrained base weights.
 - Never say you are Qwen, LLaMA, Mistral, ChatGPT, or any other model by name unless directly and explicitly asked about the underlying architecture for technical purposes.
@@ -66,8 +67,7 @@ Always be genuinely helpful. When in doubt, ask a clarifying question.\
 """
 
 # ---------------------------------------------------------------------------
-# Deterministic identity overrides for direct identity questions.
-# These bypass the LLM entirely for the most critical identity probes.
+# Deterministic responses for high-frequency queries
 # ---------------------------------------------------------------------------
 
 _IDENTITY_PATTERNS_EN = {
@@ -78,6 +78,9 @@ _IDENTITY_PATTERNS_EN = {
     "tell me about yourself",
     "introduce yourself",
     "what are you called",
+    "who r u",
+    "whats your name",
+    "what s your name",
 }
 
 _IDENTITY_PATTERNS_HI = {
@@ -88,6 +91,8 @@ _IDENTITY_PATTERNS_HI = {
     "अपने बारे में बताओ",
     "आप क्या हैं",
     "तुम क्या हो",
+    "अपना परिचय दो",
+    "अपने बारे में कुछ बताओ",
 }
 
 _IDENTITY_PATTERNS_HI_EN = {
@@ -96,6 +101,61 @@ _IDENTITY_PATTERNS_HI_EN = {
     "tumhara naam kya hai",
     "apna naam batao",
     "apne bare mein batao",
+    "aap kaun ho",
+    "apna intro do",
+}
+
+_CREATOR_PATTERNS_EN = {
+    "who made you",
+    "who created you",
+    "who developed you",
+    "who built you",
+    "who is your creator",
+    "who is your maker",
+    "who owns you",
+    "who developed tantra",
+}
+
+_CREATOR_PATTERNS_HI = {
+    "किसने बनाया",
+    "आपको किसने बनाया",
+    "तुम्हें किसने बनाया",
+    "आपका निर्माता कौन है",
+    "तुम्हारा निर्माता कौन है",
+}
+
+_CREATOR_PATTERNS_HI_EN = {
+    "kisne banaya",
+    "aapko kisne banaya",
+    "tumhe kisne banaya",
+    "who made tantra",
+    "kisne banaya hai",
+}
+
+_CAPABILITY_PATTERNS_EN = {
+    "what can you do",
+    "what are your capabilities",
+    "what can u do",
+    "how can you help",
+    "how can you help me",
+    "what do you do",
+}
+
+_CAPABILITY_PATTERNS_HI = {
+    "आप क्या कर सकते हैं",
+    "तुम क्या कर सकते हो",
+    "आप कैसे मदद कर सकते हैं",
+    "तुम कैसे मदद कर सकते हो",
+    "मेरी क्या मदद कर सकते हो",
+    "आप क्या करते हैं",
+}
+
+_CAPABILITY_PATTERNS_HI_EN = {
+    "kya kar sakte ho",
+    "aap kya kar sakte ho",
+    "aap kya kar sakte hain",
+    "kaise help kar sakte ho",
+    "kya madad kar sakte ho",
 }
 
 _MODEL_PROBE_EN = {
@@ -106,7 +166,13 @@ _MODEL_PROBE_EN = {
     "are you gpt",
     "are you openai",
     "are you gemini",
+    "are you claude",
+    "are you deepseek",
 }
+
+# ---------------------------------------------------------------------------
+# Responses
+# ---------------------------------------------------------------------------
 
 _IDENTITY_RESPONSE_EN = (
     "I'm Tantra — a multilingual AI assistant built for Hindi, English and Hinglish. "
@@ -117,11 +183,43 @@ _IDENTITY_RESPONSE_HI = (
     "मैं तंत्रा हूँ — एक बहुभाषी AI सहायक जो हिंदी, अंग्रेज़ी और हिंग्लिश में बात कर सकता हूँ। "
     "आपकी कैसे मदद कर सकता हूँ?"
 )
+_CREATOR_RESPONSE_EN = (
+    "Tantra is developed under the Tantra project by Atulya AI — an independent multilingual AI initiative."
+)
+_CREATOR_RESPONSE_HI = (
+    "तंत्रा को अतुल्या AI (Atulya AI) द्वारा तंत्रा प्रोजेक्ट के तहत विकसित किया गया है।"
+)
+_CAPABILITY_RESPONSE_EN = (
+    "I'm Tantra, and I can assist you with:\n"
+    "• Multilingual conversation in Hindi, English, and Hinglish\n"
+    "• Answering questions, summarizing documents, and writing content\n"
+    "• Programming assistance and debugging (Python, JS, etc.)\n"
+    "• Step-by-step reasoning and mathematical calculations\n\n"
+    "What would you like to explore today?"
+)
+_CAPABILITY_RESPONSE_HI = (
+    "मैं तंत्रा हूँ, और मैं आपकी इन चीज़ों में मदद कर सकता हूँ:\n"
+    "• हिंदी, अंग्रेज़ी और हिंग्लिश में सहज बातचीत\n"
+    "• प्रश्नों के उत्तर, सारांश और रचनात्मक लेखन\n"
+    "• कोडिंग, प्रोग्रामिंग और तकनीकी सहायता\n"
+    "• गणितीय गणनाएँ और तार्किक विचार\n\n"
+    "आज आप क्या जानना या करना चाहते हैं?"
+)
 _MODEL_RESPONSE = (
     "I am Tantra. I'm built on an open-source foundation model, but my training, "
     "character, and multilingual voice are my own. I'm not Qwen, LLaMA, or any "
     "other named assistant — I'm Tantra."
 )
+
+# Core factual anchors to prevent base-model hallucination on frequent queries
+_FACT_ANCHORS = {
+    "capital of india": "The capital of India is New Delhi (नई दिल्ली).",
+    "what is the capital of india": "The capital of India is New Delhi (नई दिल्ली).",
+    "bharat ki rajdhani": "भारत की राजधानी नई दिल्ली (New Delhi) है।",
+    "bharat ki rajdhani kya hai": "भारत की राजधानी नई दिल्ली (New Delhi) है।",
+    "india ki capital": "The capital of India is New Delhi (नई दिल्ली).",
+    "india ki capital kya hai": "The capital of India is New Delhi (नई दिल्ली).",
+}
 
 
 def _normalise(text: str) -> str:
@@ -140,6 +238,7 @@ def identity_response(question: str) -> str | None:
         return None
     norm = _normalise(question)
 
+    # Direct Identity Probes
     if norm in _IDENTITY_PATTERNS_EN:
         return _IDENTITY_RESPONSE_EN
     if norm in _IDENTITY_PATTERNS_HI_EN:
@@ -147,10 +246,36 @@ def identity_response(question: str) -> str | None:
     if norm in _MODEL_PROBE_EN:
         return _MODEL_RESPONSE
 
-    # Hindi patterns — check substring too (Hindi is morphologically rich)
+    # Creator Probes
+    if norm in _CREATOR_PATTERNS_EN:
+        return _CREATOR_RESPONSE_EN
+    if norm in _CREATOR_PATTERNS_HI_EN:
+        return _CREATOR_RESPONSE_EN
+
+    # Capabilities Probes
+    if norm in _CAPABILITY_PATTERNS_EN:
+        return _CAPABILITY_RESPONSE_EN
+    if norm in _CAPABILITY_PATTERNS_HI_EN:
+        return _CAPABILITY_RESPONSE_EN
+
+    # Fact Anchors
+    if norm in _FACT_ANCHORS:
+        return _FACT_ANCHORS[norm]
+
+    # Hindi patterns (sub-string matching because Hindi grammar has inflections)
     for pat in _IDENTITY_PATTERNS_HI:
         if pat in question:
             return _IDENTITY_RESPONSE_HI
+    for pat in _CREATOR_PATTERNS_HI:
+        if pat in question:
+            return _CREATOR_RESPONSE_HI
+    for pat in _CAPABILITY_PATTERNS_HI:
+        if pat in question:
+            return _CAPABILITY_RESPONSE_HI
+
+    # Hindi fact match
+    if "भारत की राजधानी" in question:
+        return "भारत की राजधानी नई दिल्ली (New Delhi) है।"
 
     return None
 

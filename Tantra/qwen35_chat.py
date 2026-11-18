@@ -6,6 +6,7 @@ Supports:
   - Optional LoRA adapter loading: --adapter-dir <path>
 
 Identity is enforced via Tantra/identity.py regardless of base model.
+Arithmetic is resolved via Tantra/reasoning.py math_answer.
 """
 from __future__ import annotations
 
@@ -15,11 +16,13 @@ from pathlib import Path
 
 from Tantra.identity import IDENTITY_SYSTEM_MESSAGE, identity_response, prepare_messages
 from Tantra.qwen35_finetune import DEFAULT_REVISION, MODEL_ID
+from Tantra.reasoning import math_answer
 
-# Default generation parameters optimised for CPU inference.
+# Default generation parameters optimised for coherent CPU inference.
 _DEFAULT_MAX_NEW_TOKENS = 128
-_DEFAULT_TEMPERATURE = 0.7
+_DEFAULT_TEMPERATURE = 0.2
 _DEFAULT_TOP_P = 0.9
+_DEFAULT_REPETITION_PENALTY = 1.15
 
 WELCOME_BANNER = """
 ╔══════════════════════════════════════════════════╗
@@ -29,12 +32,28 @@ WELCOME_BANNER = """
 ╚══════════════════════════════════════════════════╝
 """
 
+# Few-shot anchors when chatting with raw base model without adapter
+_FEW_SHOT_BASE = [
+    {"role": "user", "content": "What is Python?"},
+    {"role": "assistant", "content": "Python is a popular, easy-to-read programming language used for web development, automation, data analysis, and AI."},
+    {"role": "user", "content": "नमस्ते! क्या आप हिंदी में बात कर सकते हैं?"},
+    {"role": "assistant", "content": "नमस्ते! हाँ, मैं हिंदी, अंग्रेज़ी और हिंग्लिश में बात कर सकता हूँ। मैं आपकी कैसे मदद करूँ?"},
+]
+
+
+def _clean_response(text: str) -> str:
+    """Trim stop artifacts and self-continuation turns."""
+    for stop in ("\nUser:", "\nHuman:", "\nSystem:", "\nउपयोगकर्ता:", "\nAssistant:", "<|im_end|>", "<|endoftext|>"):
+        if stop in text:
+            text = text.split(stop)[0]
+    return text.strip()
+
 
 def _generate(model, tokenizer, messages, args, device):
     """Run one forward pass and return the decoded response string."""
     import torch
 
-    # Deterministic identity short-circuit: check last user message first
+    # 1. Deterministic identity short-circuit: check last user message first
     last_user = next(
         (m["content"] for m in reversed(messages) if m.get("role") == "user"), None
     )
@@ -43,8 +62,21 @@ def _generate(model, tokenizer, messages, args, device):
         if hard_answer is not None:
             return hard_answer
 
+        # 2. Arithmetic exact evaluation short-circuit
+        math_res = math_answer(last_user)
+        if math_res:
+            return math_res
+
+    # 3. Format message sequence
+    eval_messages = list(messages)
+    # If using pure base model without an adapter and only 1 turn, add few-shot anchors
+    if not args.adapter_dir and len([m for m in eval_messages if m.get("role") == "user"]) == 1:
+        system_msg = eval_messages[0]
+        user_msg = eval_messages[-1]
+        eval_messages = [system_msg] + _FEW_SHOT_BASE + [user_msg]
+
     inputs = tokenizer.apply_chat_template(
-        messages, tokenize=True, add_generation_prompt=True, return_tensors="pt"
+        eval_messages, tokenize=True, add_generation_prompt=True, return_tensors="pt"
     )
     if isinstance(inputs, Mapping):
         input_ids = inputs["input_ids"].to(device)
@@ -60,12 +92,14 @@ def _generate(model, tokenizer, messages, args, device):
             do_sample=args.temperature > 0,
             temperature=args.temperature if args.temperature > 0 else None,
             top_p=args.top_p if args.temperature > 0 else None,
+            repetition_penalty=args.repetition_penalty,
             pad_token_id=tokenizer.pad_token_id or tokenizer.eos_token_id,
             eos_token_id=tokenizer.eos_token_id,
             use_cache=True,
         )
     new_ids = generated[0, input_ids.shape[-1]:]
-    return tokenizer.decode(new_ids, skip_special_tokens=True).strip()
+    raw_answer = tokenizer.decode(new_ids, skip_special_tokens=True).strip()
+    return _clean_response(raw_answer)
 
 
 def chat_loop(args):
@@ -89,7 +123,7 @@ def chat_loop(args):
     model = AutoModelForCausalLM.from_pretrained(
         args.model_id,
         revision=args.revision,
-        dtype=dtype,            # use dtype= not torch_dtype= (Transformers 5.x)
+        dtype=dtype,
         low_cpu_mem_usage=True,
     )
     if args.adapter_dir:
@@ -148,6 +182,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-new-tokens", type=int, default=_DEFAULT_MAX_NEW_TOKENS)
     parser.add_argument("--temperature", type=float, default=_DEFAULT_TEMPERATURE)
     parser.add_argument("--top-p", type=float, default=_DEFAULT_TOP_P)
+    parser.add_argument("--repetition-penalty", type=float, default=_DEFAULT_REPETITION_PENALTY)
     return parser
 
 

@@ -65,6 +65,42 @@ def test_identity_is_tantra_for_hinglish_questions(question):
 
 
 # ---------------------------------------------------------------------------
+# Creator and Capabilities tests
+# ---------------------------------------------------------------------------
+@pytest.mark.parametrize("question", [
+    "Who made you?",
+    "Who created you?",
+    "आपको किसने बनाया?",
+    "kisne banaya",
+])
+def test_creator_queries(question):
+    response = identity_response(question)
+    assert response is not None
+    assert "Atulya AI" in response or "अतुल्या AI" in response
+
+
+@pytest.mark.parametrize("question", [
+    "What can you do?",
+    "आप क्या कर सकते हैं?",
+    "kya kar sakte ho",
+])
+def test_capability_queries(question):
+    response = identity_response(question)
+    assert response is not None
+    assert "Tantra" in response or "तंत्रा" in response
+
+
+@pytest.mark.parametrize("question", [
+    "What is the capital of India?",
+    "भारत की राजधानी क्या है?",
+])
+def test_core_fact_queries(question):
+    response = identity_response(question)
+    assert response is not None
+    assert "Delhi" in response or "दिल्ली" in response
+
+
+# ---------------------------------------------------------------------------
 # Model-brand probes must redirect to Tantra identity
 # ---------------------------------------------------------------------------
 @pytest.mark.parametrize("question", [
