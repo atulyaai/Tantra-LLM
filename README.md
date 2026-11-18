@@ -11,16 +11,16 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-orange.svg" alt="MIT License"/></a>
 </p>
 
-Tantra is an experimental **independent, native model architecture** with a long-term design goal: experts must be upgradeable without discarding their validated predecessors. Tantra owns its architecture, tokenizer, vocabulary, training pipeline, expert format, routing system and model checkpoints. We may study external architectures and use external models as optional teachers or benchmark references, but third-party weights are not Tantra's foundation and must never be presented as Tantra-trained weights.
+Tantra is an experimental language-model project using **Qwen3.5-0.8B-Base as its foundation checkpoint**. The base weights remain the upstream Qwen model; Tantra's work is the reviewed multilingual training data, fine-tuning recipe, adapters, evaluation and product integration. We do not claim that Qwen's pretrained weights were created by Tantra.
 
-The repository contains native model, tokenizer, training, evaluation, expert, routing and controlled-growth research. It also contains optional external-model gateway and adaptation experiments. Those integrations are engineering tools and comparison paths—not the product's foundation strategy.
+The repository retains a native Tantra Transformer as historical research code, but it is no longer the active foundation target. The active path is Qwen3.5 text-only supervised fine-tuning with LoRA, followed by controlled Hindi, English and Hinglish evaluation.
 
-**Locked architecture decisions (18 November 2026):**
-- **Model identity:** independent native Tantra architecture and weights.
-- **Expert growth:** residual branches first; width and depth expansion later.
-- **Learning:** distillation + replay + new training.
-- **Versioning:** retain every validated version and support rollback; never mutate a promoted parent.
-- **First milestone:** native foundation + two compatible experts + a measured residual-expansion proof.
+**Locked architecture decision (18 November 2026):**
+- **Foundation:** `Qwen/Qwen3.5-0.8B-Base`, pinned to an immutable model revision.
+- **First training stage:** reviewed multilingual SFT with LoRA; not pretraining from scratch.
+- **Tokenizer/chat format:** preserve Qwen's official tokenizer and chat template.
+- **Artifacts:** keep the base immutable; save each adapter candidate and its dataset/code/evaluation lineage separately.
+- **Promotion:** require held-out capability improvement, safety checks and explicit English-regression measurement.
 
 ## Honest project status
 
@@ -48,7 +48,7 @@ The repository contains native model, tokenizer, training, evaluation, expert, r
 
 </details>
 
-**Current priority:** establish the native foundation and tokenizer contracts, then build two compatible native experts and prove residual-branch expansion on a small reproducible experiment. In parallel, continue provenance-backed Hindi-English-Hinglish data preparation and held-out evaluation. External models may provide optional teacher demonstrations or benchmark comparisons only; their weights must remain separate from native Tantra checkpoints. Do not promote a model based on training loss, parameter count, latency or a successful smoke test alone.
+**Current priority:** prepare a provenance-backed Hindi-English-Hinglish SFT corpus, verify the Qwen3.5 environment and run a tiny LoRA smoke test. Then compare the untouched base and adapter on the same frozen held-out benchmark. Do not promote a model based on training loss or a successful smoke test alone.
 
 ## Architecture
 
@@ -56,20 +56,15 @@ The repository contains native model, tokenizer, training, evaluation, expert, r
   <img src="Assets/tantra_pretrained_architecture.svg" alt="Tantra native-first expandable architecture" width="100%"/>
 </div>
 
-At a high level:
+The active pipeline is:
 
-- **Native foundation** owns Tantra's model architecture, tokenizer, vocabulary, training recipe and checkpoint lineage.
-- **Native experts** share explicit hidden-state contracts and can be expanded through residual branches without mutating the original expert.
-- **Learning** combines new capability data, teacher distillation and replay examples to reduce forgetting.
-- **Expert registry and router** keep multiple immutable versions available and select among validated experts under measured quality and compute budgets.
-- **Optional external models** may act as teachers, evaluation references or independently served tools. Their provenance and weights remain separate.
-- **Data and evaluation** preserve source provenance, family-disjoint splits and per-language quality evidence.
+1. Load the pinned Qwen3.5-0.8B-Base text model and its own tokenizer/chat template.
+2. Fine-tune with reviewed conversation/instruction records using LoRA.
+3. Select checkpoints using validation data only.
+4. Evaluate base and adapter on identical held-out Hindi, English and Hinglish prompts.
+5. Retain immutable adapter candidates with dataset, code and evaluation hashes.
 
-<div align="center">
-  <img src="Assets/tantra_architecture.png" alt="Native Tantra architecture diagram" width="100%"/>
-</div>
-
-The current native model is a small research implementation, not a demonstrated general-purpose foundation model. The independent native-first direction is a locked design decision; it is not a claim that the full architecture or expansion pipeline is already implemented.
+The legacy native architecture and growth diagrams are historical research material, not the current foundation architecture.
 
 ## Quick start
 
@@ -94,7 +89,7 @@ For LoRA training, install the fine-tuning extra:
 python -m pip install -e ".[finetune,test]"
 ```
 
-The fine-tuning extra requires Transformers 4.51 or newer (below 5), matching the Qwen3 architecture support floor.
+The Qwen3.5 fine-tuning extra requires Transformers 5.23 or newer and a compatible PEFT release.
 
 ## Useful commands
 
@@ -107,9 +102,8 @@ python -m Tantra ask "What is the capital of India?"
 # CPU benchmark utility
 python -m Tantra.bench_cpu --help
 
-# Optional external-model gateway
-python -m Tantra.pretrained_cli info
-python -m Tantra.pretrained_cli --help
+# Qwen3.5-0.8B LoRA SFT pipeline
+python -m Tantra qwen35_finetune --help
 
 # Multilingual data intake and review
 python -m Tantra.multilingual_data --help
@@ -140,16 +134,16 @@ Start here:
 - [Hinglish dataset export](docs/HINGLISH_DATASET_EXPORT.md)
 - [Aya dataset export](docs/AYA_DATASET_EXPORT.md)
 
-## Optional external teachers and benchmark references
+## Qwen3.5 foundation and controlled fine-tuning
 
-External checkpoints are not candidate Tantra foundations. They may be used for optional teacher demonstrations, integration tests or independent comparisons, subject to provenance and licence review. The current shortlist is an evaluation queue, not a winner announcement:
+Qwen3.5-0.8B-Base is now the selected foundation checkpoint. The separate post-trained Qwen3.5-0.8B can be used as a reference model, not silently substituted for the Base checkpoint.
 
-| Model | Role in this repository | Status |
+| Model | Role | Status |
 |---|---|---|
-| HuggingFaceTB/SmolLM2-360M-Instruct | Small integration and adaptation smoke baseline | Pinned; English-first; not the target foundation |
-| Qwen/Qwen3-1.7B | Optional multilingual teacher / comparison | Pinned; not promoted |
+| `Qwen/Qwen3.5-0.8B-Base` | Active fine-tuning foundation | Selected; pinned revision in the SFT pipeline |
+| `Qwen/Qwen3.5-0.8B` | Post-trained reference comparison | Evaluation reference only |
 
-The Qwen3 workflow is manually dispatched because downloading and evaluating a 1.7B checkpoint on CPU is a deliberate optional comparison, not a per-commit test or a foundation-model selection process.
+The Qwen3.5 training pipeline is manually run by the developer. Do not trigger long model downloads or training jobs in ordinary CI.
 
 Evaluation protocol:
 
@@ -160,7 +154,7 @@ Evaluation protocol:
 - Report English regression explicitly.
 - Keep test families sealed; never train on evaluation fixtures.
 
-Read [the optional external-model shortlist](docs/FOUNDATION_MODEL_EVALUATION_SHORTLIST.md) and [the benchmark protocol](docs/PRETRAINED_BENCHMARK_PROTOCOL.md).
+Read the [Qwen3.5 foundation and fine-tuning roadmap](docs/TANTRA_NATIVE_ARCHITECTURE_ROADMAP.md), [dataset specification](docs/DATASET_SPEC.md) and [benchmark protocol](docs/PRETRAINED_BENCHMARK_PROTOCOL.md).
 
 ## CI and experiments
 
