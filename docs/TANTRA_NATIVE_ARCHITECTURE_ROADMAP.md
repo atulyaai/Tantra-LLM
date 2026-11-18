@@ -36,20 +36,18 @@ python -m Tantra qwen35_finetune --help
 python -m Tantra qwen35_eval --help
 ```
 
-Training inputs are separate immutable JSONL files following [DATASET_SPEC.md](DATASET_SPEC.md), with:
-- `messages` containing system/user/assistant turns;
-- stable `family_id`;
-- `source.id`, `source.revision` and a known `source.license`;
-- `review.status` equal to `reviewed` or `verified_auto`.
+Training data follows [DATASET_SPEC.md](DATASET_SPEC.md): system/user/assistant `messages`, `language`, stable `family_id`, source ID/revision/licence and `review.status` of `reviewed` or `verified_auto`.
 
-The pipeline checks JSON structure, provenance/review fields and train/validation family separation. It constructs one context-conditioned example per assistant turn and masks prompt tokens from the loss. It uses LoRA with rank 8 by default and `all-linear` target selection, evaluates validation loss, and writes the best adapter plus a run manifest to a new output directory. The separate `qwen35_eval` command runs the same frozen test set against the untouched base or a selected adapter and exports raw outputs for human review; it does not score or promote candidates.
+**Preferred input:** the immutable workbench `prepared/manifest.json`. Pass one or more expert IDs; the pipeline verifies each train/val/test file against the manifest SHA-256, combines selected train and validation splits, deduplicates shared record IDs and checks family-group separation. It verifies test file hashes but does not read test rows during training. Direct `--train-jsonl` and `--validation-jsonl` inputs remain available for separately prepared immutable datasets, with family separation checked but no manifest hash verification.
 
-Example command (replace paths with actual prepared split paths):
+The pipeline constructs one context-conditioned example per assistant turn and masks prompt tokens from the loss. It uses LoRA with rank 8 by default and `all-linear` target selection, evaluates validation loss, and writes the best adapter plus a run manifest to a new output directory. The separate `qwen35_eval` command runs a frozen test JSONL against the untouched base or a selected adapter and exports raw outputs for human review; it does not score or promote candidates.
+
+Example command (replace expert IDs with approved populated entries from your prepared manifest):
 
 ```bash
 python -m Tantra qwen35_finetune \
-  --train-jsonl Datasets/prepared/qwen35-v1/train.jsonl \
-  --validation-jsonl Datasets/prepared/qwen35-v1/validation.jsonl \
+  --manifest Datasets/workbench/prepared/manifest.json \
+  --experts greeting,smalltalk,identity_self \
   --output-dir runs/qwen35-08b-sft-v1
 ```
 
