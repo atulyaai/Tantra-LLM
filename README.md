@@ -195,7 +195,7 @@ Before changing training, data or model lifecycle code, read:
 - [AGENTS.md](AGENTS.md)
 - [Developer handoff](docs/HANDOFF.md)
 - [Dataset specification](docs/DATASET_SPEC.md)
-- [Pretrained expansion roadmap](docs/TANTRA_PRETRAINED_EXPANSION_ROADMAP.md)
+- [Pretrained expansion roadmap](docs/TANTRA_NATIVE_ARCHITECTURE_ROADMAP.md)
 
 ## License
 
