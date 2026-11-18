@@ -33,3 +33,17 @@ def test_aya_export_refuses_test_split_and_overwrite(tmp_path):
 def test_aya_export_rejects_empty_supported_subset(tmp_path):
     with pytest.raises(ValueError,match="no supported"):
         export_aya_training_rows([{"language_code":"tam","inputs":"வணக்கம்","targets":"வணக்கம்"}],tmp_path/"empty.jsonl")
+
+
+def test_aya_export_uses_deterministic_per_language_cap(tmp_path):
+    rows=[
+        {"language_code":"eng","inputs":f"Question {i}?","targets":f"Answer {i}."}
+        for i in range(5)
+    ]+[{"language_code":"hin","inputs":f"प्रश्न {i}?","targets":f"उत्तर {i}।"} for i in range(4)]
+    first=export_aya_training_rows(rows,tmp_path/"first.jsonl",max_rows_per_language=2)
+    second=export_aya_training_rows(rows,tmp_path/"second.jsonl",max_rows_per_language=2)
+    a=[json.loads(x) for x in (tmp_path/"first.jsonl").read_text(encoding="utf-8").splitlines()]
+    b=[json.loads(x) for x in (tmp_path/"second.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert len(a)==4 and a==b
+    assert first["by_language"]=={"en":2,"hi":2}
+    assert second["output_sha256"]==first["output_sha256"]
