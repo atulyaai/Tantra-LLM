@@ -40,6 +40,10 @@ def test_hinglish_sample_cap_keeps_whole_scenario_persona_families(tmp_path):
     ]
     result=export_hinglish_rows(rows,tmp_path/"sample.jsonl",max_rows_per_expert=1)
     records=[json.loads(x) for x in (tmp_path/"sample.jsonl").read_text(encoding="utf-8").splitlines()]
-    assert len(records)==2
-    assert len({row["family_id"] for row in records})==1
+    original_counts={}
+    for row in rows:
+        family=f"hinglish-scenario:{row['scenario'].casefold()}:{row['persona'].casefold()}"
+        original_counts[family]=original_counts.get(family,0)+1
+    for family in {row["family_id"] for row in records}:
+        assert sum(row["family_id"]==family for row in records)==original_counts[family]
     assert result["max_rows_per_expert"]==1
