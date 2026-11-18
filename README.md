@@ -18,7 +18,7 @@
   <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.10%2B-blue.svg" alt="Python 3.10+"/></a>
   <a href="https://pytorch.org/"><img src="https://img.shields.io/badge/pytorch-2.2%2B-ee4c2c.svg" alt="PyTorch 2.2+"/></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-F7931A.svg?style=flat-square" alt="MIT License"/></a>
-  <a href="#"><img src="https://img.shields.io/badge/Architecture-Sparse--MoA-purple.svg" alt="Architecture: Sparse-MoA"/></a>
+  <a href="#"><img src="https://img.shields.io/badge/Architecture-Expandable--Hybrid-purple.svg" alt="Architecture: Expandable Hybrid AI"/></a>
   <a href="#"><img src="https://img.shields.io/badge/Tokenizer-10k_Bilingual_BPE-brightgreen.svg" alt="10k Bilingual BPE"/></a>
   <a href="#"><img src="https://img.shields.io/badge/Made_in-India_≡ƒç«≡ƒç│-FF9933.svg" alt="Made in India"/></a>
 </p>
@@ -29,28 +29,61 @@
 
 ---
 
-**Tantra** is a **CPU-first language model built from scratch**: a small shared base
-transformer with independent LoRA domain experts, an n-gram/embedding router, a
-decoupled relational knowledge engine, and a think-check-search reasoning loop —
-training and inference that fit on a laptop CPU.
+**Tantra** is an **expandable AI platform with a pretrained-first strategy**. Tantra
+owns the orchestration, identity, model registry, routing, expert interfaces,
+adaptation and evaluation pipeline. It can adapt third-party pretrained models,
+connect independent specialists, and build compatible neural experts through
+fine-tuning, expert inheritance and controlled capacity growth. Tantra's identity
+stays Tantra across every backend; underlying model provenance remains traceable
+and is disclosed truthfully when asked.
 
-- **Canonical Model Directory**: `Model/` (holds tokenizer artifacts; base weights,
-  experts, and router land here when trained — nothing is deployed in this tree yet).
-- **10k Bilingual Tokenizer**: ByteLevel BPE with 10,277 vocabulary entries that
-  keeps Devanagari conjuncts and matras intact without Unicode codepoint shattering.
-- **Sparse Mixture-of-Adapters**: only the router-selected experts run;
-  `TantraEngine` loads adapters on demand (LRU, capped), so extra experts cost
-  disk, not RAM.
-- **Knowledge Engine + Reasoning**: integer triple store plus BM25/dense vector
-  indexes for retrieval, and the `reasoning.py` draft/check/search/fix loop for
-  verified answers.
+The first implementation target is an architecture and expansion prototype—not
+a trillion-parameter training run. We will prove model intake, licensing checks,
+LoRA adaptation, behavioural distillation, replay, residual-branch growth and
+versioned promotion on small models before scaling.
 
-> **State**: after the 2026-11 repository reset this tree is a verified clean
-> source baseline — full test suite green (126 passed including an end-to-end
-> tiny-model build) with no trained weights. Train your own with the Quickstart
-> below. Developers: read [AGENTS.md](AGENTS.md) and [docs/HANDOFF.md](docs/HANDOFF.md) first.
+- **Pretrained-first model intake**: reviewed source checkpoints, explicit licence
+  gates, model gateway or compatible neural-adapter integration.
+- **Expert inheritance and growth**: selective adapter/weight/behaviour/feature
+  transfer; width, depth and residual-branch expansion are planned and tested
+  through explicit contracts before real checkpoint expansion.
+- **Native backend retained**: the repository's existing tokenizer, transformer,
+  sparse adapters, router and knowledge/reasoning engine remain available as a
+  backend and research baseline.
+- **Tantra identity**: inference enforces the Tantra product identity while
+  preserving truthful disclosure of the configured underlying model.
+
+> **State**: pretrained-first architecture and identity prototype. CI validation
+> passed: 173 tests passed, 1 skipped; CPU smoke training and checkpoint reload
+> passed. No pretrained model has been selected, downloaded or fine-tuned by
+> this change. Developers: read
+> [AGENTS.md](AGENTS.md) and [docs/HANDOFF.md](docs/HANDOFF.md) first.
 
 ---
+
+## Current Architecture Direction: Pretrained-First and Expandable
+
+<div align="center">
+  <img src="Assets/tantra_pretrained_architecture.svg" alt="Tantra pretrained-first expandable intelligence architecture" width="100%"/>
+</div>
+
+- **Pretrained-first:** start from reviewed pretrained checkpoints; adapt with LoRA/adapters or fine-tuning where justified.
+- **Hybrid integration:** use a model gateway for independent models and neural adapters only for architecture-compatible blocks.
+- **Expert inheritance:** transfer selected capabilities through adapter transfer, compatible weight transfer, behavioural distillation or feature alignment.
+- **Three growth methods:** width, depth and residual-branch expansion. Preserve immutable source checkpoints.
+- **Learning strategy:** distillation + replay + new training, with held-out evaluation before promotion.
+- **Hybrid knowledge:** learned weights + retrieval/memory + tools.
+- **Stable identity:** every backend presents as Tantra; direct questions about underlying models receive truthful provenance.
+
+**Detailed plan:** [Pretrained-First Architecture & Expansion Roadmap](docs/TANTRA_PRETRAINED_EXPANSION_ROADMAP.md).
+
+> The existing banner, logo and original architecture image below are intentionally retained. The new SVG is an additional platform-level architecture view, not a replacement.
+
+---
+
+## Existing Native Implementation (Compatibility Baseline)
+
+The following diagram documents the repository's existing native transformer path. The pretrained-first platform direction above is the forward roadmap; this implementation remains available as a backend and research baseline.
 
 ## Architecture Overview
 
@@ -89,10 +122,9 @@ training and inference that fit on a laptop CPU.
 
 ## Key Design Principles
 
-1. **The model is the product**: one shared base, many tiny experts — the router
-   picks top-k per request, so forward-pass cost does not grow with the number
-   of experts, and function-preserving `grow` deepens the base without changing
-   the output shape.
+1. **The platform is the product**: pretrained models are starting points; Tantra owns
+   orchestration, expert contracts, inheritance, routing, evaluation and lifecycle.
+   Do not assume every model can be inserted into a neural layer.
 2. **Decoupled High-Density Memory**: the transformer is not expected to memorize
    static facts. Encyclopedic facts live in an integer-indexed relational triple
    store with BM25 + dense retrieval, freeing the base for language structure.
@@ -123,7 +155,8 @@ Tantra-LLM/
 │   ├─ conversation_train.py     # Seed writers, conversation training
 │   └─ reasoning.py        # Think -> Check -> Verify -> Learn reasoning loop
 ├─ Tests/                  # 4 grouped test suites (126 checks)
-├─ docs/                   # Specifications, expert cards (docs/experts/), data locks
+├─ docs/                   # Specifications, expert cards, data locks and expansion roadmap
+│  ├─ TANTRA_PRETRAINED_EXPANSION_ROADMAP.md
 ├─ clean_workspace.ps1     # Safe local-artifact cleanup
 └─ pyproject.toml          # Project configuration and metadata
 ```
@@ -132,12 +165,19 @@ Tantra-LLM/
 
 ## Quickstart & CLI
 
-### 1. Train a talking model in minutes (CPU)
+### 1. Existing native backend (CPU research baseline)
+The commands below train the repository's existing native backend. They are
+not the pretrained-first adaptation workflow described above.
+
 ```bash
-python -m Tantra seed                                # curated stage-1 data
-python -m Tantra stage1 --preset tiny                # tokenizer + base + experts + router
-python -m Tantra chat                                # talk to it
+python -m Tantra seed
+python -m Tantra stage1 --preset tiny
+python -m Tantra chat
 ```
+
+The pretrained-first intake, LoRA adaptation, inheritance and expansion
+runtime are being implemented in phases; this PR currently provides the
+roadmap, metadata contracts, identity integration and CI coverage.
 `stage1`/`base`/`expert` write into `Model/`; use `--model-dir runs/pilot` to keep
 your shipped weights untouched.
 

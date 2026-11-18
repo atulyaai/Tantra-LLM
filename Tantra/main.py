@@ -419,7 +419,9 @@ import torch
 from Tantra.train import TantraModel, quantize_for_cpu
 from Tantra.tokenizer import TantraTokenizer
 
-DEFAULT_SYSTEM = None  # identity is learned by the identity_* experts
+from Tantra.identity import IDENTITY_SYSTEM_MESSAGE, identity_response, prepare_messages
+
+DEFAULT_SYSTEM = IDENTITY_SYSTEM_MESSAGE
 
 
 def resolve_model_dir(model_dir: str | Path) -> Path:
@@ -497,6 +499,14 @@ class TantraEngine:
     def stream(self, messages: List[Dict[str, str]], max_new_tokens: int = 96, temperature: float = 0.7,
                top_p: float = 0.9, experts: Optional[List[tuple]] = None) -> Iterator[str]:
         last_user = next((m["content"] for m in reversed(messages) if m["role"] == "user"), "")
+        identity = identity_response(last_user)
+        if identity:
+            self.last_route = []
+            self.last_timing = {"route_s": 0.0, "expert_load_s": 0.0, "experts_loaded": 0,
+                                "ttft_s": 0.0, "tokens": 0, "tok_per_s": 0.0}
+            yield identity
+            return
+        messages = prepare_messages(messages)
         t0 = time.perf_counter()
         self.last_route = experts if experts is not None else self.route(last_user)
         t1 = time.perf_counter()

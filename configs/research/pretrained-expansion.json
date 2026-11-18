@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "product_identity": {
+    "name": "Tantra",
+    "platform_owned": true,
+    "third_party_weight_provenance_must_be_disclosed_when_asked": true
+  },
+  "foundation_strategy": "pretrained_first",
+  "integration_modes": ["model_gateway", "neural_adapter"],
+  "adaptation_methods": ["lora", "adapter", "full_finetune", "distillation"],
+  "inheritance_methods": [
+    "adapter_transfer",
+    "compatible_weight_transfer",
+    "behavioural_distillation",
+    "feature_alignment"
+  ],
+  "growth_methods": ["width", "depth", "residual_branch"],
+  "default_upgrade_training": {
+    "distillation": true,
+    "old_capability_replay": true,
+    "source_checkpoint_immutable": true
+  },
+  "model_intake": {
+    "require_immutable_revision": true,
+    "require_tokenizer_hash": true,
+    "require_license_id": true,
+    "block_unknown_or_restricted_license": true,
+    "never_assume_public_download_means_commercial_use": true
+  },
+  "lifecycle": {
+    "candidate_root": "runs/",
+    "retain_old_versions_only_when_needed": true,
+    "promotion_requires_held_out_evaluation": true,
+    "require_rollback_record": true
+  },
+  "prototype": {
+    "scale": "tiny_pretrained_checkpoints",
+    "first_growth_method": "residual_branch",
+    "first_inheritance_method": "behavioural_distillation",
+    "first_adaptation_method": "lora"
+  }
+}

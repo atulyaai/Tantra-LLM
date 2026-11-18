@@ -230,6 +230,11 @@ class Reasoner:
 
     def answer(self, messages: List[Dict[str, str]], temperature: float = 0.7, max_new_tokens: int = 60) -> Dict:
         q = next(m["content"] for m in reversed(messages) if m["role"] == "user")
+        from Tantra.identity import identity_response
+        identity = identity_response(q)
+        if identity:
+            self.trace = ["Tantra identity policy (deterministic response)"]
+            return {"reply": identity, "source": "tantra_identity", "route": [], "trace": self.trace}
         route = self.eng.route(q)
         self.trace = [f"route: {', '.join(f'{n}:{w:.2f}' for n, w in route) or 'base'}"]
 
