@@ -23,12 +23,18 @@ SPECIAL_TOKENS = [PAD, BOS, END, SYSTEM, USER, ASSISTANT]
 class TantraTokenizer:
     def __init__(self, tok: Tokenizer):
         self.tok = tok
-        self.pad_id = tok.token_to_id(PAD)
-        self.bos_id = tok.token_to_id(BOS)
-        self.end_id = tok.token_to_id(END)
-        self.user_id = tok.token_to_id(USER)
-        self.assistant_id = tok.token_to_id(ASSISTANT)
-        self.system_id = tok.token_to_id(SYSTEM)
+        special_ids = {token: tok.token_to_id(token) for token in SPECIAL_TOKENS}
+        missing = [token for token, token_id in special_ids.items() if token_id is None]
+        if missing:
+            raise ValueError("Tokenizer is missing required special tokens: " + ", ".join(missing))
+        if len(set(special_ids.values())) != len(SPECIAL_TOKENS):
+            raise ValueError("Tokenizer special tokens must have distinct token IDs")
+        self.pad_id = special_ids[PAD]
+        self.bos_id = special_ids[BOS]
+        self.end_id = special_ids[END]
+        self.user_id = special_ids[USER]
+        self.assistant_id = special_ids[ASSISTANT]
+        self.system_id = special_ids[SYSTEM]
 
     @property
     def vocab_size(self) -> int:

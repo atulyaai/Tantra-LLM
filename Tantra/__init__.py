@@ -34,9 +34,34 @@ class ModelConfig:
     lora_alpha: float = 16.0
     lora_targets: List[str] = field(default_factory=lambda: ["q", "v", "o", "down"])
 
+    def __post_init__(self) -> None:
+        positive = {
+            "vocab_size": self.vocab_size, "d_model": self.d_model,
+            "n_layers": self.n_layers, "n_heads": self.n_heads,
+            "n_kv_heads": self.n_kv_heads, "max_seq_len": self.max_seq_len,
+            "lora_rank": self.lora_rank,
+        }
+        invalid = [name for name, value in positive.items() if value <= 0]
+        if invalid:
+            raise ValueError("Model dimensions must be positive: " + ", ".join(invalid))
+        if self.d_model % self.n_heads:
+            raise ValueError("d_model must be divisible by n_heads")
+        if (self.d_model // self.n_heads) % 2:
+            raise ValueError("attention head dimension must be even for RoPE")
+        if self.n_heads % self.n_kv_heads:
+            raise ValueError("n_heads must be divisible by n_kv_heads for grouped-query attention")
+        if self.mlp_mult <= 0 or self.rope_theta <= 0:
+            raise ValueError("mlp_mult and rope_theta must be positive")
+        if not 0 <= self.dropout < 1:
+            raise ValueError("dropout must be in [0, 1)")
+        allowed = {"q", "k", "v", "o", "gate", "up", "down"}
+        if not self.lora_targets or set(self.lora_targets) - allowed:
+            raise ValueError("lora_targets contains no targets or unsupported module names")
+
     @property
     def mlp_hidden(self) -> int:
-        return int(round(self.d_model * self.mlp_mult / 64) * 64)
+        # Keep a real feed-forward path even in tiny test/CPU configurations.
+        return max(64, int(round(self.d_model * self.mlp_mult / 64) * 64))
 
     def to_dict(self) -> Dict:
         return asdict(self)
