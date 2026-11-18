@@ -11,7 +11,7 @@ def member(**overrides):
     values = dict(
         model_id="tantra-0p8b",
         parameter_count=800_000_000,
-        tokenizer_vocab_size=65536,
+        tokenizer_vocab_size=10277,
         tokenizer_sha256="a" * 64,
         checkpoint_sha256="b" * 64,
         backend="native",
@@ -35,9 +35,18 @@ def test_valid_root_and_family_child():
     assert [row.model_id for row in result] == ["tantra-0p8b", "tantra-2b"]
 
 
-def test_rejects_non_64k_family_tokenizer():
-    with pytest.raises(ValueError, match="64K"):
-        member(tokenizer_vocab_size=32768).validate()
+def test_legacy_tokenizer_is_valid_and_expansion_keeps_its_identity():
+    root = member(tokenizer_vocab_size=10277)
+    proposal = ExpansionProposal(
+        root.model_id, "tantra-2b", 2_000_000_000,
+        "function_preserving_depth", "copy_with_residual_gate",
+    )
+    assert proposal.candidate_record(root)["model"]["tokenizer_vocab_size"] == 10277
+
+
+def test_rejects_missing_tokenizer():
+    with pytest.raises(ValueError, match="positive"):
+        member(tokenizer_vocab_size=0).validate()
 
 
 def test_rejects_random_only_or_unknown_initialization():
