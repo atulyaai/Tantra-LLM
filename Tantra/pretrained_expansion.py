@@ -1,6 +1,6 @@
 """PEFT adaptation, capability inheritance and controlled residual growth."""
 from __future__ import annotations
-import hashlib, json, shutil
+import hashlib, json, random, shutil
 from pathlib import Path
 from typing import Iterable
 
@@ -15,7 +15,21 @@ def hash_tree(root):
             for chunk in iter(lambda:f.read(1024*1024),b""): h.update(chunk)
     return h.hexdigest()
 
-def train_lora(checkpoint_path,dataset_jsonl,output_dir,*,steps=100,learning_rate=2e-4,rank=8,max_length=512,target_modules=None):
+def mix_replay_examples(new_examples, replay_examples, replay_ratio=0.25, seed=42):
+    """Deterministically mix new capability data with sampled old-capability replay."""
+    if not 0 <= replay_ratio < 1:
+        raise ValueError("replay_ratio must be in [0, 1)")
+    new=list(new_examples); replay=list(replay_examples)
+    if not new: raise ValueError("new capability dataset is empty")
+    if replay_ratio == 0 or not replay: return new, 0
+    count=max(1, round(len(new)*replay_ratio/(1-replay_ratio)))
+    rng=random.Random(seed)
+    selected=[rng.choice(replay) for _ in range(count)]
+    mixed=new+selected
+    rng.shuffle(mixed)
+    return mixed, count
+
+def train_lora(checkpoint_path,dataset_jsonl,output_dir,*,steps=100,learning_rate=2e-4,rank=8,max_length=512,target_modules=None,replay_jsonl=None,replay_ratio=0.25,seed=42):
     """Train a PEFT LoRA adapter from JSONL records containing a text field."""
     try:
         import torch
@@ -33,6 +47,17 @@ def train_lora(checkpoint_path,dataset_jsonl,output_dir,*,steps=100,learning_rat
             if not isinstance(text,str) or not text.strip(): raise ValueError("each JSONL record requires non-empty text")
             texts.append(text)
     if not texts: raise ValueError("training dataset is empty")
+    new_count=len(texts); replay_count=0; replay_hash=None
+    if replay_jsonl:
+        replay_path=Path(replay_jsonl)
+        replay_texts=[]
+        for line in replay_path.read_text(encoding="utf-8").splitlines():
+            if line.strip():
+                value=json.loads(line).get("text")
+                if not isinstance(value,str) or not value.strip(): raise ValueError("each replay row requires non-empty text")
+                replay_texts.append(value)
+        texts,replay_count=mix_replay_examples(texts,replay_texts,replay_ratio,seed)
+        replay_hash=hashlib.sha256(replay_path.read_bytes()).hexdigest()
     tokenizer=AutoTokenizer.from_pretrained(str(base),local_files_only=True)
     if tokenizer.pad_token_id is None: tokenizer.pad_token=tokenizer.eos_token
     model=AutoModelForCausalLM.from_pretrained(str(base),local_files_only=True)
@@ -53,7 +78,11 @@ def train_lora(checkpoint_path,dataset_jsonl,output_dir,*,steps=100,learning_rat
     after=hash_tree(base)
     if before!=after: raise RuntimeError("source checkpoint changed during LoRA training")
     metadata={"base_checkpoint":str(base.resolve()),"base_sha256":before,"rank":rank,
-              "steps":steps,"examples":len(texts),"final_loss":losses[-1],"target_modules":sorted(config.target_modules) if isinstance(config.target_modules, (set, frozenset)) else config.target_modules}
+              "steps":steps,"examples":len(texts),"new_examples":new_count,"replay_examples":replay_count,
+              "replay_ratio_requested":replay_ratio if replay_jsonl else 0.0,"replay_dataset_sha256":replay_hash,
+              "new_dataset_sha256":hashlib.sha256(Path(dataset_jsonl).read_bytes()).hexdigest(),
+              "seed":seed,"final_loss":losses[-1],
+              "target_modules":sorted(config.target_modules) if isinstance(config.target_modules, (set, frozenset)) else config.target_modules}
     (out/"tantra_adapter.json").write_text(json.dumps(metadata,indent=2)+"\n",encoding="utf-8")
     return metadata
 
