@@ -53,7 +53,7 @@ def export_aya_training_rows(dataset, output_jsonl, *, split="train", language_c
         "note": "Rows still require Tantra human review; Hinglish is not supplied by this exporter.",
     }
     Path(str(output) + ".manifest.json").write_text(
-        json.dumps(manifest, ensure_ascii=False, indent=2) + "\\n", encoding="utf-8"
+        json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
     return manifest
 
