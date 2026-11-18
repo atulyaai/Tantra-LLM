@@ -217,6 +217,7 @@ not the final Hindi-first production foundation.
 ```bash
 pip install -e ".[pretrained,finetune,test]"
 python -m Tantra.pretrained_cli info
+hf download HuggingFaceTB/SmolLM2-360M-Instruct --revision c38281e01d0c0b0c36eac2f5bcb5b51fa2e803fc --local-dir ./checkpoints/SmolLM2-360M-Instruct
 python -m Tantra.pretrained_cli smoke --model-id HuggingFaceTB/SmolLM2-360M-Instruct --checkpoint ./checkpoints/SmolLM2-360M-Instruct
 
 # Generate teacher demonstrations; inspect them before approval
