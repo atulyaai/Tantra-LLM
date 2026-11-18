@@ -2,13 +2,14 @@
   "sources": [
     {
       "id": "aya-instructions",
-      "repo": "CohereForAI/aya_dataset",
+      "repo": "CohereLabs/aya_dataset",
       "revision": "f9ea04583f02a8f86404ff6c58bf75fe637df8a2",
       "path": "data/train-00000-of-00001.parquet",
       "size": 137195800,
       "sha256": "51baa85043b569ba117f41516b32d1b0e4e2647fb203a08933f98a556fb1fb06",
       "license": "Apache-2.0",
-      "kind": "human_annotated_instruction_candidates"
+      "kind": "human_annotated_instruction_candidates",
+      "url": "https://huggingface.co/datasets/CohereLabs/aya_dataset"
     },
     {
       "id": "aya-heldout",
