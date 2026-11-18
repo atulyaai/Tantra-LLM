@@ -99,12 +99,14 @@ def add_residual_branch(model,layer_index=-1,bottleneck=64):
     if getattr(layers[idx],"_tantra_growth_branch",False): raise ValueError("branch already exists")
     width=getattr(model.config,"hidden_size",getattr(model.config,"n_embd",None))
     if width is None: raise ValueError("cannot infer hidden size")
+    # Freeze the entire foundation first; the newly created branch remains trainable.
+    for parameter in model.parameters():
+        parameter.requires_grad_(False)
     class BranchWrapped(nn.Module):
         def __init__(self,base):
             super().__init__(); self.base=base; self._tantra_growth_branch=True
             self.branch=nn.Sequential(nn.Linear(width,bottleneck,bias=False),nn.GELU(),nn.Linear(bottleneck,width,bias=False))
             nn.init.zeros_(self.branch[-1].weight)
-            for p in self.base.parameters(): p.requires_grad_(False)
         def forward(self,*args,**kwargs):
             result=self.base(*args,**kwargs); hidden=result[0] if isinstance(result,tuple) else result
             if not isinstance(hidden,torch.Tensor) or hidden.ndim!=3: raise RuntimeError("expected [batch,sequence,hidden] decoder output")
