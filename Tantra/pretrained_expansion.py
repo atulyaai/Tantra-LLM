@@ -22,7 +22,7 @@ def train_lora(checkpoint_path,dataset_jsonl,output_dir,*,steps=100,learning_rat
         from peft import LoraConfig,get_peft_model
         from transformers import AutoModelForCausalLM,AutoTokenizer
     except ImportError as exc: raise RuntimeError("install the finetune extra: pip install -e '.[finetune]'") from exc
-    if steps<1 or rank<1: raise ValueError("steps and rank must be positive")
+    if steps<1 or rank<1 or max_length<1 or learning_rate<=0: raise ValueError("steps, rank, max_length and learning_rate must be positive")
     base=Path(checkpoint_path); before=hash_tree(base)
     texts=[]
     for line in Path(dataset_jsonl).read_text(encoding="utf-8").splitlines():
@@ -116,6 +116,7 @@ def add_residual_branch(model,layer_index=-1,bottleneck=64):
 def train_residual_branch(model,tokenizer,dataset_jsonl,*,steps=100,learning_rate=1e-4,max_length=512):
     """Train only new branch parameters; original decoder blocks stay frozen."""
     import torch
+    if steps<1 or max_length<1 or learning_rate<=0: raise ValueError("steps, max_length and learning_rate must be positive")
     trainable=[p for p in model.parameters() if p.requires_grad]
     if not trainable: raise ValueError("no trainable residual branch parameters")
     texts=[json.loads(line)["text"] for line in Path(dataset_jsonl).read_text(encoding="utf-8").splitlines() if line.strip()]
