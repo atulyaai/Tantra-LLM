@@ -101,10 +101,13 @@ def test_qwen3_gateway_disables_thinking_mode_for_controlled_chat():
     import torch
     from Tantra.model_gateway import ModelGateway
 
-    class QwenSpec:
-        model_id = "Qwen/Qwen3-1.7B"
-        provider = "huggingface"
-        revision = "a" * 40
+    from Tantra.model_registry import ModelSpec
+    qwen_spec = ModelSpec(
+        model_id="Qwen/Qwen3-1.7B", provider="huggingface", revision="a" * 40,
+        architecture="Qwen3ForCausalLM", parameter_count=1_700_000_000,
+        license_id="Apache-2.0", license_status="approved",
+        tokenizer_id="Qwen/Qwen3-1.7B",
+    )
 
     class FakeModel:
         device = torch.device("cpu")
@@ -121,7 +124,7 @@ def test_qwen3_gateway_disables_thinking_mode_for_controlled_chat():
         def decode(self, output, skip_special_tokens=True):
             return "नमस्ते"
 
-    gateway = ModelGateway(QwenSpec(), "./fake")
+    gateway = ModelGateway(qwen_spec, "./fake")
     gateway._model = FakeModel()
     gateway._tokenizer = FakeTokenizer()
     assert gateway.generate([{"role": "user", "content": "नमस्ते"}]) == "नमस्ते"
