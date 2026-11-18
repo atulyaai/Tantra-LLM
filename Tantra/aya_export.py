@@ -1,6 +1,7 @@
 """Export only the pinned Aya training split into Tantra's pending-review JSONL format."""
 from __future__ import annotations
 import argparse
+import hashlib
 import json
 from pathlib import Path
 
@@ -9,7 +10,8 @@ DEFAULT_REPOSITORY = "CohereForAI/aya_dataset"
 DEFAULT_REVISION = "f9ea04583f02a8f86404ff6c58bf75fe637df8a2"
 
 
-def export_aya_training_rows(dataset, output_jsonl, *, split="train", language_codes=None):
+def export_aya_training_rows(dataset, output_jsonl, *, split="train", language_codes=None,
+                             repository=DEFAULT_REPOSITORY, revision=DEFAULT_REVISION):
     if split != "train":
         raise ValueError("only Aya train split may be exported; keep source test split reserved")
     mapping = language_codes or LANGUAGE_CODES
@@ -42,9 +44,18 @@ def export_aya_training_rows(dataset, output_jsonl, *, split="train", language_c
     if not written:
         output.unlink(missing_ok=True)
         raise ValueError("no supported English/Hindi Aya training rows were found")
-    return {"split": split, "rows": written, "by_language": dict(sorted(counts.items())),
-            "output": str(output), "training_eligible": False,
-            "note": "Rows still require Tantra human review; Hinglish is not supplied by this exporter."}
+    manifest = {
+        "schema_version": 1, "repository": repository, "revision": revision,
+        "license": "Apache-2.0", "source_split": split, "rows": written,
+        "by_language": dict(sorted(counts.items())),
+        "output": str(output), "output_sha256": hashlib.sha256(output.read_bytes()).hexdigest(),
+        "training_eligible": False,
+        "note": "Rows still require Tantra human review; Hinglish is not supplied by this exporter.",
+    }
+    Path(str(output) + ".manifest.json").write_text(
+        json.dumps(manifest, ensure_ascii=False, indent=2) + "\\n", encoding="utf-8"
+    )
+    return manifest
 
 
 def main(argv=None):
@@ -61,8 +72,9 @@ def main(argv=None):
     except ImportError as exc:
         raise RuntimeError("Install the finetune extra: pip install -e '.[finetune]'") from exc
     dataset = load_dataset(args.repository, split=args.split, revision=args.revision)
-    result = export_aya_training_rows(dataset, args.out, split=args.split)
-    result.update({"repository": args.repository, "revision": args.revision, "license": "Apache-2.0"})
+    result = export_aya_training_rows(
+        dataset, args.out, split=args.split, repository=args.repository, revision=args.revision
+    )
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0
 
