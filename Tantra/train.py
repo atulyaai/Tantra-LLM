@@ -346,7 +346,11 @@ class TantraTrainer:
         tok = self.tokenizer()
         if resume and self.base_path.exists():
             model = self.load_model()
-            log.info("resuming base from checkpoint")
+            log.warning(
+                "train_base(resume=True) is a WEIGHTS WARM-START, not an exact resume: "
+                "optimizer state, schedule position, data cursor and RNG state restart. "
+                "Use the resumable pretrain pilot for exact checkpoint continuation."
+            )
         else:
             cfg = get_preset(preset) if isinstance(preset, str) else preset
             cfg.vocab_size = tok.vocab_size
