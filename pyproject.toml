@@ -49,3 +49,7 @@ testpaths = ["Tests"]
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
 ]
+
+[tool.setuptools.packages.find]
+include = ["Tantra*"]
+exclude = ["Tests*", "Model*", "Assets*", "examples*"]
