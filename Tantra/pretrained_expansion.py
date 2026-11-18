@@ -202,3 +202,35 @@ def load_residual_candidate(model,candidate_dir):
     return model
 
 def count_parameters(model): return sum(p.numel() for p in model.parameters())
+
+
+def transfer_compatible_weights(parent_model, child_model, prefixes=None):
+    """Copy only identically named, identically shaped tensors; never mutate the parent."""
+    parent_state=parent_model.state_dict()
+    child_state=child_model.state_dict()
+    allowed=tuple(prefixes) if prefixes else None
+    copied=[]; skipped=[]
+    for name,value in parent_state.items():
+        if allowed and not name.startswith(allowed):
+            continue
+        if name in child_state and tuple(child_state[name].shape)==tuple(value.shape):
+            child_state[name]=value.detach().clone()
+            copied.append(name)
+        elif name in child_state:
+            skipped.append(name)
+    if not copied:
+        raise ValueError("no compatible parent tensors were found")
+    child_model.load_state_dict(child_state,strict=True)
+    return {"copied_tensors":len(copied),"skipped_shape_mismatches":skipped,
+            "copied_names":copied}
+
+
+def feature_alignment_loss(teacher_features, student_features, projection):
+    """MSE alignment loss; teacher targets are detached, student/projection receive gradients."""
+    import torch.nn.functional as F
+    if teacher_features.ndim < 2 or student_features.ndim < 2:
+        raise ValueError("teacher and student features must include batch and feature dimensions")
+    projected=projection(teacher_features.detach())
+    if projected.shape != student_features.shape:
+        raise ValueError("projected teacher and student feature shapes must match")
+    return F.mse_loss(student_features,projected)
