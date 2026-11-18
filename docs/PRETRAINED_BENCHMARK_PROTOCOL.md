@@ -2,7 +2,7 @@
 
 Run the same versioned prompt suite against the untouched foundation, each LoRA
 candidate, and each residual-growth candidate. Save each JSON report with its
-model revision, adapter identity, and source commit.
+model revision, candidate type, artifact paths, and source commit.
 
 ## Run
 
@@ -14,7 +14,12 @@ python -m Tantra.pretrained_benchmark \
   --output runs/benchmarks/smollm2-base.json
 ```
 
-Add `--adapter` or `--residual-candidate` to benchmark adapted candidates.
+Add `--adapter` or `--residual-candidate` for an adapted candidate; do not pass
+both in one run. Pass `--source-commit` to record the training/source revision
+(the CLI also reads `GITHUB_SHA` when available). The report records candidate
+kind, checkpoint path, adapter/residual path, and source commit. Each JSON
+artifact ends with a real newline and can be parsed by strict JSON readers.
+
 Use the same hardware, device, generation length, suite and software environment
 for every comparison.
 
@@ -24,7 +29,7 @@ for every comparison.
 - Non-empty output rate.
 - Deterministic identity checks for English, Hindi and Hinglish prompts.
 - Outputs retained verbatim for review.
-- Runtime and model revision metadata.
+- Runtime, model revision, candidate identity, artifact paths and source commit.
 
 ## What is deliberately not automated
 
