@@ -1,5 +1,20 @@
 ﻿# Tantra handoff
 
+## Current locked architecture direction — 18 November 2026
+
+The authoritative product direction is **native-first, independently trained Tantra with expandable experts**. Read [the native-first architecture and roadmap](TANTRA_PRETRAINED_EXPANSION_ROADMAP.md) before changing model, expert, routing, training or lifecycle code.
+
+Locked decisions:
+- Tantra owns its native architecture, tokenizer, vocabulary, training pipeline, expert format, router and checkpoints. External models are optional teachers, benchmarks or separately served tools—not Tantra's foundation.
+- Residual branches are the first expert-growth operator. Width and depth growth are later operators.
+- New capability learning uses distillation + replay + new training.
+- Keep all validated versions immutable and available; support rollback.
+- First milestone: native foundation + two compatible native experts + a measured residual-expansion proof.
+
+**Immediate work:** audit reusable native model/expert/router code; define the shared hidden-state contract; make two tiny native experts conform to it; attach a residual branch to one expert; test pre-training equivalence; train with new data plus distillation and replay; compare on frozen held-out tasks; add version manifests and rollback.
+
+**Do not mistake historical or optional work for completion:** the native small-model pilots are narrow; pretrained gateway/LoRA/residual experiments are optional engineering tracks; neither proves the native expandability milestone. The earlier pretrained-first plan is superseded. Keep historical experiment records below as historical evidence, not as the current product direction.
+
 ## Current baseline
 
 This repository is a clean source baseline. Local checkpoints, datasets,
@@ -30,7 +45,9 @@ paths. Use `clean_workspace.ps1` to remove them safely or reset to
 - Do not claim language, conversation, or knowledge quality without recorded
   evaluation. Hindi, English, and Hinglish must be evaluated separately.
 
-## Goal ladder (written 2026-11-10 after the `b00559a` reset)
+## Historical goal ladder (written 2026-11-10; superseded by the native-first roadmap)
+
+The following ladder records the plan at that historical point. It is retained for experiment provenance and is not the current product roadmap.
 
 The offline CPU pipeline is intact and can rebuild a small, narrow pilot —
 scripted workbench curricula, then rank-8 expert adapters on a ~29M base
