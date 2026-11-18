@@ -148,7 +148,7 @@ def add_residual_branch(model,layer_index=-1,bottleneck=64):
     layers[idx]=BranchWrapped(layers[idx])
     return model
 
-def train_residual_branch(model,tokenizer,dataset_jsonl,*,steps=100,learning_rate=1e-4,max_length=512):
+def train_residual_branch(model,tokenizer,dataset_jsonl,*,steps=100,learning_rate=1e-4,max_length=512,replay_jsonl=None,replay_ratio=0.25,seed=42):
     """Train only new branch parameters; original decoder blocks stay frozen."""
     import torch
     if steps<1 or max_length<1 or learning_rate<=0: raise ValueError("steps, max_length and learning_rate must be positive")
@@ -163,7 +163,8 @@ def train_residual_branch(model,tokenizer,dataset_jsonl,*,steps=100,learning_rat
     for i in range(steps):
         ids=encoded[i%len(encoded)].unsqueeze(0).to(device); loss=model(input_ids=ids,labels=ids).loss
         loss.backward(); opt.step(); opt.zero_grad(set_to_none=True); losses.append(float(loss.detach().cpu()))
-    return {"steps":steps,"examples":len(texts),"final_loss":losses[-1],
+    return {"steps":steps,"examples":len(texts),"new_examples":new_count,"replay_examples":replay_count,
+            "replay_ratio_requested":replay_ratio if replay_jsonl else 0.0,"final_loss":losses[-1],
             "trainable_parameters":sum(p.numel() for p in trainable)}
 
 def save_residual_candidate(model,output_dir,layer_index=-1,bottleneck=64):
