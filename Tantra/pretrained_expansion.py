@@ -146,11 +146,14 @@ def add_residual_branch(model,layer_index=-1,bottleneck=64):
         def __init__(self,base):
             super().__init__(); self.base=base; self._tantra_growth_branch=True
             self.branch=nn.Sequential(nn.Linear(width,bottleneck,bias=False),nn.GELU(),nn.Linear(bottleneck,width,bias=False))
+            self.branch.to(device=next(base.parameters()).device)
             nn.init.zeros_(self.branch[-1].weight)
         def forward(self,*args,**kwargs):
             result=self.base(*args,**kwargs); hidden=result[0] if isinstance(result,tuple) else result
             if not isinstance(hidden,torch.Tensor) or hidden.ndim!=3: raise RuntimeError("expected [batch,sequence,hidden] decoder output")
-            value=hidden+self.branch(hidden)
+            branch_input=hidden.to(dtype=self.branch[0].weight.dtype)
+            delta=self.branch(branch_input).to(dtype=hidden.dtype)
+            value=hidden+delta
             return (value,*result[1:]) if isinstance(result,tuple) else value
     layers[idx]=BranchWrapped(layers[idx])
     return model
