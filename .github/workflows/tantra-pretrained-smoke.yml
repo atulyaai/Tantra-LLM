@@ -33,7 +33,7 @@ jobs:
       - name: Install pretrained runtime
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -e ".[pretrained,test]"
+          python -m pip install -e ".[finetune,test]"
       - name: Download pinned upstream snapshot
         run: |
           python - <<'PY'
@@ -44,9 +44,32 @@ jobs:
               local_dir="checkpoints/SmolLM2-360M-Instruct",
           )
           PY
-      - name: Run local-only model generation smoke test
+      - name: Run one-step real LoRA adaptation smoke
+        run: |
+          python -m Tantra.pretrained_cli train-lora \
+            --model-id HuggingFaceTB/SmolLM2-360M-Instruct \
+            --checkpoint checkpoints/SmolLM2-360M-Instruct \
+            --candidate-id ci-smollm-lora \
+            --data Tests/fixtures/pretrained_lora_smoke.jsonl \
+            --output "$RUNNER_TEMP/ci-smollm-lora" --steps 1 --rank 2
+      - name: Run local-only model generation with the LoRA adapter
         run: |
           python -m Tantra.pretrained_cli smoke \
             --model-id HuggingFaceTB/SmolLM2-360M-Instruct \
             --checkpoint checkpoints/SmolLM2-360M-Instruct \
+            --adapter "$RUNNER_TEMP/ci-smollm-lora" \
+            --device cpu --max-new-tokens 24
+      - name: Train and reload one residual-growth branch
+        run: |
+          python -m Tantra.pretrained_cli grow-residual \
+            --model-id HuggingFaceTB/SmolLM2-360M-Instruct \
+            --checkpoint checkpoints/SmolLM2-360M-Instruct \
+            --candidate-id ci-smollm-residual \
+            --data Tests/fixtures/pretrained_lora_smoke.jsonl \
+            --output "$RUNNER_TEMP/ci-smollm-residual" \
+            --steps 1 --bottleneck 8
+          python -m Tantra.pretrained_cli smoke \
+            --model-id HuggingFaceTB/SmolLM2-360M-Instruct \
+            --checkpoint checkpoints/SmolLM2-360M-Instruct \
+            --residual-candidate "$RUNNER_TEMP/ci-smollm-residual" \
             --device cpu --max-new-tokens 24
