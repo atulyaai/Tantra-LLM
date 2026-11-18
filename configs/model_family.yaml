@@ -1,0 +1,48 @@
+version: 1
+status: research_targets_only
+growth_policy: family
+tokenizer_target: 65536
+runtime_policy: balanced
+compression_tracks:
+  - representation_storage
+  - architecture_computation
+family:
+  - id: edge
+    target_parameters: 1000000000
+    role: local_low_memory
+    status: planned
+  - id: balanced
+    target_parameters: 4000000000
+    role: local_general
+    parent: edge
+    status: planned
+  - id: quality
+    target_parameters: 14000000000
+    role: server_or_multi_gpu
+    parent: balanced
+    status: planned
+  - id: large
+    target_parameters: 70000000000
+    role: multi_gpu
+    parent: quality
+    status: research
+  - id: sparse_frontier
+    target_parameters: 1000000000000
+    role: distributed_sparse_moe
+    parent: large
+    status: research
+    notes: Total parameters target; active parameters per token must be reported separately.
+growth_methods:
+  - distilled_sibling
+  - function_preserving_expansion
+  - depth_width_morphism
+  - sparse_expert_growth
+  - fresh_sibling_control
+promotion:
+  require_parent_comparison: true
+  require_same_budget_control: true
+  require_frozen_heldout: true
+  require_language_breakdown: [hi, en, hinglish]
+  require_safety_gate: true
+  require_latency_and_memory: true
+  validation_loss_alone_is_sufficient: false
