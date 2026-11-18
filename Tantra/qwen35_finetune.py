@@ -81,6 +81,63 @@ def check_family_disjoint(train_rows: list[dict], validation_rows: list[dict]) -
         raise ValueError(f"train/validation family leakage ({len(overlap)} families): {examples}")
 
 
+def load_prepared_manifest(manifest_path: str | Path, experts: list[str]):
+    """Load and checksum-verify selected workbench train/val splits.
+
+    Test split files are checksum-verified but never parsed or used for selection.
+    """
+    manifest_path = Path(manifest_path)
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if not isinstance(manifest.get("experts"), dict):
+        raise ValueError("Prepared manifest has no experts mapping")
+    if not experts:
+        raise ValueError("Select at least one expert from the prepared manifest")
+    train_rows, validation_rows = [], []
+    test_hashes = {}
+    seen_train, seen_validation = set(), set()
+    for expert in experts:
+        if expert not in manifest["experts"]:
+            raise ValueError(f"Unknown expert in prepared manifest: {expert}")
+        record = manifest["experts"][expert]
+        files = record.get("files") or {}
+        for split in ("train", "val", "test"):
+            item = files.get(split)
+            if not item:
+                raise ValueError(f"Expert {expert!r} has no frozen {split} split")
+            path = manifest_path.parent / item["path"]
+            if not path.is_file():
+                raise FileNotFoundError(path)
+            digest = sha256_file(path)
+            if digest.lower() != str(item.get("sha256", "")).lower():
+                raise ValueError(f"Prepared {split} checksum mismatch: {path}")
+            if split == "test":
+                test_hashes[expert] = digest
+                continue
+            if path.stat().st_size == 0:
+                continue
+            rows, _ = read_reviewed_jsonl(path)
+            for row in rows:
+                group = str(row.get("split_group", row["family_id"]))
+                expected_split = "train" if split == "train" else "val"
+                if row.get("split") and row["split"] != expected_split:
+                    raise ValueError(f"Row split label mismatch in {path}: expected {expected_split}")
+                key = str(row.get("record_id") or hashlib.sha256(
+                    json.dumps(row["messages"], ensure_ascii=False, sort_keys=True).encode("utf-8")
+                ).hexdigest())
+                if split == "train":
+                    if key not in seen_train:
+                        train_rows.append(row)
+                        seen_train.add(key)
+                else:
+                    if key not in seen_validation:
+                        validation_rows.append(row)
+                        seen_validation.add(key)
+    if not train_rows or not validation_rows:
+        raise ValueError("Selected experts do not provide non-empty combined train and validation splits")
+    check_family_disjoint(train_rows, validation_rows)
+    return train_rows, validation_rows, sha256_file(manifest_path), test_hashes
+
+
 def _ids(value: Any) -> list[int]:
     if hasattr(value, "tolist"):
         value = value.tolist()
@@ -188,9 +245,21 @@ def train(args) -> dict:
     if output.exists() and any(output.iterdir()):
         raise ValueError(f"Output directory must be new or empty: {output}")
 
-    train_rows, train_hash = read_reviewed_jsonl(args.train_jsonl)
-    validation_rows, validation_hash = read_reviewed_jsonl(args.validation_jsonl)
-    check_family_disjoint(train_rows, validation_rows)
+    if args.manifest:
+        if args.train_jsonl or args.validation_jsonl or not args.experts:
+            raise ValueError("With --manifest, provide --experts and omit explicit train/validation files")
+        train_rows, validation_rows, manifest_hash, test_hashes = load_prepared_manifest(
+            args.manifest, [name.strip() for name in args.experts.split(",") if name.strip()]
+        )
+        train_hash = manifest_hash
+        validation_hash = manifest_hash
+    else:
+        if not args.train_jsonl or not args.validation_jsonl:
+            raise ValueError("Provide either --manifest with --experts or both explicit split files")
+        train_rows, train_hash = read_reviewed_jsonl(args.train_jsonl)
+        validation_rows, validation_hash = read_reviewed_jsonl(args.validation_jsonl)
+        check_family_disjoint(train_rows, validation_rows)
+        manifest_hash, test_hashes = None, {}
 
     seed = args.seed
     random.seed(seed)
@@ -300,9 +369,9 @@ def train(args) -> dict:
         "model_revision": args.revision,
         "training_method": "supervised_finetuning_lora",
         "task": "text_only_causal_lm",
-        "train_file": str(Path(args.train_jsonl).resolve()),
+        "train_file": str(Path(args.train_jsonl).resolve()) if args.train_jsonl else None,
         "train_sha256": train_hash,
-        "validation_file": str(Path(args.validation_jsonl).resolve()),
+        "validation_file": str(Path(args.validation_jsonl).resolve()) if args.validation_jsonl else None,
         "validation_sha256": validation_hash,
         "train_rows": len(train_rows),
         "validation_rows": len(validation_rows),
@@ -334,8 +403,10 @@ def build_parser():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--model-id", default=MODEL_ID)
     parser.add_argument("--revision", default=DEFAULT_REVISION)
-    parser.add_argument("--train-jsonl", required=True)
-    parser.add_argument("--validation-jsonl", required=True)
+    parser.add_argument("--train-jsonl", default=None)
+    parser.add_argument("--validation-jsonl", default=None)
+    parser.add_argument("--manifest", default=None, help="Prepared workbench manifest.json; verifies split hashes")
+    parser.add_argument("--experts", default=None, help="Comma-separated expert IDs to combine from the manifest")
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--max-steps", type=int, default=200)
     parser.add_argument("--max-length", type=int, default=1024)
