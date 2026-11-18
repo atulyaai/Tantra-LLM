@@ -29,7 +29,7 @@ def identity_response(question: str) -> str | None:
     """Return deterministic product identity for direct identity questions."""
     if not isinstance(question, str):
         return None
-    normalized = re.sub(r"[^\\w\\s]", " ", question.lower())
+    normalized = re.sub(r"[^\w\s]", " ", question.lower())
     normalized = " ".join(normalized.split())
     direct_questions = {
         "who are you",
@@ -57,7 +57,7 @@ def prepare_messages(messages: List[Dict[str, str]]) -> List[Dict[str, str]]:
         current = prepared[first].get("content", "")
         if IDENTITY_SYSTEM_MESSAGE not in current:
             prepared[first]["content"] = IDENTITY_SYSTEM_MESSAGE + (
-                "\\n\\n" + current if current else ""
+                "\n\n" + current if current else ""
             )
         for index in reversed(system_indices[1:]):
             prepared.pop(index)
