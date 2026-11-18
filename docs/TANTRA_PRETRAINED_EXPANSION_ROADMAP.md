@@ -162,8 +162,8 @@ Only after this passes should the team select a production 0.8B source checkpoin
 - A measured 0.8B-to-2–3B expansion experiment.
 
 ### Validation status
-- Isolated local contract/identity harness: 28 tests passed.
-- GitHub Actions expansion workflow: full repository suite passed (171 passed, 1 skipped); compile and JSON/SVG checks passed.
-- Existing CPU validation workflow: full repository suite passed (171 passed, 1 skipped); 35-step CPU smoke training passed, and checkpoint reload produced 0.0 maximum absolute logit error.
+- Isolated local contract/identity harness: 28 tests passed (the full CI suite additionally exercises the inference and reasoning integration paths).
+- GitHub Actions expansion workflow: full repository suite passed (173 passed, 1 skipped); compile and JSON/SVG checks passed.
+- Existing CPU validation workflow: full repository suite passed (173 passed, 1 skipped); 35-step CPU smoke training passed, and checkpoint reload produced 0.0 maximum absolute logit error.
 - The separate real bilingual 10M experiment workflow failed before training because there are insufficient reviewed Hindi conversation rows for its requested split. This is a reviewed-data availability blocker, not an architecture test failure.
 - No pretrained weights were downloaded or fine-tuned by this prototype branch.
