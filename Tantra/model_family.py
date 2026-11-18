@@ -41,8 +41,8 @@ class FamilyMember:
             raise ValueError("model_id must be a non-empty token")
         if self.parameter_count < 1:
             raise ValueError("parameter_count must be positive")
-        if self.tokenizer_vocab_size != 65536:
-            raise ValueError("research family is pinned to the 64K tokenizer")
+        if self.tokenizer_vocab_size < 1:
+            raise ValueError("tokenizer_vocab_size must be positive")
         for name, value in (("tokenizer_sha256", self.tokenizer_sha256),
                             ("checkpoint_sha256", self.checkpoint_sha256)):
             if len(value) != 64 or any(c not in "0123456789abcdef" for c in value.lower()):
