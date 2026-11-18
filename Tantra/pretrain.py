@@ -262,8 +262,8 @@ def prepare(output, model_dir=ROOT/'Model', train_tokens=1_000_000, exclude_corp
                         # comparing every article to every prior article. Matching remains
                         # language-local: translated duplicates require multilingual semantics.
                         candidates=set()
-                        for band in range(4):
-                            bucket=(fingerprint>>(band*16))&0xffff
+                        for band in range(16):
+                            bucket=(fingerprint>>(band*4))&0xf
                             candidates.update(row[0] for row in db.execute(
                                 'SELECT hash FROM fingerprint_buckets WHERE band=? AND bucket=?',(band,bucket)))
                         duplicate=False
@@ -279,8 +279,8 @@ def prepare(output, model_dir=ROOT/'Model', train_tokens=1_000_000, exclude_corp
                         # A final EOS-only boundary can consume the remaining slot.
                         if not ids and budgets[key]-counts[key]!=1: continue
                         db.execute('INSERT INTO documents VALUES (?,?,?,?,?)', (h, family, split, lang, str(fingerprint)))
-                        for band in range(4):
-                            bucket=(fingerprint>>(band*16))&0xffff
+                        for band in range(16):
+                            bucket=(fingerprint>>(band*4))&0xf
                             db.execute('INSERT INTO fingerprint_buckets VALUES (?,?,?)',(band,bucket,h))
                         values = np.asarray(ids+[tok.end_id], dtype='<u4')
                         writers[key].write(values.tobytes())
