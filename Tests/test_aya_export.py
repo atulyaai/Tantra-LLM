@@ -19,6 +19,8 @@ def test_aya_export_keeps_only_english_hindi_training_rows_and_is_pending_input(
     manifest=json.loads((tmp_path/"aya.jsonl.manifest.json").read_text(encoding="utf-8"))
     assert manifest["source_split"]=="train" and manifest["revision"]
     assert {row["language"] for row in records}=={"en","hi"}
+    assert {row["expert"] for row in records}=={"lang_en","lang_hi"}
+    assert {row["domain"] for row in records}=={"multilingual"}
     assert records[0]["family_id"] != records[1]["family_id"]
 
 def test_aya_export_refuses_test_split_and_overwrite(tmp_path):
