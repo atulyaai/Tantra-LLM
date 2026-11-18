@@ -581,7 +581,7 @@ def pilot_passed(report):
 
 
 def continue_run(output,pilot,initial_model,new_tokens=19_000_000):
-    train = continue_run
+    train = pilot_run
     output,pilot,initial_model=Path(output),Path(pilot),Path(initial_model)
     corpus=output/'corpus-19m'
     write_status(output,'preparing_new_balanced_data',new_training_tokens=new_tokens,exclude=str(pilot/'corpus-1m'))
@@ -654,7 +654,7 @@ def write_status(output, stage, **details):
 def job_run(output, wait_minutes=90, fetch_sources=False):
     prepare_corpus = prepare
     from Tantra.conversation_train import cs_prepare as prepare_conversations
-    train_base = job_run
+    train_base = pilot_run
     output=Path(output); output.mkdir(parents=True,exist_ok=True)
     lock=output/'job.lock'
     with lock.open('x') as f: f.write(str(os.getpid()))
