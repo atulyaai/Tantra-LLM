@@ -26,7 +26,7 @@ def script_issue(language, user, assistant):
     if language == "hinglish" and (latin < .35 or devanagari > .65): return "hinglish_script_mismatch_check_manually"
     return None
 
-def build_review_queue(input_jsonl, output_dir, *, expert, source):
+def build_review_queue(input_jsonl, output_dir, *, expert, source, domain="conversation"):
     if not isinstance(expert, str) or not expert.strip(): raise ValueError("expert must be a Tantra catalog ID")
     if any(not isinstance(source.get(k), str) or not source[k].strip() for k in SOURCE_FIELDS): raise ValueError("source requires id, revision, license and url")
     if source["license"].strip().casefold() in {"unknown", "n/a", "none"}: raise ValueError("source license must be identified")
@@ -56,7 +56,7 @@ def build_review_queue(input_jsonl, output_dir, *, expert, source):
         seen.add(key)
         rid = digest({"source": source["id"], "revision": source["revision"], "record": raw["id"], "family": raw["family_id"], "content": key})
         accepted.append({
-            "record_id": rid, "schema_version": 1, "expert": expert, "language": lang,
+            "record_id": rid, "schema_version": 1, "expert": raw.get("expert", expert), "domain": raw.get("domain", domain), "language": lang,
             "family_id": raw["family_id"].strip(), "template_id": raw.get("template_id", f"source:{source['id']}"),
             "messages": [{"role": "user", "content": user}, {"role": "assistant", "content": answer}],
             "source": {"id": source["id"], "revision": source["revision"], "license": source["license"],
@@ -66,58 +66,144 @@ def build_review_queue(input_jsonl, output_dir, *, expert, source):
         counts[lang] += 1
     for name, values in (("candidates.jsonl", accepted), ("quarantine.jsonl", quarantine)):
         (out / name).write_text("".join(json.dumps(v, ensure_ascii=False) + "\n" for v in values), encoding="utf-8")
-    summary = {"schema_version": 1, "source": {**{k: source[k] for k in SOURCE_FIELDS}, "kind": source.get("kind", "public_dataset_candidate")}, "expert": expert,
+    summary = {"schema_version": 1, "source": {**{k: source[k] for k in SOURCE_FIELDS}, "kind": source.get("kind", "public_dataset_candidate")}, "expert": expert, "domain": domain,
                "input_rows": len(accepted)+len(quarantine), "pending_review_rows": len(accepted),
                "quarantined_rows": len(quarantine), "by_language": dict(sorted(counts.items())),
                "training_ready": False, "policy": "No imported row is training-eligible until explicit human approval."}
     (out / "manifest.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2)+"\n", encoding="utf-8")
     return summary
 
-def approve_review_queue(queue_dir, decisions_jsonl, incoming_dir):
+
+def create_review_sheet(queue_dir, output_csv):
+    """Create an editable spreadsheet for row-level human review."""
+    queue = Path(queue_dir)
+    candidates = [row for _, row in rows(queue / "candidates.jsonl")]
+    output = Path(output_csv)
+    if output.exists():
+        raise ValueError(f"refusing to overwrite existing review sheet: {output}")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    fields = [
+        "record_id", "language", "expert", "domain", "family_id", "template_id",
+        "source_id", "source_revision", "source_license", "source_url",
+        "user", "assistant", "decision", "reviewer", "note",
+        "fluent_language_review",
+    ]
+    with output.open("w", encoding="utf-8-sig", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fields)
+        writer.writeheader()
+        for row in candidates:
+            messages = row["messages"]
+            user = next((m["content"] for m in messages if m["role"] == "user"), "")
+            assistant = next((m["content"] for m in reversed(messages) if m["role"] == "assistant"), "")
+            writer.writerow({
+                "record_id": row["record_id"], "language": row["language"],
+                "expert": row["expert"], "domain": row.get("domain", ""),
+                "family_id": row["family_id"], "template_id": row["template_id"],
+                "source_id": row["source"]["id"], "source_revision": row["source"]["revision"],
+                "source_license": row["source"]["license"], "source_url": row["source"].get("url", ""),
+                "user": user, "assistant": assistant,
+                "decision": "", "reviewer": "", "note": "", "fluent_language_review": "",
+            })
+    return {"rows": len(candidates), "review_sheet": str(output), "approved": 0}
+
+
+
+def approve_review_queue(queue_dir, decisions_jsonl, incoming_dir, *, domain="conversation"):
+    """Publish explicitly approved rows to incoming/<domain>/<expert>.jsonl."""
     queue = Path(queue_dir)
     candidates = [v for _, v in rows(queue / "candidates.jsonl")]
     by_id = {v["record_id"]: v for v in candidates}
     decisions = {}
-    for line_no, decision in rows(decisions_jsonl):
-        if not isinstance(decision, dict) or decision.get("record_id") not in by_id: raise ValueError(f"unknown review record at line {line_no}")
+    decision_path = Path(decisions_jsonl)
+    if decision_path.suffix.lower() == ".csv":
+        with decision_path.open(encoding="utf-8-sig", newline="") as handle:
+            decision_iter = [
+                (line_no, {
+                    "record_id": row.get("record_id"),
+                    "decision": (row.get("decision") or "").strip().lower(),
+                    "reviewer": row.get("reviewer"),
+                    "note": row.get("note"),
+                    "fluent_language_review": (row.get("fluent_language_review") or "").strip().lower() in {"true", "yes", "1"},
+                })
+                for line_no, row in enumerate(csv.DictReader(handle), 2)
+            ]
+    else:
+        decision_iter = rows(decision_path)
+    for line_no, decision in decision_iter:
+        if not isinstance(decision, dict) or decision.get("record_id") not in by_id:
+            raise ValueError(f"unknown review record at line {line_no}")
         rid = decision["record_id"]
-        if rid in decisions: raise ValueError(f"duplicate review decision: {rid}")
-        if decision.get("decision") not in {"approve", "reject"}: raise ValueError(f"decision must be approve/reject at line {line_no}")
-        if not isinstance(decision.get("reviewer"), str) or not decision["reviewer"].strip(): raise ValueError("reviewer is required")
-        if not isinstance(decision.get("note"), str) or not decision["note"].strip(): raise ValueError("review note is required")
+        if rid in decisions:
+            raise ValueError(f"duplicate review decision: {rid}")
+        if decision.get("decision") not in {"approve", "reject"}:
+            raise ValueError(f"decision must be approve/reject at line {line_no}")
+        if not isinstance(decision.get("reviewer"), str) or not decision["reviewer"].strip():
+            raise ValueError("reviewer is required")
+        if not isinstance(decision.get("note"), str) or not decision["note"].strip():
+            raise ValueError("review note is required")
         decisions[rid] = decision
-    if set(decisions) != set(by_id): raise ValueError(f"review decisions missing for {len(set(by_id)-set(decisions))} candidates")
-    approved, rejected = [], 0
+    if set(decisions) != set(by_id):
+        raise ValueError(f"review decisions missing for {len(set(by_id)-set(decisions))} candidates")
+
+    groups = {}
+    rejected = 0
     for rid, decision in decisions.items():
         row = dict(by_id[rid])
-        if decision["decision"] == "reject": rejected += 1; continue
+        if decision["decision"] == "reject":
+            rejected += 1
+            continue
         fluent = decision.get("fluent_language_review") is True
-        if row["language"] in {"hi", "hinglish"} and not fluent: raise ValueError(f"fluent_language_review=true required for {row['language']} record")
-        row["review"] = {"status": "reviewed", "reviewer": decision["reviewer"].strip(),
-                         "rationale": decision["note"].strip(), "fluent_language_review": fluent}
-        approved.append(row)
-    expert = candidates[0]["expert"] if candidates else "unknown"
-    dest = Path(incoming_dir) / expert / "multilingual-reviewed.jsonl"
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    if dest.exists(): raise ValueError(f"refusing to overwrite existing workbench input: {dest}")
-    dest.write_text("".join(json.dumps(v, ensure_ascii=False)+"\n" for v in approved), encoding="utf-8")
-    result = {"approved": len(approved), "rejected": rejected, "published_path": str(dest),
-              "training_ready": False, "next_step": "Run existing workbench prepare; inspect family leakage, split hashes and language coverage."}
-    (queue / "review_result.json").write_text(json.dumps(result, ensure_ascii=False, indent=2)+"\n", encoding="utf-8")
-    return result
+        if row["language"] in {"hi", "hinglish"} and not fluent:
+            raise ValueError(f"fluent_language_review=true required for {row['language']} record")
+        row["review"] = {
+            "status": "reviewed", "reviewer": decision["reviewer"].strip(),
+            "rationale": decision["note"].strip(), "fluent_language_review": fluent,
+        }
+        target_domain = row.pop("domain", domain)
+        target_expert = row["expert"]
+        if not isinstance(target_domain, str) or not target_domain.strip():
+            raise ValueError(f"missing workbench domain for {rid}")
+        groups.setdefault((target_domain.strip(), target_expert), []).append(row)
+
+    output = Path(incoming_dir)
+    destinations = {(d, e): output / d / f"{e}.jsonl" for d, e in groups}
+    for destination in destinations.values():
+        if destination.exists():
+            raise ValueError(f"refusing to overwrite existing workbench input: {destination}")
+    for key, records in groups.items():
+        destination = destinations[key]
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_text(
+            "".join(json.dumps(v, ensure_ascii=False) + "\n" for v in records),
+            encoding="utf-8",
+        )
+    report = {
+        "approved": sum(len(v) for v in groups.values()), "rejected": rejected,
+        "published_paths": [str(v) for v in destinations.values()],
+        "training_ready": False,
+        "next_step": "Run python -m Tantra workbench_cli prepare; inspect family leakage, split hashes and language coverage.",
+    }
+    (queue / "review_result.json").write_text(
+        json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+    return report
+
 
 def main(argv=None):
     p=argparse.ArgumentParser(description=__doc__); sub=p.add_subparsers(dest="command", required=True)
-    intake=sub.add_parser("intake"); intake.add_argument("--input",required=True); intake.add_argument("--out",required=True); intake.add_argument("--expert",required=True)
+    intake=sub.add_parser("intake"); intake.add_argument("--input",required=True); intake.add_argument("--out",required=True); intake.add_argument("--expert",required=True); intake.add_argument("--domain",default="conversation")
     for key in SOURCE_FIELDS: intake.add_argument("--source-"+key,required=True)
     intake.add_argument("--source-kind",default="public_dataset_candidate")
-    approve=sub.add_parser("approve"); approve.add_argument("--queue",required=True); approve.add_argument("--decisions",required=True); approve.add_argument("--incoming",default="Datasets/workbench/incoming")
+    sheet=sub.add_parser("sheet"); sheet.add_argument("--queue",required=True); sheet.add_argument("--out",required=True)
+    approve=sub.add_parser("approve"); approve.add_argument("--queue",required=True); approve.add_argument("--decisions",required=True); approve.add_argument("--incoming",default="Datasets/workbench/incoming"); approve.add_argument("--domain",default="conversation")
     a=p.parse_args(argv)
     if a.command=="intake":
         src={k:getattr(a,"source_"+k) for k in SOURCE_FIELDS}
         src["kind"]=a.source_kind
-        result=build_review_queue(a.input,a.out,expert=a.expert,source=src)
-    else: result=approve_review_queue(a.queue,a.decisions,a.incoming)
+        result=build_review_queue(a.input,a.out,expert=a.expert,source=src,domain=a.domain)
+    elif a.command=="sheet":
+        result=create_review_sheet(a.queue,a.out)
+    else: result=approve_review_queue(a.queue,a.decisions,a.incoming,domain=a.domain)
     print(json.dumps(result,ensure_ascii=False,indent=2)); return 0
 
 if __name__ == "__main__": raise SystemExit(main())

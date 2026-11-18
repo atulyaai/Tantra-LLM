@@ -1,6 +1,7 @@
+import csv
 import json
 import pytest
-from Tantra.multilingual_data import approve_review_queue, build_review_queue
+from Tantra.multilingual_data import approve_review_queue, build_review_queue, create_review_sheet
 
 SOURCE={"id":"sample-open-corpus","revision":"commit-123","license":"CC-BY-4.0","url":"https://example.org/dataset"}
 
@@ -43,7 +44,7 @@ def test_approval_requires_full_review_and_native_language_check(tmp_path):
     write_jsonl(decisions,[{"record_id":r["record_id"],"decision":"approve","reviewer":"reviewer","note":"checked","fluent_language_review":r["language"]=="hi"} for r in records])
     result=approve_review_queue(q,decisions,tmp_path/"incoming")
     assert result["approved"]==2
-    final=[json.loads(x) for x in (tmp_path/"incoming"/"smalltalk"/"multilingual-reviewed.jsonl").read_text().splitlines()]
+    final=[json.loads(x) for x in (tmp_path/"incoming"/"conversation"/"smalltalk.jsonl").read_text().splitlines()]
     assert {r["review"]["status"] for r in final}=={"reviewed"}
 
 def test_approval_rejects_missing_duplicate_decisions(tmp_path):
@@ -55,3 +56,48 @@ def test_approval_rejects_missing_duplicate_decisions(tmp_path):
     decision={"record_id":row["record_id"],"decision":"approve","reviewer":"R","note":"ok"}
     write_jsonl(decisions,[decision,decision])
     with pytest.raises(ValueError,match="duplicate"): approve_review_queue(q,decisions,tmp_path/"incoming")
+
+
+
+def test_approval_routes_each_record_to_taxonomy_domain_and_expert(tmp_path):
+    source_file=tmp_path/"routed.jsonl"
+    write_jsonl(source_file,[
+        {"id":"en","family_id":"en-family","language":"en","expert":"lang_en","domain":"multilingual","user":"How are you?","assistant":"I am fine."},
+        {"id":"hi","family_id":"hi-family","language":"hi","expert":"lang_hi","domain":"multilingual","user":"आप कैसे हैं?","assistant":"मैं ठीक हूँ।"},
+    ])
+    queue=tmp_path/"routed-queue"
+    build_review_queue(source_file,queue,expert="smalltalk",domain="conversation",source=SOURCE)
+    records=[json.loads(x) for x in (queue/"candidates.jsonl").read_text(encoding="utf-8").splitlines()]
+    decisions=tmp_path/"routed-decisions.jsonl"
+    write_jsonl(decisions,[
+        {"record_id":row["record_id"],"decision":"approve","reviewer":"reviewer","note":"Reviewed answer and language","fluent_language_review":row["language"]=="hi"}
+        for row in records
+    ])
+    result=approve_review_queue(queue,decisions,tmp_path/"incoming")
+    assert result["approved"]==2
+    assert (tmp_path/"incoming"/"multilingual"/"lang_en.jsonl").exists()
+    assert (tmp_path/"incoming"/"multilingual"/"lang_hi.jsonl").exists()
+
+
+def test_csv_review_sheet_roundtrip_to_workbench(tmp_path):
+    source_file=tmp_path/"source.jsonl"
+    write_jsonl(source_file,[
+        {"id":"one","family_id":"family-one","language":"en","user":"How are you?","assistant":"I am fine."}
+    ])
+    queue=tmp_path/"queue"
+    build_review_queue(source_file,queue,expert="smalltalk",source=SOURCE)
+    sheet=tmp_path/"review.csv"
+    result=create_review_sheet(queue,sheet)
+    assert result["rows"]==1
+    with sheet.open(encoding="utf-8-sig",newline="") as handle:
+        reader=csv.DictReader(handle)
+        rows=list(reader)
+        fields=reader.fieldnames
+    rows[0].update({"decision":"approve","reviewer":"reviewer-id","note":"Checked correctness and language","fluent_language_review":"false"})
+    with sheet.open("w",encoding="utf-8-sig",newline="") as handle:
+        writer=csv.DictWriter(handle,fieldnames=fields)
+        writer.writeheader()
+        writer.writerows(rows)
+    published=approve_review_queue(queue,sheet,tmp_path/"incoming")
+    assert published["approved"]==1
+    assert (tmp_path/"incoming"/"conversation"/"smalltalk.jsonl").exists()
