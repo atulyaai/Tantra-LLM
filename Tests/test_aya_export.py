@@ -15,6 +15,9 @@ def test_aya_export_keeps_only_english_hindi_training_rows_and_is_pending_input(
     assert result["rows"]==2
     assert result["by_language"]=={"en":1,"hi":1}
     assert result["training_eligible"] is False
+    assert result["output_sha256"]
+    manifest=json.loads((tmp_path/"aya.jsonl.manifest.json").read_text(encoding="utf-8"))
+    assert manifest["source_split"]=="train" and manifest["revision"]
     assert {row["language"] for row in records}=={"en","hi"}
     assert records[0]["family_id"] != records[1]["family_id"]
 
