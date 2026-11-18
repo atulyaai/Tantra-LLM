@@ -11,7 +11,9 @@ Locked decisions:
 - Keep all validated versions immutable and available; support rollback.
 - First milestone: native foundation + two compatible native experts + a measured residual-expansion proof.
 
-**Immediate work:** audit reusable native model/expert/router code; define the shared hidden-state contract; make two tiny native experts conform to it; attach a residual branch to one expert; test pre-training equivalence; train with new data plus distillation and replay; compare on frozen held-out tasks; add version manifests and rollback.
+**Code audit completed:** see [the native code audit and exact implementation plan](TANTRA_NATIVE_CODE_AUDIT.md). The audit confirms that the native Transformer, tokenizer, base trainer, LoRA adapter system, router, checkpoint utilities and lifecycle manager are reusable. The main missing seam is a native `hidden_states -> hidden_states` expert interface; the existing residual-growth helper targets Hugging Face/Llama-style models, not native `TantraModel`.
+
+**Immediate implementation order:** add `TantraModel.forward_hidden` while preserving existing logits/generation; introduce two tiny native residual experts behind that interface; prove zero-initialized no-op equivalence and parent immutability; add branch-only training with replay/distillation; add immutable artifact manifests and rollback tests. Use synthetic fixtures for mechanics only, then reviewed held-out data for language claims. Never write prototype artifacts into `Model/`.
 
 **Do not mistake historical or optional work for completion:** the native small-model pilots are narrow; pretrained gateway/LoRA/residual experiments are optional engineering tracks; neither proves the native expandability milestone. The earlier pretrained-first plan is superseded. Keep historical experiment records below as historical evidence, not as the current product direction.
 
