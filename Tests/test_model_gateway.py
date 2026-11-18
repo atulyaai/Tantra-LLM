@@ -85,3 +85,13 @@ def test_gateway_does_not_call_itself_the_backend_model():
     answer = gateway.generate([{"role": "user", "content": "Are you Qwen?"}])
     assert answer.startswith("I am Tantra.")
     assert "underlying pretrained model" in answer
+
+
+def test_registry_includes_pinned_qwen_multilingual_candidate():
+    from pathlib import Path
+    registry = ModelRegistry.from_file(Path(__file__).resolve().parents[1] / "configs" / "models" / "registry.json")
+    qwen = registry.get("Qwen/Qwen3-1.7B")
+    assert qwen.revision == "44c895567ee7eca2993a98be9664adf7245aa1ee"
+    assert qwen.license_id == "Apache-2.0"
+    assert qwen.intended_use == "multilingual_evaluation_candidate_not_promoted"
+    assert qwen.trust_remote_code is False
