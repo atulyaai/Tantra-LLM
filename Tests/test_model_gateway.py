@@ -3,7 +3,7 @@ import pytest
 from Tantra.model_registry import ModelRegistry, ModelSpec, verify_checkpoint_manifest
 
 def spec(**overrides):
-    values = dict(model_id="org/model", provider="huggingface", revision="abcdef1234567",
+    values = dict(model_id="org/model", provider="huggingface", revision="a" * 40,
         architecture="LlamaForCausalLM", parameter_count=360000000, license_id="Apache-2.0",
         license_status="approved", tokenizer_id="org/model")
     values.update(overrides)
@@ -33,3 +33,9 @@ def test_checkpoint_manifest_verifies_and_detects_tampering(tmp_path):
 def test_manifest_rejects_path_traversal(tmp_path):
     with pytest.raises(ValueError):
         verify_checkpoint_manifest(tmp_path, {"../outside": "0" * 64})
+
+
+def test_gateway_answers_tantra_identity_before_loading():
+    from Tantra.model_gateway import ModelGateway
+    gateway = ModelGateway(spec(), "./not-loaded")
+    assert gateway.generate([{"role": "user", "content": "Who are you?"}]).startswith("I am Tantra")
