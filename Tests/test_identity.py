@@ -57,3 +57,22 @@ def test_unrelated_question_is_not_rewritten():
 
 def test_non_string_input_is_safe():
     assert identity_response(None) is None
+
+
+def test_inference_engine_stream_returns_tantra_identity_without_backend_generation():
+    from Tantra.main import TantraEngine
+
+    engine = object.__new__(TantraEngine)
+    reply = "".join(engine.stream([{"role": "user", "content": "Who are you?"}]))
+    assert reply == "I am Tantra, an AI system developed under the Tantra project."
+    assert engine.last_route == []
+
+
+def test_reasoner_returns_tantra_identity_before_routing_or_web_lookup():
+    from Tantra.reasoning import Reasoner
+
+    reasoner = object.__new__(Reasoner)
+    result = reasoner.answer([{"role": "user", "content": "Are you Qwen?"}])
+    assert result["source"] == "tantra_identity"
+    assert result["reply"].startswith("I am Tantra")
+    assert result["route"] == []
