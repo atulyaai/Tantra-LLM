@@ -40,9 +40,20 @@ Mismatches go to quarantine for manual inspection.
 
 ## Human approval
 
+Generate an editable spreadsheet from the pending queue:
+
+```bash
+python -m Tantra.multilingual_data sheet \
+  --queue Datasets/review/aya-v1 \
+  --out Datasets/review/aya-v1/review.csv
+```
+
 Review correctness, completeness, naturalness, code-switching, safety, personal
-data, attribution and license compatibility. Hindi and Hinglish require an explicit
-fluent-language review attestation. Create one decision per candidate:
+data, attribution and license compatibility. Fill `decision` (`approve` or
+`reject`), `reviewer`, and `note`. Hindi and Hinglish approvals require
+`fluent_language_review=true`. Do not alter `record_id`, language, expert,
+domain or source fields. The CSV can be passed directly to `approve`; JSONL
+decisions are also supported. Create one decision per candidate:
 
 ```json
 {"record_id":"<record_id>","decision":"approve","reviewer":"reviewer-id","note":"Checked answer, language and source","fluent_language_review":true}
@@ -54,7 +65,7 @@ Then publish approved rows only:
 ```bash
 python -m Tantra.multilingual_data approve \
   --queue Datasets/review/aya-v1 \
-  --decisions Datasets/review/aya-v1/decisions.jsonl \
+  --decisions Datasets/review/aya-v1/review.csv \
   --incoming Datasets/workbench/incoming --domain conversation
 ```
 
