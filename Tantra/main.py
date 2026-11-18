@@ -419,7 +419,9 @@ import torch
 from Tantra.train import TantraModel, quantize_for_cpu
 from Tantra.tokenizer import TantraTokenizer
 
-from Tantra.identity import IDENTITY_SYSTEM_MESSAGE, identity_response, prepare_messages\n\nDEFAULT_SYSTEM = IDENTITY_SYSTEM_MESSAGE
+from Tantra.identity import IDENTITY_SYSTEM_MESSAGE, identity_response, prepare_messages
+
+DEFAULT_SYSTEM = IDENTITY_SYSTEM_MESSAGE
 
 
 def resolve_model_dir(model_dir: str | Path) -> Path:
