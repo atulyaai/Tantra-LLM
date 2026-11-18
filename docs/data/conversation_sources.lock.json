@@ -13,13 +13,14 @@
     },
     {
       "id": "aya-heldout",
-      "repo": "CohereForAI/aya_dataset",
+      "repo": "CohereLabs/aya_dataset",
       "revision": "f9ea04583f02a8f86404ff6c58bf75fe637df8a2",
       "path": "data/test-00000-of-00001.parquet",
       "size": 977517,
       "sha256": "52bbb79461bff9887c9987a5737d9a06f5ec6c78c08d770828c37fc182ce2cca",
       "license": "Apache-2.0",
-      "kind": "reserved_source_test"
+      "kind": "reserved_source_test",
+      "url": "https://huggingface.co/datasets/CohereLabs/aya_dataset"
     },
     {
       "id": "hinglish-instruct-10k",
