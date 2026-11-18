@@ -24,9 +24,9 @@
       "id": "hinglish-instruct-10k",
       "repo": "DSMJ910/hinglish-instruct-10k",
       "revision": "39686808306eb6d898c8f7e86dfa93549e4ef23b",
-      "path": "data/train-*",
-      "size": null,
-      "sha256": null,
+      "path": "data/train-00000-of-00001.parquet",
+      "size": 3157383,
+      "sha256": "8b0ddd04d5851a82c28e63406ec3dff3ae6a16ab3e2e5e3965c12116e0f1d787",
       "license": "Apache-2.0",
       "kind": "synthetic_hinglish_instruction_candidates"
     }
