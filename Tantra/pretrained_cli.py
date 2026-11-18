@@ -6,7 +6,7 @@ from Tantra.model_registry import ModelRegistry
 from Tantra.model_gateway import ModelGateway
 from Tantra.model_lifecycle import ModelLifecycle
 from Tantra.pretrained_expansion import (
-    add_residual_branch,count_parameters,generate_teacher_dataset,save_residual_candidate,transfer_compatible_weights,
+    add_residual_branch,approve_teacher_dataset,count_parameters,generate_teacher_dataset,save_residual_candidate,transfer_compatible_weights,
     train_lora,train_residual_branch,transfer_adapter,
 )
 
@@ -34,6 +34,8 @@ def main(argv=None)->int:
     lora.add_argument("--output",required=True); lora.add_argument("--steps",type=int,default=100); lora.add_argument("--rank",type=int,default=8)
     lora.add_argument("--replay-data",help="optional old-capability JSONL replay dataset")
     lora.add_argument("--replay-ratio",type=float,default=0.25)
+    approve=sub.add_parser("approve-dataset")
+    approve.add_argument("--dataset",required=True); approve.add_argument("--reviewed-by",required=True); approve.add_argument("--review-note",required=True)
     distil=sub.add_parser("distill"); registry_arg(distil)
     distil.add_argument("--model-id",required=True); distil.add_argument("--checkpoint",required=True)
     distil.add_argument("--prompts",required=True); distil.add_argument("--output",required=True)
@@ -75,6 +77,8 @@ def main(argv=None)->int:
         life=ModelLifecycle(); record=life.register(args.candidate_id,args.output,args.model_id,
             {"method":"lora","base_revision":spec.revision,**result})
         print(json.dumps({"candidate":record,"training":result},indent=2)); return 0
+    if args.command=="approve-dataset":
+        print(json.dumps(approve_teacher_dataset(args.dataset,args.reviewed_by,args.review_note),indent=2)); return 0
     if args.command=="distill":
         spec=ModelRegistry.from_file(args.registry).get(args.model_id)
         model,tokenizer=_load_model(args.checkpoint)
