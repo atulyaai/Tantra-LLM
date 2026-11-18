@@ -87,4 +87,4 @@ def test_adapter_inheritance_rejects_incompatible_peft_config(tmp_path):
     child=tmp_path/"child"; child.mkdir()
     (child/"adapter_config.json").write_text(json.dumps({"base_model_name_or_path":"base-b","target_modules":["q_proj"],"r":8,"lora_alpha":16,"peft_type":"LORA"}))
     with pytest.raises(ValueError,match="incompatible"):
-        transfer_adapter(parent,child)
+        transfer_adapter(parent,child,expected_base_sha256="a"*64)
