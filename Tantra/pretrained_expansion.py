@@ -24,6 +24,8 @@ def train_lora(checkpoint_path,dataset_jsonl,output_dir,*,steps=100,learning_rat
     except ImportError as exc: raise RuntimeError("install the finetune extra: pip install -e '.[finetune]'") from exc
     if steps<1 or rank<1 or max_length<1 or learning_rate<=0: raise ValueError("steps, rank, max_length and learning_rate must be positive")
     base=Path(checkpoint_path); before=hash_tree(base)
+    out=Path(output_dir)
+    if out.exists() and any(out.iterdir()): raise ValueError("adapter output directory must be new or empty")
     texts=[]
     for line in Path(dataset_jsonl).read_text(encoding="utf-8").splitlines():
         if line.strip():
@@ -47,7 +49,7 @@ def train_lora(checkpoint_path,dataset_jsonl,output_dir,*,steps=100,learning_rat
         loss=model(input_ids=ids,labels=ids).loss
         loss.backward(); optimizer.step(); optimizer.zero_grad(set_to_none=True)
         losses.append(float(loss.detach().cpu()))
-    out=Path(output_dir); out.mkdir(parents=True,exist_ok=True); model.save_pretrained(out); tokenizer.save_pretrained(out)
+    out.mkdir(parents=True,exist_ok=True); model.save_pretrained(out); tokenizer.save_pretrained(out)
     after=hash_tree(base)
     if before!=after: raise RuntimeError("source checkpoint changed during LoRA training")
     metadata={"base_checkpoint":str(base.resolve()),"base_sha256":before,"rank":rank,
@@ -61,15 +63,19 @@ def transfer_adapter(parent_adapter,child_adapter,*,expected_base_sha256=None):
     pmeta=parent/"tantra_adapter.json"
     if not pmeta.is_file(): raise ValueError("parent Tantra adapter metadata missing")
     metadata=json.loads(pmeta.read_text(encoding="utf-8"))
-    if expected_base_sha256 and metadata["base_sha256"]!=expected_base_sha256:
+    if not expected_base_sha256:
+        raise ValueError("expected_base_sha256 is required for safe adapter inheritance")
+    if metadata["base_sha256"]!=expected_base_sha256:
         raise ValueError("adapter base checkpoint hash mismatch")
     pconfig=json.loads((parent/"adapter_config.json").read_text(encoding="utf-8"))
     if child.exists() and (child/"adapter_config.json").exists():
         cconfig=json.loads((child/"adapter_config.json").read_text(encoding="utf-8"))
         for key in ("base_model_name_or_path","target_modules","r","lora_alpha","peft_type"):
             if pconfig.get(key)!=cconfig.get(key): raise ValueError("adapter architectures are incompatible")
-    if child.exists(): shutil.rmtree(child)
-    shutil.copytree(parent,child)
+    if child.exists() and any(child.iterdir()):
+        raise ValueError("child adapter output must be new or empty")
+    child.mkdir(parents=True,exist_ok=True)
+    shutil.copytree(parent,child,dirs_exist_ok=True)
     return str(child.resolve())
 
 def generate_teacher_dataset(teacher,tokenizer,prompts:Iterable[str],output_jsonl):
@@ -84,7 +90,10 @@ def generate_teacher_dataset(teacher,tokenizer,prompts:Iterable[str],output_json
             answer=tokenizer.decode(generated[0,ids.shape[-1]:],skip_special_tokens=True)
             f.write(json.dumps({"text":f"User: {prompt}\nAssistant: {answer}"},ensure_ascii=False)+"\n"); n+=1
     if not n: raise ValueError("at least one distillation prompt is required")
-    return {"examples":n,"path":str(out.resolve()),"review_required":True}
+    manifest={"examples":n,"path":str(out.resolve()),"dataset_sha256":hashlib.sha256(out.read_bytes()).hexdigest(),
+              "teacher_model_id":getattr(teacher,"name_or_path",None),"review_required":True}
+    out.with_suffix(out.suffix+".manifest.json").write_text(json.dumps(manifest,indent=2)+"\\n",encoding="utf-8")
+    return manifest
 
 def add_residual_branch(model,layer_index=-1,bottleneck=64):
     """Insert a zero-output-initialised MLP branch in a Llama-style decoder block."""
@@ -136,7 +145,9 @@ def train_residual_branch(model,tokenizer,dataset_jsonl,*,steps=100,learning_rat
 
 def save_residual_candidate(model,output_dir,layer_index=-1,bottleneck=64):
     import torch
-    out=Path(output_dir); out.mkdir(parents=True,exist_ok=True)
+    out=Path(output_dir)
+    if out.exists() and any(out.iterdir()): raise ValueError("residual candidate output directory must be new or empty")
+    out.mkdir(parents=True,exist_ok=True)
     modules={name:module for name,module in model.named_modules() if getattr(module,"_tantra_growth_branch",False)}
     if len(modules)!=1: raise ValueError("prototype supports exactly one residual growth branch")
     name,module=next(iter(modules.items()))
