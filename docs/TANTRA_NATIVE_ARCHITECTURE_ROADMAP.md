@@ -33,6 +33,7 @@ Entry point:
 ```bash
 python -m pip install -e ".[finetune,test]"
 python -m Tantra qwen35_finetune --help
+python -m Tantra qwen35_eval --help
 ```
 
 Training inputs are separate immutable JSONL files following [DATASET_SPEC.md](DATASET_SPEC.md), with:
@@ -41,7 +42,7 @@ Training inputs are separate immutable JSONL files following [DATASET_SPEC.md](D
 - `source.id`, `source.revision` and a known `source.license`;
 - `review.status` equal to `reviewed` or `verified_auto`.
 
-The pipeline checks JSON structure, provenance/review fields and train/validation family separation. It constructs one context-conditioned example per assistant turn and masks prompt tokens from the loss. It uses LoRA with rank 8 by default and `all-linear` target selection, evaluates validation loss, and writes the best adapter plus a run manifest to a new output directory.
+The pipeline checks JSON structure, provenance/review fields and train/validation family separation. It constructs one context-conditioned example per assistant turn and masks prompt tokens from the loss. It uses LoRA with rank 8 by default and `all-linear` target selection, evaluates validation loss, and writes the best adapter plus a run manifest to a new output directory. The separate `qwen35_eval` command runs the same frozen test set against the untouched base or a selected adapter and exports raw outputs for human review; it does not score or promote candidates.
 
 Example command (replace paths with actual prepared split paths):
 
