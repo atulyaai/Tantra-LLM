@@ -123,6 +123,8 @@ def train_residual_branch(model,tokenizer,dataset_jsonl,*,steps=100,learning_rat
     if not trainable: raise ValueError("no trainable residual branch parameters")
     texts=[json.loads(line)["text"] for line in Path(dataset_jsonl).read_text(encoding="utf-8").splitlines() if line.strip()]
     if not texts: raise ValueError("training dataset is empty")
+    if hasattr(model, "config"):
+        model.config.use_cache = False
     device=torch.device("cuda" if torch.cuda.is_available() else "cpu"); model.to(device)
     encoded=[tokenizer(t,truncation=True,max_length=max_length,return_tensors="pt")["input_ids"][0] for t in texts]
     opt=torch.optim.AdamW(trainable,lr=learning_rate); losses=[]; model.train()
