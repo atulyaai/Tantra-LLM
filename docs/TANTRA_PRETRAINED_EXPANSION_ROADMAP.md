@@ -141,3 +141,28 @@ Prototype deliverables:
 8. Machine-readable report with hashes, quality, latency and memory.
 
 Only after this passes should the team select a production 0.8B source checkpoint. Model selection must be based on actual licence, quality, hardware and data fit—not popularity alone.
+
+
+## 12. Prototype implementation status (2026-11-18)
+
+### Implemented in this branch
+- Pretrained source metadata contract with immutable revision, tokenizer hash, weight hash and explicit licence approval gate.
+- Expansion-plan contract for width, depth and residual-branch capacity growth.
+- Expert-inheritance metadata validation for adapter transfer, compatible weight transfer, behavioural distillation and feature alignment.
+- Distillation + replay are mandatory in the default expansion plan; source checkpoints are declared immutable.
+- Platform-owned identity system message and deterministic direct identity responses are integrated into the native inference and reasoning paths.
+- README architecture overview, a separate SVG architecture diagram, and GitHub Actions compile/asset/full-test workflow.
+
+### Not implemented yet
+- Production pretrained checkpoint downloader/model gateway.
+- Real LoRA/SFT/continued-pretraining pipeline for arbitrary third-party architectures.
+- Executable weight/adapter transfer and behavioural/feature distillation trainers.
+- General width-growth operator and residual-branch training implementation for arbitrary pretrained model families.
+- Model registry persistence, router learning, shadow deployment, automated promotion and rollback.
+- A measured 0.8B-to-2–3B expansion experiment.
+
+### Validation status
+- The new contract and identity tests have been run in an isolated local harness; report the exact count from the latest run rather than treating it as full repository validation.
+- GitHub Actions now runs compile checks, JSON/SVG validation and the full repository test suite on pull requests.
+- The repository's existing CPU validation workflow also runs the complete test suite and a tiny training sample.
+- No pretrained weights were downloaded or trained by this prototype branch.
