@@ -58,7 +58,7 @@ def main(argv=None)->int:
             from Tantra.pretrained_expansion import load_residual_candidate
             load_residual_candidate(gateway._model,args.residual_candidate)
         load_s=time.perf_counter()-start
-        start=time.perf_counter(); answer=gateway.generate([{"role":"user","content":"Who are you?"}],max_new_tokens=args.max_new_tokens)
+        start=time.perf_counter(); answer=gateway.generate([{"role":"user","content":"Introduce yourself as Tantra in one sentence."}],max_new_tokens=args.max_new_tokens)
         gen_s=time.perf_counter()-start
         print(json.dumps({"model_id":spec.model_id,"revision":spec.revision,"license":spec.license_id,
             "load_seconds":round(load_s,3),"generation_seconds":round(gen_s,3),"output":answer,
