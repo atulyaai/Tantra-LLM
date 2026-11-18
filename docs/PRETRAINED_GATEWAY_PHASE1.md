@@ -1,4 +1,8 @@
-# Pretrained gateway — first integration milestone
+# Optional pretrained gateway experiments — historical integration track
+
+> **Status:** optional engineering/reference path only. The current product roadmap is native-first: Tantra owns its architecture and trains its own foundation weights. This document records how external checkpoints may be used for gateway, teacher or mechanics experiments; it does not define Tantra's foundation strategy. See [the authoritative native-first roadmap](TANTRA_PRETRAINED_EXPANSION_ROADMAP.md).
+
+
 
 ## Candidate checkpoint
 
@@ -30,9 +34,9 @@ The smoke command measures load and generation time. It does not measure languag
 
 Run the same held-out prompt set against Tantra's current baseline and this checkpoint on the target hardware. Record peak RAM, time-to-first-token, tokens/second, Hindi and English task scores, and exact software/hardware versions. If Hindi quality is inadequate (a known risk), keep this model as an integration fixture and choose a multilingual foundation before fine-tuning.
 
-## Phase 2 — LoRA, inheritance, residual growth and lifecycle
+## Optional mechanics experiments — LoRA, inheritance, residual growth and lifecycle
 
-The same pinned foundation is now the source for the next mechanics experiments.
+The pinned external checkpoint may be used for isolated mechanics experiments only. Keep all resulting artifacts outside the native Tantra checkpoint lineage.
 
 ### LoRA fine-tuning
 Install `.[finetune]`. Supply JSONL with one `{"text":"..."}` record per line. Keep train, validation and test data in separate files. The trainer records the source checkpoint tree hash before and after training and writes a separate adapter directory. It raises if the source tree changes.
@@ -43,7 +47,7 @@ Install `.[finetune]`. Supply JSONL with one `{"text":"..."}` record per line. K
 - Never use teacher-generated outputs as trusted truth without review.
 
 ### Residual-branch expansion
-A Llama-style decoder block is wrapped with a parallel bottleneck MLP. The branch output projection starts at zero, so the initial network function is preserved. Original decoder parameters are frozen; only the new branch is trained. Candidate weights and structural metadata are saved separately and can be reloaded for inference. The first operator supports one branch per candidate and rejects unsupported decoder layouts.
+For this optional external-model experiment, a compatible decoder block is wrapped with a parallel bottleneck MLP. The branch output projection starts at zero, so the initial network function is preserved. Original decoder parameters are frozen; only the new branch is trained. Candidate weights and structural metadata are saved separately and can be reloaded for inference. The first operator supports one branch per candidate and rejects unsupported decoder layouts.
 
 ### Promotion and rollback
 `ModelLifecycle` stores immutable candidate artifact hashes, parent lineage, promotion events and the previous active candidate. Promotion fails closed unless tests, identity and safety pass; held-out score is no worse than baseline; old-capability regression is <=2%; latency is within budget; and the candidate hash is unchanged. Rollback switches the active pointer to the previous candidate.
