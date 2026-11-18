@@ -178,8 +178,12 @@ def train(args) -> dict:
         raise ValueError("--revision must be a full immutable 40-character Hub commit SHA")
     if min(args.max_steps, args.max_length, args.batch_size, args.grad_accum, args.rank) < 1:
         raise ValueError("steps, max_length, batch_size, grad_accum and rank must be positive")
-    if args.learning_rate <= 0 or args.eval_steps < 1:
-        raise ValueError("learning_rate and eval_steps must be positive")
+    if args.learning_rate <= 0 or args.eval_steps < 1 or args.log_steps < 1:
+        raise ValueError("learning_rate, eval_steps and log_steps must be positive")
+    if args.alpha < 1 or not 0 <= args.dropout < 1:
+        raise ValueError("LoRA alpha must be positive and dropout must be in [0, 1)")
+    if not 0 <= args.warmup_ratio < 1 or args.max_grad_norm <= 0:
+        raise ValueError("warmup_ratio must be in [0, 1) and max_grad_norm must be positive")
     output = Path(args.output_dir)
     if output.exists() and any(output.iterdir()):
         raise ValueError(f"Output directory must be new or empty: {output}")
