@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 
 LANGUAGE_CODES = {"eng": "en", "hin": "hi"}
-DEFAULT_REPOSITORY = "CohereForAI/aya_dataset"
+DEFAULT_REPOSITORY = "CohereLabs/aya_dataset"
 DEFAULT_REVISION = "f9ea04583f02a8f86404ff6c58bf75fe637df8a2"
 
 
