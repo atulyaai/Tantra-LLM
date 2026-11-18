@@ -1,0 +1,37 @@
+name: Tantra CPU validation
+
+on:
+  push:
+    branches: [main, validation/full-suite-small-model-sample]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  full-test-suite:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install package and test dependencies
+        run: python -m pip install --upgrade pip && python -m pip install -e ".[test]"
+      - name: Compile all package and test modules
+        run: python -m compileall -q Tantra Tests examples
+      - name: Run complete non-slow test suite
+        run: python -m pytest Tests -m "not slow" -q
+      - name: Train and validate the small CPU sample
+        run: python examples/train_small_sample.py --output sample_output/small_cpu --steps 35
+      - name: Upload trained sample model and report
+        uses: actions/upload-artifact@v4
+        with:
+          name: tantra-small-cpu-sample
+          path: sample_output/small_cpu/
+          if-no-files-found: error
+          retention-days: 30
