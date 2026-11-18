@@ -42,6 +42,8 @@ Training data follows [DATASET_SPEC.md](DATASET_SPEC.md): system/user/assistant 
 
 The pipeline constructs one context-conditioned example per assistant turn and masks prompt tokens from the loss. It uses LoRA with rank 8 by default and `all-linear` target selection, evaluates validation loss, and writes the best adapter plus a run manifest to a new output directory. The separate `qwen35_eval` command runs a frozen test JSONL against the untouched base or a selected adapter and exports raw outputs for human review; it does not score or promote candidates.
 
+By default every selected expert must be marked `data_ready` in the manifest. `--allow-undersized-pilot` is reserved for a tiny mechanics smoke test; such a candidate remains `pilot_unvalidated` and is not evidence of language quality.
+
 Example command (replace expert IDs with approved populated entries from your prepared manifest):
 
 ```bash
